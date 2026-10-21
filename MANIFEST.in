@@ -1,0 +1,4 @@
+include README.md VALIDATION.md CITATION.cff CHANGELOG.md
+recursive-include tests *.py
+recursive-include src/bactologix/data *
+global-exclude *.py[cod]

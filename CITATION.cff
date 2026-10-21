@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "Please cite Bactologix and the pipelines, tools and databases used."
+type: software
+title: Bactologix
+version: 0.1.0a2
+repository-code: "https://github.com/crackberryq/Bactologix"
+authors:
+  - family-names: Goldstein
+    given-names: Jimi
+    affiliation: Human Link
+    orcid: https://orcid.org/0000-0002-7829-0090

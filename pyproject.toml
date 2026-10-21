@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bactologix"
+version = "0.1.0a2"
+description = "A local workspace for HybAs and BaSIS"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{name = "Jimi Goldstein"}]
+dependencies = ["streamlit==1.66.1", "PyYAML>=6,<7", "platformdirs>=4,<5"]
+classifiers = ["Development Status :: 3 - Alpha", "Operating System :: POSIX :: Linux", "Programming Language :: Python :: 3"]
+
+[project.urls]
+Repository = "https://github.com/crackberryq/Bactologix"
+Releases = "https://github.com/crackberryq/Bactologix/releases"
+Issues = "https://github.com/crackberryq/Bactologix/issues"
+
+[project.scripts]
+bactologix = "bactologix.cli:main"
+
+[tool.setuptools.package-data]
+bactologix = ["data/*.yaml", "data/*.json", "data/*.py", "data/LICENSE.*", "data/CITATION.*"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["bactologix"]
+namespaces = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

@@ -1,0 +1,249 @@
+{
+  "templates": {
+    "hybas": "# Per-workstation paths and options. The source version is recorded separately.\nbase_dir: ..\nsample_sheet: samples.tsv\nthreads: 8\nkeep_percent: 95\nracon_rounds: 2\nbusco_lineage: bacteria_odb10\nmedaka_model: ''\ntarget_taxid: ''\nrun_kraken: true\nrun_busco: true\nrun_prokka: true\nrun_multiqc: true\nrun_polypolish: true\nsetup_only: false\nadmin_mode: false\nci_mode: false\nallow_ont_only: true\nallow_illumina_only: true\nrequire_target_taxid_for_kraken: false\npolish_mode: tripolish\nworkflow_version: HybAs-9.0.0-AWARE\ndb_root: db\nkraken_db_name: kraken2_std_db\nkraken_decision_mode: aware\nkraken_auto_passthrough_min_percent: 95.0\nkraken_auto_use_both_platforms: true\nkraken_include_children: true\nkraken_auto_prefer_species_min_percent: 90.0\nkraken_aware_delta_min_percent: 20.0\nkraken_aware_moderate_delta_min_percent: 10.0\nkraken_aware_high_target_min_percent: 95.0\nkraken_aware_moderate_target_min_percent: 80.0\nassembly_mem_mb: 8192\nspades_memory_gb: 8\npolishing_mem_mb: 4096\nmin_fasta_length: 1000\n",
+    "basis": "# Paths in this configuration are relative to the folder containing BaSIS.smk.\n# Annotation files are discovered as <isolate>/annotation/<sample_id>.{fna,faa,gff,gbk}.\nbactomics_root: ..\nisolates: [isolate2]\nproject: BaSIS standalone study\nthreads: 4\nmemory_mb: 20000\nextend: true\ndeep:\n  enabled: true\nresources:\n  policy: auto\n  directory: resources\n# Optional module overrides, e.g. modules: {pathogenfinder2: {enabled: false}}\n# For another annotation layout use samples: config/samples.tsv instead of isolates.\n# Taxonomy is imported from HybAs when available, otherwise remains unconfirmed.\n"
+  },
+  "defaults": {
+    "hybas": {
+      "base_dir": "..",
+      "sample_sheet": "samples.tsv",
+      "threads": 8,
+      "keep_percent": 95,
+      "racon_rounds": 2,
+      "busco_lineage": "bacteria_odb10",
+      "medaka_model": "",
+      "target_taxid": "",
+      "run_kraken": true,
+      "run_busco": true,
+      "run_prokka": true,
+      "run_multiqc": true,
+      "run_polypolish": true,
+      "setup_only": false,
+      "admin_mode": false,
+      "ci_mode": false,
+      "allow_ont_only": true,
+      "allow_illumina_only": true,
+      "require_target_taxid_for_kraken": false,
+      "polish_mode": "tripolish",
+      "workflow_version": "HybAs-9.0.0-AWARE",
+      "db_root": "db",
+      "kraken_db_name": "kraken2_std_db",
+      "kraken_decision_mode": "aware",
+      "kraken_auto_passthrough_min_percent": 95.0,
+      "kraken_auto_use_both_platforms": true,
+      "kraken_include_children": true,
+      "kraken_auto_prefer_species_min_percent": 90.0,
+      "kraken_aware_delta_min_percent": 20.0,
+      "kraken_aware_moderate_delta_min_percent": 10.0,
+      "kraken_aware_high_target_min_percent": 95.0,
+      "kraken_aware_moderate_target_min_percent": 80.0,
+      "assembly_mem_mb": 8192,
+      "spades_memory_gb": 8,
+      "polishing_mem_mb": 4096,
+      "min_fasta_length": 1000
+    },
+    "basis": {
+      "bactomics_root": "..",
+      "isolates": [
+        "isolate2"
+      ],
+      "project": "BaSIS standalone study",
+      "threads": 4,
+      "memory_mb": 20000,
+      "extend": true,
+      "deep": {
+        "motifs": true,
+        "motif_rules": null,
+        "prosite_snapshot": null,
+        "prosite_profiles": true,
+        "profiles_dir": null,
+        "reference_fasta": null,
+        "reference_metadata": null,
+        "reference_search_tool": "blastp",
+        "maximum_candidates": 100,
+        "maximum_attention_candidates": 20,
+        "attention_queue_for_mixed_evidence": false,
+        "maximum_exploratory_candidates": 20,
+        "include_exploratory": true,
+        "include_stress": false,
+        "max_references": 40,
+        "min_identity": 30,
+        "min_coverage": 70,
+        "phylogeny": true,
+        "auto_phylogeny": true,
+        "maximum_tree_candidates": 6,
+        "tree_review_registry": null,
+        "family_placement": true,
+        "placement_registry": null,
+        "placement_cache_dir": null,
+        "placement_allow_download": true,
+        "maximum_placement_candidates": 20,
+        "placement_model": "LG+G4",
+        "placement_min_query_coverage": 0.7,
+        "placement_min_columns": 50,
+        "threads": 4,
+        "memory_mb": 8000,
+        "timeout_seconds": 14400,
+        "context_flank": 20000,
+        "circular_contigs": [],
+        "enabled": true,
+        "domain_database": null
+      },
+      "resources": {
+        "policy": "auto",
+        "directory": "resources"
+      },
+      "samples": null,
+      "isolate": null,
+      "modules": {
+        "amrfinder": {
+          "enabled": true,
+          "executable": "amrfinder",
+          "threads": 4,
+          "memory_mb": 4000,
+          "timeout_seconds": 14400,
+          "cache": true,
+          "database": null,
+          "annotation_format": "prokka"
+        },
+        "rgi": {
+          "enabled": true,
+          "executable": "rgi",
+          "threads": 4,
+          "memory_mb": 4000,
+          "timeout_seconds": 14400,
+          "cache": true,
+          "database": null,
+          "include_loose": true
+        },
+        "vfdb": {
+          "enabled": true,
+          "executable": "diamond",
+          "threads": 4,
+          "memory_mb": 4000,
+          "timeout_seconds": 14400,
+          "cache": true,
+          "database": null,
+          "min_identity": 80.0,
+          "min_coverage": 70.0,
+          "min_query_coverage": 0.0,
+          "evalue": 1e-05,
+          "max_target_seqs": 25,
+          "sensitivity": "sensitive"
+        },
+        "bacmet": {
+          "enabled": true,
+          "executable": "diamond",
+          "threads": 4,
+          "memory_mb": 4000,
+          "timeout_seconds": 14400,
+          "cache": true,
+          "database": null,
+          "min_identity": 80.0,
+          "min_coverage": 70.0,
+          "min_query_coverage": 0.0,
+          "evalue": 1e-05,
+          "max_target_seqs": 25,
+          "sensitivity": "sensitive"
+        },
+        "antismash": {
+          "enabled": true,
+          "executable": "antismash",
+          "threads": 4,
+          "memory_mb": 12000,
+          "timeout_seconds": 14400,
+          "cache": true,
+          "database": null
+        },
+        "genomad": {
+          "enabled": true,
+          "executable": "genomad",
+          "threads": 4,
+          "memory_mb": 12000,
+          "timeout_seconds": 14400,
+          "cache": true,
+          "database": null
+        },
+        "mobsuite": {
+          "enabled": true,
+          "executable": "mob_recon",
+          "threads": 4,
+          "memory_mb": 4000,
+          "timeout_seconds": 14400,
+          "cache": true,
+          "database": null
+        },
+        "integronfinder": {
+          "enabled": true,
+          "executable": "integron_finder",
+          "threads": 4,
+          "memory_mb": 4000,
+          "timeout_seconds": 14400,
+          "cache": true
+        },
+        "isescan": {
+          "enabled": true,
+          "executable": "isescan.py",
+          "threads": 4,
+          "memory_mb": 4000,
+          "timeout_seconds": 14400,
+          "cache": true
+        },
+        "icescreen": {
+          "enabled": true,
+          "executable": "icescreen",
+          "threads": 4,
+          "memory_mb": 4000,
+          "timeout_seconds": 14400,
+          "cache": true
+        },
+        "crisprcasfinder": {
+          "enabled": true,
+          "executable": "perl",
+          "threads": 4,
+          "memory_mb": 4000,
+          "timeout_seconds": 14400,
+          "cache": true,
+          "database": null,
+          "version_args": []
+        },
+        "minced": {
+          "enabled": true,
+          "executable": "minced",
+          "threads": 4,
+          "memory_mb": 4000,
+          "timeout_seconds": 14400,
+          "cache": true
+        },
+        "mlst": {
+          "enabled": true,
+          "executable": "mlst",
+          "threads": 4,
+          "memory_mb": 4000,
+          "timeout_seconds": 14400,
+          "cache": true
+        },
+        "pathogenfinder2": {
+          "enabled": true,
+          "executable": "pathogenfinder2",
+          "threads": 4,
+          "memory_mb": 16000,
+          "timeout_seconds": 14400,
+          "cache": true,
+          "attention": true,
+          "attention_top_n": 20,
+          "map": false,
+          "gpus": 0,
+          "pf2_source_commit": "3837caf6710da5da3038f5d1246dd82ab26e003a",
+          "prot_t5_path": null,
+          "weights_model": null
+        }
+      },
+      "execution": {
+        "device": "cpu",
+        "gpus": 0
+      },
+      "sample_module_overrides": {}
+    }
+  }
+}
