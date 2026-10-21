@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a3 — MIT license packaging
+
+- Add the MIT license, copyright (c) 2026 Jimi Goldstein, at the repository root.
+- Declare MIT in package and citation metadata and include the license in installable/source distributions.
+- Refresh the version in the launcher, citations and installation instructions.
+- Preserve the execution behavior and alpha limitations of 0.1.0a2.
+
 ## 0.1.0a2 — first native alpha
 
 Created by **Jimi Goldstein · Human Link**.

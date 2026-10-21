@@ -1,4 +1,4 @@
-include README.md VALIDATION.md CITATION.cff CHANGELOG.md
+include README.md VALIDATION.md CITATION.cff CHANGELOG.md LICENSE
 recursive-include tests *.py
 recursive-include src/bactologix/data *
 global-exclude *.py[cod]

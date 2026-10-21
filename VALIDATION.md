@@ -1,8 +1,23 @@
-# Bactologix 0.1.0a2 — validation record
+# Bactologix — validation record
+
+## 0.1.0a3 — 22 October 2026
+
+The MIT license packaging release was checked in an isolated Linux workspace using the installed wheel.
+
+- **14 automated tests passed** (2.54 seconds).
+- The exact root MIT license was verified inside the wheel, source distribution and installed package. Installed metadata reports `License-Expression: MIT` and `License-File: LICENSE`.
+- Every packaged application/data file matched the release source, with no bytecode files in the wheel. The installed launcher reports `0.1.0a3`; `pip check` found no broken requirements.
+- Streamlit AppTest loaded the installed app, exercised all eight pages, and found all six citation downloads.
+- The installed UI's **Run live smoke test** button queued a real Snakemake job. It completed after navigation to Jobs & logs, and Results & reports rendered its generated HTML component. The existing controller was reused in a fresh test workspace; no analysis environments or databases were installed for this check.
+- The actual CLI-launched Streamlit server returned HTTP 200 with `ok` from its health endpoint, then was stopped cleanly.
+
+These checks validate software packaging and orchestration. They do not establish browser visual correctness, target-workstation behavior or biological analysis validity. The alpha limitations below remain applicable.
+
+## 0.1.0a2 — 21 October 2026
 
 Checked on 21 October 2026 in an isolated Linux development workspace. This record distinguishes executed software checks from unperformed analysis and browser checks.
 
-## Passed
+### Passed
 
 - **14 automated tests:** durable queue/cancellation, atomic sample import validation, duplicate sample protection, source/input/output separation, unknown YAML preservation, frozen config enforcement, changed-input rejection, clone inheritance, resource paths, environment identity, literal command arguments, real process interruption, all eight Streamlit pages, editable settings and nested report-frame containment.
 - **Live GitHub refresh:** 5 HybAs entries (2 releases and 3 branches); 20 BaSIS entries (9 releases and 11 branches). Release tags resolve to exact commit SHAs.
@@ -18,7 +33,7 @@ Checked on 21 October 2026 in an isolated Linux development workspace. This reco
 
 Two issues discovered during live installation were corrected: Miniforge checksum assets use the versioned installer name, and the Bioconda Snakemake 9.6.2 distribution metadata reports `0.0.0` while its actual module and executable correctly report `9.6.2`. Runner validation now checks the actual installed module and executable. A truncated installer download was rejected; complete retries were checked against the same official checksum before execution.
 
-## Not established by these checks
+### Not established by these checks
 
 - No real sample analysis was run. The FASTQ/annotation fixtures are software fixtures, not scientific validation data. The smoke HTML contains only a software-test message.
 - Analysis tool environments, large reference databases, GPU tools and end-to-end HybAs/BaSIS biological outputs were not installed or validated here.

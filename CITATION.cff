@@ -1,8 +1,9 @@
 cff-version: 1.2.0
 message: "Please cite Bactologix and the pipelines, tools and databases used."
 type: software
+license: MIT
 title: Bactologix
-version: 0.1.0a2
+version: 0.1.0a3
 repository-code: "https://github.com/crackberryq/Bactologix"
 authors:
   - family-names: Goldstein

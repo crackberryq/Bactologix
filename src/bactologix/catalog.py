@@ -17,7 +17,7 @@ PIPELINES = {
 
 def api(path):
     req = Request("https://api.github.com/" + path,
-                  headers={"User-Agent": "Bactologix/0.1.0a2", "Accept": "application/vnd.github+json"})
+                  headers={"User-Agent": "Bactologix/0.1.0a3", "Accept": "application/vnd.github+json"})
     with urlopen(req, timeout=30) as response:
         return json.load(response)
 

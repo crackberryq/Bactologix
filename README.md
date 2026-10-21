@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a2 — native alpha
+# Bactologix 0.1.0a3 — native alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -11,7 +11,7 @@ Bactologix is a Python/Streamlit application for local HybAs and standalone BaSI
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a2-py3-none-any.whl
+pipx install ./bactologix-0.1.0a3-py3-none-any.whl
 bactologix
 ```
 
@@ -19,7 +19,7 @@ If pipx is unavailable, use a dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a2-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a3-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -74,4 +74,8 @@ python -m build
 
 `src/bactologix`: Streamlit app, CLI, SQLite store, GitHub catalogue, version-specific adapters, detached worker. `tests`: subprocess/queue, immutable source/config and input contracts, report containment, and native Streamlit UI checks. `VALIDATION.md` records the checks performed for the supplied build.
 
-Credits and RIS/BibTeX/CFF/plain-text citations are in the UI and package data. GitHub's **Cite this repository** entry uses the root [CITATION.cff](CITATION.cff). Cite the pipelines, tools and databases used as well as Bactologix. Upstream source licenses/citations accompany the referenced templates. Bactologix itself is copyright Jimi Goldstein; no additional redistribution license is specified for this alpha.
+Credits and RIS/BibTeX/CFF/plain-text citations are in the UI and package data. GitHub's **Cite this repository** entry uses the root [CITATION.cff](CITATION.cff). Cite the pipelines, tools and databases used as well as Bactologix.
+
+## License
+
+Bactologix is released under the [MIT License](LICENSE), copyright (c) 2026 Jimi Goldstein. The license is included in the wheel and source distributions. Upstream templates, pipelines, tools and databases retain their respective licenses; bundled upstream notices are in `src/bactologix/data/LICENSE.*`.
