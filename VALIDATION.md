@@ -1,5 +1,17 @@
 # Bactologix — validation record
 
+## 0.1.0a4 — 22 October 2026
+
+The original HTML design is now the default interface, using Streamlit’s bidirectional component API and the existing durable Python worker.
+
+- **18 automated tests passed**, covering the existing execution contracts and real component-trigger callbacks: configuration saves/edits, unknown-key preservation, duplicate-event suppression, failed actions, server-resolved version selection and report isolation.
+- Browser QA rendered the packaged HTML/CSS/JS component in a Shadow DOM harness, using actual workspace snapshots. It checked the dashboard layout, navigation, sample dialog/event payloads, preserved fields after errors, the version picker, and the original smoke-report HTML inside a sandboxed iframe. The harness captures commands rather than installing or running workflows; it is not a replacement for full Streamlit browser integration.
+- A real Streamlit component trigger submitted Snakemake smoke job `job-ca5a3c3a299c`. It completed successfully and produced its original HTML report through the existing controller. This check reused the previous runner without installing analysis tools or databases.
+- The test process was kept alive through worker completion because the development executor terminates descendant processes when its command exits. An earlier test job was recovered as interrupted; this was an executor-lifetime constraint.
+- UI assets, citations and the MIT license are included in the wheel and source distribution. No Node or frontend build is required on the user’s machine.
+
+The browser could not reach the local Streamlit server from its separate environment. Full Streamlit rendering and interaction on the target WSL2 workstation remain unverified. This release does not claim full biological-analysis validation or post-AWARE checkpoint reuse.
+
 ## 0.1.0a3 — 22 October 2026
 
 The MIT license packaging release was checked in an isolated Linux workspace using the installed wheel.

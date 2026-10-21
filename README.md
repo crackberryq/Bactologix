@@ -1,38 +1,47 @@
-# Bactologix 0.1.0a3 — native alpha
+# Bactologix 0.1.0a4 — native alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
 Bactologix is a Python/Streamlit application for local HybAs and standalone BaSIS setup, version selection, configuration, sample registration, isolated run drafts, durable jobs, and HTML reports. This version executes real operations. Download the wheel and source archive from [GitHub Releases](https://github.com/crackberryq/Bactologix/releases). Bactologix is not published to PyPI.
 
-**Alpha release:** software checks and native workflow dry-runs passed; full biological analyses and target-workstation browser testing remain outstanding. Read [VALIDATION.md](VALIDATION.md) and the alpha boundaries below before running samples.
+**Alpha release:** the approved HTML interface now runs inside Streamlit with working Python controls. Software checks, component browser checks and native workflow dry-runs passed; full biological analyses and target-workstation browser testing remain outstanding. Read [VALIDATION.md](VALIDATION.md) and the alpha boundaries below before running samples.
 
 ## Install on Linux or WSL2
 
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a3-py3-none-any.whl
+pipx install ./bactologix-0.1.0a4-py3-none-any.whl
 bactologix
 ```
 
-If pipx is unavailable, use a dedicated Python environment:
+Your base Python can be any supported Python 3.11+ (including 3.13). The separate pipeline runners install their own Python 3.11. If pipx is missing in your Conda base, install it first:
+
+```bash
+python -m pip install pipx
+python -m pipx ensurepath
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a4/bactologix-0.1.0a4-py3-none-any.whl"
+"$HOME/.local/bin/bactologix"
+```
+
+For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a3-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a4-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
 Open http://localhost:8501. On Windows, run these commands inside WSL2; use Linux paths such as `/home/jimi/...` or `/mnt/c/...` in the app. This app cannot operate the user's workstation from ChatGPT: install it on the machine containing the samples. Native Windows pipeline execution is not supported.
 
-The launcher binds to `127.0.0.1`. This is a local, single-user tool, not a public server. `--home /absolute/workspace` selects a workspace; the default is the platform user data directory. `BACTOLOGIX_HOME` also selects it. Jobs persist in SQLite and logs remain on disk. Closing a browser does not stop a job; stop it from Jobs & logs.
+The launcher binds to `127.0.0.1`. This is a local, single-user tool, not a public server. `--home /absolute/workspace` selects a workspace; the default is the platform user data directory. `BACTOLOGIX_HOME` also selects it. Jobs persist in SQLite and logs remain on disk. Closing a browser does not stop a job; stop it from Jobs & progress.
 
 ## First use
 
 1. **Install & update:** select your Conda executable, or install workspace-local Miniforge. Select a version and download/set up its runner. Both supported runners use Python 3.11 and Snakemake 9.6.2. Streamlit is isolated from these environments.
 2. **Samples:** register an existing sample folder, or import CSV/TSV columns `sample_id,input_folder,read_mode`. HybAs uses `raw/illumina` and `raw/nanopore`. BaSIS needs `annotation/<sample_id>.fna`, `.faa`, `.gff`, plus `.gbk` when enabled modules require it.
 3. **Configuration:** import existing native YAML or edit the complete template. Search all pinned settings in the setting editor. Set database/model paths to absolute paths. Saving defaults affects only new drafts.
-4. **Runs & variants:** choose samples and create drafts. Each draft copies workflow source, references only input files, writes a frozen resolved config, and has independent outputs and scheduler state. Run **Check / dry-run** first. Read its actual log, then prepare analysis tool environments or **Run / resume**.
+4. **Samples & variants → Create run drafts:** choose samples and create drafts. Each draft copies workflow source, references only input files, writes a frozen resolved config, and has independent outputs and scheduler state. Run **Check / dry-run** first. Read its actual log, then prepare analysis tool environments or **Run / resume**.
 5. **Results & reports:** native MultiQC/Safety reports are discovered by expected path, or register any existing local HTML. Embedded reports run in an isolated inner frame. Self-contained reports work best; use Open original for relative assets.
 6. **Overview → Run live smoke test:** executes a real tiny Snakemake workflow using an installed controller and creates an HTML software-test report. It performs no biological analysis.
 
@@ -72,7 +81,7 @@ python -m pytest
 python -m build
 ```
 
-`src/bactologix`: Streamlit app, CLI, SQLite store, GitHub catalogue, version-specific adapters, detached worker. `tests`: subprocess/queue, immutable source/config and input contracts, report containment, and native Streamlit UI checks. `VALIDATION.md` records the checks performed for the supplied build.
+`src/bactologix`: HTML/JS/CSS component, Streamlit action bridge, CLI, SQLite store, GitHub catalogue, version-specific adapters, detached worker. `tests`: subprocess/queue, immutable source/config and input contracts, report containment, and Streamlit component trigger checks. The packaged HTML component preserves the original prototype’s design; its production data and actions come from Python, with no seeded examples or simulated workflow completion. `VALIDATION.md` records the checks performed for the supplied build.
 
 Credits and RIS/BibTeX/CFF/plain-text citations are in the UI and package data. GitHub's **Cite this repository** entry uses the root [CITATION.cff](CITATION.cff). Cite the pipelines, tools and databases used as well as Bactologix.
 

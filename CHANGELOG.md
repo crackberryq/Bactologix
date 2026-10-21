@@ -1,5 +1,16 @@
 # Bactologix releases
 
+## 0.1.0a4 — original HTML interface, connected
+
+- Restore the approved HTML design as the default Streamlit interface: sidebar, dashboard cards, comparison views, version picker, configuration editor and dialogs.
+- Connect HTML controls to the existing Python/SQLite worker through Streamlit’s bidirectional component API, with duplicate-request protection and visible errors.
+- Preserve full YAML editing, sample import, run drafts, batch actions, clones, native execution gates, jobs/logs, reports and citations.
+- Embed original HTML reports in sandboxed viewers; retain original-file opening and downloads.
+- Bundle all UI assets in the wheel and source distributions; no separate web build or Node installation is needed.
+- Keep the existing execution adapters and independent-workflow clone limitations.
+
+Validation: 18 automated tests, browser checks of the HTML component, and a real Snakemake smoke job submitted through the Streamlit component trigger. Full Streamlit browser integration on the target WSL2 workstation remains to be checked.
+
 ## 0.1.0a3 — MIT license packaging
 
 - Add the MIT license, copyright (c) 2026 Jimi Goldstein, at the repository root.
