@@ -233,6 +233,7 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         (folder / "submitted.yaml").write_text(config_text)
         run = {"id": rid, "tool": tool, "sample": copy.deepcopy(sample), "folder": str(folder), "output": str(output),
                "installation": install_id, "controller": installed["controller"], "commit": installed["version"]["commit"],
+               "rule_cache": installed.get("rule_cache") or str(store.home / "envs" / tool),
                "config": text, "submitted": config_text, "config_sha256": hashlib.sha256(text.encode()).hexdigest(),
                "workflow_sha256": tree_digest(folder / "workflow"), "inputs": inputs, "cores": cores, "memory_mb": memory_mb,
                "parent": parent, "label": label or sample["id"], "created": now(), "dry_run_ok": False,
@@ -297,7 +298,7 @@ def command(store, run, action):
             "--snakefile", str(folder / "workflow" / PIPELINES[run["tool"]]["snakefile"]),
             "--directory", str(folder / "workflow"), "--configfile", str(folder / "config.yaml"),
             "--cores", str(run["cores"]), "--resources", "mem_mb=" + str(run["memory_mb"]), "kraken_jobs=1",
-            "--use-conda", "--conda-prefix", str(store.home / "envs" / run["tool"]), "--rerun-incomplete"]
+            "--use-conda", "--conda-prefix", run.get("rule_cache") or str(store.home / "envs" / run["tool"]), "--rerun-incomplete"]
     if action == "dry-run":
         argv.append("--dry-run")
     elif action == "prepare":

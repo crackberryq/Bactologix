@@ -13,6 +13,7 @@ import yaml
 from . import __version__
 from .catalog import DATA, PIPELINES, fetch_versions, supported, versions
 from .engine import doctor, enqueue, launch_worker
+from .local import browse_folders, discover_environments, discover_installations, inspect_installation, local_path
 from .runs import (absolute_path, clone_runs, command, create_run, import_samples,
                    parse_config, register_sample, reports, template, validate_launch)
 from .store import identifier
@@ -102,6 +103,31 @@ def dispatch(store, kind, p):
         raise ValueError("Invalid action payload")
     if kind == "refresh":
         return {}
+    if kind == "browse_folders":
+        return {"browser": browse_folders(store, p.get("path", ""), p.get("offset", 0),
+                                          str(p.get("query", "")), p.get("show_hidden") is True), "keep_modal": True}
+    if kind == "discover_environments":
+        return {"local_envs": discover_environments(store), "keep_modal": True}
+    if kind == "discover_installations":
+        return {"discovery": discover_installations(store, _tool(p), p.get("root", "")), "keep_modal": True}
+    if kind == "inspect_installation":
+        return {"local_install": inspect_installation(p["path"], _tool(p)), "keep_modal": True}
+    if kind == "connect_installation":
+        tool = _tool(p)
+        info = inspect_installation(p["path"], tool)
+        if info["commit"] != p.get("commit"):
+            raise ValueError("The checkout changed. Inspect the folder again.")
+        if not info["supported"]:
+            raise ValueError("This source version needs an adapter compatibility review before managed runs.")
+        if p.get("runner_mode") not in {"existing", "managed"}:
+            raise ValueError("Choose an existing environment or a Bactologix runner.")
+        if p["runner_mode"] == "existing" and not str(p.get("controller", "")).strip():
+            raise ValueError("Choose the existing Conda environment folder, or select a Bactologix runner.")
+        payload = {"tool": tool, "path": info["path"], "commit": info["commit"],
+                   "controller": str(local_path(p["controller"])) if p["runner_mode"] == "existing" else "",
+                   "rule_cache": str(local_path(p["rule_cache"])) if p.get("rule_cache") else ""}
+        jid = enqueue(store, "connect", payload)
+        return {"message": "Checking and connecting your installation: " + jid, "navigate": "jobs"}
     if kind == "save_conda":
         path = absolute_path(p["path"])
         if not path.is_file():
@@ -129,10 +155,13 @@ def dispatch(store, kind, p):
                 raise ValueError("This runner is not ready")
             store.put("settings", "active-" + item["tool"], item["id"])
             return {"message": "Version selected for future drafts."}
-        jid = enqueue(store, "check", {"installation": item["id"]}) if kind == "check_install" else enqueue(store, "install", {"tool": item["tool"], "version": item["version"], "repair": True})
+        if item.get("origin") == "local":
+            jid = enqueue(store, "check", {"installation": item["id"], "repair": kind == "repair_install"})
+        else:
+            jid = enqueue(store, "check", {"installation": item["id"]}) if kind == "check_install" else enqueue(store, "install", {"tool": item["tool"], "version": item["version"], "repair": True})
         return {"message": "Queued " + jid, "navigate": "jobs"}
     if kind == "add_sample":
-        register_sample(store, p["id"].strip(), p["path"].strip(), p["mode"])
+        register_sample(store, p["id"].strip(), str(local_path(p["path"])), p["mode"])
         return {"message": "Sample registered.", "navigate": "samples"}
     if kind == "import_samples":
         items = import_samples(store, p["text"])

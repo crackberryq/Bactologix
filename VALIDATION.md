@@ -1,3 +1,16 @@
+# Validation update: 0.1.0a5 (2026-10-24)
+
+- All 27 automated tests passed, including the 18 existing tests and nine additional filesystem/connection/component tests.
+- Folder tests cover pagination, filtering, hidden directories, symlink navigation, missing/relative paths and WSL path translation.
+- A real temporary Git checkout was discovered, inspected and copied through the production connection routine. Tests verified that modified local configuration, existing result files and cache contents were retained, while the committed source alone was copied into the workspace.
+- Existing-runner connection tests replace the native environment checker with a test double. They verify the selected prefix is checked, no environment creation/update command is issued, failure prevents activation, and new run commands use the selected cache. They do not establish compatibility of a user's environment.
+- The real Streamlit component protocol was exercised to browse a folder and register a sample in SQLite. Source selection revalidates the commit and rejects unsupported versions.
+- The production HTML/CSS/JavaScript component was checked in a browser using an isolated static QA fixture: folder navigation, selection, automatic sample details, candidate scan results, inspection and existing environment selection. A collapsed scan-results issue found in this check was fixed and rechecked.
+- The managed browser preview cannot run the local Python virtual environment. Full browser-to-Streamlit testing on the target WSL workstation remains outstanding. Static fixture interactions are not an end-to-end worker test.
+- No full biological workflows were run for this UI/setup update. The reviewed adapter commits and prior alpha limitations remain unchanged.
+
+---
+
 # Bactologix — validation record
 
 ## 0.1.0a4 — 22 October 2026

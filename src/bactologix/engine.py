@@ -50,7 +50,7 @@ def launch_worker(store):
 
 
 def enqueue(store, kind, payload):
-    if kind not in {"install", "bootstrap", "check", "workflow", "smoke"}:
+    if kind not in {"install", "connect", "bootstrap", "check", "workflow", "smoke"}:
         raise ValueError("Unknown operation")
     if platform.system() != "Linux":
         raise RuntimeError("Run this app inside Linux or WSL2 to execute jobs.")
@@ -160,6 +160,13 @@ def install(ctx):
     if not supported(tool, commit):
         ctx.write("Source downloaded. This version needs an adapter compatibility review before managed execution.")
         return
+    prepare_controller(ctx, record, repair=payload.get("repair", False))
+
+
+def prepare_controller(ctx, record, repair=False):
+    store = ctx.store
+    tool, target = record["tool"], Path(record["source"])
+    spec = PIPELINES[tool]
     conda = find_conda(store)
     if not conda:
         raise RuntimeError("Source downloaded. Set a Conda executable or install local Conda, then repeat setup.")
@@ -167,7 +174,7 @@ def install(ctx):
     digest = controller_key(tool, content)
     base = store.home / "controllers" / (tool + "-" + digest)
     prefix = Path(record["controller"]) if record.get("controller") and record.get("controller_digest") == digest else base
-    if payload.get("repair") and prefix.exists():
+    if repair and prefix.exists():
         prefix = Path(str(base) + "-repair-" + ctx.job["id"][4:])
         ctx.write("Preparing a fresh controller; the previous environment is retained.")
     if not prefix.exists():
@@ -178,12 +185,69 @@ def install(ctx):
         check_controller(ctx, conda, prefix, tool)
     except Exception:
         record.update(ready=False)
-        store.put("installs", key, record)
+        store.put("installs", record["id"], record)
         raise RuntimeError("Controller check failed. Inspect the log; use Repair to create a separate controller.") from None
-    record.update(controller=str(prefix), conda=conda, controller_digest=digest, ready=True, checked=now())
-    store.put("installs", key, record)
-    store.put("settings", "active-" + tool, key)
+    record.update(controller=str(prefix), conda=conda, controller_digest=digest, controller_origin="managed", ready=True, checked=now())
+    store.put("installs", record["id"], record)
+    store.put("settings", "active-" + tool, record["id"])
     ctx.write("Runner ready. Workflow tool environments will be prepared for the chosen run and reused from the stable cache.")
+
+
+def connect_existing(ctx):
+    """Snapshot committed source locally; never edit the user's checkout or env."""
+    from .local import inspect_installation, local_path
+    store, payload = ctx.store, ctx.job["payload"]
+    tool = payload["tool"]
+    info = inspect_installation(payload["path"], tool)
+    if info["commit"] != payload["commit"]:
+        raise ValueError("The checkout changed since inspection. Inspect it again before connecting.")
+    if not info["supported"]:
+        raise ValueError("This source commit needs an adapter review before it can be connected for runs.")
+    key = tool + "-local-" + hashlib.sha256((info["path"] + info["commit"]).encode()).hexdigest()[:20]
+    target = store.home / "sources" / key
+    if not target.exists():
+        temporary = Path(tempfile.mkdtemp(prefix=key + "-", dir=store.home / "sources"))
+        try:
+            ctx.command(["git", "init", str(temporary)])
+            ctx.command(["git", "-C", str(temporary), "fetch", "--depth", "1", "--no-tags", "--no-recurse-submodules",
+                         info["path"], info["commit"]])
+            ctx.command(["git", "-c", "core.hooksPath=/dev/null", "-C", str(temporary), "checkout", "--detach", "FETCH_HEAD"])
+            temporary.rename(target)
+        except BaseException:
+            shutil.rmtree(temporary, ignore_errors=True)
+            raise
+    actual = subprocess.check_output(["git", "-C", str(target), "rev-parse", "HEAD"], text=True).strip()
+    dirty = subprocess.check_output(["git", "-C", str(target), "status", "--porcelain"], text=True).strip()
+    if actual != info["commit"] or dirty:
+        raise ValueError("The local source snapshot changed. Choose a clean installation.")
+    previous = store.get("installs", key)
+    prefix = local_path(payload["controller"]) if payload.get("controller") else None
+    cache = local_path(payload["rule_cache"]) if payload.get("rule_cache") else None
+    if prefix and (not (prefix / "conda-meta").is_dir() or not (prefix / "bin/python").is_file()):
+        raise ValueError("Select an existing Linux Conda environment folder, containing conda-meta and bin/python.")
+    if cache and (not cache.is_dir() or not os.access(cache, os.W_OK)):
+        raise ValueError("The selected Snakemake environment cache must be an existing writable folder.")
+    record = {"id": key, "tool": tool, "source": str(target), "original_source": info["path"], "origin": "local",
+              "version": {"id": "local:" + key, "ref": info["ref"], "commit": info["commit"], "kind": "local"},
+              "created": previous["created"] if previous else now(), "controller": str(prefix) if prefix else None,
+              "rule_cache": str(cache) if cache else str(store.home / "envs" / tool), "ready": False}
+    if previous and previous.get("ready"):
+        raise ValueError("This installation is already connected. Select it under Install & update.")
+    store.put("installs", key, record)
+    ctx.write("Source copied from local Git history; original configs, databases and results are untouched.")
+    if info["modified"]:
+        ctx.write("The original checkout has local edits. This snapshot uses its committed version. Import your settings in Configuration.")
+    if prefix:
+        conda = find_conda(store)
+        if not conda:
+            raise ValueError("Choose your Conda executable before connecting an environment.")
+        check_controller(ctx, conda, prefix, tool)
+        record.update(ready=True, conda=conda, checked=now(), controller_origin="external")
+        store.put("installs", key, record)
+        store.put("settings", "active-" + tool, key)
+        ctx.write("Connected: existing runner verified and reused. No environment was installed or updated.")
+    else:
+        prepare_controller(ctx, record)
 
 
 def bootstrap(ctx):
@@ -255,11 +319,18 @@ def execute(ctx):
     kind = ctx.job["kind"]
     if kind == "install":
         install(ctx)
+    elif kind == "connect":
+        connect_existing(ctx)
     elif kind == "bootstrap":
         bootstrap(ctx)
     elif kind == "check":
         record = ctx.store.get("installs", ctx.job["payload"]["installation"])
         try:
+            if not record or not supported(record["tool"], record["version"]["commit"]):
+                raise ValueError("This source version needs an adapter review.")
+            if ctx.job["payload"].get("repair"):
+                prepare_controller(ctx, record, repair=True)
+                return
             check_controller(ctx, find_conda(ctx.store), record["controller"], record["tool"])
             record.update(ready=True, checked=now())
         except Exception:

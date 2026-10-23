@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a4 — native alpha
+# Bactologix 0.1.0a5 — native alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -11,7 +11,7 @@ Bactologix is a Python/Streamlit application for local HybAs and standalone BaSI
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a4-py3-none-any.whl
+pipx install ./bactologix-0.1.0a5-py3-none-any.whl
 bactologix
 ```
 
@@ -20,15 +20,24 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a4/bactologix-0.1.0a4-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a5/bactologix-0.1.0a5-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
+```
+
+To use a Conda environment named `bactomix`, create it once if it does not already exist:
+
+```bash
+conda create -n bactomix python=3.11 pip -y
+conda activate bactomix
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a5/bactologix-0.1.0a5-py3-none-any.whl"
+python -m bactologix.cli
 ```
 
 For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a4-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a5-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -38,14 +47,27 @@ The launcher binds to `127.0.0.1`. This is a local, single-user tool, not a publ
 
 ## First use
 
-1. **Install & update:** select your Conda executable, or install workspace-local Miniforge. Select a version and download/set up its runner. Both supported runners use Python 3.11 and Snakemake 9.6.2. Streamlit is isolated from these environments.
-2. **Samples:** register an existing sample folder, or import CSV/TSV columns `sample_id,input_folder,read_mode`. HybAs uses `raw/illumina` and `raw/nanopore`. BaSIS needs `annotation/<sample_id>.fna`, `.faa`, `.gff`, plus `.gbk` when enabled modules require it.
+1. **Install & update:** select your Conda executable, or install workspace-local Miniforge. Use **Connect existing** for a local checkout, or choose a version to download and set up. Both supported runners use Python 3.11 and Snakemake 9.6.2. Streamlit is isolated from these environments.
+2. **Samples:** choose **Add sample → Browse folders**, navigate to the sample folder and select it, or import CSV/TSV columns `sample_id,input_folder,read_mode`. HybAs uses `raw/illumina` and `raw/nanopore`. BaSIS needs `annotation/<sample_id>.fna`, `.faa`, `.gff`, plus `.gbk` when enabled modules require it.
 3. **Configuration:** import existing native YAML or edit the complete template. Search all pinned settings in the setting editor. Set database/model paths to absolute paths. Saving defaults affects only new drafts.
 4. **Samples & variants → Create run drafts:** choose samples and create drafts. Each draft copies workflow source, references only input files, writes a frozen resolved config, and has independent outputs and scheduler state. Run **Check / dry-run** first. Read its actual log, then prepare analysis tool environments or **Run / resume**.
 5. **Results & reports:** native MultiQC/Safety reports are discovered by expected path, or register any existing local HTML. Embedded reports run in an isolated inner frame. Self-contained reports work best; use Open original for relative assets.
 6. **Overview → Run live smoke test:** executes a real tiny Snakemake workflow using an installed controller and creates an HTML software-test report. It performs no biological analysis.
 
 Diagnostic commands: `bactologix doctor`, `bactologix jobs`, and `bactologix smoke-test`.
+
+## Browse samples and connect existing tools
+
+**Add sample → Browse folders** opens a folder explorer on the machine running Bactologix. Use Home, Workspace, Computer, or a mounted Windows drive shortcut; navigate into the sample folder and click **Select this folder**. Folder name and read subfolders suggest the sample ID and read mode, which remain editable. No reads are uploaded or copied by this picker. It is an in-app explorer and requires no desktop GUI toolkit. Windows drive paths (`C:\Users\...`) and paths to the active WSL distribution can also be pasted into the picker.
+
+Under **Install & update → HybAs/BaSIS → Connect existing**:
+
+1. Browse to the pipeline Git checkout and **Inspect folder**, or expand **Search this machine** and scan. The default scan covers Home, the launch directory and `/opt` to depth four, with time/directory limits. It skips data/cache directories and symlinks. Choose a search root for other locations, including `/mnt/c` or another mounted disk. A quick scan is not a full-disk inventory.
+2. Choose a detected Conda environment, browse to one, or leave **Create / reuse a Bactologix runner** selected. Environment discovery reads Conda metadata; connecting an existing runner executes the native Python/Snakemake/import checks before marking it ready. An incompatible runner is not activated or modified.
+3. Optionally choose an existing writable Snakemake Conda cache, typically `<checkout>/.snakemake/conda`. An available cache at that location is suggested after inspection. Snakemake decides which environments match and may create missing ones during preparation; reuse of every old environment is not guaranteed.
+4. Click **Connect installation** and inspect the job log. Bactologix copies the selected committed source locally and uses independent run outputs. It does not alter the original checkout or its local settings. Import your native YAML in **Configuration** and use absolute database/model paths.
+
+Only the reviewed source commits below can be connected for managed runs. Modified working-tree files are excluded from the source snapshot; the dialog flags tracked edits. ZIP-only copies without Git metadata need a Git checkout. Existing results can be registered as HTML reports; existing external runs are not adopted for in-place resume. Repair creates a managed runner and leaves a selected external environment intact.
 
 ## Version and environment policy
 

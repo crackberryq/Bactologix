@@ -89,3 +89,15 @@ def test_install_selection_is_resolved_on_server(tmp_path, monkeypatch):
 def test_unknown_command_is_rejected(tmp_path):
     result = handle_request(Store(tmp_path), {"id": "bad", "kind": "shell", "payload": {"cmd": "invalid"}}, {})
     assert not result["ok"] and "Unknown" in result["message"]
+
+
+def test_folder_picker_registers_real_sample_through_component(tmp_path, monkeypatch):
+    monkeypatch.setenv("BACTOLOGIX_HOME", str(tmp_path / "workspace"))
+    sample = tmp_path / "sample folder"; (sample / "raw/nanopore").mkdir(parents=True)
+    app = AppTest.from_file(str(APP)).run(timeout=20)
+    result = send(app, "browse_folders", {"path": str(sample)})
+    assert result["ok"] and result["browser"]["layout"]["raw/nanopore"]
+    assert result["keep_modal"]
+    result = send(app, "add_sample", {"id": "sample", "path": result["browser"]["path"], "mode": "ont_only"}, "register")
+    assert result["ok"]
+    assert Store(tmp_path / "workspace").get("samples", "sample")["path"] == str(sample)
