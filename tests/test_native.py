@@ -162,3 +162,27 @@ def test_stop_reaches_running_process(workspace):
         context.log.close()
     assert time.monotonic() - started < 5
 
+
+
+def test_database_selection_applies_to_new_drafts_preserves_previous(workspace, installation, sample, tmp_path):
+    from bactologix import databases
+    locations = []
+    for name in ['first', 'second']:
+        folder = tmp_path / name
+        folder.mkdir()
+        for index in ['hash.k2d', 'opts.k2d', 'taxo.k2d']:
+            (folder / index).write_text('software fixture')
+        locations.append(folder)
+    before = None
+    for folder in locations:
+        text = databases.save(workspace, 'hybas', {'kraken': str(folder)}, databases.panel(workspace, 'hybas')['revision'])
+        run = create_run(workspace, 'hybas', sample, text)
+        cfg = yaml.safe_load(run['config'])
+        assert (Path(cfg['db_root']) / cfg['kraken_db_name']).resolve() == folder
+        if before is None:
+            before = run
+    old = workspace.get('runs', before['id'])
+    assert old['config'] == before['config']
+    oldcfg = yaml.safe_load(old['config'])
+    assert (Path(oldcfg['db_root']) / oldcfg['kraken_db_name']).resolve() == locations[0]
+    validate_launch(workspace, before['id'], 'dry-run')

@@ -17,7 +17,7 @@ from .local import browse_folders, discover_environments, discover_installations
 from .runs import (absolute_path, clone_runs, command, create_run, import_samples,
                    parse_config, register_sample, reports, template, validate_launch)
 from .store import identifier
-from . import updates
+from . import databases, updates
 
 _SNAPSHOTS = {}
 
@@ -98,6 +98,7 @@ def snapshot(store):
             "catalogs": catalogs, "samples": store.all("samples"), "runs": runs,
             "jobs": jobs, "reports": reports(store), "configs": configs,
             "fields": {t: configuration_fields(t, configs[t]) for t in PIPELINES},
+            "databases": {t: databases.panel(store, t) for t in PIPELINES},
             "citations": {f.name: f.read_text() for f in DATA.glob("CITATION.*")}}
     if len(_SNAPSHOTS) >= 8:
         _SNAPSHOTS.pop(next(iter(_SNAPSHOTS)))
@@ -158,8 +159,25 @@ def dispatch(store, kind, p):
         jid = enqueue(store, "app_update", {"release": release})
         return {"message": "Application update queued: " + jid, "navigate": "jobs"}
     if kind == "browse_folders":
-        return {"browser": browse_folders(store, p.get("path", ""), p.get("offset", 0),
+        path = p.get("path", "")
+        if p.get("nearest") is True and path:
+            path = local_path(path)
+            while not path.is_dir() and path != path.parent:
+                path = path.parent
+        return {"browser": browse_folders(store, path, p.get("offset", 0),
                                           str(p.get("query", "")), p.get("show_hidden") is True), "keep_modal": True}
+    if kind == "scan_databases":
+        return {"database_scan": databases.scan(store, _tool(p), p.get("root", "")), "keep_modal": True}
+    if kind == "load_databases":
+        return {"database_saved": _tool(p), "message": "Saved database locations reloaded.", "keep_modal": True}
+    if kind == "check_database":
+        tool = _tool(p)
+        return {"database_check": {"tool": tool, **databases.inspect(store, tool, p.get("id"), p.get("path"))}, "keep_modal": True}
+    if kind == "save_databases":
+        tool = _tool(p)
+        text = databases.save(store, tool, p.get("changes"), p.get("revision"))
+        return {"database_saved": tool, "message": "Database locations saved for future run drafts.",
+                "config": {"tool": tool, "text": text, "fields": configuration_fields(tool, text)}, "keep_modal": True}
     if kind == "discover_environments":
         return {"local_envs": discover_environments(store), "keep_modal": True}
     if kind == "discover_installations":

@@ -1,5 +1,14 @@
 # Bactologix releases
 
+## 0.1.0a7 — database folders and automatic discovery
+
+- Replace the resource-configuration shortcut with named HybAs and BaSIS database/model cards, folder browsing, checks, detected-installation selectors and saved locations.
+- Add bounded, read-only discovery with visible scan scope/limits and explained preferred choices. Keep valid configured locations and manually edited choices; prefer the configured BUSCO lineage when available.
+- Map independent HybAs Kraken2/BUSCO folders through separate managed link layouts, keeping earlier run paths intact.
+- Resolve BaSIS file-backed databases and complete resource bundles using native layouts and allowlisted receipt fields. Label environment-bundled resources accurately instead of offering ineffective overrides.
+- Revalidate paths on save, reject stale configuration revisions, preserve unrelated settings and existing frozen drafts, and support explicit per-resource resets.
+- Reuse the WSL-compatible folder explorer, including return-to-page behavior and an existing-parent fallback for absent database locations.
+
 ## 0.1.0a6 — BaSIS setup and Bactologix updates
 
 - Support BaSIS `f66dfedd46da05ae79bf769e7e6fada91270d4d1`; retain support for `d2d2e7806df4d2f586dc4a11d5c1f980deb06857` and existing frozen runs.

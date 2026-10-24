@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a6 — native alpha
+# Bactologix 0.1.0a7 — native alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -11,7 +11,7 @@ Bactologix is a Python/Streamlit application for local HybAs and standalone BaSI
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a6-py3-none-any.whl
+pipx install ./bactologix-0.1.0a7-py3-none-any.whl
 bactologix
 ```
 
@@ -20,7 +20,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a6/bactologix-0.1.0a6-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a7/bactologix-0.1.0a7-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -29,7 +29,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a6/bactologix-0.1.0a6-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a7/bactologix-0.1.0a7-py3-none-any.whl"
 python -m bactologix.cli
 ```
 
@@ -37,7 +37,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a6-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a7-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -61,7 +61,7 @@ Compatible snapshots remain selectable even after a branch moves. Unsupported do
 
 1. **Install & update:** select your Conda executable, or install workspace-local Miniforge. Use **Connect existing** for a local checkout, or choose a version to download and set up. Both supported runners use Python 3.11 and Snakemake 9.6.2. Streamlit is isolated from these environments.
 2. **Samples:** choose **Add sample → Browse folders**, navigate to the sample folder and select it, or import CSV/TSV columns `sample_id,input_folder,read_mode`. HybAs uses `raw/illumina` and `raw/nanopore`. BaSIS needs `annotation/<sample_id>.fna`, `.faa`, `.gff`, plus `.gbk` when enabled modules require it.
-3. **Configuration:** import existing native YAML or edit the complete template. Search all pinned settings in the setting editor. Set database/model paths to absolute paths. Saving defaults affects only new drafts.
+3. **Configuration:** import existing native YAML or edit the complete template. Search all pinned settings in the setting editor. Choose database/model locations in **Databases & models**; advanced YAML editing remains available. Saving defaults affects only new drafts.
 4. **Samples & variants → Create run drafts:** choose samples and create drafts. Each draft copies workflow source, references only input files, writes a frozen resolved config, and has independent outputs and scheduler state. Run **Check / dry-run** first. Read its actual log, then prepare analysis tool environments or **Run / resume**.
 5. **Results & reports:** native MultiQC/Safety reports are discovered by expected path, or register any existing local HTML. Embedded reports run in an isolated inner frame. Self-contained reports work best; use Open original for relative assets.
 6. **Overview → Run live smoke test:** executes a real tiny Snakemake workflow using an installed controller and creates an HTML software-test report. It performs no biological analysis.
@@ -77,9 +77,23 @@ Under **Install & update → HybAs/BaSIS → Connect existing**:
 1. Browse to the pipeline Git checkout and **Inspect folder**, or expand **Search this machine** and scan. The default scan covers Home, the launch directory and `/opt` to depth four, with time/directory limits. It skips data/cache directories and symlinks. Choose a search root for other locations, including `/mnt/c` or another mounted disk. A quick scan is not a full-disk inventory.
 2. Choose a detected Conda environment, browse to one, or leave **Create / reuse a Bactologix runner** selected. Environment discovery reads Conda metadata; connecting an existing runner executes the native Python/Snakemake/import checks before marking it ready. An incompatible runner is not activated or modified.
 3. Optionally choose an existing writable Snakemake Conda cache, typically `<checkout>/.snakemake/conda`. An available cache at that location is suggested after inspection. Snakemake decides which environments match and may create missing ones during preparation; reuse of every old environment is not guaranteed.
-4. Click **Connect installation** and inspect the job log. Bactologix copies the selected committed source locally and uses independent run outputs. It does not alter the original checkout or its local settings. Import your native YAML in **Configuration** and use absolute database/model paths.
+4. Click **Connect installation** and inspect the job log. Bactologix copies the selected committed source locally and uses independent run outputs. It does not alter the original checkout or its local settings. Import other native settings in **Configuration**, then connect existing resources in **Databases & models**.
 
 Only the reviewed source commits below can be connected for managed runs. Modified working-tree files are excluded from the source snapshot; the dialog flags tracked edits. ZIP-only copies without Git metadata need a Git checkout. Existing results can be registered as HTML reports; existing external runs are not adopted for in-place resume. Repair creates a managed runner and leaves a selected external environment intact.
+
+## Manage databases without editing YAML
+
+Open **Databases & models**, choose **HybAs** or **BaSIS**, and click **Auto scan**. Every selectable resource has its own name, location, **Browse**, and **Check location** controls. Detected installations appear in a dropdown. Add a specific scan folder to include another disk or a deeper directory; Windows Explorer paths work in WSL.
+
+The scan preselects a preferred candidate for each unchanged field. It keeps a valid saved location first, then prefers a matching configured BUSCO lineage or a completed BaSIS resource receipt. Remaining ties use a stable path order, not a claim that a particular release is scientifically best or newest. A choice you edited yourself is retained. Review the selected release and lineage, then click **Save locations**. The server rechecks every changed selection before saving; stale configuration revisions and incomplete locations are rejected. **Reload locations** discards unsaved resource choices. **Use pipeline default** resets only that resource's owned path/metadata fields when saved.
+
+- **HybAs:** Kraken2 and BUSCO may live on different disks. Bactologix creates a separate local link layout for each selection, writes the native shared-root configuration, and preserves earlier layouts for frozen run drafts. Database contents are neither copied nor downloaded.
+- **BaSIS:** named entries cover AMRFinderPlus, CARD/RGI, VFDB, BacMet, antiSMASH, geNomad, MOB-suite, MLST/PubMLST, CRISPRCasFinder/CASFinder, PROSITE, ProtT5/classifier models, and the deep reference bundle. Folder selection resolves native file-backed resources such as CARD JSON and DIAMOND indices. Completed resource receipts retain allowlisted companion paths and recorded identities; executable overrides and analysis switches are not imported. Model/reference bundles require their companion files; a filename alone does not establish their identity.
+- **Tool-managed resources:** Prokka, IntegronFinder, ISEScan and ICEscreen use resources inside their tool environments in the pinned adapters. They are labelled separately because a custom folder would not redirect those tools. MinCED needs no external database.
+
+Discovery is a quick structural check, not a full checksum verification or compatibility guarantee. It scans configured locations, registered pipeline sources/caches, workspace resources and common folders, with limits of 5,000 directories, 3,000 entries per folder, seven levels and an eight-second traversal budget. The result reports reached limits and inaccessible folders. Directory symlinks are inspected without recursive traversal; hidden directories are skipped unless included as explicit roots. This is not an exhaustive inventory of every disk. The native workflow still performs its resource checks during preparation.
+
+Saving affects future run drafts and preserves other analysis settings. Existing drafts keep their frozen paths; independently changing database contents at those paths is outside this selection mechanism. Missing BaSIS resources continue to follow the saved `auto`/`manual` policy. HybAs database downloads remain explicit native actions. Scanning and saving do not install environments or download databases.
 
 ## Version and environment policy
 

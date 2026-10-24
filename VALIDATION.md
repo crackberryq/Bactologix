@@ -25,6 +25,18 @@
 
 # Bactologix — validation record
 
+## 0.1.0a7 — 24 October 2026
+
+Database management was checked with filesystem-only software fixtures in an isolated Linux workspace.
+
+- **70 automated tests passed**, including all previous tests. New checks cover database layouts and required companions, preferred-location ordering, scan limits and symlink cycles, receipt field allowlists, stale/concurrent default changes, save-time revalidation, resets, managed-link collision protection and unchanged earlier frozen drafts.
+- The real Streamlit component protocol browsed a folder, scanned two resource types, checked a selection and saved native configuration through Python/SQLite. The packaged HTML/JavaScript component was exercised in the managed browser preview: pipeline tabs, discovery dropdowns, preferred choices, manual-choice retention, folder selection returning to the page, reload and save-state clearing.
+- The exact reviewed BaSIS tree `88fcd3b9d0b9ca2dc2f175da5dcb1b1aaeb7f032` (published commit `f66dfedd46da05ae79bf769e7e6fada91270d4d1`) consumed the generated configuration through its real `SafetyContext`; the chosen MLST directory became an external resource with the expected path. No analysis tool or resource download was invoked.
+- HybAs configuration tests resolve the native Kraken2 and BUSCO expressions through separate managed links, including paths containing spaces. Creating later selections leaves earlier frozen run configurations and link targets intact.
+- The installed a7 wheel passed all 70 tests (4.98 seconds), including AppTest loading the installed application. Every packaged Python/UI/data file matched the source and the wheel contains the MIT license. `pip check` reported no broken requirements. The real CLI server returned HTTP 200 `ok` on its loopback health endpoint and was stopped cleanly.
+
+The browser preview uses actual component assets and Python-generated filesystem results, with captured commands rather than a live browser-to-Streamlit connection. Full workstation browser testing and real database/tool execution remain user-side checks. Fixture file contents do not establish database integrity or scientific validity; layout discovery intentionally leaves native validation to the pipeline.
+
 ## 0.1.0a4 — 22 October 2026
 
 The original HTML design is now the default interface, using Streamlit’s bidirectional component API and the existing durable Python worker.

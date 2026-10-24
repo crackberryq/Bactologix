@@ -17,7 +17,7 @@ from bactologix.store import Store
 from bactologix.ui_backend import dispatch, installation_status, snapshot
 
 
-def release(version="0.1.0a7", content=b"wheel"):
+def release(version="99.0.0a1", content=b"wheel"):
     name = f"bactologix-{version}-py3-none-any.whl"
     return {"id": 77, "tag_name": "v" + version, "prerelease": True, "draft": False,
             "assets": [{"id": 88, "name": name, "state": "uploaded", "size": len(content),
@@ -25,7 +25,7 @@ def release(version="0.1.0a7", content=b"wheel"):
                         "browser_download_url": f"https://github.com/{updates.REPO}/releases/download/v{version}/{name}"}]}
 
 
-def wheel_bytes(version="0.1.0a7", python=">=3.11"):
+def wheel_bytes(version="99.0.0a1", python=">=3.11"):
     stream = io.BytesIO()
     with ZipFile(stream, "w") as wheel:
         wheel.writestr(f"bactologix-{version}.dist-info/METADATA",

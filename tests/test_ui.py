@@ -7,10 +7,11 @@ import pytest
 from streamlit.testing.v1 import AppTest
 from streamlit.proto.WidgetStates_pb2 import WidgetStates
 from streamlit.components.v2.bidi_component.main import _make_trigger_id
+from bactologix import __file__ as PACKAGE_FILE
 from bactologix.store import Store
 from bactologix.ui_backend import dispatch, handle_request, snapshot
 
-APP = Path(__file__).parents[1] / "src/bactologix/app.py"
+APP = Path(PACKAGE_FILE).with_name("app.py")
 
 
 def send(app, kind, payload=None, request_id="request-1"):
@@ -105,15 +106,40 @@ def test_folder_picker_registers_real_sample_through_component(tmp_path, monkeyp
 
 def test_app_update_release_selection_through_component(tmp_path, monkeypatch):
     monkeypatch.setenv("BACTOLOGIX_HOME", str(tmp_path / "workspace"))
-    release = {"id": 17, "version": "0.1.0a7", "available": True, "wheel_url": "server-selected"}
+    release = {"id": 17, "version": "99.0.0a1", "available": True, "wheel_url": "server-selected"}
     monkeypatch.setattr("bactologix.updates.fetch_releases", lambda: {"releases": [release]})
     captured = []
     monkeypatch.setattr("bactologix.ui_backend.enqueue", lambda *args: captured.append(args) or "job-update")
     app = AppTest.from_file(str(APP)).run(timeout=20)
     assert "Update Bactologix" in app.get("bidi_component")[0].proto.html_content
     assert send(app, "refresh_app_releases")["ok"]
-    result = send(app, "update_app", {"release_id": 17, "version": "0.1.0a7"}, "select-update")
+    result = send(app, "update_app", {"release_id": 17, "version": "99.0.0a1"}, "select-update")
     assert result["ok"] and result["navigate"] == "jobs"
     assert captured[0][1:] == ("app_update", {"release": release})
-    send(app, "update_app", {"release_id": 17, "version": "0.1.0a7"}, "select-update")
+    send(app, "update_app", {"release_id": 17, "version": "99.0.0a1"}, "select-update")
     assert len(captured) == 1
+
+
+def test_database_scan_browse_and_save_through_real_component(tmp_path, monkeypatch):
+    from bactologix import databases
+    monkeypatch.setenv('BACTOLOGIX_HOME', str(tmp_path / 'workspace'))
+    root = tmp_path / 'databases'
+    db = root / 'my-kraken'
+    db.mkdir(parents=True)
+    for name in ['hash.k2d', 'opts.k2d', 'taxo.k2d']:
+        (db / name).write_text('software fixture')
+    monkeypatch.setattr(databases, '_roots', lambda *args: [root])
+    app = AppTest.from_file(str(APP)).run(timeout=20)
+    scanned = send(app, 'scan_databases', {'tool': 'hybas'}, 'scan-resource')
+    assert scanned['ok']
+    choice = scanned['database_scan']['candidates']['kraken'][0]
+    assert choice['preferred'] and choice['path'] == str(db)
+    browsed = send(app, 'browse_folders', {'path': str(root)}, 'browse-resource')
+    assert browsed['browser']['folders'][0]['path'] == str(db)
+    checked = send(app, 'check_database', {'tool': 'hybas', 'id': 'kraken', 'path': str(db)}, 'check-resource')
+    assert checked['ok'] and checked['database_check']['status'] == 'Layout recognized'
+    saved = send(app, 'save_databases', {'tool': 'hybas', 'changes': {'kraken': choice['path']}, 'revision': scanned['database_scan']['revision']}, 'save-resource')
+    assert saved['ok'] and saved['database_saved'] == 'hybas'
+    import yaml
+    config = yaml.safe_load(Store(tmp_path / 'workspace').get('configs', 'hybas'))
+    assert (Path(config['db_root']) / config['kraken_db_name']).resolve() == db
