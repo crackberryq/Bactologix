@@ -1,5 +1,15 @@
 # Bactologix releases
 
+## 0.1.0a6 — BaSIS setup and Bactologix updates
+
+- Support BaSIS `f66dfedd46da05ae79bf769e7e6fada91270d4d1`; retain support for `d2d2e7806df4d2f586dc4a11d5c1f980deb06857` and existing frozen runs.
+- Keep compatible source snapshots in the version picker after a GitHub refresh. Prefer the reviewed current snapshot and distinguish source-only downloads.
+- Add visible Finish setup / Retry setup actions, informative installation states and setup logs. Already downloaded compatible source can finish setup without another download or forced runner replacement.
+- Add Update Bactologix with release selection, current/older-version labels, release notes, SHA-256 and wheel/Python checks, an actual pip installation job in the current app environment, and restart guidance.
+- Serialize app updates against queued work and other Bactologix workers sharing the Python environment. Keep the rendered workspace available while pip replaces package files; require restart before further work.
+- Refresh bundled BaSIS configuration references from the reviewed source; preserve existing saved defaults. Bind optional native-result storage to an explicit absolute path.
+- Launch Streamlit headlessly to avoid WSL's failed automatic `gio` browser-opening attempt; disable source watching so package replacement does not trigger an automatic rerun.
+
 ## 0.1.0a5 — browse samples and connect existing installations
 
 - Add a local folder explorer with Home, workspace and mounted Windows drive shortcuts, folder filtering, hidden folders and pagination. Select a sample folder without uploading reads; suggest its sample ID and read mode.

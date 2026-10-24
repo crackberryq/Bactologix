@@ -1,23 +1,27 @@
 """GitHub releases are resolved to immutable commits before installation."""
 from __future__ import annotations
 import json
+import copy
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.parse import quote
 from .store import now
+from . import __version__
 
 DATA = Path(__file__).parent / "data"
 PIPELINES = {
     "hybas": {"name": "HybAs", "repo": "crackberryq/Bactomics_HybAs", "preferred": "HybAs_v9.0.0-AWARE",
               "commit": "9477fd3b6578e23a84d6524e1c89e65e01590f03", "snakefile": "Hybas.smk", "environment": "environment.yaml"},
     "basis": {"name": "BaSIS", "repo": "crackberryq/Bactomics_BaSIS", "preferred": "snakemake-standalone",
-              "commit": "d2d2e7806df4d2f586dc4a11d5c1f980deb06857", "snakefile": "BaSIS.smk", "environment": "environment.yml"},
+              "commit": "f66dfedd46da05ae79bf769e7e6fada91270d4d1",
+              "previous_commits": ["d2d2e7806df4d2f586dc4a11d5c1f980deb06857"],
+              "snakefile": "BaSIS.smk", "environment": "environment.yml"},
 }
 
 
 def api(path):
     req = Request("https://api.github.com/" + path,
-                  headers={"User-Agent": "Bactologix/0.1.0a5", "Accept": "application/vnd.github+json"})
+                  headers={"User-Agent": "Bactologix/" + __version__, "Accept": "application/vnd.github+json"})
     with urlopen(req, timeout=30) as response:
         return json.load(response)
 
@@ -57,12 +61,25 @@ def fetch_versions(tool):
 
 def versions(store, tool):
     cached = store.get("catalog", tool)
-    if cached:
-        return cached
-    snapshot = json.loads((DATA / "versions.json").read_text())
-    return {"checkedAt": snapshot["checkedAt"], "versions": snapshot["pipelines"][tool]["versions"], "live": False}
+    if not cached:
+        snapshot = json.loads((DATA / "versions.json").read_text())
+        cached = {"checkedAt": snapshot["checkedAt"], "versions": snapshot["pipelines"][tool]["versions"], "live": False}
+    result = copy.deepcopy(cached)
+    spec = PIPELINES[tool]
+    # Moving branches must never hide the compatible snapshots after a refresh.
+    pinned = []
+    for commit in [spec["commit"], *spec.get("previous_commits", [])]:
+        pinned.append(dict(id="commit:" + commit, kind="pinned", ref=spec["preferred"] + " @ " + commit[:8],
+                           name="Recommended compatible snapshot" if commit == spec["commit"] else "Earlier compatible snapshot",
+                           commit=commit, url=f'https://github.com/{spec["repo"]}/tree/{commit}',
+                           preferred=commit == spec["commit"], prerelease=False))
+    result["versions"] = pinned + [row for row in result["versions"] if row["kind"] != "pinned"]
+    for row in result["versions"]:
+        row["preferred"] = bool(row.get("preferred") and row["commit"] == spec["commit"])
+    return result
 
 
 def supported(tool, commit):
-    return commit == PIPELINES[tool]["commit"]
+    spec = PIPELINES[tool]
+    return commit in [spec["commit"], *spec.get("previous_commits", [])]
 

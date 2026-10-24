@@ -70,6 +70,11 @@ class Store:
         jid = identifier("job")
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            pending = db.execute("SELECT kind FROM jobs WHERE status IN ('queued','running')").fetchall()
+            if any(row[0] == "app_update" for row in pending):
+                raise ValueError("A Bactologix update is queued or running. Wait for it to finish and restart the app.")
+            if kind == "app_update" and pending:
+                raise ValueError("Finish or cancel queued/running jobs before updating Bactologix.")
             if kind == "workflow":
                 active = db.execute("SELECT payload FROM jobs WHERE kind='workflow' AND status IN ('queued','running')").fetchall()
                 if any(json.loads(row[0]).get("run_id") == payload["run_id"] for row in active):
@@ -106,6 +111,10 @@ class Store:
 
     def cancel(self, jid):
         with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT kind,status FROM jobs WHERE id=?", (jid,)).fetchone()
+            if row and row[0] == "app_update" and row[1] == "running":
+                raise ValueError("An application update cannot be cancelled while it is installing. Wait for its result.")
             db.execute("UPDATE jobs SET cancel=1,status=CASE WHEN status='queued' THEN 'cancelled' ELSE status END WHERE id=? AND status IN ('queued','running')", (jid,))
 
     def log_path(self, jid):

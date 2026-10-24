@@ -29,6 +29,8 @@ def main():
     else:
         argv = [sys.executable, "-m", "streamlit", "run", str(Path(__file__).with_name("app.py")),
                 "--server.address", "127.0.0.1", "--server.port", str(args.port),
+                "--server.headless", "true",
+                "--server.fileWatcherType", "none",
                 "--browser.gatherUsageStats", "false"]
         raise SystemExit(subprocess.call(argv))
 

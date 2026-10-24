@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a5 — native alpha
+# Bactologix 0.1.0a6 — native alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -11,7 +11,7 @@ Bactologix is a Python/Streamlit application for local HybAs and standalone BaSI
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a5-py3-none-any.whl
+pipx install ./bactologix-0.1.0a6-py3-none-any.whl
 bactologix
 ```
 
@@ -20,7 +20,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a5/bactologix-0.1.0a5-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a6/bactologix-0.1.0a6-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -29,7 +29,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a5/bactologix-0.1.0a5-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a6/bactologix-0.1.0a6-py3-none-any.whl"
 python -m bactologix.cli
 ```
 
@@ -37,13 +37,25 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a5-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a6-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
-Open http://localhost:8501. On Windows, run these commands inside WSL2; use Linux paths such as `/home/jimi/...` or `/mnt/c/...` in the app. This app cannot operate the user's workstation from ChatGPT: install it on the machine containing the samples. Native Windows pipeline execution is not supported.
+Open http://localhost:8501. The launcher runs headlessly, so WSL does not try to launch a Linux browser. Automatic source watching is disabled for the packaged app, preventing pip from triggering a rerun halfway through an update. Use `python -m bactologix.cli --port 8502` and http://localhost:8502 when using a different local port. On Windows, run these commands inside WSL2; use Linux paths such as `/home/jimi/...` or `/mnt/c/...` in the app. This app cannot operate the user's workstation from ChatGPT: install it on the machine containing the samples. Native Windows pipeline execution is not supported.
 
 The launcher binds to `127.0.0.1`. This is a local, single-user tool, not a public server. `--home /absolute/workspace` selects a workspace; the default is the platform user data directory. `BACTOLOGIX_HOME` also selects it. Jobs persist in SQLite and logs remain on disk. Closing a browser does not stop a job; stop it from Jobs & progress.
+
+## Update Bactologix
+
+Use **Update Bactologix** in the top bar or **Install & update**. The dialog retrieves published GitHub releases, including prereleases, and shows the running version, release notes and application environment. Select the version you want, then click **Install v…**. Older releases are labelled. A release needs the expected wheel and GitHub SHA-256 digest to be installable.
+
+Finish or cancel queued/running jobs first. The updater checks the asset again, verifies its size, checksum, package identity and Python requirement, then runs pip through the exact Python interpreter serving Bactologix. The job log records installation progress. Once installation starts it cannot be cancelled from the app. An environment lock also prevents an update from overlapping another Bactologix worker using that Python environment. These locks do not coordinate unrelated external pip/Conda commands.
+
+After it finishes, press **Ctrl+C** in the Bactologix terminal and rerun the same launch command, including `--port` and `--home` if used. Refresh the browser after restart. A banner reminds you to restart, and new work is blocked in the old app process. This first updater does not automatically restart Streamlit. Pipeline runners, databases, settings, cached tool environments and run folders are separate from the application package. Pip may update application dependencies when required by the selected release.
+
+For **v0.1.0a5 and earlier**, install this release once using the wheel command above; the update button becomes available after restarting. If BaSIS `f66dfedd` was already downloaded, open **Install & update → BaSIS → Finish setup**. This uses the downloaded source and creates or reuses its runner. The runner environment definition is unchanged from the earlier supported BaSIS revision. Read **Setup log** if setup fails; **Retry setup** reuses an existing runner, whereas **Repair runner** creates a separate replacement.
+
+Compatible snapshots remain selectable even after a branch moves. Unsupported downloads say **Version not supported** and link to the app updater; failed setup says **Setup incomplete** with its job log. Downloading a supported version normally completes runner setup in the same job.
 
 ## First use
 
@@ -71,12 +83,13 @@ Only the reviewed source commits below can be connected for managed runs. Modifi
 
 ## Version and environment policy
 
-The UI refreshes GitHub release/branch lists, resolves release tags to exact commits, and installs immutable source checkouts. The bundled catalogue is explicitly date-labelled when offline. The alpha's reviewed execution adapters accept these source commits:
+The UI refreshes GitHub release/branch lists, resolves release tags to exact commits, and installs immutable source checkouts. The bundled catalogue is explicitly date-labelled when offline. Compatible immutable snapshots from this app release are always included, separately from moving branch entries. The alpha's reviewed execution adapters accept these source commits:
 
 | Pipeline | Branch | Commit |
 |---|---|---|
 | HybAs | HybAs_v9.0.0-AWARE | 9477fd3b6578e23a84d6524e1c89e65e01590f03 |
-| BaSIS | snakemake-standalone | d2d2e7806df4d2f586dc4a11d5c1f980deb06857 |
+| BaSIS | snakemake-standalone (recommended) | f66dfedd46da05ae79bf769e7e6fada91270d4d1 |
+| BaSIS | snakemake-standalone (earlier compatible snapshot) | d2d2e7806df4d2f586dc4a11d5c1f980deb06857 |
 
 Other listed versions can be downloaded; managed execution is withheld until their adapter contract is reviewed. Branch updates to a new commit therefore require a Bactologix adapter update before execution. Choosing a different installed version affects future drafts only.
 

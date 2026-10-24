@@ -1,3 +1,15 @@
+# Validation update: 0.1.0a6 (2026-10-24)
+
+- **43 automated tests passed** against the final source and installed wheel. New tests cover supported current/previous snapshots, downloaded-source setup, environment reuse, release asset validation, server-resolved release selection, update/queue/cancellation locks, package-replacement UI caching, checksum/Python rejection, stale release rejection, pip failures and restart handling. Real Streamlit component-trigger tests exercise refresh and update selection with duplicate-event suppression.
+- All **217 files** of BaSIS tree `88fcd3b9d0b9ca2dc2f175da5dcb1b1aaeb7f032` were verified against GitHub blob hashes for published commit `f66dfedd46da05ae79bf769e7e6fada91270d4d1`. The runner environment definition is unchanged from the prior supported commit. Review focused on the input/configuration, entry point, environment and output contracts used by Bactologix.
+- A real **Snakemake 9.6.2 dry-run** passed on that verified tree using an isolated Bactologix-generated run with software-only annotation files, a sample sheet, frozen configuration and paths containing spaces. The initial DAG had **83 jobs**, with dynamic checkpoints. The workflow source fingerprint and original inputs remained unchanged. A local fixture commit with the exact published tree was used; no published source was edited. This parse/DAG check used the available Python 3.12 test environment without creating Conda tool environments; the unchanged production runner still requires Python 3.11.
+- A real app installation ran in a disposable environment: the production a6 updater/worker selected and installed the exact published a5 wheel, verified the fresh-process version and recorded the restart requirement. Only network transport was replaced with the saved GitHub release JSON and wheel; checksum checking, locks, queue state, pip and version verification ran normally. Configuration and sentinel files in runners, tool caches, resources and runs survived. This tests the selected-version installer, including downgrade, rather than claiming a live GitHub HTTP download in the test host.
+- Browser checks used the production HTML/CSS/JS component with an isolated static fixture. Finish setup, selected-version payloads, the app release picker, compatible snapshots and the setup layout were checked. Python tests separately exercised real Streamlit callbacks; the static fixture did not install software.
+- The final wheel includes all application/UI/configuration files and the exact MIT license. A fresh installation, dependency check and CLI health endpoint were checked before publication.
+- Full analysis, rebuilding all pipeline tool environments, target WSL browser-to-worker execution, and a live self-update on the user's workstation remain outside these software checks. No biological analysis was run and no prior alpha limitation was removed.
+
+---
+
 # Validation update: 0.1.0a5 (2026-10-24)
 
 - All 27 automated tests passed, including the 18 existing tests and nine additional filesystem/connection/component tests.

@@ -50,10 +50,12 @@ def launch_worker(store):
 
 
 def enqueue(store, kind, payload):
-    if kind not in {"install", "connect", "bootstrap", "check", "workflow", "smoke"}:
+    if kind not in {"install", "connect", "bootstrap", "check", "workflow", "smoke", "app_update"}:
         raise ValueError("Unknown operation")
     if platform.system() != "Linux":
         raise RuntimeError("Run this app inside Linux or WSL2 to execute jobs.")
+    from .updates import assert_current
+    assert_current(store)
     if kind == "workflow":
         from .runs import validate_launch
         validate_launch(store, payload["run_id"], payload["action"])
@@ -63,8 +65,9 @@ def enqueue(store, kind, payload):
 
 
 class Context:
-    def __init__(self, store, job, lock_fd=None):
+    def __init__(self, store, job, lock_fd=None, environment_fd=None):
         self.store, self.job, self.lock_fd = store, job, lock_fd
+        self.lock_fds = tuple(fd for fd in (lock_fd, environment_fd) if fd is not None)
         self.log = store.log_path(job["id"]).open("a", buffering=1)
 
     def write(self, message):
@@ -84,7 +87,7 @@ class Context:
         started_stop = None
         proc = subprocess.Popen([str(x) for x in argv], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                 stdout=self.log, stderr=subprocess.STDOUT, start_new_session=True,
-                                pass_fds=(self.lock_fd,) if self.lock_fd is not None else ())
+                                pass_fds=self.lock_fds)
         self.store.put("processes", self.job["id"], {"pid": proc.pid, "started": now()})
         try:
             while proc.poll() is None:
@@ -317,7 +320,10 @@ def smoke(ctx):
 
 def execute(ctx):
     kind = ctx.job["kind"]
-    if kind == "install":
+    if kind == "app_update":
+        from .updates import install_update
+        install_update(ctx)
+    elif kind == "install":
         install(ctx)
     elif kind == "connect":
         connect_existing(ctx)
@@ -325,11 +331,13 @@ def execute(ctx):
         bootstrap(ctx)
     elif kind == "check":
         record = ctx.store.get("installs", ctx.job["payload"]["installation"])
+        if not record:
+            raise ValueError("Installation no longer exists")
         try:
-            if not record or not supported(record["tool"], record["version"]["commit"]):
+            if not supported(record["tool"], record["version"]["commit"]):
                 raise ValueError("This source version needs an adapter review.")
-            if ctx.job["payload"].get("repair"):
-                prepare_controller(ctx, record, repair=True)
+            if ctx.job["payload"].get("repair") or ctx.job["payload"].get("setup"):
+                prepare_controller(ctx, record, repair=ctx.job["payload"].get("repair", False))
                 return
             check_controller(ctx, find_conda(ctx.store), record["controller"], record["tool"])
             record.update(ready=True, checked=now())

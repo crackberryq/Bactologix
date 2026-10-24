@@ -1,0 +1,162 @@
+"""User-selected GitHub wheel updates for the current application environment."""
+from __future__ import annotations
+import email
+import copy
+import hashlib
+import importlib.metadata
+import json
+import os
+from pathlib import Path
+import platform
+import re
+import subprocess
+import sys
+import time
+from urllib.request import Request, urlopen
+from zipfile import ZipFile
+
+from packaging.specifiers import SpecifierSet
+from packaging.version import InvalidVersion, Version
+
+from . import __version__
+from .catalog import api, pages
+from .store import now
+
+REPO = "crackberryq/Bactologix"
+PROCESS_STARTED = time.time()
+MAX_WHEEL_BYTES = 32 * 1024 * 1024
+
+
+def release_record(release):
+    """Accept only the expected wheel from this repository's published release."""
+    if release.get("draft"):
+        return None
+    tag = release.get("tag_name", "")
+    try:
+        version = Version(tag.removeprefix("v"))
+    except InvalidVersion:
+        return None
+    if tag != "v" + str(version):
+        return None
+    name = f"bactologix-{version}-py3-none-any.whl"
+    assets = [a for a in release.get("assets", []) if a.get("name") == name]
+    wheel = assets[0] if len(assets) == 1 else None
+    url = f"https://github.com/{REPO}/releases/download/{tag}/{name}"
+    checksum = (wheel or {}).get("digest", "") or ""
+    available = bool(wheel and wheel.get("state") == "uploaded" and wheel.get("browser_download_url") == url
+                     and re.fullmatch(r"sha256:[0-9a-f]{64}", checksum)
+                     and 0 < wheel.get("size", 0) <= MAX_WHEEL_BYTES)
+    return {"id": release["id"], "tag": tag, "version": str(version), "name": release.get("name") or tag,
+            "prerelease": bool(release.get("prerelease")), "published_at": release.get("published_at"),
+            "url": f"https://github.com/{REPO}/releases/tag/{tag}", "notes": (release.get("body") or "")[:50000],
+            "available": available, "asset_id": wheel.get("id") if wheel else None,
+            "wheel_name": name, "wheel_url": url, "sha256": checksum.removeprefix("sha256:") if available else None,
+            "size": wheel.get("size") if wheel else None}
+
+
+def fetch_releases():
+    records = [record for release in pages(f"repos/{REPO}/releases") if (record := release_record(release))]
+    records.sort(key=lambda row: Version(row["version"]), reverse=True)
+    return {"checked_at": now(), "releases": records}
+
+
+def status(store):
+    state = store.get("settings", "app-update", {})
+    active = next((j for j in store.jobs() if j["kind"] == "app_update" and j["status"] in {"queued", "running"}), None)
+    try:
+        installed = importlib.metadata.version("bactologix")
+    except importlib.metadata.PackageNotFoundError:
+        installed = __version__  # Source checkout or a wheel replacement in progress.
+    restart = bool(state.get("pip_started_at", 0) > PROCESS_STARTED or installed != __version__)
+    catalog = copy.deepcopy(store.get("app_catalog", "releases"))
+    if catalog:
+        for release in catalog["releases"]:
+            release["older"] = Version(release["version"]) < Version(__version__)
+    return {"running_version": __version__, "installed_version": installed, "python": sys.executable,
+            "environment": sys.prefix, "catalog": catalog,
+            "active_job": active["id"] if active else None, "restart_required": restart,
+            "last_update": state, "can_install": platform.system() == "Linux" and not restart
+            and not any(j["status"] in {"queued", "running"} for j in store.jobs())}
+
+
+def assert_current(store):
+    if status(store)["restart_required"]:
+        raise ValueError("Restart Bactologix to load the installed application before starting more work. In its terminal press Ctrl+C, then rerun your Bactologix launch command.")
+
+
+def download_wheel(record, directory):
+    path = directory / record["wheel_name"]
+    digest = hashlib.sha256()
+    request = Request(record["wheel_url"], headers={"User-Agent": "Bactologix/" + __version__})
+    count = 0
+    try:
+        with urlopen(request, timeout=60) as response, path.open("wb") as target:
+            if not response.url.startswith("https://"):
+                raise ValueError("Wheel download redirected to an insecure URL")
+            while chunk := response.read(1024 * 1024):
+                count += len(chunk)
+                if count > record["size"] or count > MAX_WHEEL_BYTES:
+                    raise ValueError("Wheel download exceeds the published size")
+                digest.update(chunk)
+                target.write(chunk)
+        if count != record["size"] or digest.hexdigest() != record["sha256"]:
+            raise ValueError("Wheel size or SHA-256 does not match GitHub. Nothing was installed.")
+        validate_wheel(path, record["version"])
+        return path
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+
+
+def validate_wheel(path, expected_version):
+    with ZipFile(path) as wheel:
+        files = [n for n in wheel.namelist() if n.endswith(".dist-info/METADATA")]
+        if len(files) != 1 or wheel.getinfo(files[0]).file_size > 1024 * 1024:
+            raise ValueError("Invalid application wheel metadata")
+        metadata = email.message_from_bytes(wheel.read(files[0]))
+    if metadata.get("Name", "").lower() != "bactologix" or metadata.get("Version") != expected_version:
+        raise ValueError("Wheel identity does not match the selected Bactologix version")
+    requirement = metadata.get("Requires-Python")
+    if not requirement or Version(platform.python_version()) not in SpecifierSet(requirement):
+        raise ValueError(f"This release needs Python {requirement}; this environment uses {platform.python_version()}.")
+
+
+def install_update(ctx):
+    """The worker holds exclusive environment and workspace locks throughout."""
+    selected = ctx.job["payload"]["release"]
+    latest = release_record(api(f"repos/{REPO}/releases/{int(selected['id'])}"))
+    identity = ("id", "tag", "version", "asset_id", "wheel_url", "sha256", "size")
+    if not latest or not latest["available"] or any(latest[k] != selected[k] for k in identity):
+        raise ValueError("The release asset changed. Refresh Bactologix releases and select it again.")
+    if latest["version"] == __version__:
+        raise ValueError("That Bactologix version is already running.")
+    directory = ctx.store.home / "updates" / ctx.job["id"]
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    ctx.write(f"Downloading {latest['tag']} from {REPO} and verifying its SHA-256…")
+    wheel = download_wheel(latest, directory)
+    ctx.write("Wheel identity, checksum and Python requirement verified.")
+    ctx.write("Updating only the application environment: " + sys.prefix)
+    state = {"job": ctx.job["id"], "from_version": __version__, "version": latest["version"],
+             "wheel": str(wheel), "sha256": latest["sha256"], "pip_started_at": time.time(), "status": "installing"}
+    ctx.store.put("settings", "app-update", state)
+    argv = [sys.executable, "-m", "pip", "--isolated", "install", "--upgrade", "--no-user", "--no-input",
+            "--disable-pip-version-check", str(wheel)]
+    env = dict(os.environ, PYTHONNOUSERSITE="1", PYTHONUNBUFFERED="1")
+    try:
+        # Do not kill pip halfway through replacing the application package.
+        subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=ctx.log, stderr=subprocess.STDOUT,
+                       env=env, pass_fds=ctx.lock_fds, check=True)
+        code = ("import importlib.metadata as m; import bactologix, streamlit; "
+                f"assert m.version('bactologix') == {latest['version']!r}; "
+                f"assert bactologix.__version__ == {latest['version']!r}; "
+                "print('Installed Bactologix', m.version('bactologix'))")
+        subprocess.run([sys.executable, "-c", code], stdin=subprocess.DEVNULL, stdout=ctx.log,
+                       stderr=subprocess.STDOUT, env=env, pass_fds=ctx.lock_fds, check=True)
+    except BaseException:
+        state.update(status="failed", finished=now())
+        ctx.store.put("settings", "app-update", state)
+        ctx.write("Application installation failed. Read the pip output above. Restart the app before further work; the environment may have changed.")
+        raise
+    state.update(status="installed", finished=now())
+    ctx.store.put("settings", "app-update", state)
+    ctx.write("Update installed. In the Bactologix terminal press Ctrl+C, then rerun the same launch command (including your port). Refresh your browser after restart.")

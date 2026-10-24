@@ -5,6 +5,8 @@ import time
 import traceback
 from .store import Store, now
 from .engine import Cancelled, Context, execute
+from .runtime import environment_lock
+from .updates import assert_current
 
 
 def work(store):
@@ -32,7 +34,10 @@ def work(store):
             ctx = Context(store, job, lock.fileno())
             try:
                 ctx.write("Bactologix started " + now())
-                execute(ctx)
+                with environment_lock(exclusive=job["kind"] == "app_update") as environment_fd:
+                    ctx.lock_fds = (lock.fileno(), environment_fd)
+                    assert_current(store)
+                    execute(ctx)
                 ctx.check_cancel()
                 store.update_job(job["id"], status="succeeded", finished=now())
             except Cancelled as exc:
@@ -43,6 +48,9 @@ def work(store):
                 store.update_job(job["id"], status="failed", finished=now(), error=str(exc))
             finally:
                 ctx.log.close()
+            if job["kind"] == "app_update":
+                # Never claim more work with modules loaded before pip replaced them.
+                return
 
 
 if __name__ == "__main__":

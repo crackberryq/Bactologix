@@ -35,7 +35,7 @@ def default_config() -> dict:
     modules["genomad"].update(database=None, memory_mb=12000)
     modules["mobsuite"].update(database=None)
     modules["antismash"].update(database=None, memory_mb=12000)
-    modules["crisprcasfinder"].update(database=None, version_args=[])
+    modules["crisprcasfinder"].update(database=None, version_args=[], batch_size=32)
     modules["pathogenfinder2"].update(enabled=True, attention=True, attention_top_n=20, map=False,
                                       memory_mb=16000, gpus=0,
                                       pf2_source_commit="3837caf6710da5da3038f5d1246dd82ab26e003a")
@@ -45,6 +45,7 @@ def default_config() -> dict:
             "modules": modules, "sample_module_overrides": {},
             "deep": {"motifs": True, "motif_rules": None, "prosite_snapshot": None, "prosite_profiles": False, "profiles_dir": None, "reference_fasta": None, "reference_metadata": None,
                      "reference_search_tool": "blastp", "maximum_candidates": 100,
+                     "aware": {"enabled": True, "preset": "auto-medium", "tools": {}, "queues": {}},
                      "maximum_attention_candidates": 20, "attention_queue_for_mixed_evidence": False, "maximum_exploratory_candidates": 20,
                      "include_exploratory": True, "include_stress": False, "max_references": 40,
                      "min_identity": 30, "min_coverage": 70, "phylogeny": True,
@@ -146,6 +147,8 @@ def load_config(path: str | Path) -> dict:
     if config["validation_mode"] not in ("research", "synthetic_fixture"):
         raise ValueError("validation_mode must be research or synthetic_fixture")
     deep = config["deep"]
+    from .aware import resolve_policy
+    resolve_policy(deep)
     for key in ("family_placement", "placement_allow_download"):
         if not isinstance(deep[key], bool):
             raise ValueError(f"deep.{key} must be a YAML boolean")

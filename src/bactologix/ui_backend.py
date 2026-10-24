@@ -17,6 +17,34 @@ from .local import browse_folders, discover_environments, discover_installations
 from .runs import (absolute_path, clone_runs, command, create_run, import_samples,
                    parse_config, register_sample, reports, template, validate_launch)
 from .store import identifier
+from . import updates
+
+_SNAPSHOTS = {}
+
+
+def installation_status(item, jobs):
+    tool, commit = item["tool"], item["version"]["commit"]
+    supported_source = supported(tool, commit)
+    def matches(job):
+        p = job["payload"]
+        return ((job["kind"] == "check" and p.get("installation") == item["id"])
+                or (job["kind"] == "install" and p.get("tool") == tool and p.get("version", {}).get("commit") == commit)
+                or (job["kind"] == "connect" and p.get("tool") == tool and p.get("path") == item.get("original_source") and p.get("commit") == commit))
+    related = [j for j in jobs if matches(j)]
+    latest = related[0] if related else None
+    busy = bool(latest and latest["status"] in {"queued", "running"})
+    if busy:
+        state, message = "Setting up", "Open the job log to follow setup."
+    elif not supported_source:
+        state, message = "Version not supported", "Source downloaded. Update Bactologix or choose a version marked Runner supported."
+    elif item.get("ready"):
+        state, message = "Ready", "Runner verified. Analysis tool environments are prepared for each chosen run."
+    elif latest and latest["status"] in {"failed", "cancelled", "interrupted"}:
+        state, message = "Setup incomplete", latest.get("error") or "Read the setup log, then retry setup."
+    else:
+        state, message = "Ready to set up", "Compatible source is downloaded. Finish setup to create or reuse its runner."
+    return {**item, "supported": supported_source, "setup_state": state, "setup_message": message,
+            "setup_busy": busy, "setup_job": latest["id"] if latest else None}
 
 
 def flatten(value, prefix=()):
@@ -41,6 +69,11 @@ def configuration_fields(tool, text):
 
 def snapshot(store):
     jobs = store.jobs()
+    app_update = updates.status(store)
+    # pip briefly replaces package data. Keep the already-rendered workspace
+    # available until restart instead of reading those files during replacement.
+    if (app_update["active_job"] or app_update["restart_required"]) and store.home in _SNAPSHOTS:
+        return {**copy.deepcopy(_SNAPSHOTS[store.home]), "jobs": jobs, "app_update": app_update}
     runs = []
     for run in store.all("runs"):
         cfg = parse_config(run["config"])
@@ -58,13 +91,18 @@ def snapshot(store):
         catalogs[tool] = versions(store, tool)
         for version in catalogs[tool]["versions"]:
             version["supported"] = supported(tool, version["commit"])
-    return {"version": __version__, "workspace": str(store.home), "doctor": doctor(store),
-            "pipelines": PIPELINES, "installs": store.all("installs"),
+    result = {"version": __version__, "workspace": str(store.home), "doctor": doctor(store),
+            "pipelines": PIPELINES, "installs": [installation_status(i, jobs) for i in store.all("installs")],
+            "app_update": app_update,
             "active": {t: store.get("settings", "active-" + t) for t in PIPELINES},
             "catalogs": catalogs, "samples": store.all("samples"), "runs": runs,
             "jobs": jobs, "reports": reports(store), "configs": configs,
             "fields": {t: configuration_fields(t, configs[t]) for t in PIPELINES},
             "citations": {f.name: f.read_text() for f in DATA.glob("CITATION.*")}}
+    if len(_SNAPSHOTS) >= 8:
+        _SNAPSHOTS.pop(next(iter(_SNAPSHOTS)))
+    _SNAPSHOTS[store.home] = copy.deepcopy(result)
+    return result
 
 
 def _item(store, kind, key):
@@ -101,8 +139,24 @@ def dispatch(store, kind, p):
     """Only named UI commands are allowed. Browser-supplied objects are not trusted."""
     if not isinstance(p, dict):
         raise ValueError("Invalid action payload")
+    if kind not in {"refresh", "job_log", "download_log", "open_report", "open_original", "inspect_run", "refresh_app_releases", "cancel_job"}:
+        updates.assert_current(store)
+        if updates.status(store)["active_job"]:
+            raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
     if kind == "refresh":
         return {}
+    if kind == "refresh_app_releases":
+        store.put("app_catalog", "releases", updates.fetch_releases())
+        return {"message": "Bactologix releases refreshed.", "keep_modal": True}
+    if kind == "update_app":
+        catalog = store.get("app_catalog", "releases", {})
+        release = next((r for r in catalog.get("releases", []) if r["id"] == p.get("release_id") and r["version"] == p.get("version")), None)
+        if not release or not release["available"]:
+            raise ValueError("Refresh the releases and select an available Bactologix wheel.")
+        if release["version"] == __version__:
+            raise ValueError("You are already running this Bactologix version.")
+        jid = enqueue(store, "app_update", {"release": release})
+        return {"message": "Application update queued: " + jid, "navigate": "jobs"}
     if kind == "browse_folders":
         return {"browser": browse_folders(store, p.get("path", ""), p.get("offset", 0),
                                           str(p.get("query", "")), p.get("show_hidden") is True), "keep_modal": True}
@@ -148,17 +202,19 @@ def dispatch(store, kind, p):
             raise ValueError("Version changed; refresh the list and select it again")
         jid = enqueue(store, "install", {"tool": tool, "version": version})
         return {"message": "Queued " + jid, "navigate": "jobs"}
-    if kind in {"use_install", "check_install", "repair_install"}:
+    if kind in {"use_install", "check_install", "repair_install", "setup_install"}:
         item = _item(store, "installs", p.get("id"))
+        if not supported(item["tool"], item["version"]["commit"]):
+            raise ValueError("This version is not supported. Update Bactologix or choose a Runner supported snapshot.")
         if kind == "use_install":
             if not item["ready"]:
                 raise ValueError("This runner is not ready")
             store.put("settings", "active-" + item["tool"], item["id"])
             return {"message": "Version selected for future drafts."}
         if item.get("origin") == "local":
-            jid = enqueue(store, "check", {"installation": item["id"], "repair": kind == "repair_install"})
+            jid = enqueue(store, "check", {"installation": item["id"], "repair": kind == "repair_install", "setup": kind == "setup_install"})
         else:
-            jid = enqueue(store, "check", {"installation": item["id"]}) if kind == "check_install" else enqueue(store, "install", {"tool": item["tool"], "version": item["version"], "repair": True})
+            jid = enqueue(store, "check", {"installation": item["id"]}) if kind == "check_install" else enqueue(store, "install", {"tool": item["tool"], "version": item["version"], "repair": kind == "repair_install"})
         return {"message": "Queued " + jid, "navigate": "jobs"}
     if kind == "add_sample":
         register_sample(store, p["id"].strip(), str(local_path(p["path"])), p["mode"])

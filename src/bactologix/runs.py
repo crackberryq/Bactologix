@@ -179,6 +179,11 @@ def bind_paths(cfg, tool, store, installed):
             resources["directory"] = str(store.home / "resources/basis")
         else:
             resources["directory"] = str(absolute_path(raw))
+        storage = cfg.get("storage", {})
+        if not isinstance(storage, dict):
+            raise ValueError("storage must be a mapping")
+        if "native_results_directory" in storage:
+            storage["native_results_directory"] = str(absolute_path(storage["native_results_directory"]))
         # These keys are sourced from the standalone BaSIS PATH_KEYS contract.
         keys = {"database", "database_manifest", "result", "profiles_dir", "reference_fasta", "reference_metadata",
                 "prot_t5_path", "weights_model", "embeddings", "embeddings_manifest", "db_proteins", "metadata",

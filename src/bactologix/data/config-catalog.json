@@ -1,7 +1,7 @@
 {
   "templates": {
     "hybas": "# Per-workstation paths and options. The source version is recorded separately.\nbase_dir: ..\nsample_sheet: samples.tsv\nthreads: 8\nkeep_percent: 95\nracon_rounds: 2\nbusco_lineage: bacteria_odb10\nmedaka_model: ''\ntarget_taxid: ''\nrun_kraken: true\nrun_busco: true\nrun_prokka: true\nrun_multiqc: true\nrun_polypolish: true\nsetup_only: false\nadmin_mode: false\nci_mode: false\nallow_ont_only: true\nallow_illumina_only: true\nrequire_target_taxid_for_kraken: false\npolish_mode: tripolish\nworkflow_version: HybAs-9.0.0-AWARE\ndb_root: db\nkraken_db_name: kraken2_std_db\nkraken_decision_mode: aware\nkraken_auto_passthrough_min_percent: 95.0\nkraken_auto_use_both_platforms: true\nkraken_include_children: true\nkraken_auto_prefer_species_min_percent: 90.0\nkraken_aware_delta_min_percent: 20.0\nkraken_aware_moderate_delta_min_percent: 10.0\nkraken_aware_high_target_min_percent: 95.0\nkraken_aware_moderate_target_min_percent: 80.0\nassembly_mem_mb: 8192\nspades_memory_gb: 8\npolishing_mem_mb: 4096\nmin_fasta_length: 1000\n",
-    "basis": "# Paths in this configuration are relative to the folder containing BaSIS.smk.\n# Annotation files are discovered as <isolate>/annotation/<sample_id>.{fna,faa,gff,gbk}.\nbactomics_root: ..\nisolates: [isolate2]\nproject: BaSIS standalone study\nthreads: 4\nmemory_mb: 20000\nextend: true\ndeep:\n  enabled: true\nresources:\n  policy: auto\n  directory: resources\n# Optional module overrides, e.g. modules: {pathogenfinder2: {enabled: false}}\n# For another annotation layout use samples: config/samples.tsv instead of isolates.\n# Taxonomy is imported from HybAs when available, otherwise remains unconfirmed.\n"
+    "basis": "# Paths in this configuration are relative to the folder containing BaSIS.smk.\n# Annotation files are discovered as <isolate>/annotation/<sample_id>.{fna,faa,gff,gbk}.\nbactomics_root: ..\nisolates: [isolate2]\nproject: BaSIS standalone study\nthreads: 4\nmemory_mb: 20000\nextend: true\ndeep:\n  enabled: true\n  aware:\n    enabled: true\n    preset: auto-medium  # auto-strict | auto-medium | auto-loose\n    tools: {}           # Per-tool manual overrides: see config/aware.example.yaml\nresources:\n  policy: auto\n  directory: resources\n# Optional module overrides, e.g. modules: {pathogenfinder2: {enabled: false}}\n# For another annotation layout use samples: config/samples.tsv instead of isolates.\n# Taxonomy is imported from HybAs when available, otherwise remains unconfirmed.\n"
   },
   "defaults": {
     "hybas": {
@@ -61,6 +61,12 @@
         "reference_metadata": null,
         "reference_search_tool": "blastp",
         "maximum_candidates": 100,
+        "aware": {
+          "enabled": true,
+          "preset": "auto-medium",
+          "tools": {},
+          "queues": {}
+        },
         "maximum_attention_candidates": 20,
         "attention_queue_for_mixed_evidence": false,
         "maximum_exploratory_candidates": 20,
@@ -84,10 +90,13 @@
         "threads": 4,
         "memory_mb": 8000,
         "timeout_seconds": 14400,
+        "command_prefix": [],
         "context_flank": 20000,
         "circular_contigs": [],
         "enabled": true,
-        "domain_database": null
+        "executables": {
+          "iqtree": "iqtree2"
+        }
       },
       "resources": {
         "policy": "auto",
@@ -98,7 +107,9 @@
       "modules": {
         "amrfinder": {
           "enabled": true,
+          "mode": "native",
           "executable": "amrfinder",
+          "command_prefix": [],
           "threads": 4,
           "memory_mb": 4000,
           "timeout_seconds": 14400,
@@ -108,7 +119,9 @@
         },
         "rgi": {
           "enabled": true,
+          "mode": "native",
           "executable": "rgi",
+          "command_prefix": [],
           "threads": 4,
           "memory_mb": 4000,
           "timeout_seconds": 14400,
@@ -118,22 +131,9 @@
         },
         "vfdb": {
           "enabled": true,
+          "mode": "native",
           "executable": "diamond",
-          "threads": 4,
-          "memory_mb": 4000,
-          "timeout_seconds": 14400,
-          "cache": true,
-          "database": null,
-          "min_identity": 80.0,
-          "min_coverage": 70.0,
-          "min_query_coverage": 0.0,
-          "evalue": 1e-05,
-          "max_target_seqs": 25,
-          "sensitivity": "sensitive"
-        },
-        "bacmet": {
-          "enabled": true,
-          "executable": "diamond",
+          "command_prefix": [],
           "threads": 4,
           "memory_mb": 4000,
           "timeout_seconds": 14400,
@@ -148,7 +148,9 @@
         },
         "antismash": {
           "enabled": true,
+          "mode": "native",
           "executable": "antismash",
+          "command_prefix": [],
           "threads": 4,
           "memory_mb": 12000,
           "timeout_seconds": 14400,
@@ -157,7 +159,9 @@
         },
         "genomad": {
           "enabled": true,
+          "mode": "native",
           "executable": "genomad",
+          "command_prefix": [],
           "threads": 4,
           "memory_mb": 12000,
           "timeout_seconds": 14400,
@@ -166,7 +170,9 @@
         },
         "mobsuite": {
           "enabled": true,
+          "mode": "native",
           "executable": "mob_recon",
+          "command_prefix": [],
           "threads": 4,
           "memory_mb": 4000,
           "timeout_seconds": 14400,
@@ -175,15 +181,36 @@
         },
         "integronfinder": {
           "enabled": true,
+          "mode": "native",
           "executable": "integron_finder",
+          "command_prefix": [],
           "threads": 4,
           "memory_mb": 4000,
           "timeout_seconds": 14400,
           "cache": true
         },
+        "bacmet": {
+          "enabled": true,
+          "mode": "native",
+          "executable": "diamond",
+          "command_prefix": [],
+          "threads": 4,
+          "memory_mb": 4000,
+          "timeout_seconds": 14400,
+          "cache": true,
+          "database": null,
+          "min_identity": 80.0,
+          "min_coverage": 70.0,
+          "min_query_coverage": 0.0,
+          "evalue": 1e-05,
+          "max_target_seqs": 25,
+          "sensitivity": "sensitive"
+        },
         "isescan": {
           "enabled": true,
+          "mode": "native",
           "executable": "isescan.py",
+          "command_prefix": [],
           "threads": 4,
           "memory_mb": 4000,
           "timeout_seconds": 14400,
@@ -191,7 +218,9 @@
         },
         "icescreen": {
           "enabled": true,
+          "mode": "native",
           "executable": "icescreen",
+          "command_prefix": [],
           "threads": 4,
           "memory_mb": 4000,
           "timeout_seconds": 14400,
@@ -199,17 +228,22 @@
         },
         "crisprcasfinder": {
           "enabled": true,
+          "mode": "native",
           "executable": "perl",
+          "command_prefix": [],
           "threads": 4,
           "memory_mb": 4000,
           "timeout_seconds": 14400,
           "cache": true,
           "database": null,
-          "version_args": []
+          "version_args": [],
+          "execution_scope": "assembly"
         },
         "minced": {
           "enabled": true,
+          "mode": "native",
           "executable": "minced",
+          "command_prefix": [],
           "threads": 4,
           "memory_mb": 4000,
           "timeout_seconds": 14400,
@@ -217,7 +251,9 @@
         },
         "mlst": {
           "enabled": true,
+          "mode": "native",
           "executable": "mlst",
+          "command_prefix": [],
           "threads": 4,
           "memory_mb": 4000,
           "timeout_seconds": 14400,
@@ -225,7 +261,9 @@
         },
         "pathogenfinder2": {
           "enabled": true,
+          "mode": "native",
           "executable": "pathogenfinder2",
+          "command_prefix": [],
           "threads": 4,
           "memory_mb": 16000,
           "timeout_seconds": 14400,
@@ -234,14 +272,15 @@
           "attention_top_n": 20,
           "map": false,
           "gpus": 0,
-          "pf2_source_commit": "3837caf6710da5da3038f5d1246dd82ab26e003a",
-          "prot_t5_path": null,
-          "weights_model": null
+          "pf2_source_commit": "3837caf6710da5da3038f5d1246dd82ab26e003a"
         }
       },
       "execution": {
-        "device": "cpu",
-        "gpus": 0
+        "cores": 4,
+        "memory_mb": 20000,
+        "gpus": 0,
+        "environment_backend": "auto",
+        "conda_prefix": null
       },
       "sample_module_overrides": {}
     }

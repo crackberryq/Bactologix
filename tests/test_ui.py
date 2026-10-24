@@ -101,3 +101,19 @@ def test_folder_picker_registers_real_sample_through_component(tmp_path, monkeyp
     result = send(app, "add_sample", {"id": "sample", "path": result["browser"]["path"], "mode": "ont_only"}, "register")
     assert result["ok"]
     assert Store(tmp_path / "workspace").get("samples", "sample")["path"] == str(sample)
+
+
+def test_app_update_release_selection_through_component(tmp_path, monkeypatch):
+    monkeypatch.setenv("BACTOLOGIX_HOME", str(tmp_path / "workspace"))
+    release = {"id": 17, "version": "0.1.0a7", "available": True, "wheel_url": "server-selected"}
+    monkeypatch.setattr("bactologix.updates.fetch_releases", lambda: {"releases": [release]})
+    captured = []
+    monkeypatch.setattr("bactologix.ui_backend.enqueue", lambda *args: captured.append(args) or "job-update")
+    app = AppTest.from_file(str(APP)).run(timeout=20)
+    assert "Update Bactologix" in app.get("bidi_component")[0].proto.html_content
+    assert send(app, "refresh_app_releases")["ok"]
+    result = send(app, "update_app", {"release_id": 17, "version": "0.1.0a7"}, "select-update")
+    assert result["ok"] and result["navigate"] == "jobs"
+    assert captured[0][1:] == ("app_update", {"release": release})
+    send(app, "update_app", {"release_id": 17, "version": "0.1.0a7"}, "select-update")
+    assert len(captured) == 1
