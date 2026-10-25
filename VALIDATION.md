@@ -1,3 +1,14 @@
+# Validation update: 0.1.0a8 candidate (2026-10-25)
+
+- The application suite passed **90 tests** locally. Four opt-in integration/browser tests are separate. Regression cases reject sample-sheet edits, retargeted/replaced/missing/added staged inputs, and comparison input drift; they cover older drafts, controller repair, failed-run status, report ownership, and reviewed follow-up requests.
+- Real **Snakemake 9.6.2 dry-runs passed** for the pinned HybAs `780ee7086c15c49f2825800ec463327f009f14a6` and BaSIS AWARE `1d2d96b266e98d956254d1a518ff5b437ab7a10a` sources, using Bactologix-generated drafts with paths containing spaces. These checks run Snakemake directly in Python 3.12 and do not deploy Conda tool environments.
+- The saved-screening follow-up dry-run passed. An attempted empty native follow-up execution encountered this container's process-monitoring limitation (`psutil.NoSuchProcess` in Snakemake benchmarking); it is not counted as a local execution pass. The unchanged workflow is included in the standard Linux CI suite, with zero findings and no analysis tool commands.
+- GitHub Actions now defines Python 3.11/3.12 application/adapter tests, source and wheel builds, installed-package checks, and a separate real Chromium-to-Streamlit acceptance job. Results for the final candidate are recorded below when available.
+- Production source, screening defaults, follow-up entry point and configuration fields were reviewed against the exact upstream commits. Older supported source commits and existing saved configurations remain available. New defaults do not rewrite existing preferences.
+- Full biological analyses, large database/model execution, real Conda deployment on a clean workstation, and WSL browser acceptance remain outside these software checks. The HybAs compatibility refresh does not fix previously identified upstream algorithm/output-reuse issues.
+
+---
+
 # Validation update: 0.1.0a6 (2026-10-24)
 
 - **43 automated tests passed** against the final source and installed wheel. New tests cover supported current/previous snapshots, downloaded-source setup, environment reuse, release asset validation, server-resolved release selection, update/queue/cancellation locks, package-replacement UI caching, checksum/Python rejection, stale release rejection, pip failures and restart handling. Real Streamlit component-trigger tests exercise refresh and update selection with duplicate-event suppression.

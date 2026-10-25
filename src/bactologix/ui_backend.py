@@ -15,9 +15,11 @@ from .catalog import DATA, PIPELINES, fetch_versions, supported, versions
 from .engine import doctor, enqueue, launch_worker
 from .local import browse_folders, discover_environments, discover_installations, inspect_installation, local_path
 from .runs import (absolute_path, clone_runs, command, create_run, import_samples,
-                   parse_config, register_sample, reports, template, validate_launch)
+                   parse_config, register_sample, reports, template, validate_launch,
+                   dry_run_current, run_status, check_run_files)
 from .store import identifier
 from . import databases, updates
+from . import followup
 
 _SNAPSHOTS = {}
 
@@ -79,12 +81,13 @@ def snapshot(store):
         cfg = parse_config(run["config"])
         run_jobs = [j for j in jobs if j["kind"] == "workflow" and j["payload"].get("run_id") == run["id"]]
         active = next((j for j in run_jobs if j["status"] in {"queued", "running"}), None)
-        status = active["status"] if active else ("completed" if run.get("completed") else "checked" if run["dry_run_ok"] else "draft")
-        if not active and run_jobs and run_jobs[0]["status"] in {"failed", "cancelled", "interrupted"}:
-            status = run_jobs[0]["status"]
-        runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse")} | {
-            "status": status, "busy": bool(active), "aware": "off" if cfg.get("kraken_decision_mode") == "off" else "aware",
-            "strategy": cfg.get("polish_mode", "—"), "can_handoff": run["tool"] == "hybas" and Path(run["output"], "annotation", run["sample"]["id"] + ".fna").is_file()})
+        checked = dry_run_current(store, run)
+        status = run_status(run, jobs, checked)
+        runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type")} | {
+            "status": status, "busy": bool(active), "dry_run_ok": checked, "aware": "off" if cfg.get("kraken_decision_mode") == "off" else "aware",
+            "can_followup": followup.available(run) and status == "completed",
+            "strategy": cfg.get("polish_mode", "—"), "can_handoff": run["tool"] == "hybas" and status == "completed" and all(
+                Path(run["output"], "annotation", run["sample"]["id"] + ext).is_file() for ext in (".fna", ".faa", ".gff"))})
     configs = {t: store.get("configs", t, template(t)) for t in PIPELINES}
     catalogs = {}
     for tool in PIPELINES:
@@ -302,13 +305,21 @@ def dispatch(store, kind, p):
             raise ValueError("Choose a source branch and at least one polishing strategy")
         made = clone_runs(store, p["id"], p["aware_free"], list(dict.fromkeys(p["strategies"])))
         return {"message": f"Created {len(made)} independent variants.", "navigate": "samples"}
+    if kind == "create_followup":
+        followup.create_followup(store, p.get("id"), p["text"], p.get("reviewed") is True)
+        return {"message": "Created a reviewed follow-up draft. Check its native dry-run before execution.", "navigate": "samples"}
     if kind in {"revise_run", "handoff"}:
         run = _item(store, "runs", p.get("id"))
         if kind == "revise_run":
+            if run.get("run_type") == "followup":
+                raise ValueError("Create a new reviewed follow-up from the screening run to change these settings")
             create_run(store, run["tool"], run["sample"], p["text"], run["cores"], run["memory_mb"], run["id"], run["label"] + " · revised", run["installation"])
         else:
             if run["tool"] != "hybas":
                 raise ValueError("Choose a HybAs run")
+            if run_status(run, store.jobs(), dry_run_current(store, run)) != "completed":
+                raise ValueError("Complete the HybAs run before creating a BaSIS draft")
+            check_run_files(run)
             create_run(store, "basis", dict(run["sample"], path=run["output"]), store.get("configs", "basis", template("basis")), run["cores"], run["memory_mb"], run["id"], run["label"] + " · BaSIS")
         return {"message": "Created a new draft.", "navigate": "samples"}
     if kind == "recover_jobs":

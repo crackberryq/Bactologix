@@ -1,5 +1,16 @@
 # Bactologix releases
 
+## 0.1.0a8 — run integrity, repair recovery and BaSIS AWARE
+
+- Verify generated sample sheets and staged input links before execution, including older drafts reconstructed from their recorded source identities.
+- Reject comparison variants when original input contents or file inventories differ from their parent.
+- Route existing drafts through repaired controllers for the same source commit; require a fresh dry-run and retain original controller provenance.
+- Preserve failed execution status across subsequent checks and label reports with their source run status. Require completed HybAs runs before managed handoff.
+- Add reviewed BaSIS AWARE 0.4.0a1 compatibility and current HybAs source compatibility while retaining previously supported snapshots.
+- Use screening-first defaults for new BaSIS configurations. Preserve existing saved preferences. Add an explicit reviewed saved-screening follow-up request and separate follow-up report discovery.
+- Track shared follow-up output ownership so older requests do not claim a later request's report.
+- Add regression, pinned-source integration and real-browser tests, with GitHub Actions on Python 3.11/3.12 and package builds.
+
 ## 0.1.0a7 — database folders and automatic discovery
 
 - Replace the resource-configuration shortcut with named HybAs and BaSIS database/model cards, folder browsing, checks, detected-installation selectors and saved locations.

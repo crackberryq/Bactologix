@@ -11,10 +11,13 @@ from . import __version__
 DATA = Path(__file__).parent / "data"
 PIPELINES = {
     "hybas": {"name": "HybAs", "repo": "crackberryq/Bactomics_HybAs", "preferred": "HybAs_v9.0.0-AWARE",
-              "commit": "9477fd3b6578e23a84d6524e1c89e65e01590f03", "snakefile": "Hybas.smk", "environment": "environment.yaml"},
-    "basis": {"name": "BaSIS", "repo": "crackberryq/Bactomics_BaSIS", "preferred": "snakemake-standalone",
-              "commit": "f66dfedd46da05ae79bf769e7e6fada91270d4d1",
-              "previous_commits": ["d2d2e7806df4d2f586dc4a11d5c1f980deb06857"],
+              "commit": "780ee7086c15c49f2825800ec463327f009f14a6", "previous_commits": ["9477fd3b6578e23a84d6524e1c89e65e01590f03"],
+              "snakefile": "Hybas.smk", "environment": "environment.yaml"},
+    "basis": {"name": "BaSIS AWARE", "repo": "crackberryq/Bactomics_BaSIS", "preferred": "basis-aware",
+              "commit": "1d2d96b266e98d956254d1a518ff5b437ab7a10a",
+              "followup_commits": ["1d2d96b266e98d956254d1a518ff5b437ab7a10a"],
+              "previous_commits": ["f66dfedd46da05ae79bf769e7e6fada91270d4d1", "d2d2e7806df4d2f586dc4a11d5c1f980deb06857"],
+              "previous_ref": "snakemake-standalone",
               "snakefile": "BaSIS.smk", "environment": "environment.yml"},
 }
 
@@ -69,7 +72,8 @@ def versions(store, tool):
     # Moving branches must never hide the compatible snapshots after a refresh.
     pinned = []
     for commit in [spec["commit"], *spec.get("previous_commits", [])]:
-        pinned.append(dict(id="commit:" + commit, kind="pinned", ref=spec["preferred"] + " @ " + commit[:8],
+        ref = spec["preferred"] if commit == spec["commit"] else spec.get("previous_ref", spec["preferred"])
+        pinned.append(dict(id="commit:" + commit, kind="pinned", ref=ref + " @ " + commit[:8],
                            name="Recommended compatible snapshot" if commit == spec["commit"] else "Earlier compatible snapshot",
                            commit=commit, url=f'https://github.com/{spec["repo"]}/tree/{commit}',
                            preferred=commit == spec["commit"], prerelease=False))

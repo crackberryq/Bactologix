@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a7 — native alpha
+# Bactologix 0.1.0a8 — native alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -11,7 +11,7 @@ Bactologix is a Python/Streamlit application for local HybAs and standalone BaSI
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a7-py3-none-any.whl
+pipx install ./bactologix-0.1.0a8-py3-none-any.whl
 bactologix
 ```
 
@@ -20,7 +20,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a7/bactologix-0.1.0a7-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a8/bactologix-0.1.0a8-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -29,7 +29,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a7/bactologix-0.1.0a7-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a8/bactologix-0.1.0a8-py3-none-any.whl"
 python -m bactologix.cli
 ```
 
@@ -37,7 +37,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a7-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a8-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -101,15 +101,25 @@ The UI refreshes GitHub release/branch lists, resolves release tags to exact com
 
 | Pipeline | Branch | Commit |
 |---|---|---|
-| HybAs | HybAs_v9.0.0-AWARE | 9477fd3b6578e23a84d6524e1c89e65e01590f03 |
-| BaSIS | snakemake-standalone (recommended) | f66dfedd46da05ae79bf769e7e6fada91270d4d1 |
+| HybAs | HybAs_v9.0.0-AWARE (recommended) | 780ee7086c15c49f2825800ec463327f009f14a6 |
+| HybAs | Earlier compatible snapshot | 9477fd3b6578e23a84d6524e1c89e65e01590f03 |
+| BaSIS AWARE | basis-aware / v0.4.0a1 (recommended) | 1d2d96b266e98d956254d1a518ff5b437ab7a10a |
+| BaSIS | snakemake-standalone (earlier compatible snapshot) | f66dfedd46da05ae79bf769e7e6fada91270d4d1 |
 | BaSIS | snakemake-standalone (earlier compatible snapshot) | d2d2e7806df4d2f586dc4a11d5c1f980deb06857 |
 
 Other listed versions can be downloaded; managed execution is withheld until their adapter contract is reviewed. Branch updates to a new commit therefore require a Bactologix adapter update before execution. Choosing a different installed version affects future drafts only.
 
-Controller environments are keyed by pipeline, environment-file bytes and platform. Existing controllers are health-checked before reuse. Repair prepares a fresh controller and retains the old one. Snakemake uses a stable absolute `--conda-prefix` per pipeline outside version-specific source folders; its native content/pin/deploy-script hashing governs rule environment reuse. No environment or old run is routinely deleted. Database/model storage is separate. BaSIS's configured `resources.policy: auto` can download missing resources during an actual run. HybAs database provisioning remains the upstream explicit workflow/configuration responsibility.
+Controller environments are keyed by pipeline, environment-file bytes and platform. Existing controllers are health-checked before reuse. Repair prepares a fresh controller and retains the old one. Existing drafts use the repaired controller for the same source commit, and require a fresh native dry-run before preparation or execution. Their original controller path remains recorded as creation provenance. Snakemake uses a stable absolute `--conda-prefix` per pipeline outside version-specific source folders; its native content/pin/deploy-script hashing governs rule environment reuse. No environment or old run is routinely deleted. Database/model storage is separate. BaSIS's configured `resources.policy: auto` can download missing resources during an actual run. HybAs database provisioning remains the upstream explicit workflow/configuration responsibility.
 
-One OS lock serializes jobs in each Bactologix workspace, including environment preparation. Child processes inherit the lock. The worker marks abandoned running jobs interrupted on recovery. Run/resume uses normal Snakemake metadata and `--rerun-incomplete`; Bactologix never fabricates completion records, deletes scheduler locks, or weakens rerun triggers. Input size/mtime changes invalidate a draft; these are metadata checks, not full input content hashes. Native workflow provenance may provide additional content checksums.
+One OS lock serializes jobs in each Bactologix workspace, including environment preparation. Child processes inherit the lock. The worker marks abandoned running jobs interrupted on recovery. Run/resume uses normal Snakemake metadata and `--rerun-incomplete`; Bactologix never fabricates completion records, deletes scheduler locks, or weakens rerun triggers. The generated sample sheet and exact staged input-link mapping are verified before every launch. Input size/mtime changes invalidate a draft; these are metadata checks, not full input content hashes. Older drafts reconstruct their expected link mapping from recorded source identities, never from the current staged links; unverifiable drafts are rejected. Comparison clones must retain the parent’s exact input snapshot, including its file inventory. A failed execution remains failed after later successful dry-runs, and discovered reports show their source run status. Native workflow provenance may provide additional content checksums.
+
+## Reviewed BaSIS AWARE follow-up
+
+New BaSIS defaults leave DeepSafe disabled. Existing saved defaults and run configurations are preserved, so review them before creating new drafts after upgrading. Choose the supported BaSIS AWARE source under Install & update for new screening runs; older standalone snapshots remain available for their existing runs.
+
+After a managed BaSIS AWARE screening run completes, open its results, then **Run details → Review follow-up**. Review the follow-up configuration, explicitly enable it, and confirm that you reviewed the screening report. This creates a separate frozen follow-up request with its own source copy, configuration, job history and native dry-run. It invokes upstream `Followup.smk`, which verifies saved screening evidence and requires prepared resources; it has no screening or resource-download rules. Resource paths must be absolute. Bactologix fingerprints the saved screening prerequisite files and rejects changed evidence before launch.
+
+The native follow-up entry point writes into the screening run’s `safety/deepsafe` and `safety/deepsafe-report` folders. Multiple follow-up requests therefore share those outputs; they are not independent output variants. The latest executed follow-up request owns the displayed follow-up report. Earlier requests retain their configurations and job logs. A failed latest attempt is labelled failed even if a report from an earlier attempt remains on disk. Screening reports remain separate.
 
 ## Alpha boundaries
 
@@ -130,7 +140,7 @@ python -m pytest
 python -m build
 ```
 
-`src/bactologix`: HTML/JS/CSS component, Streamlit action bridge, CLI, SQLite store, GitHub catalogue, version-specific adapters, detached worker. `tests`: subprocess/queue, immutable source/config and input contracts, report containment, and Streamlit component trigger checks. The packaged HTML component preserves the original prototype’s design; its production data and actions come from Python, with no seeded examples or simulated workflow completion. `VALIDATION.md` records the checks performed for the supplied build.
+`src/bactologix`: HTML/JS/CSS component, Streamlit action bridge, CLI, SQLite store, GitHub catalogue, version-specific adapters, detached worker. `tests`: subprocess/queue, immutable source/config and input contracts, report containment, and Streamlit component trigger checks. The packaged HTML component preserves the original prototype’s design; its production data and actions come from Python, with no seeded examples or simulated workflow completion. `VALIDATION.md` records the checks performed for the supplied build. GitHub Actions runs Python 3.11/3.12 tests, pinned upstream dry-runs, an empty saved-screening follow-up, package checks, and a separate real Chromium-to-Streamlit test. No native biological analysis is performed by CI.
 
 Credits and RIS/BibTeX/CFF/plain-text citations are in the UI and package data. GitHub's **Cite this repository** entry uses the root [CITATION.cff](CITATION.cff). Cite the pipelines, tools and databases used as well as Bactologix.
 
