@@ -4,7 +4,7 @@ Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-
 
 Bactologix is a Python/Streamlit application for local HybAs and standalone BaSIS setup, version selection, configuration, sample registration, isolated run drafts, durable jobs, and HTML reports. This version executes real operations. Download the wheel and source archive from [GitHub Releases](https://github.com/crackberryq/Bactologix/releases). Bactologix is not published to PyPI.
 
-**Alpha release:** the approved HTML interface now runs inside Streamlit with working Python controls. Software checks, component browser checks and native workflow dry-runs passed; full biological analyses and target-workstation browser testing remain outstanding. Read [VALIDATION.md](VALIDATION.md) and the alpha boundaries below before running samples.
+**Alpha release:** the approved HTML interface now runs inside Streamlit with working Python controls. Software checks, real Chromium-to-Streamlit checks and native workflow dry-runs passed; full biological analyses and target-workstation browser testing remain outstanding. Read [VALIDATION.md](VALIDATION.md) and the alpha boundaries below before running samples.
 
 ## Install on Linux or WSL2
 
