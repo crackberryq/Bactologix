@@ -29,7 +29,7 @@ const select=(id,label,options,selected='')=>`<div class="field"><label for="${i
 function toast(message,error=false){const t=$('#toast');t.textContent=message;t.classList.add('show');t.classList.toggle('toast-error',error);clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),6500);}
 function download(name,content,type='text/plain'){const url=URL.createObjectURL(new Blob([content],{type}));const a=document.createElement('a');a.href=url;a.download=name;root.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);}
 function request(kind,payload={}){if(U.pending)return;U.pending=Array.from(crypto.getRandomValues(new Uint32Array(4)),x=>x.toString(16)).join('-');setTriggerValue('action',{id:U.pending,kind,payload});renderBusy();}
-function renderBusy(){root.classList.toggle('is-busy',!!U.pending);$('#connection-status').textContent=U.pending?'Working…':'Connected to local worker';}
+function renderBusy(){root.classList.toggle('is-busy',!!U.pending);const status=$('#connection-status');if(status)status.textContent=U.pending?'Working…':'Connected to local worker';for(const el of $$('input,textarea,select,button[data-action]:not([data-action="close"])')){if(U.pending&&!el.disabled){el.disabled=true;el.dataset.pendingDisabled='true';}else if(!U.pending&&el.dataset.pendingDisabled){el.disabled=false;delete el.dataset.pendingDisabled;}}}
 function navigate(view){U.view=view;U.modal=null;U.error='';render();$('#main').focus({preventScroll:true});window.scrollTo(0,0);}
 function modal(kind,id=''){U.modal={kind,id};renderModal();$('.modal input,.modal select,.modal button')?.focus();}
 function closeModal(){if(U.modal?.kind==='folders'&&U.browserReturn){U.modal=U.browserReturn;U.browserReturn=null;U.error='';renderModal();return;}U.modal=null;U.browserReturn=null;$('#modal-root').innerHTML='';$('.app-shell').removeAttribute('inert');render();}
@@ -111,7 +111,7 @@ if(m.kind==='sample'){title='Add a sample';desc='Register an existing folder on 
 if(m.kind==='folders'){
  wide=true;title='Choose a folder';desc='Browse the machine running Bactologix. Files stay on disk.';
  const b=U.browser;
- body=`<div class="folder-address">${field('folder-path','Folder path',b?.path||'','','placeholder="/home/jimi or C:\\Users\\…"')}${btn('folder-go','Go')}</div>`;
+ body=`<div class="folder-address">${field('folder-path','Folder path',b?.path||'','','placeholder="/home/jimi or C:\\Users\\…"'+(!b?' disabled':''))}${btn('folder-go','Go')}</div>`;
  if(b){
   body+=`<div class="folder-shortcuts">${btn('folder-open','Up',false,b.parent,'arrow',b.path===b.parent)}${b.bookmarks.map(x=>btn('folder-open',x.name,false,x.path,'folder')).join('')}</div>
    <div class="folder-filters">${field('folder-query','Find a subfolder',val('folder-query'))}<label class="folder-hidden"><input id="folder-hidden" type="checkbox" ${val('folder-hidden',false)?'checked':''}> Show hidden</label>${btn('folder-filter','Apply')}</div>
@@ -153,6 +153,7 @@ $('#modal-root').innerHTML=`<div class="modal-shade"><section class="modal ${wid
 $('.app-shell').setAttribute('inert','');
 if(m.kind==='report'&&U.report?.id===m.id){const f=document.createElement('iframe');f.title=U.report.name;f.setAttribute('sandbox','allow-scripts allow-downloads');f.referrerPolicy='no-referrer';f.className='html-report-frame';f.srcdoc=new TextDecoder().decode(Uint8Array.from(atob(U.report.base64),c=>c.charCodeAt(0)));$('#report-frame-container').append(f);}
 if(m.kind==='versions')filterVersions();
+renderBusy();
 }
 function safeURL(url){try{const u=new URL(url);return u.protocol==='https:'&&u.hostname==='github.com'?u.href:'#';}catch{return '#';}}
 function filterVersions(){const q=val('version-search').toLowerCase(),c=val('version-channel','all');for(const row of $$('.version-choice')){row.hidden=!row.dataset.versionName.includes(q)||(c!=='all'&&row.dataset.versionKind!==c);const radio=row.querySelector('input');if(row.hidden&&radio.checked){radio.checked=false;U.drafts['version-'+U.modal.id]='';}}const chosen=S.catalogs[U.modal.id].versions.find(x=>x.id===val('version-'+U.modal.id));const button=$('[data-action="install-version"]');if(button){button.disabled=!chosen;button.textContent=!chosen?'Choose a version':chosen.supported?'Download and set up':'Download source only';}}

@@ -409,14 +409,13 @@ def execute_workflow(ctx):
     ctx.write("Input identity uses file size/mtime checks. Workflow provenance may add content checksums.")
     if payload["action"] == "dry-run":
         run["dry_run_ok"] = False
-        store.put("runs", run["id"], run)
     elif payload["action"] == "run":
         if run.get("completed"):
             run["previous_completed"] = run.pop("completed")
-        store.put("runs", run["id"], run)
         if run.get("run_type") == "followup":
             store.put("followup_output_owner", run["parent"], run["id"])
     run["last_controller"] = current_controller(store, run)
+    store.put("runs", run["id"], run)
     ctx.command(command(store, run, payload["action"]), cwd=Path(run["folder"]) / "workflow")
     run["last_action"] = payload["action"]
     if payload["action"] == "dry-run":

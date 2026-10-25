@@ -9,6 +9,7 @@
 - Add reviewed BaSIS AWARE 0.4.0a1 compatibility and current HybAs source compatibility while retaining previously supported snapshots.
 - Use screening-first defaults for new BaSIS configurations. Preserve existing saved preferences. Add an explicit reviewed saved-screening follow-up request and separate follow-up report discovery.
 - Track shared follow-up output ownership so older requests do not claim a later request's report.
+- Prevent editing form controls while a server request is pending, including the folder picker’s initial load, so late responses cannot overwrite newly entered paths.
 - Add regression, pinned-source integration and real-browser tests, with GitHub Actions on Python 3.11/3.12 and package builds.
 
 ## 0.1.0a7 — database folders and automatic discovery
