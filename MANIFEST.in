@@ -1,6 +1,6 @@
 include README.md VALIDATION.md CITATION.cff CHANGELOG.md LICENSE
 recursive-include tests *.py
-recursive-include scripts *.py
+recursive-include scripts *.py *.json
 recursive-include src/bactologix/data *
 recursive-include src/bactologix/ui *
 global-exclude *.py[cod]

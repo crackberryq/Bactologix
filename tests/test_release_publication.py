@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import importlib.util
+import json
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -38,9 +39,12 @@ def publication(tmp_path, monkeypatch):
             state['release']['assets'].append({
                 'id': len(state['release']['assets']) + 1, 'name': name, 'state': 'uploaded',
                 'size': len(content), 'digest': 'sha256:' + ('0' * 64 if state['bad_digest'] else hashlib.sha256(content).hexdigest()),
-                'browser_download_url': f'https://github.com/{publisher.REPO}/releases/download/v{VERSION}/{name}'})
+                'browser_download_url': f'https://github.com/{publisher.REPO}/releases/download/untagged-123abc/{name}'})
         elif method == 'PATCH':
             state['release'].update(payload)
+            if payload.get('draft') is False:
+                for asset in state['release']['assets']:
+                    asset['browser_download_url'] = f'https://github.com/{publisher.REPO}/releases/download/v{VERSION}/{asset["name"]}'
         else:
             pytest.fail('Unexpected publication action')
         return copy.deepcopy(state['release'])
@@ -98,3 +102,28 @@ def test_wrong_wheel_version_cannot_upload(publication):
     with pytest.raises(ValueError, match='identity'):
         publisher.publish(root, dist, COMMIT)
     assert not state['calls']
+
+
+def test_recover_verified_original_draft_without_replacing_assets(publication):
+    root, dist, state = publication
+    publisher.publish(root, dist, COMMIT)
+    state['release']['draft'] = True
+    original = copy.deepcopy(state['release']['assets'])
+    (root / 'scripts').mkdir()
+    (root / 'scripts/release-recovery.json').write_text(json.dumps({
+        'release_id': 77, 'version': VERSION, 'commit': COMMIT,
+        'assets': publisher.receipts([p for p in dist.iterdir() if p.name != 'packages.zip'])}))
+    state['calls'].clear()
+    record = publisher.publish(root, dist, 'b' * 40)
+    assert record['available'] and state['release']['target_commitish'] == COMMIT
+    assert state['release']['assets'] == original
+    assert not any(method == 'POST' for _, method, _ in state['calls'])
+
+
+def test_temporary_draft_url_cannot_point_to_another_repository(publication):
+    root, dist, state = publication
+    publisher.publish(root, dist, COMMIT)
+    state['release']['draft'] = True
+    state['release']['assets'][0]['browser_download_url'] = 'https://github.com/other/repo/releases/download/untagged-123abc/wheel.whl'
+    with pytest.raises(ValueError, match='updater would reject'):
+        publisher.verify_assets(state['release'], list(dist.iterdir()), VERSION)

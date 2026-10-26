@@ -30,17 +30,52 @@ def github(path, method='GET', payload=None, content=None):
         raise RuntimeError(f'GitHub {method} {path}: HTTP {error.code}') from None
 
 
-def verify_assets(release, files, version):
-    # Check the draft using the same acceptance rules as the installed updater.
-    record = release_record({**release, 'draft': False})
+def receipts(files):
+    return [{'name': file.name, 'digest': 'sha256:' + hashlib.sha256(file.read_bytes()).hexdigest(),
+             'size': file.stat().st_size} for file in files]
+
+
+def verify_receipts(release, expected, version):
+    # GitHub draft assets use temporary untagged URLs until publication.
+    candidate = {**release, 'draft': False, 'assets': [dict(a) for a in release.get('assets', [])]}
+    if release.get('draft'):
+        for asset in candidate['assets']:
+            temporary = rf'https://github\.com/{re.escape(REPO)}/releases/download/untagged-[0-9a-f]+/{re.escape(asset["name"])}'
+            if re.fullmatch(temporary, asset.get('browser_download_url', '')):
+                asset['browser_download_url'] = f'https://github.com/{REPO}/releases/download/v{version}/{asset["name"]}'
+    record = release_record(candidate)
     if not record or not record['available'] or record['version'] != version:
         raise ValueError('The app updater would reject this release wheel.')
-    assets = release.get('assets', [])
-    for file in files:
-        matches = [asset for asset in assets if asset['name'] == file.name]
-        digest = 'sha256:' + hashlib.sha256(file.read_bytes()).hexdigest()
-        if len(matches) != 1 or matches[0].get('digest') != digest or matches[0].get('size') != file.stat().st_size:
-            raise ValueError('Uploaded asset checksum/size mismatch: ' + file.name)
+    for receipt in expected:
+        matches = [asset for asset in release.get('assets', []) if asset['name'] == receipt['name']]
+        if len(matches) != 1 or any(matches[0].get(k) != receipt[k] for k in ('digest', 'size')):
+            raise ValueError('Uploaded asset checksum/size mismatch: ' + receipt['name'])
+    return record
+
+
+def verify_assets(release, files, version):
+    return verify_receipts(release, receipts(files), version)
+
+
+def check_tag(tag, commit):
+    ref = github(f'repos/{REPO}/git/ref/tags/{tag}')
+    if ref:
+        obj = ref['object']
+        for _ in range(5):
+            if obj['type'] != 'tag':
+                break
+            obj = github(f'repos/{REPO}/git/tags/{obj["sha"]}')['object']
+        if obj['type'] != 'commit' or obj['sha'] != commit:
+            raise ValueError('Existing tag targets a different commit; refusing to publish.')
+
+
+def finish_draft(release, expected, version):
+    verify_receipts(release, expected, version)
+    release = github(f'repos/{REPO}/releases/{release["id"]}', 'PATCH', {'draft': False, 'make_latest': 'false'})
+    if release.get('draft'):
+        raise ValueError('Release is still a draft.')
+    record = verify_receipts(release, expected, version)
+    print('Published installable release: ' + record['url'])
     return record
 
 
@@ -65,17 +100,17 @@ def publish(root, dist, commit):
             raise ValueError('Existing published release is not installable; manual review is required.')
         print(f'{tag} is already published. Bump the package version to publish another update.')
         return record
-    ref = github(f'repos/{REPO}/git/ref/tags/{tag}')
-    if ref:
-        obj = ref['object']
-        for _ in range(5):
-            if obj['type'] != 'tag':
-                break
-            obj = github(f'repos/{REPO}/git/tags/{obj["sha"]}')['object']
-        if obj['type'] != 'commit' or obj['sha'] != commit:
-            raise ValueError('Existing tag targets a different commit; refusing to publish.')
     if release and release.get('target_commitish') != commit:
-        raise ValueError('Existing draft targets a different commit; refusing to replace it.')
+        path = root / 'scripts/release-recovery.json'
+        recovery = json.loads(path.read_text()) if path.is_file() else {}
+        if (recovery.get('release_id') != release.get('id') or recovery.get('version') != version
+                or recovery.get('commit') != release.get('target_commitish') or not recovery.get('assets')):
+            raise ValueError('Existing draft targets a different commit; refusing to replace it.')
+        # Explicit receipts from the original successful CI build permit recovery
+        # without replacing its assets or retargeting its frozen source commit.
+        check_tag(tag, recovery['commit'])
+        return finish_draft(release, recovery['assets'], version)
+    check_tag(tag, commit)
     checksum = dist / 'SHA256SUMS'
     checksum.write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n'
                                for p in (wheel, source)))
@@ -100,13 +135,8 @@ def publish(root, dist, commit):
             continue
         github(base + f'/{release["id"]}/assets?name=' + quote(file.name), 'POST', content=file.read_bytes())
     release = github(base + '/' + str(release['id']))
-    verify_assets(release, files, version)
-    release = github(base + '/' + str(release['id']), 'PATCH', {'draft': False, 'make_latest': 'false'})
-    if release.get('draft'):
-        raise ValueError('Release is still a draft.')
-    record = verify_assets(release, files, version)
-    print('Published installable release: ' + record['url'])
-    return record
+    return finish_draft(release, receipts(files), version)
+
 
 
 if __name__ == '__main__':

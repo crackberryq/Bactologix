@@ -1,0 +1,23 @@
+{
+  "release_id": 424456719,
+  "version": "0.1.0a13",
+  "commit": "eda1079a7ecfda79e40ce60024aaddb142cc5792",
+  "verified_run": 40353979748,
+  "assets": [
+    {
+      "name": "bactologix-0.1.0a13-py3-none-any.whl",
+      "digest": "sha256:96c5ddcee37d8f4298a3d2d20be67f4f0097a1868d7204ace0ae64a423e39f57",
+      "size": 133313
+    },
+    {
+      "name": "bactologix-0.1.0a13.tar.gz",
+      "digest": "sha256:47130fb4a8522248390be9f32537b5963c40f3a27801d1d76a3c93ccfe2c0a21",
+      "size": 175469
+    },
+    {
+      "name": "SHA256SUMS",
+      "digest": "sha256:5b61f343e2f85e3af2f2cd300abcfa4edcbed0784f29d4740af5a30303303d32",
+      "size": 196
+    }
+  ]
+}
