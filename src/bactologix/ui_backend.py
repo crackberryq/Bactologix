@@ -181,6 +181,9 @@ def dispatch(store, kind, p):
         payload = maintenance.environment_request(store, p.get("id"), p.get("selected"), p.get("action"))
         jid = enqueue(store, "environments", payload)
         return {"message": "Environment " + payload["action"] + " queued: " + jid, "navigate": "jobs"}
+    if kind == "set_environment_cache":
+        maintenance.set_cache(store, p.get("id"), p.get("path"))
+        return {"message": "Environment cache selected for maintenance and future run drafts.", "keep_modal": True}
     if kind == "download_database":
         payload = maintenance.download_request(store, _tool(p), p.get("id"), p.get("parent"),
                                                p.get("cores", 4), p.get("memory_mb", 16000), p.get("lineage", "bacteria_odb10"))

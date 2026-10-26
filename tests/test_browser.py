@@ -8,6 +8,7 @@ import time
 from urllib.request import urlopen
 
 import pytest
+import yaml
 from bactologix.store import Store
 from bactologix.catalog import PIPELINES
 
@@ -97,7 +98,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(page.get_by_label('CARD / RGI location', exact=True)).to_have_value(str(card / 'card.json'))
             page.get_by_role('button', name='Save locations', exact=True).first.click()
             expect(page.locator('#toast')).to_contain_text('Database locations saved')
-            assert str(card / 'card.json') in Store(workspace).get('configs', 'basis')
+            assert yaml.safe_load(Store(workspace).get('configs', 'basis'))['modules']['rgi']['database'] == str(card / 'card.json')
             page.get_by_role('link', name='Install & update', exact=True).click()
             page.get_by_role('button', name='Check / install environments', exact=True).last.click()
             expect(page.get_by_role('heading', name='Tool environments', exact=True)).to_be_visible()

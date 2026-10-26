@@ -34,7 +34,8 @@ def test_missing_install_verified_and_broken_tool(tmp_path, monkeypatch):
     commit = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
     monkeypatch.setitem(PIPELINES['hybas'], 'commit', commit)
     item = {'id': 'real-deployment-fixture', 'tool': 'hybas', 'source': str(source), 'controller': sys.prefix,
-            'ready': True, 'version': {'commit': commit, 'ref': 'software-only fixture'}}
+            'ready': True, 'rule_cache': str(tmp_path / 'native-cache'),
+            'version': {'commit': commit, 'ref': 'software-only fixture'}}
     store.put('installs', item['id'], item)
     def run(action, fail=False):
         payload = m.environment_request(store, item['id'], ['qc'], action)

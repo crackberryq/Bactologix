@@ -28,7 +28,7 @@ def installed(tmp_path, monkeypatch):
     monkeypatch.setitem(PIPELINES['hybas'], 'commit', commit)
     monkeypatch.setattr(m, 'find_conda', lambda _: '/fixture/conda')
     item = {'id': 'fixture-install', 'tool': 'hybas', 'source': str(source), 'controller': '/fixture/runner',
-            'ready': True, 'version': {'commit': commit, 'ref': 'fixture'}}
+            'ready': True, 'rule_cache': str(tmp_path / 'tool-cache'), 'version': {'commit': commit, 'ref': 'fixture'}}
     store.put('installs', item['id'], item)
     store.put('settings', 'active-hybas', item['id'])
     return store, item
@@ -135,6 +135,35 @@ def test_environment_list_rejects_unexpected_prefix(installed, tmp_path):
     text = row['recipe'] + '\t\t/tmp/unrelated-env\n'
     with pytest.raises(ValueError, match='unexpected environment'):
         m.parse_environment_list(text, tmp_path, [row], m.cache_path(store, item))
+
+
+def test_install_rejects_unsafe_native_cache_before_any_deployment(installed):
+    store, item = installed
+    item.pop('rule_cache')  # This fixture's workspace contains spaces.
+    store.put('installs', item['id'], item)
+    assert m.environment_request(store, item['id'], ['assembly'], 'check')
+    with pytest.raises(ValueError, match='cache path without spaces'):
+        m.environment_request(store, item['id'], ['assembly'], 'install')
+    assert not (store.home / 'envs/hybas').exists()
+
+
+def test_cache_picker_preserves_existing_run_cache(installed, tmp_path):
+    store, item = installed
+    old = item['rule_cache']
+    store.put('runs', 'existing', {'rule_cache': old})
+    cache = tmp_path / 'selected-cache'
+    cache.mkdir()
+    m.set_cache(store, item['id'], str(cache))
+    assert store.get('installs', item['id'])['rule_cache'] == str(cache)
+    assert store.get('runs', 'existing')['rule_cache'] == old
+    assert store.get('environment_checks', item['id']) == {}
+
+
+def test_cache_change_is_blocked_while_jobs_are_pending(installed, tmp_path):
+    store, item = installed
+    store.submit('smoke', {})
+    with pytest.raises(ValueError, match='queued or running'):
+        m.set_cache(store, item['id'], str(tmp_path))
 
 
 def test_download_destination_is_new_and_configuration_is_sample_free(installed, tmp_path):

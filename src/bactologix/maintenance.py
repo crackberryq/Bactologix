@@ -37,6 +37,29 @@ def cache_path(store, item):
     return local_path(item.get("rule_cache") or str(store.home / "envs" / item["tool"]))
 
 
+def check_deployment_path(store, item):
+    cache = cache_path(store, item)
+    # Snakemake 9.6.2 invokes its copied post-deploy script without quoting its
+    # path. Fail before it creates/deletes an environment, with a usable remedy.
+    if re.search(r'''[\s"'`$\\;&|()<>{}]''', str(cache)):
+        raise ValueError("Snakemake 9.6.2 needs an environment cache path without spaces or shell characters. "
+                         "Open Check / install environments, choose a different cache folder, and click Use this cache.")
+    return cache
+
+
+def set_cache(store, key, value):
+    item = installation(store, key)
+    if any(j["status"] in {"queued", "running"} for j in store.jobs()):
+        raise ValueError("Finish queued or running jobs before changing the environment cache.")
+    path = local_path(value)
+    if not path.is_dir() or not os.access(path, os.W_OK) or (path / "conda-meta").exists() or path == path.parent:
+        raise ValueError("Choose a writable cache folder, not an individual Conda environment or the filesystem root.")
+    updated = {**item, "rule_cache": str(path)}
+    check_deployment_path(store, updated)
+    store.put("installs", key, updated)
+    store.put("environment_checks", key, {})
+
+
 def installation(store, key):
     item = store.get("installs", key)
     if not item or not item.get("ready") or not item.get("controller"):
@@ -92,6 +115,8 @@ def environment_request(store, key, selected, action):
         raise ValueError("Select at least one environment and choose Check or Install.")
     if any(not isinstance(name, str) or name not in available for name in selected):
         raise ValueError("Unknown environment selection.")
+    if action == "install":
+        check_deployment_path(store, item)
     return {"installation": key, "tool": item["tool"], "action": action,
             "definitions": {name: available[name]["definition"] for name in dict.fromkeys(selected)},
             "cache": str(cache_path(store, item)), "commit": item["version"]["commit"]}
@@ -205,6 +230,7 @@ def download_request(store, tool, key, parent, cores=4, memory_mb=16000, lineage
     item = installation(store, store.get("settings", "active-" + tool))
     if not download_supported(item):
         raise ValueError("Select the recommended pipeline snapshot to use database downloads.")
+    check_deployment_path(store, item)
     base = local_path(parent)
     if not base.is_dir() or not os.access(base, os.W_OK):
         raise ValueError("Choose an existing writable download folder.")
@@ -252,6 +278,7 @@ def execute_download(ctx):
     from .databases import inspect
     store, payload = ctx.store, ctx.job["payload"]
     item = installation(store, payload["installation"])
+    check_deployment_path(store, item)
     if not download_supported(item) or item["version"]["commit"] != payload["commit"]:
         raise ValueError("The selected download adapter changed. Submit a new download.")
     folder = store.home / "maintenance" / payload["id"]

@@ -1,8 +1,9 @@
 # Validation update: 0.1.0a9 candidate (2026-10-26)
 
-- Local software checks pass: 115 application tests; 21 opt-in native/browser/deployment tests are separate.
+- Local software checks pass: 118 application tests; 21 opt-in native/browser/deployment tests are separate.
 - All 14 sample-free database preparation plans pass against the exact pinned HybAs and BaSIS sources, including paths containing spaces. Both generated environment administration DAGs parse all native recipes.
 - Regression fixtures cover discovery inside hidden caches and linked directories, incomplete database matches, environment missing/incomplete/verified/failed states, source drift, separate download destinations, failed-download resume, and revalidation before selecting downloaded resources.
+- The first a9 CI run passed both Python matrices. Browser persistence worked, but its assertion compared raw YAML wrapping; it now compares the parsed value. Real deployment exposed Snakemake 9.6.2's unquoted post-deploy cache path. A cache-folder picker and preflight now reject unsupported cache paths before deployment; the real installation test uses an explicitly selected cache without spaces.
 - Browser acceptance now includes the download destination picker, selecting and saving a prepared database, and environment controls. A separate real Conda acceptance job checks a small software-only environment through missing, install, verified and deliberately broken-tool states. Results for this candidate are recorded in its GitHub Actions run.
 - Large reference databases and the full set of biological tool environments are not downloaded in this software test suite. Native providers retain responsibility for download checksums, indexing and preparation receipts. No biological analyses or clinical safety claims are tested here.
 - The WSL localhost forwarding issue was isolated on the user's machine: the health endpoint replied in WSL, Windows localhost reset the connection, and binding to the WSL private IP restored access. The launcher now accepts that explicit address with `--host`.

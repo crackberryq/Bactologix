@@ -95,6 +95,8 @@ Only the reviewed source commits below can be connected for managed runs. Modifi
 
 In **Install & update**, open **Check / install environments** on a ready installation. Select the environments to inspect and click **Check selected**. The worker asks Snakemake for the exact cache paths, checks deployment completion and runs each installed environment's native executable/version probes. Missing, incomplete and failed environments remain distinct from verified ones.
 
+**Environment cache folder → Browse → Use this cache** selects an existing cache for maintenance and future drafts. Existing run drafts retain their original cache. Snakemake 9.6.2 invokes deployment scripts with an unquoted cache path, so choose a cache path without spaces or shell characters; Bactologix checks this before requesting installation. Source, workspace and database destination folders may contain spaces.
+
 **Install selected** deploys only the selected environment recipes, then checks them. No samples, analyses or database download targets are scheduled. Optional environments remain optional for analysis. Compatible environments are reused from the installation's configured cache. A completed environment whose tools fail checks is retained for diagnosis; this control does not delete it. Follow progress in **Jobs & progress**, then reopen the environment panel for status and check time.
 
 ## Manage databases without editing YAML
