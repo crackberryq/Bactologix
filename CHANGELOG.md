@@ -1,5 +1,53 @@
 # Bactologix releases
 
+## 0.1.0a13 — clear run lists and a guided draft builder
+
+- Publish checked application wheels and SHA-256 sums to GitHub Releases so the in-app updater can discover them. This release includes the database, environment, sample and draft-configuration improvements from the a8–a12 development candidates.
+- Remove sample now also archives its inactive saved runs, matching both sample ID and input folder. Queued/running jobs stay visible. Frozen configuration, files, reports and job history are retained.
+- Label the upper panel Run drafts & history with Current runs and Archived tabs, individual/batch Remove from list and Restore. Block stale launch requests for archived runs under the job queue transaction.
+- Replace the generic draft configuration landing page with a Samples → Run settings → Review flow. Add category tabs, Kraken/polishing mode cards, quality switches and BaSIS module cards. Keep every native setting and custom YAML under Advanced.
+- Preserve independent pipeline edits, saved defaults and native algorithms. Extend browser coverage through archive/restore, guided controls, mobile layout, YAML round trips and final draft settings.
+
+## 0.1.0a12 — configure each run before creating drafts (candidate)
+
+- Add Samples, Run settings and Full YAML tabs to Create run drafts, with searchable configuration sections, switches, dropdowns, numeric controls and structured-value editors for both pipelines.
+- Start from a snapshot of saved defaults and apply edits only to this request's drafts. Keep independent edits while switching pipelines; preserve custom keys and existing database paths.
+- Keep Kraken on/off and its Off/Manual/Auto/AWARE decision mode consistent. Expose polishing, quality/annotation, resource limits, BaSIS modules, AWARE and DeepSafe settings without changing native decision algorithms or presets.
+- Check input types and common invalid combinations before draft creation. Keep output/input locations and top-level CPU/memory assignment under the existing run adapter. Open a single created draft for review and a native dry-run.
+- Add application, pinned native dry-run and Chromium acceptance coverage for run-local configuration propagation and unchanged saved defaults.
+
+## 0.1.0a11 — remove samples from selection (candidate)
+
+- Add **Remove sample** to Registered samples and the Create run drafts picker. Removal unregisters the sample, clears its selection and keeps the picker open.
+- Preserve original files, frozen runs, jobs and reports; allow re-registering the folder. Reject stale removal requests when the registration has changed.
+
+## 0.1.0a10 — apply saved databases to existing runs (candidate)
+
+- Add **Use saved databases** in run details and **Use saved databases for runs** on the database page, with current/saved paths and per-resource selection.
+- Create independent revised drafts with the chosen saved paths in the actual native command configuration; retain input identity, pipeline version, cache, resource budgets and other run settings. Open a single revised draft immediately for its required fresh dry-run.
+- Recheck saved locations and original run integrity before applying; reject stale previews, incomplete resources and active runs. Preserve historical runs and unselected database paths.
+- Add regression coverage for the reported missing-BUSCO failure, BaSIS setting preservation, batch revisions, and the real browser save/apply flow.
+
+## 0.1.0a9 — database downloads and tool environments (candidate)
+
+- Discover registered Conda prefixes, hidden Snakemake caches and linked database folders; list incomplete matches with actionable reasons.
+- Add native database preparation with a destination picker, resource budgets, BUSCO lineage selection, provider log tails and resumable jobs. Preserve existing resources and require explicit selection/save after completion.
+- Add per-installation environment selection, real executable/version checks and Snakemake-managed installation without sample runs. Keep missing, incomplete and failed states separate.
+- Add a configurable launcher listen address for WSL private-IP access.
+- Add native preparation-plan tests, browser coverage and a real Conda deployment acceptance job.
+
+## 0.1.0a8 — run integrity, repair recovery and BaSIS AWARE
+
+- Verify generated sample sheets and staged input links before execution, including older drafts reconstructed from their recorded source identities.
+- Reject comparison variants when original input contents or file inventories differ from their parent.
+- Route existing drafts through repaired controllers for the same source commit; require a fresh dry-run and retain original controller provenance.
+- Preserve failed execution status across subsequent checks and label reports with their source run status. Require completed HybAs runs before managed handoff.
+- Add reviewed BaSIS AWARE 0.4.0a1 compatibility and current HybAs source compatibility while retaining previously supported snapshots.
+- Use screening-first defaults for new BaSIS configurations. Preserve existing saved preferences. Add an explicit reviewed saved-screening follow-up request and separate follow-up report discovery.
+- Track shared follow-up output ownership so older requests do not claim a later request's report.
+- Prevent editing form controls while a server request is pending, including the folder picker’s initial load, so late responses cannot overwrite newly entered paths.
+- Add regression, pinned-source integration and real-browser tests, with GitHub Actions on Python 3.11/3.12 and package builds.
+
 ## 0.1.0a7 — database folders and automatic discovery
 
 - Replace the resource-configuration shortcut with named HybAs and BaSIS database/model cards, folder browsing, checks, detected-installation selectors and saved locations.

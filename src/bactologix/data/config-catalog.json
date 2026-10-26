@@ -1,7 +1,7 @@
 {
   "templates": {
     "hybas": "# Per-workstation paths and options. The source version is recorded separately.\nbase_dir: ..\nsample_sheet: samples.tsv\nthreads: 8\nkeep_percent: 95\nracon_rounds: 2\nbusco_lineage: bacteria_odb10\nmedaka_model: ''\ntarget_taxid: ''\nrun_kraken: true\nrun_busco: true\nrun_prokka: true\nrun_multiqc: true\nrun_polypolish: true\nsetup_only: false\nadmin_mode: false\nci_mode: false\nallow_ont_only: true\nallow_illumina_only: true\nrequire_target_taxid_for_kraken: false\npolish_mode: tripolish\nworkflow_version: HybAs-9.0.0-AWARE\ndb_root: db\nkraken_db_name: kraken2_std_db\nkraken_decision_mode: aware\nkraken_auto_passthrough_min_percent: 95.0\nkraken_auto_use_both_platforms: true\nkraken_include_children: true\nkraken_auto_prefer_species_min_percent: 90.0\nkraken_aware_delta_min_percent: 20.0\nkraken_aware_moderate_delta_min_percent: 10.0\nkraken_aware_high_target_min_percent: 95.0\nkraken_aware_moderate_target_min_percent: 80.0\nassembly_mem_mb: 8192\nspades_memory_gb: 8\npolishing_mem_mb: 4096\nmin_fasta_length: 1000\n",
-    "basis": "# Paths in this configuration are relative to the folder containing BaSIS.smk.\n# Annotation files are discovered as <isolate>/annotation/<sample_id>.{fna,faa,gff,gbk}.\nbactomics_root: ..\nisolates: [isolate2]\nproject: BaSIS standalone study\nthreads: 4\nmemory_mb: 20000\nextend: true\ndeep:\n  enabled: true\n  aware:\n    enabled: true\n    preset: auto-medium  # auto-strict | auto-medium | auto-loose\n    tools: {}           # Per-tool manual overrides: see config/aware.example.yaml\nresources:\n  policy: auto\n  directory: resources\n# Optional module overrides, e.g. modules: {pathogenfinder2: {enabled: false}}\n# For another annotation layout use samples: config/samples.tsv instead of isolates.\n# Taxonomy is imported from HybAs when available, otherwise remains unconfirmed.\n"
+    "basis": "# Paths in this configuration are relative to the folder containing BaSIS.smk.\n# Annotation files are discovered as <isolate>/annotation/<sample_id>.{fna,faa,gff,gbk}.\nbactomics_root: ..\nisolates: [isolate2]\nproject: BaSIS standalone study\nthreads: 4\nmemory_mb: 20000\nextend: true\ndeep:\n  enabled: false  # Screening first; follow-up is an explicit opt-in.\n  maximum_candidates: 5  # Per-sample computing ceiling after deduplication; never a target.\n  aware:\n    enabled: true\n    preset: auto-medium  # auto-strict | auto-medium | auto-loose\n    tools: {}           # Per-tool manual overrides: see config/aware.example.yaml\nresources:\n  policy: auto\n  directory: resources\n# Optional module overrides, e.g. modules: {pathogenfinder2: {enabled: false}}\n# For another annotation layout use samples: config/samples.tsv instead of isolates.\n# Taxonomy is imported from HybAs when available, otherwise remains unconfirmed.\n"
   },
   "defaults": {
     "hybas": {
@@ -52,6 +52,7 @@
       "memory_mb": 20000,
       "extend": true,
       "deep": {
+        "enabled": false,
         "motifs": true,
         "motif_rules": null,
         "prosite_snapshot": null,
@@ -60,7 +61,7 @@
         "reference_fasta": null,
         "reference_metadata": null,
         "reference_search_tool": "blastp",
-        "maximum_candidates": 100,
+        "maximum_candidates": 5,
         "aware": {
           "enabled": true,
           "preset": "auto-medium",
@@ -92,11 +93,7 @@
         "timeout_seconds": 14400,
         "command_prefix": [],
         "context_flank": 20000,
-        "circular_contigs": [],
-        "enabled": true,
-        "executables": {
-          "iqtree": "iqtree2"
-        }
+        "circular_contigs": []
       },
       "resources": {
         "policy": "auto",
@@ -237,7 +234,7 @@
           "cache": true,
           "database": null,
           "version_args": [],
-          "execution_scope": "assembly"
+          "batch_size": 32
         },
         "minced": {
           "enabled": true,
@@ -276,8 +273,8 @@
         }
       },
       "execution": {
-        "cores": 4,
-        "memory_mb": 20000,
+        "cores": 8,
+        "memory_mb": 32000,
         "gpus": 0,
         "environment_backend": "auto",
         "conda_prefix": null

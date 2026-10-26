@@ -1,3 +1,56 @@
+# Validation update: 0.1.0a13 (2026-10-26)
+
+- Publication checks add five regression cases for draft-to-public asset verification, checksum rejection, wrong tag/commit rejection, wrong wheel identity and immutable published releases. The publisher uses the actual app updater acceptance rules; publication is gated behind all software, browser and environment checks on `main`.
+- Local application suite and separately installed wheel: **151 passed**, with 24 native/browser/deployment checks enabled separately. All 35 packaged runtime files match source; dependency checks pass.
+- Archive regression checks cover unregistering a sample while retaining active jobs, matching the original input folder, preserving frozen files, restoring runs, and refusing stale launch requests at validation and queue insertion. Batch archive rejects an active or missing run without partially hiding other runs.
+- Chromium acceptance now exercises both run lists, restoration and individual removal, guided Kraken/polishing cards, quality switches, BaSIS category tabs, pipeline switching, narrow layout, Advanced search, YAML recovery and the Review step. Screenshots are retained in the `ui-previews` Actions artifact for visual inspection.
+- The first browser pass identified the decorative step numbers being included in navigation button names. The numbers are now hidden from assistive labels. Screenshot review also tightened the module switches and mobile budget fields.
+- Python 3.11/3.12 pinned adapter checks and real sample-free Conda deployment passed on the initial implementation. The final candidate's exact-commit CI reruns those checks and the full browser flow; see the PR checks for the result. This update does not change native algorithms or validate biological outputs.
+
+# Validation update: 0.1.0a12 candidate (2026-10-26)
+
+- Local application suite: **146 passed**, with 24 native/browser/deployment tests enabled separately. New checks cover typed and nested edits, custom keys (including dotted mapping keys), optional resource overrides, managed fields, invalid values, pipeline mismatch, batch drafts, frozen dialog defaults and unchanged saved configurations/history.
+- New native integration checks pass for both exact pinned sources: create a draft through the same run-configuration endpoint as the UI, then pass a real Snakemake dry-run with the selected options in its frozen command configuration. No biological tools execute.
+- Chromium acceptance covers Kraken on/off and decision-mode synchronization, polishing and BUSCO controls, searching settings, independent pipeline edits, YAML round trips, malformed-YAML recovery and creation of a run with the chosen values while preserving saved defaults.
+- The menu exposes the bundled configuration catalogue, recognized resource companion fields and keys present in the supplied YAML. Omitted values remain omitted until edited. Generated input/output locations and top-level CPU/memory assignments retain the existing managed-run contract. No native decision algorithms or scientific presets were changed.
+- Exact-commit CI runs Python 3.11/3.12, real Chromium, package builds and sample-free Conda deployment. Native dry-runs remain necessary for source-specific settings, resource availability and selected sample compatibility.
+
+# Validation update: 0.1.0a11 candidate (2026-10-26)
+
+- Local application checks: **130 passed**, with 22 native/browser/deployment checks enabled separately. Sample-removal regression verifies that registration disappears while input files, staged inputs, frozen runs and queued jobs remain intact; the existing run still generates its command. Removed samples cannot be selected by stale draft requests, and the original folder can be registered again.
+- Stale removal requests cannot remove a replacement registration with different inputs. Removal operates only on the sample registry and never deletes filesystem content.
+- The first browser pass caught an old checkbox value being captured again during rendering after removal. The response now clears the outgoing checkbox as well as saved form state; the re-registration assertion remains in the acceptance test.
+- Real Chromium acceptance now exercises removal from both Registered samples and the run-draft picker, keeps other draft-form values, handles removal of the last sample and verifies that re-registration clears the earlier checkbox selection. Exact-commit CI also runs the existing Python 3.11/3.12 native adapters and environment deployment checks.
+
+# Validation update: 0.1.0a10 candidate (2026-10-26)
+
+- Local application regression suite: **128 passed**, with 22 native/browser/deployment checks enabled separately. New cases cover HybAs/BaSIS path propagation, per-resource and batch selection, preservation of the parent and unrelated options, fresh dry-run requirements, missing databases, stale previews, input drift and queued work.
+- The new pinned HybAs integration test reproduces the reported missing `bacteria_odb10` failure, saves a structurally complete software fixture under a path containing spaces, applies it to a revised draft, and passes the real Snakemake dry-run using the revised command configuration. No BUSCO analysis or biological database download is performed.
+- Real-browser acceptance now covers saving BUSCO, selecting an existing run, reviewing current/saved locations, applying them, opening the new draft and refusing unchanged selections. Python 3.11/3.12, browser, package-build and real Conda deployment checks run in GitHub Actions for this candidate; consult the exact commit's checks for their result.
+- This update changes application resource routing and draft creation. It does not validate biological outputs or database contents beyond existing structural checks. Existing runs and their results remain unchanged.
+
+# Validation update: 0.1.0a9 candidate (2026-10-26)
+
+- Local software checks pass: 118 application tests; 21 opt-in native/browser/deployment tests are separate.
+- All 14 sample-free database preparation plans pass against the exact pinned HybAs and BaSIS sources, including paths containing spaces. Both generated environment administration DAGs parse all native recipes.
+- Regression fixtures cover discovery inside hidden caches and linked directories, incomplete database matches, environment missing/incomplete/verified/failed states, source drift, separate download destinations, failed-download resume, and revalidation before selecting downloaded resources.
+- The first a9 CI run passed both Python matrices. Browser persistence worked, but its assertion compared raw YAML wrapping; it now compares the parsed value. Real deployment exposed Snakemake 9.6.2's unquoted post-deploy cache path. A cache-folder picker and preflight now reject unsupported cache paths before deployment; the real installation test uses an explicitly selected cache without spaces.
+- Browser acceptance now includes the download destination picker, selecting and saving a prepared database, and environment controls. A separate real Conda acceptance job checks a small software-only environment through missing, install, verified and deliberately broken-tool states. Results for this candidate are recorded in its GitHub Actions run.
+- Large reference databases and the full set of biological tool environments are not downloaded in this software test suite. Native providers retain responsibility for download checksums, indexing and preparation receipts. No biological analyses or clinical safety claims are tested here.
+- The WSL localhost forwarding issue was isolated on the user's machine: the health endpoint replied in WSL, Windows localhost reset the connection, and binding to the WSL private IP restored access. The launcher now accepts that explicit address with `--host`.
+
+# Validation update: 0.1.0a8 candidate (2026-10-25)
+
+- The application suite passed **90 tests** locally. Four opt-in integration/browser tests are separate. Regression cases reject sample-sheet edits, retargeted/replaced/missing/added staged inputs, and comparison input drift; they cover older drafts, controller repair, failed-run status, report ownership, and reviewed follow-up requests.
+- Real **Snakemake 9.6.2 dry-runs passed** for the pinned HybAs `780ee7086c15c49f2825800ec463327f009f14a6` and BaSIS AWARE `1d2d96b266e98d956254d1a518ff5b437ab7a10a` sources, using Bactologix-generated drafts with paths containing spaces. These checks run Snakemake directly in Python 3.12 and do not deploy Conda tool environments.
+- The saved-screening follow-up dry-run passed. An attempted empty native follow-up execution encountered this container's process-monitoring limitation (`psutil.NoSuchProcess` in Snakemake benchmarking); it is not counted as a local execution pass. The unchanged workflow is included in the standard Linux CI suite, with zero findings and no analysis tool commands.
+- GitHub Actions now defines Python 3.11/3.12 application/adapter tests, source and wheel builds, installed-package checks, and a separate real Chromium-to-Streamlit acceptance job. **[CI run 40238113167](https://github.com/crackberryq/Bactologix/actions/runs/40238113167) passed:** 93 tests on Python 3.11 and 93 on Python 3.12 (one browser-only test skipped in each matrix job), plus the separate real Chromium acceptance test. The unchanged native empty follow-up completed, produced its separate HTML report with zero analysis commands, resumed without work, and preserved screening files. The browser test covers the actual folder picker, sample registration, configuration persistence and sandboxed report viewer; it caught an initial folder-load/edit race, which was fixed and rechecked.
+- The final wheel installed in a separate test environment and passed all 90 application tests (the four opt-in tests run separately). `pip check` found no broken requirements; the CLI reported 0.1.0a8. Every packaged Python/UI/data file matched source, and the MIT license was included. The source and wheel builds passed locally and in CI.
+- Production source, screening defaults, follow-up entry point and configuration fields were reviewed against the exact upstream commits. Older supported source commits and existing saved configurations remain available. New defaults do not rewrite existing preferences.
+- Full biological analyses, large database/model execution, real Conda deployment on a clean workstation, and WSL browser acceptance remain outside these software checks. The HybAs compatibility refresh does not fix previously identified upstream algorithm/output-reuse issues.
+
+---
+
 # Validation update: 0.1.0a6 (2026-10-24)
 
 - **43 automated tests passed** against the final source and installed wheel. New tests cover supported current/previous snapshots, downloaded-source setup, environment reuse, release asset validation, server-resolved release selection, update/queue/cancellation locks, package-replacement UI caching, checksum/Python rejection, stale release rejection, pip failures and restart handling. Real Streamlit component-trigger tests exercise refresh and update selection with duplicate-event suppression.

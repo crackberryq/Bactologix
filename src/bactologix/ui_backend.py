@@ -15,9 +15,11 @@ from .catalog import DATA, PIPELINES, fetch_versions, supported, versions
 from .engine import doctor, enqueue, launch_worker
 from .local import browse_folders, discover_environments, discover_installations, inspect_installation, local_path
 from .runs import (absolute_path, clone_runs, command, create_run, import_samples,
-                   parse_config, register_sample, reports, template, validate_launch)
+                   parse_config, register_sample, remove_sample, archive_runs, reports, template, validate_launch,
+                   dry_run_current, run_status, check_run_files)
 from .store import identifier
 from . import databases, updates
+from . import followup, maintenance, database_runs, run_config
 
 _SNAPSHOTS = {}
 
@@ -75,16 +77,18 @@ def snapshot(store):
     if (app_update["active_job"] or app_update["restart_required"]) and store.home in _SNAPSHOTS:
         return {**copy.deepcopy(_SNAPSHOTS[store.home]), "jobs": jobs, "app_update": app_update}
     runs = []
+    archived = {r["id"] for r in store.all("run_visibility") if r.get("archived")}
     for run in store.all("runs"):
         cfg = parse_config(run["config"])
         run_jobs = [j for j in jobs if j["kind"] == "workflow" and j["payload"].get("run_id") == run["id"]]
         active = next((j for j in run_jobs if j["status"] in {"queued", "running"}), None)
-        status = active["status"] if active else ("completed" if run.get("completed") else "checked" if run["dry_run_ok"] else "draft")
-        if not active and run_jobs and run_jobs[0]["status"] in {"failed", "cancelled", "interrupted"}:
-            status = run_jobs[0]["status"]
-        runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse")} | {
-            "status": status, "busy": bool(active), "aware": "off" if cfg.get("kraken_decision_mode") == "off" else "aware",
-            "strategy": cfg.get("polish_mode", "—"), "can_handoff": run["tool"] == "hybas" and Path(run["output"], "annotation", run["sample"]["id"] + ".fna").is_file()})
+        checked = dry_run_current(store, run)
+        status = run_status(run, jobs, checked)
+        runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type")} | {
+            "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if cfg.get("kraken_decision_mode") == "off" else "aware",
+            "can_followup": followup.available(run) and status == "completed",
+            "strategy": cfg.get("polish_mode", "—"), "can_handoff": run["tool"] == "hybas" and status == "completed" and all(
+                Path(run["output"], "annotation", run["sample"]["id"] + ext).is_file() for ext in (".fna", ".faa", ".gff"))})
     configs = {t: store.get("configs", t, template(t)) for t in PIPELINES}
     catalogs = {}
     for tool in PIPELINES:
@@ -99,6 +103,12 @@ def snapshot(store):
             "jobs": jobs, "reports": reports(store), "configs": configs,
             "fields": {t: configuration_fields(t, configs[t]) for t in PIPELINES},
             "databases": {t: databases.panel(store, t) for t in PIPELINES},
+            "environments": {i["id"]: maintenance.environment_panel(store, i, jobs) for i in store.all("installs")},
+            "database_downloads": [{**d, "job_status": next((j["status"] for j in jobs if j["id"] == d.get("job")), d.get("status"))}
+                                   for d in store.all("database_downloads")],
+            "download_options": {t: {"available": maintenance.download_supported(store.get("installs", store.get("settings", "active-" + t))),
+                                      "parent": str(store.home / "resources")}
+                                 for t in PIPELINES},
             "citations": {f.name: f.read_text() for f in DATA.glob("CITATION.*")}}
     if len(_SNAPSHOTS) >= 8:
         _SNAPSHOTS.pop(next(iter(_SNAPSHOTS)))
@@ -168,6 +178,32 @@ def dispatch(store, kind, p):
                                           str(p.get("query", "")), p.get("show_hidden") is True), "keep_modal": True}
     if kind == "scan_databases":
         return {"database_scan": databases.scan(store, _tool(p), p.get("root", "")), "keep_modal": True}
+    if kind == "manage_environments":
+        payload = maintenance.environment_request(store, p.get("id"), p.get("selected"), p.get("action"))
+        jid = enqueue(store, "environments", payload)
+        return {"message": "Environment " + payload["action"] + " queued: " + jid, "navigate": "jobs"}
+    if kind == "set_environment_cache":
+        maintenance.set_cache(store, p.get("id"), p.get("path"))
+        return {"message": "Environment cache selected for maintenance and future run drafts.", "keep_modal": True}
+    if kind == "download_database":
+        payload = maintenance.download_request(store, _tool(p), p.get("id"), p.get("parent"),
+                                               p.get("cores", 4), p.get("memory_mb", 16000), p.get("lineage", "bacteria_odb10"))
+        jid = enqueue(store, "database_download", payload)
+        return {"message": "Database preparation queued: " + jid, "navigate": "jobs"}
+    if kind == "resume_database_download":
+        row = _item(store, "database_downloads", p.get("id"))
+        job = store.job(row["job"])
+        if not job or job["status"] not in {"failed", "cancelled", "interrupted"}:
+            raise ValueError("Only a stopped or failed download can be resumed.")
+        jid = enqueue(store, "database_download", row["request"])
+        return {"message": "Database preparation resumed: " + jid, "navigate": "jobs"}
+    if kind == "use_downloaded_database":
+        row = _item(store, "database_downloads", p.get("id"))
+        if row.get("status") != "completed":
+            raise ValueError("Wait for database preparation to finish.")
+        checked = databases.inspect(store, row["tool"], row["resource"], row["result_path"])
+        return {"database_check": {"tool": row["tool"], **checked}, "keep_modal": True,
+                "message": "Downloaded location selected. Save locations to use it for future drafts."}
     if kind == "load_databases":
         return {"database_saved": _tool(p), "message": "Saved database locations reloaded.", "keep_modal": True}
     if kind == "check_database":
@@ -237,6 +273,17 @@ def dispatch(store, kind, p):
     if kind == "add_sample":
         register_sample(store, p["id"].strip(), str(local_path(p["path"])), p["mode"])
         return {"message": "Sample registered.", "navigate": "samples"}
+    if kind == "remove_sample":
+        result = remove_sample(store, p.get("id"), p.get("sample"))
+        message = f"Sample removed. {len(result['archived'])} saved run(s) moved to Archived. Files and reports are preserved."
+        if result["active"]:
+            message += f" {len(result['active'])} queued/running run(s) stay visible."
+        return {"message": message, "removed_sample": p["id"], "archived_runs": result["archived"], "keep_modal": True}
+    if kind in {"archive_runs", "restore_runs"}:
+        archived = kind == "archive_runs"
+        ids = archive_runs(store, _ids(p), archived)
+        return {"message": f"{len(ids)} run(s) " + ("moved to Archived. Files and reports are preserved." if archived else "restored to the current run list."),
+                "archived_runs" if archived else "restored_runs": ids, "keep_modal": True}
     if kind == "import_samples":
         items = import_samples(store, p["text"])
         return {"message": f"Imported {len(items)} samples.", "navigate": "samples"}
@@ -263,26 +310,61 @@ def dispatch(store, kind, p):
             store.put("configs", tool, text)
         return {"message": "Defaults saved for future drafts." if kind == "save_config" else "Configuration validated." if kind == "inspect_config" else "Setting applied to the draft; save when ready.",
                 "config": {"tool": tool, "text": text, "fields": configuration_fields(tool, text)}, "keep_modal": True}
+    if kind == "run_config_editor":
+        tool = _tool(p)
+        text = p.get("text", store.get("configs", tool, template(tool)))
+        if not isinstance(text, str):
+            raise ValueError("Provide configuration as YAML text.")
+        text = run_config.compile_config(tool, text, p.get("changes"))
+        if p.get("validate"):
+            run_config.validate(tool, text)
+        view = p.get("view", "settings")
+        if view not in {"samples", "settings", "yaml", "review"}:
+            raise ValueError("Choose a run configuration view.")
+        return {"run_config": run_config.editor(tool, text), "run_config_view": view, "keep_modal": True,
+                "message": "Run settings checked. The native dry-run is still required." if p.get("validate") else ""}
     if kind == "create_runs":
         tool = _tool(p)
         cores, memory = int(p["cores"]), int(p["memory_mb"])
         if not 1 <= cores <= 512 or not 512 <= memory <= 2000000:
             raise ValueError("CPU or memory budget is outside the supported range")
         samples = [_item(store, "samples", sid) for sid in _ids(p)]
+        text = store.get("configs", tool, template(tool))
+        if "config" in p:
+            config = p["config"]
+            if not isinstance(config, dict) or config.get("tool") != tool or not isinstance(config.get("text"), str):
+                raise ValueError("The run configuration belongs to another pipeline. Review its settings again.")
+            text = run_config.compile_config(tool, config["text"], config.get("changes"))
+            run_config.validate(tool, text)
         made = []
         for sample in samples:
             try:
-                made.append(create_run(store, tool, sample, store.get("configs", tool, template(tool)), cores, memory))
+                made.append(create_run(store, tool, sample, text, cores, memory))
             except Exception as exc:
                 raise ValueError(f"Created {len(made)} draft(s). {sample['id']}: {exc}") from exc
-        return {"message": f"Created {len(made)} independent drafts.", "navigate": "samples"}
+        response = {"message": f"Created {len(made)} independent drafts with this run configuration.", "navigate": "samples"}
+        if len(made) == 1:
+            response.update(dispatch(store, "inspect_run", {"id": made[0]["id"]}))
+            response.update(keep_modal=False, open_run=made[0]["id"])
+        return response
     if kind == "inspect_run":
         run = copy.deepcopy(_item(store, "runs", p.get("id")))
+        run["database_paths"] = database_runs.paths(store, run)
         try:
             run["command"] = shlex.join(command(store, run, "run"))
         except Exception as exc:
             run["command"] = str(exc)
         return {"detail": run, "keep_modal": True}
+    if kind == "preview_run_databases":
+        return {"database_run_plan": database_runs.preview(store, p.get("ids")), "keep_modal": True}
+    if kind == "apply_run_databases":
+        made = database_runs.apply(store, p.get("ids"), p.get("selections"), p.get("signature"))
+        response = {"message": f"Created {len(made)} revised draft(s) with saved databases. Run a new Check / dry-run.",
+                    "navigate": "samples", "created_runs": [r["id"] for r in made]}
+        if len(made) == 1:
+            response.update(dispatch(store, "inspect_run", {"id": made[0]["id"]}))
+            response.update(keep_modal=False, open_run=made[0]["id"])
+        return response
     if kind == "workflow":
         ids = _ids(p)
         action = p.get("action")
@@ -302,13 +384,21 @@ def dispatch(store, kind, p):
             raise ValueError("Choose a source branch and at least one polishing strategy")
         made = clone_runs(store, p["id"], p["aware_free"], list(dict.fromkeys(p["strategies"])))
         return {"message": f"Created {len(made)} independent variants.", "navigate": "samples"}
+    if kind == "create_followup":
+        followup.create_followup(store, p.get("id"), p["text"], p.get("reviewed") is True)
+        return {"message": "Created a reviewed follow-up draft. Check its native dry-run before execution.", "navigate": "samples"}
     if kind in {"revise_run", "handoff"}:
         run = _item(store, "runs", p.get("id"))
         if kind == "revise_run":
+            if run.get("run_type") == "followup":
+                raise ValueError("Create a new reviewed follow-up from the screening run to change these settings")
             create_run(store, run["tool"], run["sample"], p["text"], run["cores"], run["memory_mb"], run["id"], run["label"] + " · revised", run["installation"])
         else:
             if run["tool"] != "hybas":
                 raise ValueError("Choose a HybAs run")
+            if run_status(run, store.jobs(), dry_run_current(store, run)) != "completed":
+                raise ValueError("Complete the HybAs run before creating a BaSIS draft")
+            check_run_files(run)
             create_run(store, "basis", dict(run["sample"], path=run["output"]), store.get("configs", "basis", template("basis")), run["cores"], run["memory_mb"], run["id"], run["label"] + " · BaSIS")
         return {"message": "Created a new draft.", "navigate": "samples"}
     if kind == "recover_jobs":
@@ -334,6 +424,8 @@ def dispatch(store, kind, p):
             with path.open("rb") as handle:
                 handle.seek(max(0, path.stat().st_size - 100000))
                 text = handle.read().decode("utf-8", errors="replace") or text
+        if job["kind"] == "database_download":
+            text += maintenance.download_log_tail(store, job)
         return {"log": {"id": job["id"], "text": text, "error": job.get("error"), "status": job["status"]}, "keep_modal": True}
     if kind == "register_report":
         file = absolute_path(p["path"])

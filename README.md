@@ -1,17 +1,19 @@
-# Bactologix 0.1.0a7 — native alpha
+# Bactologix 0.1.0a13 — alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
-Bactologix is a Python/Streamlit application for local HybAs and standalone BaSIS setup, version selection, configuration, sample registration, isolated run drafts, durable jobs, and HTML reports. This version executes real operations. Download the wheel and source archive from [GitHub Releases](https://github.com/crackberryq/Bactologix/releases). Bactologix is not published to PyPI.
+Bactologix is a Python/Streamlit application for local HybAs and standalone BaSIS setup, version selection, configuration, sample registration, isolated run drafts, durable jobs, and HTML reports. This version executes real operations. Published wheels and source archives are listed in [GitHub Releases](https://github.com/crackberryq/Bactologix/releases). Bactologix is not published to PyPI.
 
-**Alpha release:** the approved HTML interface now runs inside Streamlit with working Python controls. Software checks, component browser checks and native workflow dry-runs passed; full biological analyses and target-workstation browser testing remain outstanding. Read [VALIDATION.md](VALIDATION.md) and the alpha boundaries below before running samples.
+**Alpha release:** the approved HTML interface now runs inside Streamlit with working Python controls. Software checks, real Chromium-to-Streamlit checks and native workflow dry-runs passed; full biological analyses and target-workstation browser testing remain outstanding. Read [VALIDATION.md](VALIDATION.md) and the alpha boundaries below before running samples.
+
+Use **Update Bactologix → Refresh releases** to see published updates, including alpha versions. Development commits and pull requests are not releases and do not appear in that list. Check [GitHub Releases](https://github.com/crackberryq/Bactologix/releases) for available installable versions.
 
 ## Install on Linux or WSL2
 
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a7-py3-none-any.whl
+pipx install ./bactologix-0.1.0a13-py3-none-any.whl
 bactologix
 ```
 
@@ -20,7 +22,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a7/bactologix-0.1.0a7-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a13/bactologix-0.1.0a13-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -29,7 +31,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a7/bactologix-0.1.0a7-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a13/bactologix-0.1.0a13-py3-none-any.whl"
 python -m bactologix.cli
 ```
 
@@ -37,21 +39,21 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a7-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a13-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
 Open http://localhost:8501. The launcher runs headlessly, so WSL does not try to launch a Linux browser. Automatic source watching is disabled for the packaged app, preventing pip from triggering a rerun halfway through an update. Use `python -m bactologix.cli --port 8502` and http://localhost:8502 when using a different local port. On Windows, run these commands inside WSL2; use Linux paths such as `/home/jimi/...` or `/mnt/c/...` in the app. This app cannot operate the user's workstation from ChatGPT: install it on the machine containing the samples. Native Windows pipeline execution is not supported.
 
-The launcher binds to `127.0.0.1`. This is a local, single-user tool, not a public server. `--home /absolute/workspace` selects a workspace; the default is the platform user data directory. `BACTOLOGIX_HOME` also selects it. Jobs persist in SQLite and logs remain on disk. Closing a browser does not stop a job; stop it from Jobs & progress.
+The launcher binds to `127.0.0.1` by default. If Windows-to-WSL localhost forwarding fails while the WSL health check succeeds, use `bactologix --host <WSL-private-IP> --port 8502` and open that same IP and port in Windows. Obtain the current WSL address with `hostname -I`; it may change after restarting WSL. This is a local, single-user tool, not a public server. `--home /absolute/workspace` selects a workspace; the default is the platform user data directory. `BACTOLOGIX_HOME` also selects it. Jobs persist in SQLite and logs remain on disk. Closing a browser does not stop a job; stop it from Jobs & progress.
 
 ## Update Bactologix
 
-Use **Update Bactologix** in the top bar or **Install & update**. The dialog retrieves published GitHub releases, including prereleases, and shows the running version, release notes and application environment. Select the version you want, then click **Install v…**. Older releases are labelled. A release needs the expected wheel and GitHub SHA-256 digest to be installable.
+Use **Update Bactologix** in the top bar or **Install & update**. Click **Refresh releases** when checking for a new update. The dialog retrieves published GitHub releases, including prereleases, and shows the running version, release notes and application environment. Select the version you want, then click **Install v…**. Older releases are labelled. A release needs the expected wheel and GitHub SHA-256 digest to be installable.
 
 Finish or cancel queued/running jobs first. The updater checks the asset again, verifies its size, checksum, package identity and Python requirement, then runs pip through the exact Python interpreter serving Bactologix. The job log records installation progress. Once installation starts it cannot be cancelled from the app. An environment lock also prevents an update from overlapping another Bactologix worker using that Python environment. These locks do not coordinate unrelated external pip/Conda commands.
 
-After it finishes, press **Ctrl+C** in the Bactologix terminal and rerun the same launch command, including `--port` and `--home` if used. Refresh the browser after restart. A banner reminds you to restart, and new work is blocked in the old app process. This first updater does not automatically restart Streamlit. Pipeline runners, databases, settings, cached tool environments and run folders are separate from the application package. Pip may update application dependencies when required by the selected release.
+After it finishes, press **Ctrl+C** in the Bactologix terminal and rerun the same launch command, including `--host`, `--port` and `--home` if used. Refresh the browser after restart. A banner reminds you to restart, and new work is blocked in the old app process. This first updater does not automatically restart Streamlit. Pipeline runners, databases, settings, cached tool environments and run folders are separate from the application package. Pip may update application dependencies when required by the selected release.
 
 For **v0.1.0a5 and earlier**, install this release once using the wheel command above; the update button becomes available after restarting. If BaSIS `f66dfedd` was already downloaded, open **Install & update → BaSIS → Finish setup**. This uses the downloaded source and creates or reuses its runner. The runner environment definition is unchanged from the earlier supported BaSIS revision. Read **Setup log** if setup fails; **Retry setup** reuses an existing runner, whereas **Repair runner** creates a separate replacement.
 
@@ -61,8 +63,9 @@ Compatible snapshots remain selectable even after a branch moves. Unsupported do
 
 1. **Install & update:** select your Conda executable, or install workspace-local Miniforge. Use **Connect existing** for a local checkout, or choose a version to download and set up. Both supported runners use Python 3.11 and Snakemake 9.6.2. Streamlit is isolated from these environments.
 2. **Samples:** choose **Add sample → Browse folders**, navigate to the sample folder and select it, or import CSV/TSV columns `sample_id,input_folder,read_mode`. HybAs uses `raw/illumina` and `raw/nanopore`. BaSIS needs `annotation/<sample_id>.fna`, `.faa`, `.gff`, plus `.gbk` when enabled modules require it.
+   **Remove sample** is available in Registered samples and in the run-draft sample picker. It unregisters the folder and moves its inactive saved runs from **Current runs** to **Archived**. Queued/running runs remain visible. Files, frozen configuration, jobs and reports are preserved. Use **Restore** to bring a run back, or **Add sample** to register the folder again. Individual runs also have **Remove from list**.
 3. **Configuration:** import existing native YAML or edit the complete template. Search all pinned settings in the setting editor. Choose database/model locations in **Databases & models**; advanced YAML editing remains available. Saving defaults affects only new drafts.
-4. **Samples & variants → Create run drafts:** choose samples and create drafts. Each draft copies workflow source, references only input files, writes a frozen resolved config, and has independent outputs and scheduler state. Run **Check / dry-run** first. Read its actual log, then prepare analysis tool environments or **Run / resume**.
+4. **Samples & variants → Create run drafts:** select samples, open **Run settings**, and customize the new drafts before creating them. Use category tabs and mode cards for Kraken/AWARE, Assembly, Quality and Databases; BaSIS has Modules, AWARE, DeepSafe and Resources. **Advanced** holds the searchable full field editor and **Full YAML** for custom keys. Finish in **Review** to check the selected samples and key settings; **Check settings** validates the editor input. Switching pipelines retains independent edits. **Reload saved defaults** resets this dialog to the currently saved configuration. Selected samples receive the same settings; create separate requests for different configurations. Saved defaults and existing runs are preserved. Each draft copies workflow source, references only input files, writes a frozen resolved config, and has independent outputs and scheduler state. CPU/memory budgets are set above the editor; generated input/output paths are shown as managed settings. Native defaults shown for omitted settings are only added when edited, so opening the editor does not enable extra modules. Run **Check / dry-run** first. Read its actual log, then prepare analysis tool environments or **Run / resume**.
 5. **Results & reports:** native MultiQC/Safety reports are discovered by expected path, or register any existing local HTML. Embedded reports run in an isolated inner frame. Self-contained reports work best; use Open original for relative assets.
 6. **Overview → Run live smoke test:** executes a real tiny Snakemake workflow using an installed controller and creates an HTML software-test report. It performs no biological analysis.
 
@@ -81,7 +84,17 @@ Under **Install & update → HybAs/BaSIS → Connect existing**:
 
 Only the reviewed source commits below can be connected for managed runs. Modified working-tree files are excluded from the source snapshot; the dialog flags tracked edits. ZIP-only copies without Git metadata need a Git checkout. Existing results can be registered as HTML reports; existing external runs are not adopted for in-place resume. Repair creates a managed runner and leaves a selected external environment intact.
 
+## Check and install tool environments
+
+In **Install & update**, open **Check / install environments** on a ready installation. Select the environments to inspect and click **Check selected**. The worker asks Snakemake for the exact cache paths, checks deployment completion and runs each installed environment's native executable/version probes. Missing, incomplete and failed environments remain distinct from verified ones.
+
+**Environment cache folder → Browse → Use this cache** selects an existing cache for maintenance and future drafts. Existing run drafts retain their original cache. Snakemake 9.6.2 invokes deployment scripts with an unquoted cache path, so choose a cache path without spaces or shell characters; Bactologix checks this before requesting installation. Source, workspace and database destination folders may contain spaces.
+
+**Install selected** deploys only the selected environment recipes, then checks them. No samples, analyses or database download targets are scheduled. Optional environments remain optional for analysis. Compatible environments are reused from the installation's configured cache. A completed environment whose tools fail checks is retained for diagnosis; this control does not delete it. Follow progress in **Jobs & progress**, then reopen the environment panel for status and check time.
+
 ## Manage databases without editing YAML
+
+Discovery includes registered Conda prefixes, pipeline resource folders, hidden Snakemake caches and bounded directory symlink traversal. The scan lists recognizable but incomplete locations with the missing files. Broad scans still have time, folder and depth limits; supply a specific folder if needed.
 
 Open **Databases & models**, choose **HybAs** or **BaSIS**, and click **Auto scan**. Every selectable resource has its own name, location, **Browse**, and **Check location** controls. Detected installations appear in a dropdown. Add a specific scan folder to include another disk or a deeper directory; Windows Explorer paths work in WSL.
 
@@ -93,7 +106,17 @@ The scan preselects a preferred candidate for each unchanged field. It keeps a v
 
 Discovery is a quick structural check, not a full checksum verification or compatibility guarantee. It scans configured locations, registered pipeline sources/caches, workspace resources and common folders, with limits of 5,000 directories, 3,000 entries per folder, seven levels and an eight-second traversal budget. The result reports reached limits and inaccessible folders. Directory symlinks are inspected without recursive traversal; hidden directories are skipped unless included as explicit roots. This is not an exhaustive inventory of every disk. The native workflow still performs its resource checks during preparation.
 
-Saving affects future run drafts and preserves other analysis settings. Existing drafts keep their frozen paths; independently changing database contents at those paths is outside this selection mechanism. Missing BaSIS resources continue to follow the saved `auto`/`manual` policy. HybAs database downloads remain explicit native actions. Scanning and saving do not install environments or download databases.
+Saving affects future run drafts and preserves other analysis settings. To update an existing draft, open its details and click **Use saved databases**, or click **Use saved databases for runs** on this page to choose several runs. Review current/saved paths, select the valid changes, and confirm. A revised draft keeps the original inputs, pipeline version, environment cache, resource budgets and other settings; the selected paths are written into the configuration used by its command. A single revised draft opens immediately: click **Check / dry-run** before preparing tools or running it. Active runs and reviewed follow-up requests cannot use this action.
+
+Original drafts keep their frozen paths; independently changing database contents at those paths is outside this selection mechanism. Missing BaSIS resources continue to follow the saved `auto`/`manual` policy. Scanning and saving do not install environments or download databases. Use the separate Download database control to request preparation.
+
+## Download databases to a chosen location
+
+Each selectable database card has **Download database**. Choose a writable parent folder with **Browse**, set threads/memory, and select the lineage for BUSCO. Bactologix creates a fresh subfolder, freezes a separate administrative configuration and invokes only the pinned pipeline's native database preparation target. Kraken2 uses the native standard database build, which can require substantial memory, storage and time. BaSIS uses its resource provider and required dependencies. Tool-managed resources are prepared through their tool environment instead.
+
+Downloads require the current recommended supported source snapshot and a ready runner. They do not use sample inputs or change saved analysis defaults. Native commands, receipts and provider logs remain available on disk; **Download log** includes recent provider output. A stopped or failed download offers **Resume download**, preserving its original destination, configuration and source identity. The native provider determines which partial work can be reused.
+
+When preparation succeeds, click **Use downloaded**, then **Save locations**. Paths are checked again at selection and saving. Earlier run drafts keep their frozen paths.
 
 ## Version and environment policy
 
@@ -101,15 +124,25 @@ The UI refreshes GitHub release/branch lists, resolves release tags to exact com
 
 | Pipeline | Branch | Commit |
 |---|---|---|
-| HybAs | HybAs_v9.0.0-AWARE | 9477fd3b6578e23a84d6524e1c89e65e01590f03 |
-| BaSIS | snakemake-standalone (recommended) | f66dfedd46da05ae79bf769e7e6fada91270d4d1 |
+| HybAs | HybAs_v9.0.0-AWARE (recommended) | 780ee7086c15c49f2825800ec463327f009f14a6 |
+| HybAs | Earlier compatible snapshot | 9477fd3b6578e23a84d6524e1c89e65e01590f03 |
+| BaSIS AWARE | basis-aware / v0.4.0a1 (recommended) | 1d2d96b266e98d956254d1a518ff5b437ab7a10a |
+| BaSIS | snakemake-standalone (earlier compatible snapshot) | f66dfedd46da05ae79bf769e7e6fada91270d4d1 |
 | BaSIS | snakemake-standalone (earlier compatible snapshot) | d2d2e7806df4d2f586dc4a11d5c1f980deb06857 |
 
 Other listed versions can be downloaded; managed execution is withheld until their adapter contract is reviewed. Branch updates to a new commit therefore require a Bactologix adapter update before execution. Choosing a different installed version affects future drafts only.
 
-Controller environments are keyed by pipeline, environment-file bytes and platform. Existing controllers are health-checked before reuse. Repair prepares a fresh controller and retains the old one. Snakemake uses a stable absolute `--conda-prefix` per pipeline outside version-specific source folders; its native content/pin/deploy-script hashing governs rule environment reuse. No environment or old run is routinely deleted. Database/model storage is separate. BaSIS's configured `resources.policy: auto` can download missing resources during an actual run. HybAs database provisioning remains the upstream explicit workflow/configuration responsibility.
+Controller environments are keyed by pipeline, environment-file bytes and platform. Existing controllers are health-checked before reuse. Repair prepares a fresh controller and retains the old one. Existing drafts use the repaired controller for the same source commit, and require a fresh native dry-run before preparation or execution. Their original controller path remains recorded as creation provenance. Snakemake uses a stable absolute `--conda-prefix` per pipeline outside version-specific source folders; its native content/pin/deploy-script hashing governs rule environment reuse. No environment or old run is routinely deleted. Database/model storage is separate. BaSIS's configured `resources.policy: auto` can download missing resources during an actual run. HybAs database provisioning remains the upstream explicit workflow/configuration responsibility.
 
-One OS lock serializes jobs in each Bactologix workspace, including environment preparation. Child processes inherit the lock. The worker marks abandoned running jobs interrupted on recovery. Run/resume uses normal Snakemake metadata and `--rerun-incomplete`; Bactologix never fabricates completion records, deletes scheduler locks, or weakens rerun triggers. Input size/mtime changes invalidate a draft; these are metadata checks, not full input content hashes. Native workflow provenance may provide additional content checksums.
+One OS lock serializes jobs in each Bactologix workspace, including environment preparation. Child processes inherit the lock. The worker marks abandoned running jobs interrupted on recovery. Run/resume uses normal Snakemake metadata and `--rerun-incomplete`; Bactologix never fabricates completion records, deletes scheduler locks, or weakens rerun triggers. The generated sample sheet and exact staged input-link mapping are verified before every launch. Input size/mtime changes invalidate a draft; these are metadata checks, not full input content hashes. Older drafts reconstruct their expected link mapping from recorded source identities, never from the current staged links; unverifiable drafts are rejected. Comparison clones must retain the parent’s exact input snapshot, including its file inventory. A failed execution remains failed after later successful dry-runs, and discovered reports show their source run status. Native workflow provenance may provide additional content checksums.
+
+## Reviewed BaSIS AWARE follow-up
+
+New BaSIS defaults leave DeepSafe disabled. Existing saved defaults and run configurations are preserved, so review them before creating new drafts after upgrading. Choose the supported BaSIS AWARE source under Install & update for new screening runs; older standalone snapshots remain available for their existing runs.
+
+After a managed BaSIS AWARE screening run completes, open its results, then **Run details → Review follow-up**. Review the follow-up configuration, explicitly enable it, and confirm that you reviewed the screening report. This creates a separate frozen follow-up request with its own source copy, configuration, job history and native dry-run. It invokes upstream `Followup.smk`, which verifies saved screening evidence and requires prepared resources; it has no screening or resource-download rules. Resource paths must be absolute. Bactologix fingerprints the saved screening prerequisite files and rejects changed evidence before launch.
+
+The native follow-up entry point writes into the screening run’s `safety/deepsafe` and `safety/deepsafe-report` folders. Multiple follow-up requests therefore share those outputs; they are not independent output variants. The latest executed follow-up request owns the displayed follow-up report. Earlier requests retain their configurations and job logs. A failed latest attempt is labelled failed even if a report from an earlier attempt remains on disk. Screening reports remain separate.
 
 ## Alpha boundaries
 
@@ -130,10 +163,14 @@ python -m pytest
 python -m build
 ```
 
-`src/bactologix`: HTML/JS/CSS component, Streamlit action bridge, CLI, SQLite store, GitHub catalogue, version-specific adapters, detached worker. `tests`: subprocess/queue, immutable source/config and input contracts, report containment, and Streamlit component trigger checks. The packaged HTML component preserves the original prototype’s design; its production data and actions come from Python, with no seeded examples or simulated workflow completion. `VALIDATION.md` records the checks performed for the supplied build.
+`src/bactologix`: HTML/JS/CSS component, Streamlit action bridge, CLI, SQLite store, GitHub catalogue, version-specific adapters, detached worker. `tests`: subprocess/queue, immutable source/config and input contracts, report containment, and Streamlit component trigger checks. The packaged HTML component preserves the original prototype’s design; its production data and actions come from Python, with no seeded examples or simulated workflow completion. `VALIDATION.md` records the checks performed for the supplied build. GitHub Actions runs Python 3.11/3.12 tests, pinned upstream dry-runs, an empty saved-screening follow-up, package checks, and a separate real Chromium-to-Streamlit test. No native biological analysis is performed by CI.
 
 Credits and RIS/BibTeX/CFF/plain-text citations are in the UI and package data. GitHub's **Cite this repository** entry uses the root [CITATION.cff](CITATION.cff). Cite the pipelines, tools and databases used as well as Bactologix.
 
 ## License
 
 Bactologix is released under the [MIT License](LICENSE), copyright (c) 2026 Jimi Goldstein. The license is included in the wheel and source distributions. Upstream templates, pipelines, tools and databases retain their respective licenses; bundled upstream notices are in `src/bactologix/data/LICENSE.*`.
+
+## Publishing application updates
+
+After a version bump and changelog entry reach `main`, the software workflow publishes the wheel and source archive only after both Python matrices, Chromium and environment deployment succeed. The publication job uses the tested Python 3.11 artifact, uploads to a draft, verifies GitHub asset digests using the application updater’s acceptance rules, and publishes it with alpha/beta/RC versions marked as prereleases. Existing published assets are never replaced; a new update needs a new package version. Workflow dispatch on `main` can retry a failed publication. Development branches do not publish releases.

@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--home", help="Workspace directory (default: platform user data directory)")
     parser.add_argument("--port", type=int, default=8501)
+    parser.add_argument("--host", default="127.0.0.1", help="Listen address; use your WSL private IP to bypass localhost forwarding")
     args = parser.parse_args()
     home = workspace(args.home)
     os.environ["BACTOLOGIX_HOME"] = str(home)
@@ -28,10 +29,12 @@ def main():
         print(enqueue(store, "smoke", {}))
     else:
         argv = [sys.executable, "-m", "streamlit", "run", str(Path(__file__).with_name("app.py")),
-                "--server.address", "127.0.0.1", "--server.port", str(args.port),
+                "--server.address", args.host, "--server.port", str(args.port),
                 "--server.headless", "true",
                 "--server.fileWatcherType", "none",
                 "--browser.gatherUsageStats", "false"]
+        if args.host not in {"0.0.0.0", "::"}:
+            argv += ["--browser.serverAddress", args.host]
         raise SystemExit(subprocess.call(argv))
 
 

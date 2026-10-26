@@ -1,0 +1,116 @@
+name: Software and adapter checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/checkout@v4
+        with:
+          repository: crackberryq/Bactomics_HybAs
+          ref: 780ee7086c15c49f2825800ec463327f009f14a6
+          path: upstream-hybas
+      - uses: actions/checkout@v4
+        with:
+          repository: crackberryq/Bactomics_BaSIS
+          ref: 1d2d96b266e98d956254d1a518ff5b437ab7a10a
+          path: upstream-basis
+      - name: Install software test dependencies
+        run: python -m pip install . pytest build 'snakemake==9.6.2' 'numpy<3' 'biopython<2' 'openpyxl==3.1.5'
+      - name: Test application and pinned workflow adapters
+        env:
+          BACTOLOGIX_HYBAS_SOURCE: ${{ github.workspace }}/upstream-hybas
+          BACTOLOGIX_BASIS_SOURCE: ${{ github.workspace }}/upstream-basis
+        run: python -m pytest -q
+      - name: Build and check installed package
+        run: |
+          python -m build
+          python -m pip install --force-reinstall --no-deps dist/*.whl
+          python -m pip check
+          python -m bactologix.cli --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-python-${{ matrix.python }}
+          path: dist/*
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/checkout@v4
+        with:
+          repository: crackberryq/Bactomics_HybAs
+          ref: 780ee7086c15c49f2825800ec463327f009f14a6
+          path: upstream-hybas
+      - run: python -m pip install . pytest playwright
+      - run: python -m playwright install --with-deps chromium
+      - name: Real browser to Streamlit checks
+        env:
+          BACTOLOGIX_BROWSER_TESTS: '1'
+          BACTOLOGIX_UI_PREVIEWS: ui-previews
+          BACTOLOGIX_HYBAS_SOURCE: ${{ github.workspace }}/upstream-hybas
+        run: python -m pytest -q tests/test_browser.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-previews
+          path: ui-previews/*.png
+  environment-deployment:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: conda-incubator/setup-miniconda@v4
+        with:
+          miniforge-version: latest
+          activate-environment: bactologix-ci
+          python-version: '3.12'
+          channels: conda-forge
+          channel-priority: strict
+      - run: python -m pip install . pytest 'snakemake==9.6.2'
+      - name: Install and check a real sample-free environment
+        env:
+          BACTOLOGIX_ENVIRONMENT_TESTS: '1'
+        run: python -m pytest -q tests/test_environment_deployment.py
+  publish:
+    name: Publish checked application release
+    needs: [tests, browser, environment-deployment]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: bactologix-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages-python-3.11
+          path: dist
+      - name: Install the tested wheel
+        run: python -m pip install dist/*.whl
+      - name: Upload, verify and publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/publish_release.py

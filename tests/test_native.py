@@ -186,3 +186,91 @@ def test_database_selection_applies_to_new_drafts_preserves_previous(workspace, 
     oldcfg = yaml.safe_load(old['config'])
     assert (Path(oldcfg['db_root']) / oldcfg['kraken_db_name']).resolve() == locations[0]
     validate_launch(workspace, before['id'], 'dry-run')
+
+
+def test_remove_sample_preserves_files_runs_jobs_and_reregistration(workspace, installation, sample, monkeypatch):
+    from bactologix.ui_backend import dispatch, snapshot
+    from bactologix.runs import check_run_files, command
+    run = create_run(workspace, 'hybas', sample, 'threads: 1')
+    jid = workspace.submit('workflow', {'run_id': run['id'], 'action': 'dry-run'})
+    before_job = workspace.job(jid)
+    original = {p: p.read_bytes() for p in Path(sample['path']).rglob('*') if p.is_file()}
+    frozen = {p: p.read_bytes() for p in Path(run['folder']).rglob('*') if p.is_file()}
+    result = dispatch(workspace, 'remove_sample', {'id': sample['id'], 'sample': sample})
+    assert result['removed_sample'] == sample['id'] and result['keep_modal']
+    assert not snapshot(workspace)['samples']
+    assert workspace.get('runs', run['id']) == run and workspace.job(jid) == before_job
+    assert all(p.read_bytes() == content for p, content in {**original, **frozen}.items())
+    check_run_files(run)
+    monkeypatch.setattr('bactologix.engine.find_conda', lambda _: '/fixture/conda')
+    assert '--dry-run' in command(workspace, run, 'dry-run')
+    with pytest.raises(ValueError, match='no longer exists'):
+        dispatch(workspace, 'create_runs', {'ids': [sample['id']], 'tool': 'hybas', 'cores': 1, 'memory_mb': 16000})
+    registered = register_sample(workspace, sample['id'], sample['path'], sample['mode'])
+    assert registered['path'] == sample['path']
+    assert workspace.get('runs', run['id']) == run
+
+
+def test_stale_removal_cannot_unregister_replacement_sample(workspace, sample, tmp_path):
+    from bactologix.ui_backend import dispatch
+    dispatch(workspace, 'remove_sample', {'id': sample['id'], 'sample': sample})
+    replacement = register_sample(workspace, sample['id'], str(tmp_path), sample['mode'])
+    with pytest.raises(ValueError, match='registration changed'):
+        dispatch(workspace, 'remove_sample', {'id': sample['id'], 'sample': sample})
+    assert workspace.get('samples', sample['id']) == replacement
+
+
+def test_remove_sample_archives_only_matching_idle_runs(workspace, installation, sample, tmp_path):
+    from bactologix.runs import remove_sample
+    from bactologix.ui_backend import snapshot
+    idle = create_run(workspace, 'hybas', sample, '{}')
+    busy = create_run(workspace, 'hybas', sample, '{}')
+    other = create_run(workspace, 'hybas', sample, '{}')
+    # A reused sample ID must not hide historical runs from another input folder.
+    other['sample'] = {**sample, 'path': str(tmp_path / 'different-inputs')}
+    workspace.put('runs', other['id'], other)
+    jid = workspace.submit('workflow', {'run_id': busy['id'], 'action': 'dry-run'})
+    result = remove_sample(workspace, sample['id'], sample)
+    assert result == {'archived': [idle['id']], 'active': [busy['id']]}
+    rows = {r['id']: r for r in snapshot(workspace)['runs']}
+    assert rows[idle['id']]['archived']
+    assert not rows[busy['id']]['archived'] and not rows[other['id']]['archived']
+    assert workspace.get('runs', idle['id']) == idle
+    assert workspace.job(jid)['status'] == 'queued'
+    register_sample(workspace, sample['id'], sample['path'], sample['mode'])
+    assert workspace.get('run_visibility', idle['id'])['archived']
+
+
+def test_archive_restore_preserves_run_and_blocks_stale_launch(workspace, installation, sample):
+    from bactologix.ui_backend import dispatch, snapshot
+    run = create_run(workspace, 'hybas', sample, '{}')
+    files = {p: p.read_bytes() for p in Path(run['folder']).rglob('*') if p.is_file()}
+    result = dispatch(workspace, 'archive_runs', {'ids': [run['id']]})
+    assert result['archived_runs'] == [run['id']]
+    assert snapshot(workspace)['runs'][0]['archived']
+    with pytest.raises(ValueError, match='Restore this run'):
+        validate_launch(workspace, run['id'], 'dry-run')
+    # This second guard covers archiving between validation and queue insertion.
+    with pytest.raises(ValueError, match='Restore this run'):
+        workspace.submit('workflow', {'run_id': run['id'], 'action': 'dry-run'})
+    dispatch(workspace, 'restore_runs', {'ids': [run['id']]})
+    assert not snapshot(workspace)['runs'][0]['archived']
+    assert workspace.get('runs', run['id']) == run
+    assert all(p.read_bytes() == data for p, data in files.items())
+    validate_launch(workspace, run['id'], 'dry-run')
+    assert workspace.submit('workflow', {'run_id': run['id'], 'action': 'dry-run'})
+
+
+@pytest.mark.parametrize('state', ['queued', 'running', 'missing'])
+def test_archive_batch_is_atomic_for_active_or_missing_runs(workspace, installation, sample, state):
+    from bactologix.runs import archive_runs
+    idle = create_run(workspace, 'hybas', sample, '{}')
+    other = create_run(workspace, 'hybas', sample, '{}')
+    if state == 'missing':
+        other['id'] = 'missing-run'
+    else:
+        jid = workspace.submit('workflow', {'run_id': other['id'], 'action': 'dry-run'})
+        workspace.update_job(jid, status=state)
+    with pytest.raises(ValueError):
+        archive_runs(workspace, [idle['id'], other['id']])
+    assert workspace.all('run_visibility') == []
