@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a9 — alpha candidate
+# Bactologix 0.1.0a10 — alpha candidate
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -6,7 +6,7 @@ Bactologix is a Python/Streamlit application for local HybAs and standalone BaSI
 
 **Alpha release:** the approved HTML interface now runs inside Streamlit with working Python controls. Software checks, real Chromium-to-Streamlit checks and native workflow dry-runs passed; full biological analyses and target-workstation browser testing remain outstanding. Read [VALIDATION.md](VALIDATION.md) and the alpha boundaries below before running samples.
 
-This branch contains the **a9 candidate**. It is not a published GitHub release yet. To test this branch in an existing application environment:
+This branch contains the **a10 candidate**. It is not a published GitHub release yet. To test this branch in an existing application environment:
 
 ```bash
 conda activate bactomix
@@ -21,7 +21,7 @@ Use an exact commit from the pull request when a reproducible installation is re
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a9-py3-none-any.whl
+pipx install ./bactologix-0.1.0a10-py3-none-any.whl
 bactologix
 ```
 
@@ -30,7 +30,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a9/bactologix-0.1.0a9-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a10/bactologix-0.1.0a10-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -39,7 +39,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a9/bactologix-0.1.0a9-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a10/bactologix-0.1.0a10-py3-none-any.whl"
 python -m bactologix.cli
 ```
 
@@ -47,7 +47,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a9-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a10-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -113,7 +113,9 @@ The scan preselects a preferred candidate for each unchanged field. It keeps a v
 
 Discovery is a quick structural check, not a full checksum verification or compatibility guarantee. It scans configured locations, registered pipeline sources/caches, workspace resources and common folders, with limits of 5,000 directories, 3,000 entries per folder, seven levels and an eight-second traversal budget. The result reports reached limits and inaccessible folders. Directory symlinks are inspected without recursive traversal; hidden directories are skipped unless included as explicit roots. This is not an exhaustive inventory of every disk. The native workflow still performs its resource checks during preparation.
 
-Saving affects future run drafts and preserves other analysis settings. Existing drafts keep their frozen paths; independently changing database contents at those paths is outside this selection mechanism. Missing BaSIS resources continue to follow the saved `auto`/`manual` policy. Scanning and saving do not install environments or download databases. Use the separate Download database control to request preparation.
+Saving affects future run drafts and preserves other analysis settings. To update an existing draft, open its details and click **Use saved databases**, or click **Use saved databases for runs** on this page to choose several runs. Review current/saved paths, select the valid changes, and confirm. A revised draft keeps the original inputs, pipeline version, environment cache, resource budgets and other settings; the selected paths are written into the configuration used by its command. A single revised draft opens immediately: click **Check / dry-run** before preparing tools or running it. Active runs and reviewed follow-up requests cannot use this action.
+
+Original drafts keep their frozen paths; independently changing database contents at those paths is outside this selection mechanism. Missing BaSIS resources continue to follow the saved `auto`/`manual` policy. Scanning and saving do not install environments or download databases. Use the separate Download database control to request preparation.
 
 ## Download databases to a chosen location
 

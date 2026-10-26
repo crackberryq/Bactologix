@@ -52,11 +52,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/checkout@v4
+        with:
+          repository: crackberryq/Bactomics_HybAs
+          ref: 780ee7086c15c49f2825800ec463327f009f14a6
+          path: upstream-hybas
       - run: python -m pip install . pytest playwright
       - run: python -m playwright install --with-deps chromium
       - name: Real browser to Streamlit checks
         env:
           BACTOLOGIX_BROWSER_TESTS: '1'
+          BACTOLOGIX_HYBAS_SOURCE: ${{ github.workspace }}/upstream-hybas
         run: python -m pytest -q tests/test_browser.py
   environment-deployment:
     runs-on: ubuntu-latest

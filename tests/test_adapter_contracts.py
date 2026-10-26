@@ -100,7 +100,7 @@ def setup_run(tmp_path, tool):
     return store, run
 
 
-def snake(store, run, action='dry-run', monkeypatch=None):
+def snake(store, run, action='dry-run', monkeypatch=None, expected_returncode=0):
     if monkeypatch:
         monkeypatch.setattr('bactologix.engine.find_conda', lambda _: '/test-only/conda')
     argv = command(store, run, action)
@@ -110,8 +110,28 @@ def snake(store, run, action='dry-run', monkeypatch=None):
     del args[idx:idx + 2]
     result = subprocess.run([sys.executable, '-m', 'snakemake', *args],
                             text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
-    assert result.returncode == 0, result.stdout[-15000:]
+    assert result.returncode == expected_returncode, result.stdout[-15000:]
     return result.stdout
+
+
+def test_saved_database_revision_fixes_native_missing_busco(tmp_path, monkeypatch):
+    from bactologix import database_runs
+    from test_databases import busco
+    store, initial = setup_run(tmp_path, 'hybas')
+    cfg = yaml.safe_load(initial['config'])
+    cfg['run_busco'] = True
+    parent = create_run(store, 'hybas', initial['sample'], yaml.safe_dump(cfg))
+    failed = snake(store, parent, monkeypatch=monkeypatch, expected_returncode=1)
+    assert "BUSCO lineage database 'bacteria_odb10' missing at" in failed
+    target = busco(tmp_path / 'saved database with spaces/bacteria_odb10')
+    databases.save(store, 'hybas', {'busco': str(target)}, databases.panel(store, 'hybas')['revision'])
+    plan = database_runs.preview(store, [parent['id']])
+    child, = database_runs.apply(store, [parent['id']], {parent['id']: ['busco']}, plan['signature'])
+    output = snake(store, child, monkeypatch=monkeypatch)
+    assert 'Job stats' in output or 'Job statistics' in output
+    assert 'busco' in output
+    assert store.get('runs', parent['id'])['config'] == parent['config']
+    check_run_files(child)
 
 
 @pytest.mark.parametrize('tool', ['hybas', 'basis'])

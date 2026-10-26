@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a10 — apply saved databases to existing runs (candidate)
+
+- Add **Use saved databases** in run details and **Use saved databases for runs** on the database page, with current/saved paths and per-resource selection.
+- Create independent revised drafts with the chosen saved paths in the actual native command configuration; retain input identity, pipeline version, cache, resource budgets and other run settings. Open a single revised draft immediately for its required fresh dry-run.
+- Recheck saved locations and original run integrity before applying; reject stale previews, incomplete resources and active runs. Preserve historical runs and unselected database paths.
+- Add regression coverage for the reported missing-BUSCO failure, BaSIS setting preservation, batch revisions, and the real browser save/apply flow.
+
 ## 0.1.0a9 — database downloads and tool environments (candidate)
 
 - Discover registered Conda prefixes, hidden Snakemake caches and linked database folders; list incomplete matches with actionable reasons.

@@ -19,7 +19,7 @@ from .runs import (absolute_path, clone_runs, command, create_run, import_sample
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
 from . import databases, updates
-from . import followup, maintenance
+from . import followup, maintenance, database_runs
 
 _SNAPSHOTS = {}
 
@@ -313,11 +313,22 @@ def dispatch(store, kind, p):
         return {"message": f"Created {len(made)} independent drafts.", "navigate": "samples"}
     if kind == "inspect_run":
         run = copy.deepcopy(_item(store, "runs", p.get("id")))
+        run["database_paths"] = database_runs.paths(store, run)
         try:
             run["command"] = shlex.join(command(store, run, "run"))
         except Exception as exc:
             run["command"] = str(exc)
         return {"detail": run, "keep_modal": True}
+    if kind == "preview_run_databases":
+        return {"database_run_plan": database_runs.preview(store, p.get("ids")), "keep_modal": True}
+    if kind == "apply_run_databases":
+        made = database_runs.apply(store, p.get("ids"), p.get("selections"), p.get("signature"))
+        response = {"message": f"Created {len(made)} revised draft(s) with saved databases. Run a new Check / dry-run.",
+                    "navigate": "samples", "created_runs": [r["id"] for r in made]}
+        if len(made) == 1:
+            response.update(dispatch(store, "inspect_run", {"id": made[0]["id"]}))
+            response.update(keep_modal=False, open_run=made[0]["id"])
+        return response
     if kind == "workflow":
         ids = _ids(p)
         action = p.get("action")

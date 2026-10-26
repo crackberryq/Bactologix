@@ -11,6 +11,8 @@ import pytest
 import yaml
 from bactologix.store import Store
 from bactologix.catalog import PIPELINES
+from bactologix.runs import create_run
+from test_databases import busco
 
 pytestmark = pytest.mark.skipif(os.environ.get('BACTOLOGIX_BROWSER_TESTS') != '1',
                                 reason='Enable the browser acceptance job to run Chromium')
@@ -21,9 +23,12 @@ def test_sample_picker_configuration_and_report(tmp_path):
     workspace = tmp_path / 'workspace'
     store = Store(workspace)
     for tool, recipe in [('hybas', 'workflow/envs/qc.yml'), ('basis', 'envs/diamond.yml')]:
-        source = tmp_path / (tool + '-ui-fixture')
-        (source / recipe).parent.mkdir(parents=True)
-        (source / recipe).write_text('dependencies: [python=3.11]\n')
+        if tool == 'hybas':
+            source = Path(os.environ['BACTOLOGIX_HYBAS_SOURCE'])
+        else:
+            source = tmp_path / (tool + '-ui-fixture')
+            (source / recipe).parent.mkdir(parents=True)
+            (source / recipe).write_text('dependencies: [python=3.11]\n')
         item = {'id': tool + '-ui-fixture', 'tool': tool, 'source': str(source),
                 'controller': '/ui-fixture/runner', 'ready': True,
                 'version': {'commit': PIPELINES[tool]['commit'], 'ref': 'Browser UI fixture'}}
@@ -39,6 +44,11 @@ def test_sample_picker_configuration_and_report(tmp_path):
         'result_path': str(card), 'status': 'completed', 'job': 'software-fixture-job'})
     sample = tmp_path / 'sample folder'
     (sample / 'raw/illumina').mkdir(parents=True)
+    for mate in (1, 2):
+        (sample / f'raw/illumina/fixture_R{mate}.fastq').write_text('@fixture\nACGT\n+\nIIII\n')
+    parent = create_run(store, 'hybas', {'id': 'browser_fixture', 'path': str(sample), 'mode': 'illumina_only'},
+                        'run_busco: true\nrun_kraken: false\ncustom_note: preserve parent\n', label='Pre-scan draft')
+    lineage = busco(tmp_path / 'saved database with spaces/bacteria_odb10')
     report = tmp_path / 'report.html'
     report.write_text('<html><body><h1>Browser software fixture</h1></body></html>')
     store.put('reports', 'report-fixture', {'id': 'report-fixture', 'name': 'Fixture report',
@@ -99,6 +109,29 @@ def test_sample_picker_configuration_and_report(tmp_path):
             page.get_by_role('button', name='Save locations', exact=True).first.click()
             expect(page.locator('#toast')).to_contain_text('Database locations saved')
             assert yaml.safe_load(Store(workspace).get('configs', 'basis'))['modules']['rgi']['database'] == str(card / 'card.json')
+            page.get_by_role('button', name=PIPELINES['hybas']['name'], exact=True).click()
+            page.get_by_label('BUSCO lineage location', exact=True).fill(str(lineage))
+            page.get_by_role('button', name='Save locations', exact=True).first.click()
+            expect(page.locator('#toast')).to_contain_text('Database locations saved')
+            assert Store(workspace).get('runs', parent['id'])['config'] == parent['config']
+            page.get_by_role('button', name='Use saved databases for runs', exact=True).click()
+            page.locator('[data-apply-run="' + parent['id'] + '"]').check()
+            page.get_by_role('button', name='Review database changes', exact=True).click()
+            expect(page.locator('[data-apply-resource="busco"]')).to_be_checked()
+            expect(page.locator('[data-apply-resource="kraken"]')).to_be_disabled()
+            expect(page.locator('.database-apply-run')).to_contain_text(str(lineage))
+            page.get_by_role('button', name='Use saved databases', exact=True).click()
+            expect(page.get_by_role('heading', name='Pre-scan draft · saved databases', exact=True)).to_be_visible()
+            child, = [r for r in Store(workspace).all('runs') if r.get('parent') == parent['id']]
+            cfg = yaml.safe_load(child['config'])
+            assert (Path(cfg['db_root']) / 'busco' / cfg['busco_lineage']).resolve() == lineage
+            assert cfg['custom_note'] == 'preserve parent' and cfg['run_busco'] is True
+            assert not child['dry_run_ok']
+            assert Store(workspace).get('runs', parent['id'])['config'] == parent['config']
+            page.get_by_role('button', name='Use saved databases', exact=True).click()
+            expect(page.locator('[data-apply-resource="busco"]')).to_be_disabled()
+            expect(page.locator('.database-apply-run')).to_contain_text('Already using this saved location')
+            page.get_by_role('button', name='Close dialog', exact=True).click()
             page.get_by_role('link', name='Install & update', exact=True).click()
             page.get_by_role('button', name='Check / install environments', exact=True).last.click()
             expect(page.get_by_role('heading', name='Tool environments', exact=True)).to_be_visible()

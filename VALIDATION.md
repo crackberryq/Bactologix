@@ -1,3 +1,10 @@
+# Validation update: 0.1.0a10 candidate (2026-10-26)
+
+- Local application regression suite: **128 passed**, with 22 native/browser/deployment checks enabled separately. New cases cover HybAs/BaSIS path propagation, per-resource and batch selection, preservation of the parent and unrelated options, fresh dry-run requirements, missing databases, stale previews, input drift and queued work.
+- The new pinned HybAs integration test reproduces the reported missing `bacteria_odb10` failure, saves a structurally complete software fixture under a path containing spaces, applies it to a revised draft, and passes the real Snakemake dry-run using the revised command configuration. No BUSCO analysis or biological database download is performed.
+- Real-browser acceptance now covers saving BUSCO, selecting an existing run, reviewing current/saved locations, applying them, opening the new draft and refusing unchanged selections. Python 3.11/3.12, browser, package-build and real Conda deployment checks run in GitHub Actions for this candidate; consult the exact commit's checks for their result.
+- This update changes application resource routing and draft creation. It does not validate biological outputs or database contents beyond existing structural checks. Existing runs and their results remain unchanged.
+
 # Validation update: 0.1.0a9 candidate (2026-10-26)
 
 - Local software checks pass: 118 application tests; 21 opt-in native/browser/deployment tests are separate.
