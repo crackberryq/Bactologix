@@ -302,7 +302,11 @@ const response=data.response;
 // Preserve drafts before rendering a new server snapshot.
 draftInputs();
 if(response&&response.id!==U.handled){U.handled=response.id;U.pending=null;U.error=response.ok?'':response.message;if(response.config){const c=response.config;U.drafts['yaml-'+c.tool]=c.text;U.fields[c.tool]=c.fields;const el=$('#yaml-'+c.tool);if(el)el.value=c.text;}if(response.browser){U.browser=response.browser;setDraft('folder-path',response.browser.path);}if(response.database_scan){const scan=response.database_scan,t=scan.tool,state=dbState(t);state.scan=scan;for(const r of S.databases[t].rows){const key=dbPath(t,r.id),preferred=scan.candidates[r.id]?.find(c=>c.preferred);if(preferred&&!state.resets[r.id]&&val(key,r.path)===r.path){setDraft(key,preferred.path);setDraft('dbcand-'+t+'-'+r.id,preferred.path);}}}
-if(response.removed_sample)delete U.drafts['run-sample-'+response.removed_sample];
+if(response.removed_sample){
+ const key='run-sample-'+response.removed_sample;delete U.drafts[key];
+ // render() captures the outgoing form once more before replacing the dialog.
+ const checkbox=$('#'+key);if(checkbox)checkbox.checked=false;
+}
 if(response.database_run_plan)U.databaseRunPlan=response.database_run_plan;
 if(response.database_check){const c=response.database_check,t=c.tool;dbState(t).checks[c.id]=c;setDraft(dbPath(t,c.id),c.path);delete dbState(t).resets[c.id];}
 if(response.database_saved){clearDatabases(response.database_saved);}

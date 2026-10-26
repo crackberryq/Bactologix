@@ -2,6 +2,7 @@
 
 - Local application checks: **130 passed**, with 22 native/browser/deployment checks enabled separately. Sample-removal regression verifies that registration disappears while input files, staged inputs, frozen runs and queued jobs remain intact; the existing run still generates its command. Removed samples cannot be selected by stale draft requests, and the original folder can be registered again.
 - Stale removal requests cannot remove a replacement registration with different inputs. Removal operates only on the sample registry and never deletes filesystem content.
+- The first browser pass caught an old checkbox value being captured again during rendering after removal. The response now clears the outgoing checkbox as well as saved form state; the re-registration assertion remains in the acceptance test.
 - Real Chromium acceptance now exercises removal from both Registered samples and the run-draft picker, keeps other draft-form values, handles removal of the last sample and verifies that re-registration clears the earlier checkbox selection. Exact-commit CI also runs the existing Python 3.11/3.12 native adapters and environment deployment checks.
 
 # Validation update: 0.1.0a10 candidate (2026-10-26)
