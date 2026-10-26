@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a15 — alpha
+# Bactologix 0.1.0a16 — alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -13,7 +13,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a15-py3-none-any.whl
+pipx install ./bactologix-0.1.0a16-py3-none-any.whl
 bactologix
 ```
 
@@ -22,7 +22,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a15/bactologix-0.1.0a15-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a16/bactologix-0.1.0a16-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -31,7 +31,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a15/bactologix-0.1.0a15-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a16/bactologix-0.1.0a16-py3-none-any.whl"
 python -m bactologix.cli
 ```
 
@@ -39,7 +39,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a15-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a16-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -88,9 +88,17 @@ Only the reviewed source commits below can be connected for managed runs. Modifi
 
 In **Install & update**, open **Check / install environments** on a ready installation. Select the environments to inspect and click **Check selected**. The worker asks Snakemake for the exact cache paths, checks deployment completion and runs each installed environment's native executable/version probes. Missing, incomplete and failed environments remain distinct from verified ones.
 
-**Environment cache folder → Browse → Use this cache** selects an existing cache for maintenance and future drafts. Existing run drafts retain their original cache. Snakemake 9.6.2 invokes deployment scripts with an unquoted cache path, so choose a cache path without spaces or shell characters; Bactologix checks this before requesting installation. Source, workspace and database destination folders may contain spaces.
+**Reuse existing environments** is available directly on each ready version card. Choose a cache recorded by an earlier version or browse to an existing Snakemake cache, then click **Use selected cache** and **Check selected** to verify matching tools. Select the parent cache folder, not an individual Conda environment. New pipeline installations inherit the previous active version’s selected cache; retries keep their existing selection.
+
+**Environment cache folder → Browse → Use this cache** also selects an existing cache for maintenance and future drafts. Existing run drafts retain their original cache. Snakemake 9.6.2 invokes deployment scripts with an unquoted cache path, so choose a cache path without spaces or shell characters; Bactologix checks this before requesting installation. Source, workspace and database destination folders may contain spaces.
 
 **Install selected** deploys only the selected environment recipes, then checks them. No samples, analyses or database download targets are scheduled. Optional environments remain optional for analysis. Compatible environments are reused from the installation's configured cache. A completed environment whose tools fail checks is retained for diagnosis; this control does not delete it. Follow progress in **Jobs & progress**, then reopen the environment panel for status and check time.
+
+## Uninstall an older pipeline version
+
+In **Install & update**, click **Uninstall version** and review the exact source folder and retained content before confirming. Only an inactive, unused managed source snapshot and its installation entry are removed. Shared runners, tool caches, databases, saved runs, results, logs and original connected checkouts remain on disk. This action does not reclaim their storage.
+
+Versions referenced by any saved run (including archived runs) or unfinished database download cannot be removed. Queued/running jobs also block uninstall. Modified, untracked or ignored source files and sources containing retained caches or checkouts must be preserved first. The app rechecks these conditions at confirmation; stale previews cannot remove a changed installation.
 
 ## Manage databases without editing YAML
 

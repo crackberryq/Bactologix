@@ -66,10 +66,32 @@ class Store:
             rows = db.execute("SELECT body FROM items WHERE kind=? ORDER BY rowid DESC", (kind,)).fetchall()
         return [json.loads(row[0]) for row in rows]
 
+    def register_run(self, run):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute("SELECT body FROM items WHERE kind='installs' AND id=?", (run['installation'],)).fetchone()
+            installed = json.loads(row[0]) if row else {}
+            if not installed.get('ready') or installed.get('version', {}).get('commit') != run['commit']:
+                raise ValueError('The installation changed or was removed while creating this draft. Refresh and try again.')
+            db.execute("INSERT INTO items VALUES ('runs',?,?)", (run['id'], json.dumps(run)))
+
+    def activate_installation(self, key):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute("SELECT body FROM items WHERE kind='installs' AND id=?", (key,)).fetchone()
+            item = json.loads(row[0]) if row else {}
+            if not item.get('ready'):
+                raise ValueError('This installation is no longer ready. Refresh the installation list.')
+            db.execute("INSERT INTO items VALUES ('settings',?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body",
+                       ('active-' + item['tool'], json.dumps(key)))
+
     def submit(self, kind, payload):
         jid = identifier("job")
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            if kind in {'check', 'environments', 'database_download'} and payload.get('installation'):
+                if not db.execute("SELECT 1 FROM items WHERE kind='installs' AND id=?", (payload['installation'],)).fetchone():
+                    raise ValueError('This installation was removed. Refresh before starting maintenance.')
             pending = db.execute("SELECT kind FROM jobs WHERE status IN ('queued','running')").fetchall()
             if any(row[0] == "app_update" for row in pending):
                 raise ValueError("A Bactologix update is queued or running. Wait for it to finish and restart the app.")

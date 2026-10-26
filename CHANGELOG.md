@@ -1,5 +1,13 @@
 # Bactologix releases
 
+## 0.1.0a16 — reuse environments and uninstall unused versions
+
+- Add **Reuse existing environments** and the selected cache path directly to each ready installation. List known same-pipeline caches, allow browsing to another cache, and open the native environment checker after selection.
+- New pipeline installations inherit the previous active version’s custom tool cache; retries and existing saved runs keep their own cache. Native recipe matching determines which tools can be reused.
+- Add a reviewed **Uninstall version** action for unused managed source snapshots. Preserve runners, tool caches, databases, results, logs and original checkouts; block active versions, saved-run dependencies, unfinished downloads, pending jobs and modified or unowned sources.
+- Revalidate source identity and dependencies during removal. Coordinate activation, maintenance requests, cache changes and new-draft registration with uninstall; restore the source if registry removal fails.
+- Add lifecycle regression checks, Chromium reuse/uninstall coverage and real sample-free cross-version environment reuse verification.
+
 ## 0.1.0a15 — guided workspace configuration
 
 - Configuration now uses the draft editor's category tabs, mode cards, switches and searchable Advanced sections. Full YAML, import/export and validation are retained.

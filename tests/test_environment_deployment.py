@@ -61,6 +61,24 @@ def test_missing_install_verified_and_broken_tool(tmp_path, monkeypatch):
     history = (prefix / 'conda-meta/history').read_bytes()
     assert run('check')['status'] == 'Verified'
     assert (prefix / 'conda-meta/history').read_bytes() == history
+    # A later source version selects the same cache and reuses the exact prefix.
+    newer_source = tmp_path / 'newer software source'
+    shutil.copytree(source, newer_source)
+    (newer_source / 'README.md').write_text('A new version with unchanged software recipes.\n')
+    subprocess.run(['git', '-C', str(newer_source), 'add', 'README.md'], check=True)
+    subprocess.run(['git', '-C', str(newer_source), '-c', 'user.name=Test', '-c', 'user.email=test@localhost',
+                    'commit', '-qm', 'new software version'], check=True)
+    newer_commit = subprocess.check_output(['git', '-C', str(newer_source), 'rev-parse', 'HEAD'], text=True).strip()
+    monkeypatch.setitem(PIPELINES['hybas'], 'commit', newer_commit)
+    original_cache = item['rule_cache']
+    item = {**item, 'id': 'newer-deployment-fixture', 'source': str(newer_source),
+            'rule_cache': str(tmp_path / 'initially-empty-cache'),
+            'version': {'commit': newer_commit, 'ref': 'newer software-only fixture'}}
+    store.put('installs', item['id'], item)
+    m.set_cache(store, item['id'], original_cache)
+    reused = run('install')
+    assert reused['status'] == 'Verified' and reused['path'] == str(prefix)
+    assert (prefix / 'conda-meta/history').read_bytes() == history
     python = prefix / 'bin/python'
     held = prefix / 'bin/python-held-for-test'
     python.rename(held)

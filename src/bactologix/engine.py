@@ -132,6 +132,11 @@ def check_controller(ctx, conda, prefix, tool):
     ctx.command([conda, "run", "--no-capture-output", "-p", str(prefix), "snakemake", "--version"])
 
 
+def inherited_cache(store, tool):
+    previous = store.get('installs', store.get('settings', 'active-' + tool), {})
+    return previous.get('rule_cache') or str(store.home / 'envs' / tool)
+
+
 def install(ctx):
     store, payload = ctx.store, ctx.job["payload"]
     tool, version = payload["tool"], payload["version"]
@@ -159,7 +164,9 @@ def install(ctx):
     if subprocess.check_output(["git", "-C", str(target), "status", "--porcelain"], text=True).strip():
         raise RuntimeError("Installed source has local changes; preserve them and choose a clean installation.")
     record = store.get("installs", key, {"id": key, "tool": tool, "source": str(target), "version": version,
-                                        "created": now(), "controller": None, "ready": False})
+                                        "created": now(), "controller": None, "ready": False,
+                                        "rule_cache": inherited_cache(store, tool)})
+    record.setdefault('rule_cache', str(store.home / 'envs' / tool))
     store.put("installs", key, record)
     if not supported(tool, commit):
         ctx.write("Source downloaded. This version needs an adapter compatibility review before managed execution.")
@@ -234,7 +241,7 @@ def connect_existing(ctx):
     record = {"id": key, "tool": tool, "source": str(target), "original_source": info["path"], "origin": "local",
               "version": {"id": "local:" + key, "ref": info["ref"], "commit": info["commit"], "kind": "local"},
               "created": previous["created"] if previous else now(), "controller": str(prefix) if prefix else None,
-              "rule_cache": str(cache) if cache else str(store.home / "envs" / tool), "ready": False}
+              "rule_cache": str(cache) if cache else inherited_cache(store, tool), "ready": False}
     if previous and previous.get("ready"):
         raise ValueError("This installation is already connected. Select it under Install & update.")
     store.put("installs", key, record)

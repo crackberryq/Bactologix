@@ -6,6 +6,7 @@ hashes and deployment; no substitute cache keys or biological jobs are created.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -56,8 +57,16 @@ def set_cache(store, key, value):
         raise ValueError("Choose a writable cache folder, not an individual Conda environment or the filesystem root.")
     updated = {**item, "rule_cache": str(path)}
     check_deployment_path(store, updated)
-    store.put("installs", key, updated)
-    store.put("environment_checks", key, {})
+    with store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if db.execute("SELECT 1 FROM jobs WHERE status IN ('queued','running')").fetchone():
+            raise ValueError('Finish queued or running jobs before changing the environment cache.')
+        row = db.execute("SELECT body FROM items WHERE kind='installs' AND id=?", (key,)).fetchone()
+        if not row or json.loads(row[0]) != item:
+            raise ValueError('This installation changed. Reopen its environment controls.')
+        for kind, value in (('installs', updated), ('environment_checks', {})):
+            db.execute('INSERT INTO items VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body',
+                       (kind, key, json.dumps(value)))
 
 
 def installation(store, key):
