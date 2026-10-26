@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a10 — alpha candidate
+# Bactologix 0.1.0a11 — alpha candidate
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -6,7 +6,7 @@ Bactologix is a Python/Streamlit application for local HybAs and standalone BaSI
 
 **Alpha release:** the approved HTML interface now runs inside Streamlit with working Python controls. Software checks, real Chromium-to-Streamlit checks and native workflow dry-runs passed; full biological analyses and target-workstation browser testing remain outstanding. Read [VALIDATION.md](VALIDATION.md) and the alpha boundaries below before running samples.
 
-This branch contains the **a10 candidate**. It is not a published GitHub release yet. To test this branch in an existing application environment:
+This branch contains the **a11 candidate**. It is not a published GitHub release yet. To test this branch in an existing application environment:
 
 ```bash
 conda activate bactomix
@@ -21,7 +21,7 @@ Use an exact commit from the pull request when a reproducible installation is re
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a10-py3-none-any.whl
+pipx install ./bactologix-0.1.0a11-py3-none-any.whl
 bactologix
 ```
 
@@ -30,7 +30,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a10/bactologix-0.1.0a10-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a11/bactologix-0.1.0a11-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -39,7 +39,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a10/bactologix-0.1.0a10-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a11/bactologix-0.1.0a11-py3-none-any.whl"
 python -m bactologix.cli
 ```
 
@@ -47,7 +47,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a10-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a11-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -71,6 +71,7 @@ Compatible snapshots remain selectable even after a branch moves. Unsupported do
 
 1. **Install & update:** select your Conda executable, or install workspace-local Miniforge. Use **Connect existing** for a local checkout, or choose a version to download and set up. Both supported runners use Python 3.11 and Snakemake 9.6.2. Streamlit is isolated from these environments.
 2. **Samples:** choose **Add sample → Browse folders**, navigate to the sample folder and select it, or import CSV/TSV columns `sample_id,input_folder,read_mode`. HybAs uses `raw/illumina` and `raw/nanopore`. BaSIS needs `annotation/<sample_id>.fna`, `.faa`, `.gff`, plus `.gbk` when enabled modules require it.
+   **Remove sample** is available in Registered samples and in the run-draft sample picker. It unregisters the folder from future sample selection; input files, existing drafts, jobs and reports are preserved. Use **Add sample** to register it again.
 3. **Configuration:** import existing native YAML or edit the complete template. Search all pinned settings in the setting editor. Choose database/model locations in **Databases & models**; advanced YAML editing remains available. Saving defaults affects only new drafts.
 4. **Samples & variants → Create run drafts:** choose samples and create drafts. Each draft copies workflow source, references only input files, writes a frozen resolved config, and has independent outputs and scheduler state. Run **Check / dry-run** first. Read its actual log, then prepare analysis tool environments or **Run / resume**.
 5. **Results & reports:** native MultiQC/Safety reports are discovered by expected path, or register any existing local HTML. Embedded reports run in an isolated inner frame. Self-contained reports work best; use Open original for relative assets.

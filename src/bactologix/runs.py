@@ -66,6 +66,21 @@ def register_sample(store, sid, path, mode="hybrid"):
     return store.put("samples", sid, {"id": sid, "path": str(folder), "mode": mode, "created": now()})
 
 
+def remove_sample(store, sid, expected):
+    """Unregister a reviewed sample; runs carry their own immutable sample records."""
+    if not isinstance(sid, str) or not isinstance(expected, dict):
+        raise ValueError("Choose a registered sample to remove.")
+    valid_id(sid)
+    with store.connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT body FROM items WHERE kind='samples' AND id=?", (sid,)).fetchone()
+        if row is None:
+            raise ValueError("This sample is no longer registered. Refresh the sample list.")
+        if json.loads(row[0]) != expected:
+            raise ValueError("This sample registration changed. Refresh the sample list before removing it.")
+        db.execute("DELETE FROM items WHERE kind='samples' AND id=?", (sid,))
+
+
 def import_samples(store, text):
     text = text.lstrip("\ufeff")
     delimiter = "\t" if "\t" in text.partition("\n")[0] else ","

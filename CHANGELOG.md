@@ -1,5 +1,10 @@
 # Bactologix releases
 
+## 0.1.0a11 — remove samples from selection (candidate)
+
+- Add **Remove sample** to Registered samples and the Create run drafts picker. Removal unregisters the sample, clears its selection and keeps the picker open.
+- Preserve original files, frozen runs, jobs and reports; allow re-registering the folder. Reject stale removal requests when the registration has changed.
+
 ## 0.1.0a10 — apply saved databases to existing runs (candidate)
 
 - Add **Use saved databases** in run details and **Use saved databases for runs** on the database page, with current/saved paths and per-resource selection.

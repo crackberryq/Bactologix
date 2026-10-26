@@ -186,3 +186,35 @@ def test_database_selection_applies_to_new_drafts_preserves_previous(workspace, 
     oldcfg = yaml.safe_load(old['config'])
     assert (Path(oldcfg['db_root']) / oldcfg['kraken_db_name']).resolve() == locations[0]
     validate_launch(workspace, before['id'], 'dry-run')
+
+
+def test_remove_sample_preserves_files_runs_jobs_and_reregistration(workspace, installation, sample, monkeypatch):
+    from bactologix.ui_backend import dispatch, snapshot
+    from bactologix.runs import check_run_files, command
+    run = create_run(workspace, 'hybas', sample, 'threads: 1')
+    jid = workspace.submit('workflow', {'run_id': run['id'], 'action': 'dry-run'})
+    before_job = workspace.job(jid)
+    original = {p: p.read_bytes() for p in Path(sample['path']).rglob('*') if p.is_file()}
+    frozen = {p: p.read_bytes() for p in Path(run['folder']).rglob('*') if p.is_file()}
+    result = dispatch(workspace, 'remove_sample', {'id': sample['id'], 'sample': sample})
+    assert result['removed_sample'] == sample['id'] and result['keep_modal']
+    assert not snapshot(workspace)['samples']
+    assert workspace.get('runs', run['id']) == run and workspace.job(jid) == before_job
+    assert all(p.read_bytes() == content for p, content in {**original, **frozen}.items())
+    check_run_files(run)
+    monkeypatch.setattr('bactologix.engine.find_conda', lambda _: '/fixture/conda')
+    assert '--dry-run' in command(workspace, run, 'dry-run')
+    with pytest.raises(ValueError, match='no longer exists'):
+        dispatch(workspace, 'create_runs', {'ids': [sample['id']], 'tool': 'hybas', 'cores': 1, 'memory_mb': 16000})
+    registered = register_sample(workspace, sample['id'], sample['path'], sample['mode'])
+    assert registered['path'] == sample['path']
+    assert workspace.get('runs', run['id']) == run
+
+
+def test_stale_removal_cannot_unregister_replacement_sample(workspace, sample, tmp_path):
+    from bactologix.ui_backend import dispatch
+    dispatch(workspace, 'remove_sample', {'id': sample['id'], 'sample': sample})
+    replacement = register_sample(workspace, sample['id'], str(tmp_path), sample['mode'])
+    with pytest.raises(ValueError, match='registration changed'):
+        dispatch(workspace, 'remove_sample', {'id': sample['id'], 'sample': sample})
+    assert workspace.get('samples', sample['id']) == replacement

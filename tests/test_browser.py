@@ -132,6 +132,35 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(page.locator('[data-apply-resource="busco"]')).to_be_disabled()
             expect(page.locator('.database-apply-run')).to_contain_text('Already using this saved location')
             page.get_by_role('button', name='Close dialog', exact=True).click()
+            page.get_by_role('link', name='Samples & variants', exact=True).click()
+            page.locator('.registered-samples').get_by_role('button', name='Remove sample', exact=True).click()
+            expect(page.locator('.registered-samples')).to_contain_text('0 folders')
+            assert Store(workspace).get('samples', 'browser_fixture') is None
+            assert Store(workspace).get('runs', parent['id']) == parent
+            for mate in (1, 2):
+                assert (sample / f'raw/illumina/fixture_R{mate}.fastq').read_text() == '@fixture\nACGT\n+\nIIII\n'
+            def register_again():
+                page.get_by_role('button', name='Add sample', exact=True).first.click()
+                page.locator('#sample-id').fill('browser_fixture')
+                page.locator('#sample-path').fill(str(sample))
+                page.locator('#sample-mode').select_option('illumina_only')
+                page.get_by_role('button', name='Register sample', exact=True).click()
+                expect(page.locator('.registered-samples')).to_contain_text('1 folders')
+            register_again()
+            page.get_by_role('button', name='Create run drafts', exact=True).click()
+            page.locator('#run-cores').fill('3')
+            page.locator('#run-sample-browser_fixture').check()
+            page.get_by_role('dialog').get_by_role('button', name='Remove sample', exact=True).click()
+            expect(page.get_by_role('heading', name='Create run drafts', exact=True)).to_be_visible()
+            expect(page.locator('#run-cores')).to_have_value('3')
+            expect(page.locator('#run-sample-browser_fixture')).to_have_count(0)
+            expect(page.get_by_role('button', name='Create drafts', exact=True)).to_be_disabled()
+            assert Store(workspace).get('samples', 'browser_fixture') is None
+            page.get_by_role('button', name='Close dialog', exact=True).click()
+            register_again()
+            page.get_by_role('button', name='Create run drafts', exact=True).click()
+            expect(page.locator('#run-sample-browser_fixture')).not_to_be_checked()
+            page.get_by_role('button', name='Close dialog', exact=True).click()
             page.get_by_role('link', name='Install & update', exact=True).click()
             page.get_by_role('button', name='Check / install environments', exact=True).last.click()
             expect(page.get_by_role('heading', name='Tool environments', exact=True)).to_be_visible()

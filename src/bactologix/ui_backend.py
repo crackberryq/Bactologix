@@ -15,7 +15,7 @@ from .catalog import DATA, PIPELINES, fetch_versions, supported, versions
 from .engine import doctor, enqueue, launch_worker
 from .local import browse_folders, discover_environments, discover_installations, inspect_installation, local_path
 from .runs import (absolute_path, clone_runs, command, create_run, import_samples,
-                   parse_config, register_sample, reports, template, validate_launch,
+                   parse_config, register_sample, remove_sample, reports, template, validate_launch,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
 from . import databases, updates
@@ -272,6 +272,10 @@ def dispatch(store, kind, p):
     if kind == "add_sample":
         register_sample(store, p["id"].strip(), str(local_path(p["path"])), p["mode"])
         return {"message": "Sample registered.", "navigate": "samples"}
+    if kind == "remove_sample":
+        remove_sample(store, p.get("id"), p.get("sample"))
+        return {"message": f"Sample {p['id']} removed from selection. Input files and run history are preserved.",
+                "removed_sample": p["id"], "keep_modal": True}
     if kind == "import_samples":
         items = import_samples(store, p["text"])
         return {"message": f"Imported {len(items)} samples.", "navigate": "samples"}
