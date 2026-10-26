@@ -1,5 +1,11 @@
 # Bactologix releases
 
+## 0.1.0a17 — automatic release-specific runners
+
+- Read the required Python and exact Snakemake versions from each reviewed pipeline release's environment file instead of enforcing one global runner version.
+- Install workspace-local Conda automatically when managed setup needs it, then create or check the release's isolated runner before activation. Preserve older runners, external environments, tool caches and saved runs.
+- Show verified requirements in the installation status and setup log. Reject unpinned/conflicting requirements, keep failed setup unready and preserve the previous active version when a new installation fails.
+
 ## 0.1.0a16 — reuse environments and uninstall unused versions
 
 - Add **Reuse existing environments** and the selected cache path directly to each ready installation. List known same-pipeline caches, allow browsing to another cache, and open the native environment checker after selection.

@@ -9,11 +9,48 @@ import pytest
 
 from bactologix.catalog import PIPELINES
 from bactologix.engine import Context
+from bactologix.engine import prepare_controller
 from bactologix import maintenance as m
 from bactologix.store import Store
 
 pytestmark = pytest.mark.skipif(os.environ.get('BACTOLOGIX_ENVIRONMENT_TESTS') != '1',
                                 reason='Enable the real Conda deployment acceptance job')
+
+
+def test_release_declared_runner_is_installed_and_reused(tmp_path):
+    """The app's own runner is 9.6.2; this source explicitly requires 9.27.1."""
+    conda = shutil.which('conda')
+    assert conda, 'Real Conda is required'
+    store = Store(tmp_path / 'workspace')
+    store.put('settings', 'conda', conda)
+    source = tmp_path / 'source'
+    source.mkdir()
+    (source / 'environment.yaml').write_text(
+        'channels: [conda-forge, bioconda, nodefaults]\n'
+        'dependencies: [python=3.11, snakemake-minimal=9.27.1, pyyaml]\n')
+    item = {'id': 'release-runner', 'tool': 'hybas', 'source': str(source), 'ready': False}
+    for attempt in range(2):
+        jid = store.submit('install', {})
+        ctx = Context(store, store.job(jid))
+        try:
+            prepare_controller(ctx, item)
+        except Exception:
+            print(store.log_path(jid).read_text())
+            raise
+        finally:
+            ctx.log.close()
+        assert item['ready']
+        assert item['controller_requirements'] == {'python': '3.11', 'snakemake': '9.27.1'}
+        log = store.log_path(jid).read_text()
+        if attempt == 0:
+            prefix = Path(item['controller'])
+            history = (prefix / 'conda-meta/history').read_bytes()
+            assert 'env create' in log
+        else:
+            assert Path(item['controller']) == prefix
+            assert 'env create' not in log
+            assert (prefix / 'conda-meta/history').read_bytes() == history
+    assert not store.all('samples') and not store.all('runs')
 
 
 def test_missing_install_verified_and_broken_tool(tmp_path, monkeypatch):

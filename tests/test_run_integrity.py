@@ -89,7 +89,7 @@ def perform(store, run, action, fail=False):
 def test_existing_draft_uses_repaired_runner_after_new_dry_run(workspace, installation, sample, monkeypatch):
     source = Path(installation['source'])
     env = source / 'environment.yaml'
-    env.write_text('name: fixture\ndependencies: []\n')
+    env.write_text('name: fixture\ndependencies: [python=3.11, snakemake-minimal=9.6.2]\n')
     subprocess.run(['git', '-C', str(source), 'add', '.'], check=True)
     subprocess.run(['git', '-C', str(source), '-c', 'user.name=Test', '-c', 'user.email=test@localhost', 'commit', '-qm', 'environment'], check=True)
     commit = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()

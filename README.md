@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a16 — alpha
+# Bactologix 0.1.0a17 — alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -13,7 +13,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a16-py3-none-any.whl
+pipx install ./bactologix-0.1.0a17-py3-none-any.whl
 bactologix
 ```
 
@@ -22,7 +22,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a16/bactologix-0.1.0a16-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a17/bactologix-0.1.0a17-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -31,7 +31,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a16/bactologix-0.1.0a16-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a17/bactologix-0.1.0a17-py3-none-any.whl"
 python -m bactologix.cli
 ```
 
@@ -39,7 +39,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a16-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a17-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -61,7 +61,7 @@ Compatible snapshots remain selectable even after a branch moves. Unsupported do
 
 ## First use
 
-1. **Install & update:** select your Conda executable, or install workspace-local Miniforge. Use **Connect existing** for a local checkout, or choose a version to download and set up. Both supported runners use Python 3.11 and Snakemake 9.6.2. Streamlit is isolated from these environments.
+1. **Install & update:** use **Connect existing** for a local checkout, or choose a version to download and set up. Bactologix reads the selected release's pinned Python and Snakemake requirements from its environment file, creates or reuses a separate runner, and verifies it before activation. If Conda is missing, managed setup first installs workspace-local Miniforge automatically. Streamlit is isolated from these environments.
 2. **Samples:** choose **Add sample → Browse folders**, navigate to the sample folder and select it, or import CSV/TSV columns `sample_id,input_folder,read_mode`. HybAs uses `raw/illumina` and `raw/nanopore`. BaSIS needs `annotation/<sample_id>.fna`, `.faa`, `.gff`, plus `.gbk` when enabled modules require it.
    **Remove sample** is available in Registered samples and in the run-draft sample picker. It unregisters the folder and moves its inactive saved runs from **Current runs** to **Archived**. Queued/running runs remain visible. Files, frozen configuration, jobs and reports are preserved. Use **Restore** to bring a run back, or **Add sample** to register the folder again. Individual runs also have **Remove from list**.
 3. **Configuration:** use the same category tabs, mode cards and switches as the draft editor. **Advanced** provides searchable sections and **Full YAML** for custom keys; YAML import/export and **Check settings** remain available. Each pipeline retains its own unsaved edits while switching tabs. **Save defaults** applies the configuration to future drafts and preserves existing runs. **Reload saved defaults** discards local edits. A stale editor cannot overwrite newer saved settings or database selections; download your edits before reloading if you need to keep them. Choose database/model locations in **Databases & models**.
@@ -140,7 +140,7 @@ The UI refreshes GitHub release/branch lists, resolves release tags to exact com
 
 Other listed versions can be downloaded; managed execution is withheld until their adapter contract is reviewed. Branch updates to a new commit therefore require a Bactologix adapter update before execution. Choosing a different installed version affects future drafts only.
 
-Controller environments are keyed by pipeline, environment-file bytes and platform. Existing controllers are health-checked before reuse. Repair prepares a fresh controller and retains the old one. Existing drafts use the repaired controller for the same source commit, and require a fresh native dry-run before preparation or execution. Their original controller path remains recorded as creation provenance. Snakemake uses a stable absolute `--conda-prefix` per pipeline outside version-specific source folders; its native content/pin/deploy-script hashing governs rule environment reuse. No environment or old run is routinely deleted. Database/model storage is separate. BaSIS's configured `resources.policy: auto` can download missing resources during an actual run. HybAs database provisioning remains the upstream explicit workflow/configuration responsibility.
+Controller environments are keyed by pipeline, environment-file bytes and platform. Each reviewed release must explicitly pin Python (minor series or patch) and a complete Snakemake version in its Conda environment file. Setup installs those requirements, rather than whatever happens to be the newest Snakemake. The verified versions appear on the installation card and in the setup log. A changed definition creates a separate runner; a failed installation/check never activates the new version. Existing controllers are health-checked against the selected release before reuse. Repair prepares a fresh controller and retains the old one. Existing drafts use the repaired controller for the same source commit, and require a fresh native dry-run before preparation or execution. Their original controller path remains recorded as creation provenance. Snakemake uses a stable absolute `--conda-prefix` per pipeline outside version-specific source folders; its native content/pin/deploy-script hashing governs rule environment reuse. No environment or old run is routinely deleted. Database/model storage is separate. BaSIS's configured `resources.policy: auto` can download missing resources during an actual run. HybAs database provisioning remains the upstream explicit workflow/configuration responsibility.
 
 One OS lock serializes jobs in each Bactologix workspace, including environment preparation. Child processes inherit the lock. The worker marks abandoned running jobs interrupted on recovery. Run/resume uses normal Snakemake metadata and `--rerun-incomplete`; Bactologix never fabricates completion records, deletes scheduler locks, or weakens rerun triggers. The generated sample sheet and exact staged input-link mapping are verified before every launch. Input size/mtime changes invalidate a draft; these are metadata checks, not full input content hashes. Older drafts reconstruct their expected link mapping from recorded source identities, never from the current staged links; unverifiable drafts are rejected. Comparison clones must retain the parent’s exact input snapshot, including its file inventory. A failed execution remains failed after later successful dry-runs, and discovered reports show their source run status. Native workflow provenance may provide additional content checksums.
 

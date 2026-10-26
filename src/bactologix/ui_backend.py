@@ -41,6 +41,9 @@ def installation_status(item, jobs):
         state, message = "Version not supported", "Source downloaded. Update Bactologix or choose a version marked Runner supported."
     elif item.get("ready"):
         state, message = "Ready", "Runner verified. Analysis tool environments are prepared for each chosen run."
+        required = item.get("controller_requirements")
+        if required:
+            message = f"Runner verified: Python {required['python']} / Snakemake {required['snakemake']}. Analysis tool environments are prepared for each chosen run."
     elif latest and latest["status"] in {"failed", "cancelled", "interrupted"}:
         state, message = "Setup incomplete", latest.get("error") or "Read the setup log, then retry setup."
     else:

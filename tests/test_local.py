@@ -105,7 +105,7 @@ def test_connect_copies_committed_source_reuses_runner_and_cache(tmp_path, check
     info = inspect_installation(checkout, 'hybas')
     monkeypatch.setattr('bactologix.engine.find_conda', lambda s: '/conda')
     checks = []
-    monkeypatch.setattr('bactologix.engine.check_controller', lambda ctx, conda, p, t: checks.append((str(p), t)))
+    monkeypatch.setattr('bactologix.engine.check_controller', lambda ctx, conda, p, t, requirements: checks.append((str(p), t)))
     payload = dict(tool='hybas', path=str(checkout), commit=info['commit'], controller=str(prefix), rule_cache=str(cache))
     jid = store.submit('connect', payload)
     ctx = Context(store, store.job(jid))
