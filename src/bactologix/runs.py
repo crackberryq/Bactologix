@@ -67,7 +67,7 @@ def register_sample(store, sid, path, mode="hybrid"):
 
 
 def remove_sample(store, sid, expected):
-    """Unregister a reviewed sample; runs carry their own immutable sample records."""
+    """Unregister a sample and archive its idle runs without changing run records or files."""
     if not isinstance(sid, str) or not isinstance(expected, dict):
         raise ValueError("Choose a registered sample to remove.")
     valid_id(sid)
@@ -78,7 +78,54 @@ def remove_sample(store, sid, expected):
             raise ValueError("This sample is no longer registered. Refresh the sample list.")
         if json.loads(row[0]) != expected:
             raise ValueError("This sample registration changed. Refresh the sample list before removing it.")
+        active = _active_run_ids(db)
+        archived, kept = [], []
+        for row in db.execute("SELECT body FROM items WHERE kind='runs'").fetchall():
+            run = json.loads(row[0])
+            sample = run.get("sample", {})
+            if sample.get("id") != sid or sample.get("path") != expected["path"]:
+                continue
+            if run["id"] in active:
+                kept.append(run["id"])
+            elif not _is_archived(db, run["id"]):
+                _set_archive(db, run["id"], True, "sample removed")
+                archived.append(run["id"])
         db.execute("DELETE FROM items WHERE kind='samples' AND id=?", (sid,))
+    return {"archived": archived, "active": kept}
+
+
+def _active_run_ids(db):
+    rows = db.execute("SELECT payload FROM jobs WHERE kind='workflow' AND status IN ('queued','running')").fetchall()
+    return {json.loads(row[0]).get("run_id") for row in rows}
+
+
+def _is_archived(db, rid):
+    row = db.execute("SELECT body FROM items WHERE kind='run_visibility' AND id=?", (rid,)).fetchone()
+    return bool(row and json.loads(row[0]).get("archived"))
+
+
+def _set_archive(db, rid, archived, reason):
+    body = {"id": rid, "archived": archived, "changed": now(), "reason": reason}
+    db.execute("INSERT INTO items VALUES ('run_visibility',?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body",
+               (rid, json.dumps(body)))
+
+
+def archive_runs(store, ids, archived=True):
+    """Change list visibility atomically; frozen provenance, reports and files are retained."""
+    if not isinstance(ids, list) or not ids or len(ids) > 500 or any(not isinstance(rid, str) for rid in ids):
+        raise ValueError("Select between one and 500 saved runs.")
+    ids = list(dict.fromkeys(ids))
+    with store.connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        active = _active_run_ids(db)
+        for rid in ids:
+            if not db.execute("SELECT 1 FROM items WHERE kind='runs' AND id=?", (rid,)).fetchone():
+                raise ValueError("The selected run no longer exists.")
+            if archived and rid in active:
+                raise ValueError("Queued or running jobs stay visible. Wait for them to finish before archiving.")
+        for rid in ids:
+            _set_archive(db, rid, archived, "removed from list" if archived else "restored")
+    return ids
 
 
 def import_samples(store, text):
@@ -385,6 +432,8 @@ def validate_launch(store, rid, action, check_busy=True):
     run = store.get("runs", rid)
     if not run:
         raise ValueError("Unknown run")
+    if store.get("run_visibility", rid, {}).get("archived"):
+        raise ValueError("Restore this run from Archived before starting a job.")
     if check_busy and any(j["kind"] == "workflow" and j["payload"]["run_id"] == rid and j["status"] in {"queued", "running"} for j in store.jobs()):
         raise ValueError("This run already has a queued or active job")
     current_controller(store, run)

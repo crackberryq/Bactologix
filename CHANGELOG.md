@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a13 — clear run lists and a guided draft builder (candidate)
+
+- Remove sample now also archives its inactive saved runs, matching both sample ID and input folder. Queued/running jobs stay visible. Frozen configuration, files, reports and job history are retained.
+- Label the upper panel Run drafts & history with Current runs and Archived tabs, individual/batch Remove from list and Restore. Block stale launch requests for archived runs under the job queue transaction.
+- Replace the generic draft configuration landing page with a Samples → Run settings → Review flow. Add category tabs, Kraken/polishing mode cards, quality switches and BaSIS module cards. Keep every native setting and custom YAML under Advanced.
+- Preserve independent pipeline edits, saved defaults and native algorithms. Extend browser coverage through archive/restore, guided controls, mobile layout, YAML round trips and final draft settings.
+
 ## 0.1.0a12 — configure each run before creating drafts (candidate)
 
 - Add Samples, Run settings and Full YAML tabs to Create run drafts, with searchable configuration sections, switches, dropdowns, numeric controls and structured-value editors for both pipelines.

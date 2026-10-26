@@ -15,7 +15,7 @@ from .catalog import DATA, PIPELINES, fetch_versions, supported, versions
 from .engine import doctor, enqueue, launch_worker
 from .local import browse_folders, discover_environments, discover_installations, inspect_installation, local_path
 from .runs import (absolute_path, clone_runs, command, create_run, import_samples,
-                   parse_config, register_sample, remove_sample, reports, template, validate_launch,
+                   parse_config, register_sample, remove_sample, archive_runs, reports, template, validate_launch,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
 from . import databases, updates
@@ -77,6 +77,7 @@ def snapshot(store):
     if (app_update["active_job"] or app_update["restart_required"]) and store.home in _SNAPSHOTS:
         return {**copy.deepcopy(_SNAPSHOTS[store.home]), "jobs": jobs, "app_update": app_update}
     runs = []
+    archived = {r["id"] for r in store.all("run_visibility") if r.get("archived")}
     for run in store.all("runs"):
         cfg = parse_config(run["config"])
         run_jobs = [j for j in jobs if j["kind"] == "workflow" and j["payload"].get("run_id") == run["id"]]
@@ -84,7 +85,7 @@ def snapshot(store):
         checked = dry_run_current(store, run)
         status = run_status(run, jobs, checked)
         runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type")} | {
-            "status": status, "busy": bool(active), "dry_run_ok": checked, "aware": "off" if cfg.get("kraken_decision_mode") == "off" else "aware",
+            "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if cfg.get("kraken_decision_mode") == "off" else "aware",
             "can_followup": followup.available(run) and status == "completed",
             "strategy": cfg.get("polish_mode", "—"), "can_handoff": run["tool"] == "hybas" and status == "completed" and all(
                 Path(run["output"], "annotation", run["sample"]["id"] + ext).is_file() for ext in (".fna", ".faa", ".gff"))})
@@ -273,9 +274,16 @@ def dispatch(store, kind, p):
         register_sample(store, p["id"].strip(), str(local_path(p["path"])), p["mode"])
         return {"message": "Sample registered.", "navigate": "samples"}
     if kind == "remove_sample":
-        remove_sample(store, p.get("id"), p.get("sample"))
-        return {"message": f"Sample {p['id']} removed from selection. Input files and run history are preserved.",
-                "removed_sample": p["id"], "keep_modal": True}
+        result = remove_sample(store, p.get("id"), p.get("sample"))
+        message = f"Sample removed. {len(result['archived'])} saved run(s) moved to Archived. Files and reports are preserved."
+        if result["active"]:
+            message += f" {len(result['active'])} queued/running run(s) stay visible."
+        return {"message": message, "removed_sample": p["id"], "archived_runs": result["archived"], "keep_modal": True}
+    if kind in {"archive_runs", "restore_runs"}:
+        archived = kind == "archive_runs"
+        ids = archive_runs(store, _ids(p), archived)
+        return {"message": f"{len(ids)} run(s) " + ("moved to Archived. Files and reports are preserved." if archived else "restored to the current run list."),
+                "archived_runs" if archived else "restored_runs": ids, "keep_modal": True}
     if kind == "import_samples":
         items = import_samples(store, p["text"])
         return {"message": f"Imported {len(items)} samples.", "navigate": "samples"}
@@ -311,7 +319,7 @@ def dispatch(store, kind, p):
         if p.get("validate"):
             run_config.validate(tool, text)
         view = p.get("view", "settings")
-        if view not in {"samples", "settings", "yaml"}:
+        if view not in {"samples", "settings", "yaml", "review"}:
             raise ValueError("Choose a run configuration view.")
         return {"run_config": run_config.editor(tool, text), "run_config_view": view, "keep_modal": True,
                 "message": "Run settings checked. The native dry-run is still required." if p.get("validate") else ""}
