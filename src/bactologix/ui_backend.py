@@ -19,7 +19,7 @@ from .runs import (absolute_path, clone_runs, command, create_run, import_sample
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
 from . import databases, updates
-from . import followup, maintenance, database_runs, run_config, run_revisions
+from . import followup, maintenance, database_runs, run_config, run_revisions, default_config
 
 _SNAPSHOTS = {}
 
@@ -287,6 +287,8 @@ def dispatch(store, kind, p):
     if kind == "import_samples":
         items = import_samples(store, p["text"])
         return {"message": f"Imported {len(items)} samples.", "navigate": "samples"}
+    if kind in {"default_config_editor", "save_default_config"}:
+        return default_config.edit(store, _tool(p), p, save=kind == "save_default_config")
     if kind in {"save_config", "inspect_config", "edit_setting"}:
         tool = _tool(p)
         text = p["text"]

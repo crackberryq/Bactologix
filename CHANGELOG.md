@@ -1,5 +1,11 @@
 # Bactologix releases
 
+## 0.1.0a15 — guided workspace configuration
+
+- Configuration now uses the draft editor's category tabs, mode cards, switches and searchable Advanced sections. Full YAML, import/export and validation are retained.
+- Pipeline tabs keep independent unsaved edits. Save defaults changes future drafts only; existing runs keep their frozen configuration.
+- Defaults saves are revision-checked in a transaction so another window or newer database selection cannot be silently overwritten. A clean editor refreshes changed saved settings, and Reload saved defaults discards local edits.
+
 ## 0.1.0a14 — guided settings for saved runs
 
 - Redesign the saved-run details dialog with Overview and pipeline-specific setting tabs, readable saved values, resolved database paths and a compact execution summary. Keep raw commands and frozen YAML under Advanced.
