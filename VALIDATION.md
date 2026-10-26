@@ -1,5 +1,6 @@
-# Validation update: 0.1.0a13 candidate (2026-10-26)
+# Validation update: 0.1.0a13 (2026-10-26)
 
+- Publication checks add five regression cases for draft-to-public asset verification, checksum rejection, wrong tag/commit rejection, wrong wheel identity and immutable published releases. The publisher uses the actual app updater acceptance rules; publication is gated behind all software, browser and environment checks on `main`.
 - Local application suite and separately installed wheel: **151 passed**, with 24 native/browser/deployment checks enabled separately. All 35 packaged runtime files match source; dependency checks pass.
 - Archive regression checks cover unregistering a sample while retaining active jobs, matching the original input folder, preserving frozen files, restoring runs, and refusing stale launch requests at validation and queue insertion. Batch archive rejects an active or missing run without partially hiding other runs.
 - Chromium acceptance now exercises both run lists, restoration and individual removal, guided Kraken/polishing cards, quality switches, BaSIS category tabs, pipeline switching, narrow layout, Advanced search, YAML recovery and the Review step. Screenshots are retained in the `ui-previews` Actions artifact for visual inspection.

@@ -89,3 +89,28 @@ jobs:
         env:
           BACTOLOGIX_ENVIRONMENT_TESTS: '1'
         run: python -m pytest -q tests/test_environment_deployment.py
+  publish:
+    name: Publish checked application release
+    needs: [tests, browser, environment-deployment]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: bactologix-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages-python-3.11
+          path: dist
+      - name: Install the tested wheel
+        run: python -m pip install dist/*.whl
+      - name: Upload, verify and publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/publish_release.py

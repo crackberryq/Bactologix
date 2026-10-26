@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a13 — alpha candidate
+# Bactologix 0.1.0a13 — alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -6,15 +6,7 @@ Bactologix is a Python/Streamlit application for local HybAs and standalone BaSI
 
 **Alpha release:** the approved HTML interface now runs inside Streamlit with working Python controls. Software checks, real Chromium-to-Streamlit checks and native workflow dry-runs passed; full biological analyses and target-workstation browser testing remain outstanding. Read [VALIDATION.md](VALIDATION.md) and the alpha boundaries below before running samples.
 
-This branch contains the **a13 candidate**. It is not a published GitHub release yet. To test this branch in an existing application environment:
-
-```bash
-conda activate bactomix
-python -m pip install --upgrade "git+https://github.com/crackberryq/Bactologix.git@fix/run-integrity-and-aware-adapters"
-python -m bactologix.cli
-```
-
-Use an exact commit from the pull request when a reproducible installation is required. The wheel commands below apply after the corresponding release is published or when installing a locally built wheel.
+Use **Update Bactologix → Refresh releases** to see published updates, including alpha versions. Development commits and pull requests are not releases and do not appear in that list. Check [GitHub Releases](https://github.com/crackberryq/Bactologix/releases) for available installable versions.
 
 ## Install on Linux or WSL2
 
@@ -57,7 +49,7 @@ The launcher binds to `127.0.0.1` by default. If Windows-to-WSL localhost forwar
 
 ## Update Bactologix
 
-Use **Update Bactologix** in the top bar or **Install & update**. The dialog retrieves published GitHub releases, including prereleases, and shows the running version, release notes and application environment. Select the version you want, then click **Install v…**. Older releases are labelled. A release needs the expected wheel and GitHub SHA-256 digest to be installable.
+Use **Update Bactologix** in the top bar or **Install & update**. Click **Refresh releases** when checking for a new update. The dialog retrieves published GitHub releases, including prereleases, and shows the running version, release notes and application environment. Select the version you want, then click **Install v…**. Older releases are labelled. A release needs the expected wheel and GitHub SHA-256 digest to be installable.
 
 Finish or cancel queued/running jobs first. The updater checks the asset again, verifies its size, checksum, package identity and Python requirement, then runs pip through the exact Python interpreter serving Bactologix. The job log records installation progress. Once installation starts it cannot be cancelled from the app. An environment lock also prevents an update from overlapping another Bactologix worker using that Python environment. These locks do not coordinate unrelated external pip/Conda commands.
 
@@ -178,3 +170,7 @@ Credits and RIS/BibTeX/CFF/plain-text citations are in the UI and package data. 
 ## License
 
 Bactologix is released under the [MIT License](LICENSE), copyright (c) 2026 Jimi Goldstein. The license is included in the wheel and source distributions. Upstream templates, pipelines, tools and databases retain their respective licenses; bundled upstream notices are in `src/bactologix/data/LICENSE.*`.
+
+## Publishing application updates
+
+After a version bump and changelog entry reach `main`, the software workflow publishes the wheel and source archive only after both Python matrices, Chromium and environment deployment succeed. The publication job uses the tested Python 3.11 artifact, uploads to a draft, verifies GitHub asset digests using the application updater’s acceptance rules, and publishes it with alpha/beta/RC versions marked as prereleases. Existing published assets are never replaced; a new update needs a new package version. Workflow dispatch on `main` can retry a failed publication. Development branches do not publish releases.

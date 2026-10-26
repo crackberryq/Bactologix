@@ -1,7 +1,8 @@
 # Bactologix releases
 
-## 0.1.0a13 — clear run lists and a guided draft builder (candidate)
+## 0.1.0a13 — clear run lists and a guided draft builder
 
+- Publish checked application wheels and SHA-256 sums to GitHub Releases so the in-app updater can discover them. This release includes the database, environment, sample and draft-configuration improvements from the a8–a12 development candidates.
 - Remove sample now also archives its inactive saved runs, matching both sample ID and input folder. Queued/running jobs stay visible. Frozen configuration, files, reports and job history are retained.
 - Label the upper panel Run drafts & history with Current runs and Archived tabs, individual/batch Remove from list and Restore. Block stale launch requests for archived runs under the job queue transaction.
 - Replace the generic draft configuration landing page with a Samples → Run settings → Review flow. Add category tabs, Kraken/polishing mode cards, quality switches and BaSIS module cards. Keep every native setting and custom YAML under Advanced.
