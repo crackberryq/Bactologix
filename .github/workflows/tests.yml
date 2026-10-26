@@ -47,6 +47,10 @@ jobs:
           path: dist/*
   browser:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: mcr.microsoft.com/playwright/python:v1.64.1-noble
+      options: --ipc=host --init
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -57,8 +61,7 @@ jobs:
           repository: crackberryq/Bactomics_HybAs
           ref: 780ee7086c15c49f2825800ec463327f009f14a6
           path: upstream-hybas
-      - run: python -m pip install . pytest playwright
-      - run: python -m playwright install --with-deps chromium
+      - run: python -m pip install . pytest 'playwright==1.64.1'
       - name: Real browser to Streamlit checks
         env:
           BACTOLOGIX_BROWSER_TESTS: '1'
