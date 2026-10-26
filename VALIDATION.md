@@ -1,3 +1,10 @@
+# Validation update: 0.1.0a17 (2026-10-27)
+
+- Runner requirements now come from each reviewed source's pinned environment definition. Unit/integration fixtures cover distinct release versions, mismatches, malformed pins, automatic local Conda bootstrap, compatible reuse, failed activation and cancellation.
+- Local software suite: 229 passed, 25 skipped (native upstream, browser and Conda acceptance gates). The new native runner-deployment acceptance test is gated by `BACTOLOGIX_ENVIRONMENT_TESTS=1` and installs/verifies Snakemake 9.27.1 separately from the application's test environment.
+- GitHub CI must pass its Python matrices, Chromium and real Conda deployment jobs before publication. Local mocked provisioning does not prove solver/network availability on a workstation.
+- The supported pipeline commit catalogue is unchanged. This app update does not enable the unfinished HybAs v10 execution adapters.
+
 # Validation update: 0.1.0a16 (2026-10-26)
 
 - Local application suite: **201 passed**, with 24 native/browser/deployment checks enabled separately. New regression cases verify previous-cache inheritance, retry preservation, cache discovery, removal of unused snapshots, preservation of shared/original content, active and archived-run dependency blocks, modified/unowned sources, stale reviews, transaction rollback, incomplete cleanup reporting and maintenance/cache/draft registration races.

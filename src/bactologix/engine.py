@@ -14,6 +14,7 @@ import tempfile
 import time
 from urllib.request import Request, urlopen
 from .catalog import PIPELINES, api, supported
+from .controllers import controller_requirements, controller_check_code
 from .store import Store, now
 
 
@@ -120,14 +121,10 @@ def controller_key(tool, content):
     return hashlib.sha256(context + b"\0" + content).hexdigest()[:20]
 
 
-def check_controller(ctx, conda, prefix, tool):
-    imports = "import yaml; " + ("import numpy, Bio, openpyxl; " if tool == "basis" else "")
-    # The Bioconda 9.6.2 build reports 0.0.0 in Python distribution metadata.
-    # Validate the actual module/CLI version instead of that packaging field.
-    code = ("import sys, snakemake; " + imports +
-            "assert sys.version_info[:2] == (3,11), sys.version; "
-            "v=snakemake.__version__; assert v=='9.6.2', v; "
-            "print('Controller verified: Python',sys.version.split()[0],'Snakemake',v)")
+def check_controller(ctx, conda, prefix, tool, requirements):
+    if not conda or not prefix:
+        raise RuntimeError("Set up this pipeline's runner before checking it.")
+    code = controller_check_code(tool, requirements)
     ctx.command([conda, "run", "--no-capture-output", "-p", str(prefix), "python", "-c", code])
     ctx.command([conda, "run", "--no-capture-output", "-p", str(prefix), "snakemake", "--version"])
 
@@ -178,10 +175,20 @@ def prepare_controller(ctx, record, repair=False):
     store = ctx.store
     tool, target = record["tool"], Path(record["source"])
     spec = PIPELINES[tool]
+    record.update(ready=False)
+    store.put("installs", record["id"], record)
+    content = (target / spec["environment"]).read_bytes()
+    requirements = controller_requirements(content)
+    record["controller_requirements"] = requirements
+    store.put("installs", record["id"], record)
+    ctx.write(f"Required runner: Python {requirements['python']}; Snakemake {requirements['snakemake']}.")
     conda = find_conda(store)
     if not conda:
-        raise RuntimeError("Source downloaded. Set a Conda executable or install local Conda, then repeat setup.")
-    content = (target / spec["environment"]).read_bytes()
+        ctx.write("Installing workspace-local Conda to prepare the selected release's runner.")
+        bootstrap(ctx)
+        conda = find_conda(store)
+        if not conda:
+            raise RuntimeError("Local Conda setup did not produce an executable. Inspect the setup log.")
     digest = controller_key(tool, content)
     base = store.home / "controllers" / (tool + "-" + digest)
     prefix = Path(record["controller"]) if record.get("controller") and record.get("controller_digest") == digest else base
@@ -189,15 +196,19 @@ def prepare_controller(ctx, record, repair=False):
         prefix = Path(str(base) + "-repair-" + ctx.job["id"][4:])
         ctx.write("Preparing a fresh controller; the previous environment is retained.")
     if not prefix.exists():
+        ctx.write("Installing the selected release's Python and Snakemake in a separate runner.")
         ctx.command([conda, "env", "create", "--yes", "--prefix", str(prefix), "--file", str(target / spec["environment"])])
     else:
         ctx.write("Checking the existing controller before reuse.")
     try:
-        check_controller(ctx, conda, prefix, tool)
+        check_controller(ctx, conda, prefix, tool, requirements)
+    except Cancelled:
+        raise
     except Exception:
         record.update(ready=False)
         store.put("installs", record["id"], record)
-        raise RuntimeError("Controller check failed. Inspect the log; use Repair to create a separate controller.") from None
+        raise RuntimeError(f"Runner check failed for Python {requirements['python']} / Snakemake {requirements['snakemake']}. "
+                           "Inspect the log; use Repair to create a separate controller.") from None
     record.update(controller=str(prefix), conda=conda, controller_digest=digest, controller_origin="managed", ready=True, checked=now())
     store.put("installs", record["id"], record)
     store.put("settings", "active-" + tool, record["id"])
@@ -252,8 +263,10 @@ def connect_existing(ctx):
         conda = find_conda(store)
         if not conda:
             raise ValueError("Choose your Conda executable before connecting an environment.")
-        check_controller(ctx, conda, prefix, tool)
-        record.update(ready=True, conda=conda, checked=now(), controller_origin="external")
+        requirements = controller_requirements((target / PIPELINES[tool]["environment"]).read_bytes())
+        check_controller(ctx, conda, prefix, tool, requirements)
+        record.update(ready=True, conda=conda, checked=now(), controller_origin="external",
+                      controller_requirements=requirements)
         store.put("installs", key, record)
         store.put("settings", "active-" + tool, key)
         ctx.write("Connected: existing runner verified and reused. No environment was installed or updated.")
@@ -347,8 +360,9 @@ def execute(ctx):
             if ctx.job["payload"].get("repair") or ctx.job["payload"].get("setup"):
                 prepare_controller(ctx, record, repair=ctx.job["payload"].get("repair", False))
                 return
-            check_controller(ctx, find_conda(ctx.store), record["controller"], record["tool"])
-            record.update(ready=True, checked=now())
+            requirements = controller_requirements((Path(record["source"]) / PIPELINES[record["tool"]]["environment"]).read_bytes())
+            check_controller(ctx, find_conda(ctx.store), record["controller"], record["tool"], requirements)
+            record.update(ready=True, checked=now(), controller_requirements=requirements)
         except Exception:
             record["ready"] = False
             raise
