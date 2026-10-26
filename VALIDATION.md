@@ -1,3 +1,10 @@
+# Validation update: 0.1.0a16 (2026-10-26)
+
+- Local application suite: **201 passed**, with 24 native/browser/deployment checks enabled separately. New regression cases verify previous-cache inheritance, retry preservation, cache discovery, removal of unused snapshots, preservation of shared/original content, active and archived-run dependency blocks, modified/unowned sources, stale reviews, transaction rollback, incomplete cleanup reporting and maintenance/cache/draft registration races.
+- Chromium acceptance selects a previous version’s cache through the new visible control, checks persistence and unchanged frozen runs, refuses active-version removal, reviews and removes an unused managed copy, and verifies that the selected cache and original source remain. The `ui-previews` artifact retains screenshots of the chooser, uninstall review and installation controls.
+- The real sample-free Conda job installs a small Python environment, checks it, creates a later source commit with unchanged recipes, selects the previous cache and verifies the same environment path and unchanged Conda history after preparation. Existing failed-tool checks remain covered.
+- Publication requires the Python 3.11/3.12, Chromium and real environment jobs to pass. This change affects application lifecycle and UI only; native algorithms and presets are unchanged. No biological analyses are executed by these checks.
+
 # Validation update: 0.1.0a15 (2026-10-26)
 
 - Local application suite: **179 passed**, with 24 native/browser/deployment checks enabled separately. New regression cases cover read/check/export without saving, future-run inheritance, unchanged frozen history, nested/custom values, invalid edits and stale saves including a competing database update during compilation.

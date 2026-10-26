@@ -398,7 +398,7 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
                "parent": parent, "label": label or sample["id"], "created": now(), "dry_run_ok": False,
                "reuse": "input-files-only; workflow outputs are independent"}
         (folder / "bactologix-run.json").write_text(json.dumps(run, indent=2) + "\n")
-        store.put("runs", rid, run)
+        store.register_run(run)
         return run
     except BaseException:
         shutil.rmtree(folder)

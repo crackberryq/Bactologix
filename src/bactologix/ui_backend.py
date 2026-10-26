@@ -19,7 +19,7 @@ from .runs import (absolute_path, clone_runs, command, create_run, import_sample
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
 from . import databases, updates
-from . import followup, maintenance, database_runs, run_config, run_revisions, default_config
+from . import followup, maintenance, database_runs, run_config, run_revisions, default_config, installations
 
 _SNAPSHOTS = {}
 
@@ -184,7 +184,15 @@ def dispatch(store, kind, p):
         return {"message": "Environment " + payload["action"] + " queued: " + jid, "navigate": "jobs"}
     if kind == "set_environment_cache":
         maintenance.set_cache(store, p.get("id"), p.get("path"))
-        return {"message": "Environment cache selected for maintenance and future run drafts.", "keep_modal": True}
+        return {"message": "Environment cache selected for maintenance and future run drafts. Check selected to verify reuse.",
+                "open_environments": p.get("id"), "keep_modal": True}
+    if kind == "reuse_environment_choices":
+        item = _item(store, 'installs', p.get('id'))
+        return {'cache_choices': {'id': item['id'], 'choices': installations.cache_choices(store, item)}, 'keep_modal': True}
+    if kind == 'preview_uninstall':
+        return {'uninstall_plan': installations.uninstall_plan(store, p.get('id')), 'keep_modal': True}
+    if kind == 'uninstall_version':
+        return {'message': installations.uninstall(store, p.get('id'), p.get('signature')), 'navigate': 'install'}
     if kind == "download_database":
         payload = maintenance.download_request(store, _tool(p), p.get("id"), p.get("parent"),
                                                p.get("cores", 4), p.get("memory_mb", 16000), p.get("lineage", "bacteria_odb10"))
@@ -263,7 +271,7 @@ def dispatch(store, kind, p):
         if kind == "use_install":
             if not item["ready"]:
                 raise ValueError("This runner is not ready")
-            store.put("settings", "active-" + item["tool"], item["id"])
+            store.activate_installation(item['id'])
             return {"message": "Version selected for future drafts."}
         if item.get("origin") == "local":
             jid = enqueue(store, "check", {"installation": item["id"], "repair": kind == "repair_install", "setup": kind == "setup_install"})

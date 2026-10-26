@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import socket
+import shutil
 import subprocess
 import sys
 import time
@@ -34,6 +35,20 @@ def test_sample_picker_configuration_and_report(tmp_path):
                 'version': {'commit': PIPELINES[tool]['commit'], 'ref': 'Browser UI fixture'}}
         store.put('installs', item['id'], item)
         store.put('settings', 'active-' + tool, item['id'])
+    old_cache = tmp_path / 'previous-environments'
+    (old_cache / 'fixture/conda-meta').mkdir(parents=True)
+    (old_cache / 'fixture/conda-meta/history').write_text('retained software fixture')
+    old_id = 'hybas-older-ui-fixture'
+    old_source = store.home / 'sources' / old_id
+    hybas = store.get('installs', 'hybas-ui-fixture')
+    shutil.copytree(hybas['source'], old_source)
+    store.put('installs', old_id, {**hybas, 'id': old_id, 'source': str(old_source),
+              'original_source': hybas['source'], 'rule_cache': str(old_cache),
+              'version': {**hybas['version'], 'ref': 'Older reusable fixture'}})
+    conda = tmp_path / 'conda-fixture'
+    conda.write_text('#!/bin/sh\nexit 1\n')
+    conda.chmod(0o755)
+    store.put('settings', 'conda', str(conda))
     download = tmp_path / 'download destination with spaces'
     download.mkdir()
     card = download / 'card'
@@ -371,12 +386,39 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(page.get_by_role('button', name='Save defaults', exact=True)).to_be_enabled()
             expect(page.locator('#default-save-status')).to_have_text('Saved defaults')
             page.get_by_role('link', name='Install & update', exact=True).click()
-            page.get_by_role('button', name='Check / install environments', exact=True).last.click()
+            page.locator('[data-installation="basis-ui-fixture"]').get_by_role('button', name='Check / install environments', exact=True).click()
             expect(page.get_by_role('heading', name='Tool environments', exact=True)).to_be_visible()
             expect(page.locator('.environment-row')).to_contain_text('VFDB and BacMet')
             expect(page.get_by_role('button', name='Check selected', exact=True)).to_be_enabled()
             expect(page.get_by_role('button', name='Install selected', exact=True)).to_be_enabled()
             page.get_by_role('button', name='Close dialog', exact=True).click()
+            current_card = page.locator('[data-installation="hybas-ui-fixture"]')
+            current_card.get_by_role('button', name='Reuse existing environments', exact=True).click()
+            expect(page.get_by_role('heading', name='Reuse existing environments', exact=True)).to_be_visible()
+            page.locator('#reuse-choice-hybas-ui-fixture').select_option(str(old_cache))
+            expect(page.locator('#reuse-cache-hybas-ui-fixture')).to_have_value(str(old_cache))
+            capture('reuse-existing-environments')
+            page.get_by_role('button', name='Use selected cache', exact=True).click()
+            expect(page.get_by_role('heading', name='Tool environments', exact=True)).to_be_visible()
+            expect(page.locator('#environment-cache-hybas-ui-fixture')).to_have_value(str(old_cache))
+            assert Store(workspace).get('installs', hybas['id'])['rule_cache'] == str(old_cache)
+            assert Store(workspace).get('runs', parent['id']) == parent
+            page.get_by_role('button', name='Close dialog', exact=True).click()
+            current_card.get_by_role('button', name='Uninstall version', exact=True).click()
+            expect(page.get_by_role('button', name='Uninstall this version', exact=True)).to_be_disabled()
+            expect(page.locator('.modal')).to_contain_text('Select another active version')
+            page.get_by_role('button', name='Close dialog', exact=True).click()
+            page.locator('[data-installation="' + old_id + '"]').get_by_role('button', name='Uninstall version', exact=True).click()
+            expect(page.get_by_role('button', name='Uninstall this version', exact=True)).to_be_enabled()
+            expect(page.locator('.uninstall-kept')).to_contain_text(str(old_cache))
+            capture('uninstall-version-review')
+            page.get_by_role('button', name='Uninstall this version', exact=True).click()
+            expect(page.locator('[data-installation="' + old_id + '"]')).to_have_count(0)
+            assert not old_source.exists() and not Store(workspace).get('installs', old_id)
+            assert (old_cache / 'fixture/conda-meta/history').read_text() == 'retained software fixture'
+            assert Path(hybas['source']).is_dir()
+            expect(current_card.locator('.installation-cache')).to_contain_text(str(old_cache))
+            capture('install-environment-controls')
             page.get_by_role('link', name='Results & reports', exact=True).click()
             page.get_by_role('button', name='View HTML', exact=True).click()
             expect(page.frame_locator('.html-report-frame').get_by_role('heading', name='Browser software fixture')).to_be_visible()
