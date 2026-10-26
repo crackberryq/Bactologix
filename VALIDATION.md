@@ -1,3 +1,11 @@
+# Validation update: 0.1.0a13 candidate (2026-10-26)
+
+- Local application suite and separately installed wheel: **151 passed**, with 24 native/browser/deployment checks enabled separately. All 35 packaged runtime files match source; dependency checks pass.
+- Archive regression checks cover unregistering a sample while retaining active jobs, matching the original input folder, preserving frozen files, restoring runs, and refusing stale launch requests at validation and queue insertion. Batch archive rejects an active or missing run without partially hiding other runs.
+- Chromium acceptance now exercises both run lists, restoration and individual removal, guided Kraken/polishing cards, quality switches, BaSIS category tabs, pipeline switching, narrow layout, Advanced search, YAML recovery and the Review step. Screenshots are retained in the `ui-previews` Actions artifact for visual inspection.
+- The first browser pass identified the decorative step numbers being included in navigation button names. The numbers are now hidden from assistive labels. Screenshot review also tightened the module switches and mobile budget fields.
+- Python 3.11/3.12 pinned adapter checks and real sample-free Conda deployment passed on the initial implementation. The final candidate's exact-commit CI reruns those checks and the full browser flow; see the PR checks for the result. This update does not change native algorithms or validate biological outputs.
+
 # Validation update: 0.1.0a12 candidate (2026-10-26)
 
 - Local application suite: **146 passed**, with 24 native/browser/deployment tests enabled separately. New checks cover typed and nested edits, custom keys (including dotted mapping keys), optional resource overrides, managed fields, invalid values, pipeline mismatch, batch drafts, frozen dialog defaults and unchanged saved configurations/history.
