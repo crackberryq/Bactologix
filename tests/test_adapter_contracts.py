@@ -20,6 +20,7 @@ from bactologix.catalog import PIPELINES
 from bactologix.followup import create_followup
 from bactologix.runs import check_run_files, command, create_run, template, tree_digest
 from bactologix.store import Store
+from bactologix import databases, maintenance
 
 
 def native_source(tool):
@@ -31,6 +32,43 @@ def native_source(tool):
     assert commit == PIPELINES[tool]['commit']
     assert importlib.util.find_spec('snakemake'), 'Install Snakemake for pinned-source tests'
     return source
+
+
+@pytest.mark.parametrize('tool,key', [
+    (tool, spec['id']) for tool in ('hybas', 'basis')
+    for spec in databases.CATALOG[tool] if not spec.get('managed')])
+def test_database_admin_target_is_sample_free(tmp_path, tool, key):
+    source = native_source(tool)
+    folder = tmp_path / 'maintenance with spaces'
+    folder.mkdir()
+    payload = {'tool': tool, 'resource': key, 'destination': str(tmp_path / 'download with spaces'),
+               'cores': 2, 'memory_mb': 16000, 'lineage': 'bacteria_odb10'}
+    cfg, target, result_path = maintenance.download_config(payload, folder)
+    configfile = folder / 'config.yaml'
+    configfile.write_text(yaml.safe_dump(cfg))
+    result = subprocess.run([sys.executable, '-m', 'snakemake', '--snakefile', str(source / PIPELINES[tool]['snakefile']),
+                             '--directory', str(folder), target, '--configfile', str(configfile), '--cores', '2',
+                             '--resources', 'mem_mb=16000', 'gpu=0', 'kraken_jobs=1', '--dry-run'],
+                            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
+    assert result.returncode == 0, result.stdout[-12000:]
+    assert ('prepare_resource' if tool == 'basis' else 'download_') in result.stdout
+    for forbidden in ('sample_setup_ready', 'validate_inputs', 'native_tool', 'unicycler_assembly', 'deepsafe_prepare'):
+        assert forbidden not in result.stdout, result.stdout
+    assert not Path(payload['destination']).exists()
+
+
+@pytest.mark.parametrize('tool', ['hybas', 'basis'])
+def test_environment_admin_dag_uses_all_native_recipes_without_samples(tmp_path, tool):
+    source = native_source(tool)
+    rows = maintenance.recipes({'tool': tool, 'source': str(source)})
+    assert len(rows) == len(maintenance.RECIPES[tool])
+    snakefile = maintenance.environment_snakefile(tmp_path, rows)
+    result = subprocess.run([sys.executable, '-m', 'snakemake', '--snakefile', str(snakefile),
+                             '--directory', str(tmp_path), '--cores', '1', '--dry-run'],
+                            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+    assert result.returncode == 0, result.stdout
+    for index in range(len(rows)):
+        assert 'environment_' + str(index) in result.stdout
 
 
 def setup_run(tmp_path, tool):

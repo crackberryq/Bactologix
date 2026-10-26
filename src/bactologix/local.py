@@ -102,6 +102,40 @@ def inspect_installation(value, tool):
             "rule_cache": str(cache) if cache.is_dir() else ""}
 
 
+def environment_paths(store):
+    """Bounded metadata-only discovery, also used by database scanning."""
+    from .engine import find_conda
+    paths = {Path(sys.prefix), store.home / "envs/hybas", store.home / "envs/basis"}
+    registry = Path.home() / ".conda/environments.txt"
+    try:
+        with registry.open() as handle:
+            for index, line in enumerate(handle):
+                if index >= 1000:
+                    break
+                if line.strip():
+                    paths.add(Path(line.strip()).expanduser())
+    except OSError:
+        pass
+    roots = [Path.home() / name for name in ("miniconda3", "miniforge3", "anaconda3", "mambaforge")]
+    conda = find_conda(store)
+    if conda:
+        roots.append(Path(conda).parent.parent)
+    for var in ("CONDA_PREFIX", "CONDA_ENVS_PATH"):
+        paths.update(Path(p) for p in os.environ.get(var, "").split(os.pathsep) if p)
+    for base in roots:
+        paths.add(base)
+        try:
+            with os.scandir(base / "envs") as entries:
+                for index, entry in enumerate(entries):
+                    if index >= 1000:
+                        break
+                    if entry.is_dir():
+                        paths.add(Path(entry.path))
+        except OSError:
+            pass
+    return sorted({p.resolve() for p in paths if p.is_dir()})
+
+
 def discover_environments(store):
     from .engine import find_conda
     conda = find_conda(store)

@@ -1,5 +1,13 @@
 # Bactologix releases
 
+## 0.1.0a9 — database downloads and tool environments (candidate)
+
+- Discover registered Conda prefixes, hidden Snakemake caches and linked database folders; list incomplete matches with actionable reasons.
+- Add native database preparation with a destination picker, resource budgets, BUSCO lineage selection, provider log tails and resumable jobs. Preserve existing resources and require explicit selection/save after completion.
+- Add per-installation environment selection, real executable/version checks and Snakemake-managed installation without sample runs. Keep missing, incomplete and failed states separate.
+- Add a configurable launcher listen address for WSL private-IP access.
+- Add native preparation-plan tests, browser coverage and a real Conda deployment acceptance job.
+
 ## 0.1.0a8 — run integrity, repair recovery and BaSIS AWARE
 
 - Verify generated sample sheets and staged input links before execution, including older drafts reconstructed from their recorded source identities.

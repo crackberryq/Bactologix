@@ -79,6 +79,10 @@ class Store:
                 active = db.execute("SELECT payload FROM jobs WHERE kind='workflow' AND status IN ('queued','running')").fetchall()
                 if any(json.loads(row[0]).get("run_id") == payload["run_id"] for row in active):
                     raise ValueError("This run already has a queued or active job")
+            if kind == "database_download":
+                active = db.execute("SELECT payload FROM jobs WHERE kind='database_download' AND status IN ('queued','running')").fetchall()
+                if any(json.loads(row[0]).get("id") == payload["id"] for row in active):
+                    raise ValueError("This database download is already queued or running")
             db.execute("INSERT INTO jobs(id,kind,payload,status,created) VALUES (?,?,?,'queued',?)",
                        (jid, kind, json.dumps(payload), now()))
         return jid

@@ -19,7 +19,7 @@ from .runs import (absolute_path, clone_runs, command, create_run, import_sample
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
 from . import databases, updates
-from . import followup
+from . import followup, maintenance
 
 _SNAPSHOTS = {}
 
@@ -102,6 +102,12 @@ def snapshot(store):
             "jobs": jobs, "reports": reports(store), "configs": configs,
             "fields": {t: configuration_fields(t, configs[t]) for t in PIPELINES},
             "databases": {t: databases.panel(store, t) for t in PIPELINES},
+            "environments": {i["id"]: maintenance.environment_panel(store, i, jobs) for i in store.all("installs")},
+            "database_downloads": [{**d, "job_status": next((j["status"] for j in jobs if j["id"] == d.get("job")), d.get("status"))}
+                                   for d in store.all("database_downloads")],
+            "download_options": {t: {"available": maintenance.download_supported(store.get("installs", store.get("settings", "active-" + t))),
+                                      "parent": str(store.home / "resources")}
+                                 for t in PIPELINES},
             "citations": {f.name: f.read_text() for f in DATA.glob("CITATION.*")}}
     if len(_SNAPSHOTS) >= 8:
         _SNAPSHOTS.pop(next(iter(_SNAPSHOTS)))
@@ -171,6 +177,29 @@ def dispatch(store, kind, p):
                                           str(p.get("query", "")), p.get("show_hidden") is True), "keep_modal": True}
     if kind == "scan_databases":
         return {"database_scan": databases.scan(store, _tool(p), p.get("root", "")), "keep_modal": True}
+    if kind == "manage_environments":
+        payload = maintenance.environment_request(store, p.get("id"), p.get("selected"), p.get("action"))
+        jid = enqueue(store, "environments", payload)
+        return {"message": "Environment " + payload["action"] + " queued: " + jid, "navigate": "jobs"}
+    if kind == "download_database":
+        payload = maintenance.download_request(store, _tool(p), p.get("id"), p.get("parent"),
+                                               p.get("cores", 4), p.get("memory_mb", 16000), p.get("lineage", "bacteria_odb10"))
+        jid = enqueue(store, "database_download", payload)
+        return {"message": "Database preparation queued: " + jid, "navigate": "jobs"}
+    if kind == "resume_database_download":
+        row = _item(store, "database_downloads", p.get("id"))
+        job = store.job(row["job"])
+        if not job or job["status"] not in {"failed", "cancelled", "interrupted"}:
+            raise ValueError("Only a stopped or failed download can be resumed.")
+        jid = enqueue(store, "database_download", row["request"])
+        return {"message": "Database preparation resumed: " + jid, "navigate": "jobs"}
+    if kind == "use_downloaded_database":
+        row = _item(store, "database_downloads", p.get("id"))
+        if row.get("status") != "completed":
+            raise ValueError("Wait for database preparation to finish.")
+        checked = databases.inspect(store, row["tool"], row["resource"], row["result_path"])
+        return {"database_check": {"tool": row["tool"], **checked}, "keep_modal": True,
+                "message": "Downloaded location selected. Save locations to use it for future drafts."}
     if kind == "load_databases":
         return {"database_saved": _tool(p), "message": "Saved database locations reloaded.", "keep_modal": True}
     if kind == "check_database":
@@ -345,6 +374,8 @@ def dispatch(store, kind, p):
             with path.open("rb") as handle:
                 handle.seek(max(0, path.stat().st_size - 100000))
                 text = handle.read().decode("utf-8", errors="replace") or text
+        if job["kind"] == "database_download":
+            text += maintenance.download_log_tail(store, job)
         return {"log": {"id": job["id"], "text": text, "error": job.get("error"), "status": job["status"]}, "keep_modal": True}
     if kind == "register_report":
         file = absolute_path(p["path"])

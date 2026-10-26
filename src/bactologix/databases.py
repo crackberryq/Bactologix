@@ -15,7 +15,7 @@ import time
 
 import yaml
 
-from .local import local_path
+from .local import local_path, environment_paths
 from .runs import parse_config, template
 from .store import now
 
@@ -363,6 +363,10 @@ def _roots(store, tool, cfg, extra):
             except (OSError, ValueError):
                 pass
     roots.append(store.home / "resources" / tool)
+    roots.append(store.home / "envs" / tool)
+    for download in store.all("database_downloads"):
+        if download.get("tool") == tool:
+            roots.append(Path(download["destination"]))
     if tool == "basis":
         raw = _get(cfg, "resources.directory", "resources")
         if raw != "resources":
@@ -373,11 +377,23 @@ def _roots(store, tool, cfg, extra):
         for key in ("original_source", "source"):
             if install.get(key):
                 base = Path(install[key])
-                roots.extend((base / "resources", base / "db", base))
+                roots.extend((base / "resources", base / "db", base / ".snakemake/conda", base))
         for key in ("rule_cache", "controller"):
             if install.get(key):
                 roots.append(Path(install[key]))
-    roots.extend((Path.home(), Path("/data"), Path("/databases"), Path("/mnt"), Path("/media"), Path("/opt")))
+    # Start at environment prefixes, not at Home: package databases can otherwise
+    # exceed the depth limit before reaching share/ or site-packages/.
+    roots.extend(environment_paths(store))
+    home = Path.home()
+    for parent in (home / "bactomics", home / "databases", home / "db"):
+        if parent.is_dir():
+            roots.append(parent)
+            entries, _ = _children(parent)
+            for entry in entries:
+                base = Path(entry.path)
+                for relative in ("resources", "db", "databases", ".snakemake/conda"):
+                    roots.append(base / relative)
+    roots.extend((home, Path("/data"), Path("/databases"), Path("/mnt"), Path("/media"), Path("/opt")))
     for var in ("CONDA_PREFIX", "CONDA_ENVS_PATH"):
         roots.extend(Path(p) for p in os.environ.get(var, "").split(os.pathsep) if p)
     return list(dict.fromkeys(p.resolve() for p in roots if p.is_dir()))
@@ -390,7 +406,8 @@ def scan(store, tool, extra=""):
     found = {s["id"]: {} for s in specs}
     invalid = []
     configured = {}
-    def add(key, path, explicit=False):
+    rejected = set()
+    def add(key, path, explicit=False, recognized=False):
         try:
             result = inspect(store, tool, key, str(path), cfg)
             keypath = result["path"]
@@ -400,8 +417,10 @@ def scan(store, tool, extra=""):
             if not prior or (result["receipt"] and not prior["receipt"]):
                 found[key][keypath] = result
         except (OSError, ValueError, RuntimeError) as exc:
-            if explicit:
-                invalid.append({"id": key, "path": str(path), "message": str(exc)})
+            identity = (key, str(path))
+            if (explicit or recognized) and identity not in rejected and len(invalid) < 200:
+                rejected.add(identity)
+                invalid.append({"id": key, "path": str(path), "message": str(exc), "configured": explicit})
     for row in current["rows"]:
         if row.get("path"):
             add(row["id"], row["path"], True)
@@ -427,24 +446,27 @@ def scan(store, tool, extra=""):
             names = {e.name for e in entries}
             receipt = bool(names & {"provenance.json", "completed.json"})
             for spec in specs:
-                if receipt or (spec.get("hint") in names):
-                    add(spec["id"], path)
+                recognized = spec.get("hint") in names
+                matched_receipt = receipt and tool == "basis" and bool(_receipt(path, spec)[0])
+                if matched_receipt or recognized:
+                    add(spec["id"], path, recognized=True)
             for entry in sorted(entries, key=lambda e: e.name.casefold()):
                 if time.monotonic() >= deadline:
                     reasons.add("folder/time limit")
                     break
+                if entry.name == ".snakemake":
+                    cache = Path(entry.path) / "conda"
+                    if cache.is_dir():
+                        queue.appendleft((cache, 0))
+                    continue
                 if entry.name in SKIP or entry.name.startswith("."):
                     continue
                 try:
-                    if entry.is_dir(follow_symlinks=False):
+                    if entry.is_dir():
                         if depth < MAX_DEPTH:
                             queue.append((Path(entry.path), depth + 1))
                         else:
                             reasons.add("depth limit")
-                    elif entry.is_symlink() and entry.is_dir():
-                        # Inspect an alias itself, but do not recursively follow it.
-                        for spec in specs:
-                            add(spec["id"], Path(entry.path))
                 except OSError:
                     inaccessible += 1
         except (OSError, RuntimeError):
@@ -468,7 +490,7 @@ def scan(store, tool, extra=""):
     return {"tool": tool, "revision": current["revision"], "candidates": found, "invalid": invalid,
             "roots": [str(p) for p in roots], "visited": len(seen), "limited": bool(reasons),
             "limits": sorted(reasons), "inaccessible": inaccessible, "checked_at": now(),
-            "scope": f"Known locations and common folders, up to {MAX_DEPTH} levels deep. Add a specific scan folder for other disks or deeper locations. Symlink targets are inspected without recursive traversal."}
+            "scope": f"Known resource folders, registered Conda environments and Snakemake caches, up to {MAX_DEPTH} levels deep per root. Symlinks are followed with cycle and time limits. Add a specific scan folder when the scan is limited."}
 
 
 def _hybas_layout(store, paths, lineage):

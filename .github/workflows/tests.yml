@@ -58,3 +58,22 @@ jobs:
         env:
           BACTOLOGIX_BROWSER_TESTS: '1'
         run: python -m pytest -q tests/test_browser.py
+  environment-deployment:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: conda-incubator/setup-miniconda@v4
+        with:
+          miniforge-version: latest
+          activate-environment: bactologix-ci
+          python-version: '3.12'
+          channels: conda-forge
+          channel-priority: strict
+      - run: python -m pip install . pytest 'snakemake==9.6.2'
+      - name: Install and check a real sample-free environment
+        env:
+          BACTOLOGIX_ENVIRONMENT_TESTS: '1'
+        run: python -m pytest -q tests/test_environment_deployment.py
