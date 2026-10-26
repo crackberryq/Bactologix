@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a14 — guided settings for saved runs
+
+- Redesign the saved-run details dialog with Overview and pipeline-specific setting tabs, readable saved values, resolved database paths and a compact execution summary. Keep raw commands and frozen YAML under Advanced.
+- Add Edit settings to saved runs, using the same guided controls as new drafts. Start from the run’s frozen configuration, retain custom keys and database paths, and review CPU/memory settings before creating a separate revised draft.
+- Preserve the original run, input identity, pipeline installation, tool cache and saved global defaults. Block edits to archived, active, follow-up or changed-input/source runs; require a new native dry-run for each revision.
+- Extend backend and real-browser checks through saved-value viewing, cancel/discard, guided revision, YAML round trips and final configuration persistence.
+
 ## 0.1.0a13 — clear run lists and a guided draft builder
 
 - Publish checked application wheels and SHA-256 sums to GitHub Releases so the in-app updater can discover them. This release includes the database, environment, sample and draft-configuration improvements from the a8–a12 development candidates.

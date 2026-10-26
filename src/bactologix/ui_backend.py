@@ -19,7 +19,7 @@ from .runs import (absolute_path, clone_runs, command, create_run, import_sample
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
 from . import databases, updates
-from . import followup, maintenance, database_runs, run_config
+from . import followup, maintenance, database_runs, run_config, run_revisions
 
 _SNAPSHOTS = {}
 
@@ -310,6 +310,8 @@ def dispatch(store, kind, p):
             store.put("configs", tool, text)
         return {"message": "Defaults saved for future drafts." if kind == "save_config" else "Configuration validated." if kind == "inspect_config" else "Setting applied to the draft; save when ready.",
                 "config": {"tool": tool, "text": text, "fields": configuration_fields(tool, text)}, "keep_modal": True}
+    if kind == "edit_run_settings":
+        return run_revisions.editor(store, p.get("id"))
     if kind == "run_config_editor":
         tool = _tool(p)
         text = p.get("text", store.get("configs", tool, template(tool)))
@@ -350,6 +352,7 @@ def dispatch(store, kind, p):
     if kind == "inspect_run":
         run = copy.deepcopy(_item(store, "runs", p.get("id")))
         run["database_paths"] = database_runs.paths(store, run)
+        run["settings"] = run_config.editor(run["tool"], run["config"])
         try:
             run["command"] = shlex.join(command(store, run, "run"))
         except Exception as exc:
@@ -387,19 +390,21 @@ def dispatch(store, kind, p):
     if kind == "create_followup":
         followup.create_followup(store, p.get("id"), p["text"], p.get("reviewed") is True)
         return {"message": "Created a reviewed follow-up draft. Check its native dry-run before execution.", "navigate": "samples"}
-    if kind in {"revise_run", "handoff"}:
+    if kind == "revise_run":
+        child = run_revisions.apply(store, p)
+        response = {"message": "Created a revised draft. The original run is unchanged; check a new dry-run.",
+                    "navigate": "samples", "open_run": child["id"], "keep_modal": False}
+        response.update(dispatch(store, "inspect_run", {"id": child["id"]}))
+        response["keep_modal"] = False
+        return response
+    if kind == "handoff":
         run = _item(store, "runs", p.get("id"))
-        if kind == "revise_run":
-            if run.get("run_type") == "followup":
-                raise ValueError("Create a new reviewed follow-up from the screening run to change these settings")
-            create_run(store, run["tool"], run["sample"], p["text"], run["cores"], run["memory_mb"], run["id"], run["label"] + " · revised", run["installation"])
-        else:
-            if run["tool"] != "hybas":
-                raise ValueError("Choose a HybAs run")
-            if run_status(run, store.jobs(), dry_run_current(store, run)) != "completed":
-                raise ValueError("Complete the HybAs run before creating a BaSIS draft")
-            check_run_files(run)
-            create_run(store, "basis", dict(run["sample"], path=run["output"]), store.get("configs", "basis", template("basis")), run["cores"], run["memory_mb"], run["id"], run["label"] + " · BaSIS")
+        if run["tool"] != "hybas":
+            raise ValueError("Choose a HybAs run")
+        if run_status(run, store.jobs(), dry_run_current(store, run)) != "completed":
+            raise ValueError("Complete the HybAs run before creating a BaSIS draft")
+        check_run_files(run)
+        create_run(store, "basis", dict(run["sample"], path=run["output"]), store.get("configs", "basis", template("basis")), run["cores"], run["memory_mb"], run["id"], run["label"] + " · BaSIS")
         return {"message": "Created a new draft.", "navigate": "samples"}
     if kind == "recover_jobs":
         launch_worker(store)

@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a13 — alpha
+# Bactologix 0.1.0a14 — alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -13,7 +13,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a13-py3-none-any.whl
+pipx install ./bactologix-0.1.0a14-py3-none-any.whl
 bactologix
 ```
 
@@ -22,7 +22,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a13/bactologix-0.1.0a13-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a14/bactologix-0.1.0a14-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -31,7 +31,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a13/bactologix-0.1.0a13-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a14/bactologix-0.1.0a14-py3-none-any.whl"
 python -m bactologix.cli
 ```
 
@@ -39,7 +39,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a13-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a14-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -65,7 +65,7 @@ Compatible snapshots remain selectable even after a branch moves. Unsupported do
 2. **Samples:** choose **Add sample → Browse folders**, navigate to the sample folder and select it, or import CSV/TSV columns `sample_id,input_folder,read_mode`. HybAs uses `raw/illumina` and `raw/nanopore`. BaSIS needs `annotation/<sample_id>.fna`, `.faa`, `.gff`, plus `.gbk` when enabled modules require it.
    **Remove sample** is available in Registered samples and in the run-draft sample picker. It unregisters the folder and moves its inactive saved runs from **Current runs** to **Archived**. Queued/running runs remain visible. Files, frozen configuration, jobs and reports are preserved. Use **Restore** to bring a run back, or **Add sample** to register the folder again. Individual runs also have **Remove from list**.
 3. **Configuration:** import existing native YAML or edit the complete template. Search all pinned settings in the setting editor. Choose database/model locations in **Databases & models**; advanced YAML editing remains available. Saving defaults affects only new drafts.
-4. **Samples & variants → Create run drafts:** select samples, open **Run settings**, and customize the new drafts before creating them. Use category tabs and mode cards for Kraken/AWARE, Assembly, Quality and Databases; BaSIS has Modules, AWARE, DeepSafe and Resources. **Advanced** holds the searchable full field editor and **Full YAML** for custom keys. Finish in **Review** to check the selected samples and key settings; **Check settings** validates the editor input. Switching pipelines retains independent edits. **Reload saved defaults** resets this dialog to the currently saved configuration. Selected samples receive the same settings; create separate requests for different configurations. Saved defaults and existing runs are preserved. Each draft copies workflow source, references only input files, writes a frozen resolved config, and has independent outputs and scheduler state. CPU/memory budgets are set above the editor; generated input/output paths are shown as managed settings. Native defaults shown for omitted settings are only added when edited, so opening the editor does not enable extra modules. Run **Check / dry-run** first. Read its actual log, then prepare analysis tool environments or **Run / resume**.
+4. **Samples & variants → Create run drafts:** select samples, open **Run settings**, and customize the new drafts before creating them. Use category tabs and mode cards for Kraken/AWARE, Assembly, Quality and Databases; BaSIS has Modules, AWARE, DeepSafe and Resources. **Advanced** holds the searchable full field editor and **Full YAML** for custom keys. Finish in **Review** to check the selected samples and key settings; **Check settings** validates the editor input. Switching pipelines retains independent edits. **Reload saved defaults** resets this dialog to the currently saved configuration. Selected samples receive the same settings; create separate requests for different configurations. Saved defaults and existing runs are preserved. **Saved run details** has the same category tabs for reading its saved values. Choose **Edit settings** to use the guided editor, then review and create a separate revised draft; the original run remains intact. Raw commands and YAML are under **Advanced**. Each draft copies workflow source, references only input files, writes a frozen resolved config, and has independent outputs and scheduler state. CPU/memory budgets are set above the editor; generated input/output paths are shown as managed settings. Native defaults shown for omitted settings are only added when edited, so opening the editor does not enable extra modules. Run **Check / dry-run** first. Read its actual log, then prepare analysis tool environments or **Run / resume**.
 5. **Results & reports:** native MultiQC/Safety reports are discovered by expected path, or register any existing local HTML. Embedded reports run in an isolated inner frame. Self-contained reports work best; use Open original for relative assets.
 6. **Overview → Run live smoke test:** executes a real tiny Snakemake workflow using an installed controller and creates an HTML software-test report. It performs no biological analysis.
 

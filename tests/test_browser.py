@@ -249,6 +249,58 @@ def test_sample_picker_configuration_and_report(tmp_path):
             assert created['cores'] == 3 and not created['dry_run_ok']
             assert Store(workspace).get('configs', 'hybas') == saved_defaults
             assert Store(workspace).get('runs', parent['id']) == parent
+            # Saved-run details use the same visual categories, without exposed YAML.
+            expect(page.get_by_role('heading', name='Your saved run', exact=True)).to_be_visible()
+            expect(page.locator('.saved-code')).to_have_count(0)
+            capture('saved-run-overview')
+            def saved_tab(name):
+                page.locator('[data-action="saved-run-tab"][data-id="' + name + '"]').click()
+            saved_tab('kraken')
+            expect(page.locator('[data-saved-setting="kraken_decision_mode"]')).to_have_text('Off')
+            saved_tab('databases')
+            expect(page.locator('[data-saved-database="busco"]')).to_have_text(str(lineage))
+            saved_tab('advanced')
+            expect(page.locator('.saved-code').first).not_to_be_visible()
+            page.locator('summary').filter(has_text='Frozen YAML').click()
+            expect(page.locator('.saved-code').last).to_contain_text('custom_menu')
+            saved_tab('overview')
+            page.get_by_role('button', name='Edit settings', exact=True).click()
+            expect(page.get_by_role('heading', name='Edit run settings', exact=True)).to_be_visible()
+            expect(choice('kraken_decision_mode', 'off')).to_have_attribute('aria-pressed', 'true')
+            choice('kraken_decision_mode', 'aware').click()
+            # Cancelling cannot change the saved run or leave a half-created draft.
+            page.get_by_role('button', name='Close dialog', exact=True).click()
+            expect(page.get_by_role('heading', name='Your saved run', exact=True)).to_be_visible()
+            assert len(Store(workspace).all('runs')) == 3
+            assert Store(workspace).get('runs', created['id']) == created
+            page.get_by_role('button', name='Edit settings', exact=True).click()
+            expect(choice('kraken_decision_mode', 'off')).to_have_attribute('aria-pressed', 'true')
+            choice('kraken_decision_mode', 'aware').click()
+            page.locator('#revision-cores').fill('5')
+            page.locator('#revision-memory').fill('12000')
+            category('quality')
+            page.locator('[data-run-name="run_multiqc"]').uncheck()
+            capture('edit-saved-run')
+            category('advanced')
+            page.get_by_role('button', name='Full YAML', exact=True).click()
+            revision_yaml = page.get_by_label('Run configuration YAML', exact=True)
+            revision_yaml.fill(revision_yaml.input_value() + '\nrevision_note: saved-run editor test\n')
+            page.get_by_role('button', name='Back to controls', exact=True).click()
+            page.get_by_role('button', name='Review revision', exact=True).click()
+            expect(page.locator('.review-stats')).to_contain_text('5 cores')
+            page.get_by_role('button', name='Create revised draft', exact=True).click()
+            expect(page.get_by_role('heading', name='browser.fixture · revised', exact=True)).to_be_visible()
+            revised, = [r for r in Store(workspace).all('runs') if r.get('parent') == created['id']]
+            revised_config = yaml.safe_load(revised['config'])
+            assert revised['cores'] == 5 and revised['memory_mb'] == 12000
+            assert revised['inputs'] == created['inputs'] and revised['installation'] == created['installation']
+            assert revised['output'] != created['output'] and not revised['dry_run_ok']
+            assert revised_config['run_kraken'] is True and revised_config['kraken_decision_mode'] == 'aware'
+            assert revised_config['run_multiqc'] is False and revised_config['revision_note'] == 'saved-run editor test'
+            assert revised_config['custom_menu']['literal.key'] == [False, 0, 'preserve']
+            assert revised_config['db_root'] == final_config['db_root']
+            assert Store(workspace).get('runs', created['id']) == created
+            assert Store(workspace).get('configs', 'hybas') == saved_defaults
             page.get_by_role('button', name='Close dialog', exact=True).click()
             page.get_by_role('link', name='Install & update', exact=True).click()
             page.get_by_role('button', name='Check / install environments', exact=True).last.click()
