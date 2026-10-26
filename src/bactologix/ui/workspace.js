@@ -305,7 +305,7 @@ if(response&&response.id!==U.handled){U.handled=response.id;U.pending=null;U.err
 if(response.removed_sample){
  const key='run-sample-'+response.removed_sample;delete U.drafts[key];
  // render() captures the outgoing form once more before replacing the dialog.
- const checkbox=$('#'+key);if(checkbox)checkbox.checked=false;
+ const checkbox=$$('[data-sample]').find(el=>el.dataset.sample===response.removed_sample);if(checkbox)checkbox.checked=false;
 }
 if(response.database_run_plan)U.databaseRunPlan=response.database_run_plan;
 if(response.database_check){const c=response.database_check,t=c.tool;dbState(t).checks[c.id]=c;setDraft(dbPath(t,c.id),c.path);delete dbState(t).resets[c.id];}
