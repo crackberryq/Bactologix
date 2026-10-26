@@ -71,6 +71,62 @@ function configuration(){const t=U.tool, fields=U.fields[t]||S.fields[t], yaml=v
 <div class="config-toolbar"><div class="button-row"><label class="btn upload-label">Import YAML<input type="file" id="yaml-upload" accept=".yaml,.yml" class="visually-hidden"></label>${btn('download-yaml','Download YAML')}${btn('inspect-config','Validate / refresh settings')}</div>${btn('save-config','Save defaults',true)}</div>
 <details class="config-section"><summary>Find and edit a setting<span class="section-count">${fields.length}</span></summary><div class="padded"><div class="field"><label for="setting-search">Search settings</label><input id="setting-search" placeholder="threads, model, resource path…" value="${e(val('setting-search'))}"></div><div class="form-grid">${select('setting-'+t,'Setting',fields.map(f=>[f.name,f.name]),fields[0]?.name)}${area('setting-value-'+t,'YAML value',fields.find(f=>f.name===val('setting-'+t,fields[0]?.name))?.yaml||'')}</div>${btn('apply-setting','Apply setting to draft')}<p class="inline-info">Guided editing preserves values and rewrites YAML formatting and comments.</p></div></details>
 <div class="yaml-field">${area('yaml-'+t,'Full configuration',yaml,'spellcheck="false" rows="25"')}</div><div class="config-bottom"><p>Managed output paths and CPU limits are bound when a run is created. Use absolute paths for existing databases and models. Saving defaults never rewrites an existing run.</p>${btn('save-config','Save defaults',true)}</div></section>`;}
+function runEditor(){return U.runConfigs?.[val('run-tool','hybas')];}
+function runFieldValue(c,f){return Object.hasOwn(c.changes,f.key)?c.changes[f.key]:f.kind==='yaml'?f.yaml:f.value;}
+function runConfigPayload(){const c=runEditor();return c?{tool:c.tool,text:c.text,changes:c.changes}:null;}
+function editRunField(c,f,value){
+ c.changes[f.key]=value;
+ const get=name=>c.fields.find(x=>x.name===name),put=(name,v)=>{const row=get(name);if(row)c.changes[row.key]=v;};
+ if(c.tool==='hybas'&&f.name==='run_kraken'){
+  if(!value)put('kraken_decision_mode','off');
+  else if(runFieldValue(c,get('kraken_decision_mode'))==='off')put('kraken_decision_mode','aware');
+ }
+ if(c.tool==='hybas'&&f.name==='kraken_decision_mode')put('run_kraken',value!=='off');
+ const counter=$('#run-config-changes');if(counter)counter.textContent=Object.keys(c.changes).length+' edited settings';
+ for(const b of $$('[data-action="reset-run-field"]'))b.disabled=!Object.hasOwn(c.changes,b.dataset.id);
+}
+function runSetting(c,f,index){
+ const value=runFieldValue(c,f),id='run-setting-'+index;
+ const attrs=`id="${id}" data-run-field="${e(f.key)}" data-run-name="${e(f.name)}" aria-label="${e(f.label+' ('+f.name+')')}"`;
+ let control='';
+ if(f.managed){
+  let managed='Assigned when the draft is created';
+  if(['threads','execution.cores'].includes(f.name))managed='Controlled by CPU cores per run above';
+  if(['memory_mb','execution.memory_mb'].includes(f.name))managed='Controlled by Memory budget above';
+  control=`<p class="run-managed-value">${e(managed)}</p>`;
+ }else if(f.kind==='boolean')control=`<label class="run-toggle"><input type="checkbox" role="switch" ${attrs} ${value?'checked':''}><span>${value?'On':'Off'}</span></label>`;
+ else if(f.kind==='select'){
+  const labels={off:'Off',aware:'AWARE',auto:'Auto',manual:'Manual',none:'None',racon:'Racon',medaka:'Medaka',tripolish:'Tripolish'};
+  const options=f.options.includes(value)?f.options:[value,...f.options];
+  control=`<select ${attrs}>${options.map(x=>`<option value="${e(x)}" ${x===value?'selected':''}>${e(labels[x]||x)}</option>`).join('')}</select>`;
+ }else if(f.kind==='yaml')control=`<textarea ${attrs} rows="${value?.includes('\n')?4:2}" spellcheck="false">${e(value)}</textarea>`;
+ else control=`<input ${attrs} type="${['integer','number','optional_integer'].includes(f.kind)?'number':'text'}" ${f.kind==='number'?'step="any"':f.kind.includes('integer')?'step="1"':''} value="${e(value??'')}" ${f.kind.startsWith('optional_')?'placeholder="Automatic / not set"':''}>`;
+ return `<div class="run-setting field" data-run-search="${e((f.name+' '+f.label+' '+f.group).toLowerCase())}" data-setting-group="${e(f.group)}"><div class="run-setting-heading"><label for="${id}">${e(f.label)}</label>${!f.managed?btn('reset-run-field','Reset edit',false,f.key,'',!Object.hasOwn(c.changes,f.key)):badge('Managed')}</div><small class="run-setting-key">${e(f.name)}</small>${control}${f.help?`<small>${e(f.help)}</small>`:''}${!f.included&&!f.managed?'<small>Available default · added to this draft only when edited.</small>':''}${f.kind==='yaml'&&!f.managed?'<small>YAML value: use null for unset values, [] for lists, or {} for mappings.</small>':''}</div>`;
+}
+function filterRunSettings(){
+ const c=runEditor();if(!c)return;
+ const q=val('run-setting-search','').toLowerCase().trim(),group=U.runConfigGroup?.[c.tool]||c.groups[0];
+ let count=0;
+ for(const row of $$('[data-run-search]')){row.hidden=q?!row.dataset.runSearch.includes(q):row.dataset.settingGroup!==group;if(!row.hidden)count++;}
+ for(const section of $$('[data-run-section]'))section.hidden=![...section.querySelectorAll('[data-run-search]')].some(r=>!r.hidden);
+ const empty=$('#run-settings-empty');if(empty)empty.hidden=count>0;
+ for(const b of $$('[data-action="run-setting-group"]')){b.classList.toggle('active',!q&&b.dataset.id===group);b.setAttribute('aria-pressed',String(!q&&b.dataset.id===group));}
+}
+function runSettingsPanel(c){
+ const group=U.runConfigGroup?.[c.tool]||c.groups[0];
+ return `<div class="run-settings-toolbar"><div class="field">${field('run-setting-search','Search run settings','','search','placeholder="Kraken, BUSCO, memory, model…"')}</div><span id="run-config-changes">${Object.keys(c.changes).length} edited settings</span>${btn('reload-run-defaults','Reload saved defaults',false,'','config')}</div><div class="run-settings-layout"><nav class="run-settings-nav" aria-label="Configuration sections">${c.groups.map(g=>`<button type="button" class="${group===g?'active':''}" data-action="run-setting-group" data-id="${e(g)}">${e(g)}<span>${c.fields.filter(f=>f.group===g).length}</span></button>`).join('')}</nav><div class="run-settings-fields">${c.groups.map(g=>`<section data-run-section="${e(g)}"><h3>${e(g)}</h3><div class="run-settings-grid">${c.fields.map((f,i)=>f.group===g?runSetting(c,f,i):'').join('')}</div></section>`).join('')}<p id="run-settings-empty" hidden>No settings match this search.</p></div></div>`;
+}
+function renderNewRun(){
+ const tool=val('run-tool','hybas'),c=runEditor(),tab=U.runConfigTab||'samples';
+ let body=`<div class="run-draft-intro"><strong>Settings for these drafts</strong><span>Start from saved defaults. Changes here apply to the selected samples in this request.</span></div><div class="form-grid run-budget-grid">${select('run-tool','Pipeline',[['hybas','HybAs'],['basis','BaSIS']],'hybas')}${field('run-cores','CPU cores per run',Math.min(4,S.doctor.cpus||1),'number','min="1" max="512"')}${field('run-memory','Memory budget (MB)',16000,'number','min="512" max="2000000" step="512"')}</div><div class="tabs run-config-tabs">${[['samples','Samples'],['settings','Run settings'],['yaml','Full YAML']].map(([id,label])=>`<button type="button" class="tab ${tab===id?'active':''}" data-action="run-config-tab" data-id="${id}" ${!c?'disabled':''}>${label}</button>`).join('')}</div>`;
+ if(!c)return body+'<p>Loading saved configuration…</p>';
+ if(tab==='samples')body+=`<h3>Select samples</h3><p class="inline-info">These samples receive the same configuration. Create separate drafts to use different settings. Removing a sample keeps its files and run history.</p>${S.samples.length?S.samples.map(s=>`<div class="sample-choice"><label class="source-card"><input type="checkbox" id="run-sample-${e(s.id)}" data-sample="${e(s.id)}" ${val('run-sample-'+s.id,false)?'checked':''}><span><strong>${e(s.id)}</strong><small>${e(s.path)}</small></span></label>${btn('remove-sample','Remove sample',false,s.id,'trash')}</div>`).join(''):empty('Add a sample first.','Register the folder containing your original inputs.',btn('new-sample','Add sample'))}`;
+ else if(tab==='settings')body+=runSettingsPanel(c);
+ else body+=`<p class="inline-info">Edit or paste the complete configuration, including custom keys. Returning to Run settings parses this YAML. Output paths and the CPU/memory limits above are assigned when creating the drafts.</p>${area('run-yaml-'+tool,'Run configuration YAML',c.text,'spellcheck="false" rows="22" data-run-yaml="'+tool+'"')}`;
+ const chosen=S.samples.filter(s=>val('run-sample-'+s.id,false));
+ body+=`<div class="run-draft-summary"><span>${chosen.length} sample${chosen.length===1?'':'s'} selected · ${e(S.pipelines[tool].name)} · ${c.fields.filter(f=>!f.managed).length} available settings</span>${btn('check-run-config','Check settings',false,'','check')}</div>`;
+ return body;
+}
 function dbPath(t,id){return 'dbpath-'+t+'-'+id;}
 function dbState(t){U.databaseStates ||= {};return U.databaseStates[t] ||= {revision:S.databases[t].revision,checks:{},resets:{}};}
 function clearDatabases(t){for(const key of Object.keys(U.drafts))if(key.startsWith('dbpath-'+t+'-')||key.startsWith('dbcand-'+t+'-'))delete U.drafts[key];U.databaseStates ||= {};delete U.databaseStates[t];for(const r of S.databases[t].rows){if(!r.managed){setDraft(dbPath(t,r.id),r.path);setDraft('dbcand-'+t+'-'+r.id,'');}}}
@@ -168,7 +224,7 @@ if(m.kind==='existing'){
 }
 if(m.kind==='import'){title='Import a sample table';desc='CSV or TSV · sample_id, input_folder, read_mode';body=`<label class="btn upload-label">Choose CSV / TSV<input type="file" id="sample-upload" accept=".csv,.tsv" class="visually-hidden"></label><div class="form-grid">${area('sample-table','Table contents','sample_id,input_folder,read_mode\n','rows="9"')}</div>${btn('sample-template','Download template')}`;foot=btn('import-samples','Import samples',true);}
 if(m.kind==='conda'){title='Choose Conda';desc='Use an existing executable or install local Conda from Install & update.';body=field('conda-path','Conda executable',S.doctor.conda||'');foot=btn('save-conda','Save location',true);}
-if(m.kind==='new-run'){title='Create run drafts';desc='Choose samples and a pipeline. Full saved defaults are inherited.';body=`<div class="form-grid">${select('run-tool','Pipeline',[['hybas','HybAs'],['basis','BaSIS']],'hybas')}${field('run-cores','CPU cores per run',Math.min(4,S.doctor.cpus||1),'number','min="1" max="512"')}${field('run-memory','Memory budget (MB)',16000,'number','min="512" max="2000000" step="512"')}</div><h3>Samples</h3><p class="inline-info">Remove sample unregisters it from selection. Input files and existing runs are kept.</p>${S.samples.length?S.samples.map(s=>`<div class="sample-choice"><label class="source-card"><input type="checkbox" id="run-sample-${e(s.id)}" data-sample="${e(s.id)}" ${val('run-sample-'+s.id,false)?'checked':''}><span><strong>${e(s.id)}</strong><small>${e(s.path)}</small></span></label>${btn('remove-sample','Remove sample',false,s.id,'trash')}</div>`).join(''):empty('Add a sample first.','Register the folder containing your original inputs.',btn('new-sample','Add sample'))}${notice('Review before execution','Drafts have independent output folders. Check each native dry-run before preparing tools or starting analysis. Jobs are queued sequentially.')}`;foot=btn('create-runs','Create drafts',true,'','',!S.samples.length);}
+if(m.kind==='new-run'){wide=true;title='Create run drafts';desc='Choose samples and configure this run.';body=renderNewRun();foot=btn('create-runs','Create drafts',true,'','play',!runEditor()||!S.samples.some(s=>val('run-sample-'+s.id,false)));}
 if(m.kind==='clone'){title='Compare polishing strategies';desc='Choose a parent run and create independent variants.';const runs=S.runs.filter(r=>r.tool==='hybas');const id=val('clone-parent',m.id||runs[0]?.id);const r=runBy(id);const options=r?.sample.mode==='illumina_only'?[['none','Baseline'],['tripolish','Polypolish']]:[['none','Baseline'],['racon','Racon'],['medaka','Medaka'],['tripolish','Tripolish']];body=`${select('clone-parent','Parent run',runs.map(r=>[r.id,r.label+' · '+r.id]),id)}<label class="check-field"><input type="checkbox" id="clone-aware" ${val('clone-aware',false)?'checked':''}><span>Create an AWARE-free branch<small>Otherwise inherit the parent’s AWARE settings.</small></span></label><div class="strategy-grid">${options.map(([s,l])=>`<label class="strategy-card"><span class="row"><input type="checkbox" id="strategy-${s}" data-strategy="${s}" ${val('strategy-'+s,['none','tripolish'].includes(s))?'checked':''}>${l}</span></label>`).join('')}</div>${notice('Fresh workflows from original inputs','Full parent settings are inherited. Post-AWARE checkpoint reuse and polishing-only execution are not yet implemented.',true)}`;if(!r)body=empty('Create a HybAs run first.','A saved parent configuration is required.',btn('new-run','Create run draft',true));foot=r?btn('create-clones','Create variant drafts',true):'';}
 if(m.kind==='versions'){wide=true;const t=m.id,c=S.catalogs[t];title='Choose '+S.pipelines[t].name+' version';desc='Compatible snapshots bundled with this app. '+(c.live?'Live GitHub check: ':'Bundled GitHub snapshot: ')+c.checkedAt;body=`<div class="toolbar"><input class="search" id="version-search" placeholder="Search versions…" aria-label="Search versions" value="${e(val('version-search'))}">${select('version-channel','Channel',[['all','All'],['pinned','Compatible snapshots'],['release','Releases'],['branch','Branches']],'all')}${btn('refresh-versions','Refresh from GitHub',false,t)}</div><div class="version-list">${c.versions.map(v=>`<label class="source-card version-choice" data-version-kind="${v.kind}" data-version-name="${e((v.ref+' '+v.name).toLowerCase())}"><input type="radio" name="version" value="${e(v.id)}" ${val('version-'+t)===v.id?'checked':''}><span><strong>${e(v.ref)}</strong> ${v.preferred&&v.supported?badge('Recommended','green'):''} ${badge(v.kind,'blue')} ${v.supported?badge('Runner supported','green'):badge('Source only')}<small>${e(v.name)} · ${e(v.commit.slice(0,12))}</small><a href="${e(safeURL(v.url))}" target="_blank" rel="noopener noreferrer">Source / release notes ↗</a>${v.notes?`<details><summary>Release notes</summary><pre class="release-notes">${e(v.notes)}</pre></details>`:''}</span></label>`).join('')}</div>${notice('Keep your existing environments','Compatible runners are checked and reused. Other source versions can be downloaded, but managed runs require a reviewed adapter for that exact commit.')}`;const chosen=c.versions.find(x=>x.id===val('version-'+t));foot=btn('install-version',chosen?.supported?'Download and set up':'Download source only',true,t,'',!chosen);}
 if(m.kind==='run'){wide=true;const r=runBy(m.id),d=U.detail?.id===m.id?U.detail:null;title=r?.label||'Run details';desc=m.id;body=d?`<div class="detail-pills">${badge(S.pipelines[r.tool].name,'blue')}${statusBadge(r.status)}${badge(r.dry_run_ok?'Native dry-run passed':'Needs dry-run',r.dry_run_ok?'green':'amber')}</div><p class="path-cell run-output">${e(d.output)}</p><div class="button-row">${btn('dry-run','Check / dry-run',true,r.id,'check',r.busy)}${btn('prepare','Prepare tools',false,r.id,'',r.busy||!r.dry_run_ok)}${btn('run','Run / resume',false,r.id,'play',r.busy||!r.dry_run_ok)}${r.run_type!=='followup'?btn('use-run-databases','Use saved databases',false,r.id,'resources',r.busy):''}</div><details class="config-section"><summary>Database paths in this run</summary><div class="padded">${(d.database_paths||[]).map(x=>`<p><strong>${e(x.name)}</strong><br><span class="path-cell">${e(x.path||'Pipeline default')}</span></p>`).join('')}</div></details><details class="config-section"><summary>Execution plan and frozen configuration</summary><div class="padded"><pre class="code-block">${e(d.command)}</pre><pre class="code-block">${e(d.config)}</pre>${btn('download-frozen','Download frozen YAML',false,r.id)}<p class="inline-info">${e(d.reuse)}</p></div></details>${r.run_type==='followup'?'':`<details class="config-section"><summary>Create a revised draft</summary><div class="padded">${area('revised-'+r.id,'New draft configuration',d.submitted,'rows="12" spellcheck="false"')}${btn('revise','Create revised draft',false,r.id)}</div></details>`}<div class="button-row">${r.tool==='hybas'?btn('polish','Clone / compare',false,r.id,'branch'):''}${r.can_handoff?btn('handoff','Create BaSIS draft',false,r.id):''}${r.can_followup?btn('followup','Review follow-up',false,r.id):''}${btn('view-results','View results',false,r.id,'file')}</div>`:'<p>Loading frozen run configuration…</p>';}
@@ -181,12 +237,16 @@ $('#modal-root').innerHTML=`<div class="modal-shade"><section class="modal ${wid
 $('.app-shell').setAttribute('inert','');
 if(m.kind==='report'&&U.report?.id===m.id){const f=document.createElement('iframe');f.title=U.report.name;f.setAttribute('sandbox','allow-scripts allow-downloads');f.referrerPolicy='no-referrer';f.className='html-report-frame';f.srcdoc=new TextDecoder().decode(Uint8Array.from(atob(U.report.base64),c=>c.charCodeAt(0)));$('#report-frame-container').append(f);}
 if(m.kind==='versions')filterVersions();
+if(m.kind==='new-run'&&U.runConfigTab==='settings')filterRunSettings();
 renderBusy();
 }
 function safeURL(url){try{const u=new URL(url);return u.protocol==='https:'&&u.hostname==='github.com'?u.href:'#';}catch{return '#';}}
 function filterVersions(){const q=val('version-search').toLowerCase(),c=val('version-channel','all');for(const row of $$('.version-choice')){row.hidden=!row.dataset.versionName.includes(q)||(c!=='all'&&row.dataset.versionKind!==c);const radio=row.querySelector('input');if(row.hidden&&radio.checked){radio.checked=false;U.drafts['version-'+U.modal.id]='';}}const chosen=S.catalogs[U.modal.id].versions.find(x=>x.id===val('version-'+U.modal.id));const button=$('[data-action="install-version"]');if(button){button.disabled=!chosen;button.textContent=!chosen?'Choose a version':chosen.supported?'Download and set up':'Download source only';}}
 function filterSettings(){const q=val('setting-search').toLowerCase();for(const o of $$('#setting-'+U.tool+' option'))o.hidden=!o.textContent.toLowerCase().includes(q);}
 async function change(event){const t=event.target;if(t.id&&t.type!=='file'){U.drafts[t.id]=t.type==='checkbox'?t.checked:t.value;}
+if(t.dataset.sample&&U.modal?.kind==='new-run')renderModal();
+if(t.dataset.runField){const c=runEditor(),f=c?.fields.find(f=>f.key===t.dataset.runField);if(f){editRunField(c,f,t.type==='checkbox'?t.checked:t.value);if(t.type==='checkbox'||t.tagName==='SELECT')renderModal();}}
+if(t.id==='run-tool'){draftInputs();const c=runEditor();if(c){if(c.raw){U.runConfigTab='yaml';renderModal();}else if(U.runConfigTab==='yaml'&&Object.keys(c.changes).length)request('run_config_editor',{...runConfigPayload(),view:'yaml'});else renderModal();}else request('run_config_editor',{tool:t.value,view:U.runConfigTab||'samples'});}
 if(t.dataset.applyRun||t.dataset.applyResource)renderModal();
 if(t.dataset.select){U.selected=t.checked?[...new Set([...U.selected,t.dataset.select])]:U.selected.filter(x=>x!==t.dataset.select);render();}
 if(t.id?.startsWith('dbcand-')){const tool=U.resourceTool||'hybas',key=t.id.slice(('dbcand-'+tool+'-').length);if(t.value){setDraft(dbPath(tool,key),t.value);delete dbState(tool).resets[key];render();}}
@@ -197,7 +257,10 @@ if(t.name==='app-version-choice'){U.drafts['app-release']=t.value;renderModal();
 if(t.id==='setting-'+U.tool){const f=(U.fields[U.tool]||S.fields[U.tool]).find(x=>x.name===t.value);U.drafts['setting-value-'+U.tool]=f?.yaml||'';$('#setting-value-'+U.tool).value=U.drafts['setting-value-'+U.tool];}
 if(t.id==='yaml-upload'||t.id==='sample-upload'){const f=t.files?.[0];if(!f)return;if(f.size>2*1024*1024){toast('Choose a text file smaller than 2 MB.',true);return;}const text=await f.text();const id=t.id==='yaml-upload'?'yaml-'+U.tool:'sample-table';U.drafts[id]=text;$('#'+id).value=text;if(t.id==='yaml-upload')request('inspect_config',{tool:U.tool,text});}
 }
-function input(event){const t=event.target;if(t.id&&t.type!=='file')U.drafts[t.id]=t.type==='checkbox'?t.checked:t.value;if(t.id?.startsWith('dbpath-')){const tool=U.resourceTool||'hybas',key=t.id.slice(('dbpath-'+tool+'-').length);delete dbState(tool).resets[key];setDraft('dbcand-'+tool+'-'+key,'');for(const b of $$('[data-action="save-databases"]'))b.disabled=false;const pos=t.selectionStart,id=t.id;render();const field=$('#'+id);field?.focus();if(pos!==null)field?.setSelectionRange(pos,pos);}if(t.id==='version-search'||t.id==='version-channel')filterVersions();if(t.id==='setting-search')filterSettings();if(t.id==='sample-search'){U.filter=t.value;const pos=t.selectionStart;render();$('#sample-search').focus();$('#sample-search').setSelectionRange(pos,pos);}}
+function input(event){const t=event.target;
+if(t.dataset.runField){const c=runEditor(),f=c?.fields.find(f=>f.key===t.dataset.runField);if(f)editRunField(c,f,t.type==='checkbox'?t.checked:t.value);}
+if(t.dataset.runYaml){const c=U.runConfigs[t.dataset.runYaml];c.text=t.value;c.changes={};c.raw=true;}
+if(t.id&&t.type!=='file')U.drafts[t.id]=t.type==='checkbox'?t.checked:t.value;if(t.id?.startsWith('dbpath-')){const tool=U.resourceTool||'hybas',key=t.id.slice(('dbpath-'+tool+'-').length);delete dbState(tool).resets[key];setDraft('dbcand-'+tool+'-'+key,'');for(const b of $$('[data-action="save-databases"]'))b.disabled=false;const pos=t.selectionStart,id=t.id;render();const field=$('#'+id);field?.focus();if(pos!==null)field?.setSelectionRange(pos,pos);}if(t.id==='run-setting-search')filterRunSettings();if(t.id==='version-search'||t.id==='version-channel')filterVersions();if(t.id==='setting-search')filterSettings();if(t.id==='sample-search'){U.filter=t.value;const pos=t.selectionStart;render();$('#sample-search').focus();$('#sample-search').setSelectionRange(pos,pos);}}
 function click(event){const nav=event.target.closest('[data-nav]');if(nav){event.preventDefault();navigate(nav.dataset.nav);return;}const a=event.target.closest('[data-action]');if(!a)return;const action=a.dataset.action,id=a.dataset.id;draftInputs();U.error='';
 if(action==='close'){closeModal();return;}if(action.startsWith('go-')){navigate(action.slice(3));return;}
 const v=x=>$('#'+x)?.value??val(x);
@@ -227,7 +290,23 @@ else if(action==='install-app-release'){const r=S.app_update.catalog?.releases.f
 else if(action==='new-sample')modal('sample');
 else if(action==='import')modal('import');
 else if(action==='conda')modal('conda');
-else if(action==='new-run')modal('new-run');
+else if(action==='new-run'){
+ U.runConfigs={};U.runConfigGroup={};U.runConfigTab='samples';setDraft('run-setting-search','');
+ modal('new-run');request('run_config_editor',{tool:val('run-tool','hybas'),view:'samples'});
+}
+else if(action==='run-config-tab'){
+ const c=runEditor();if(!c)return;
+ if(id==='yaml'||c.raw)request('run_config_editor',{...runConfigPayload(),view:id});
+ else {U.runConfigTab=id;renderModal();}
+}
+else if(action==='run-setting-group'){U.runConfigGroup[runEditor().tool]=id;setDraft('run-setting-search','');filterRunSettings();}
+else if(action==='reload-run-defaults')request('run_config_editor',{tool:val('run-tool','hybas'),view:U.runConfigTab});
+else if(action==='check-run-config')request('run_config_editor',{...runConfigPayload(),view:U.runConfigTab,validate:true});
+else if(action==='reset-run-field'){
+ const c=runEditor(),f=c.fields.find(f=>f.key===id);delete c.changes[id];
+ if(c.tool==='hybas'&&['run_kraken','kraken_decision_mode'].includes(f?.name))for(const x of c.fields.filter(x=>['run_kraken','kraken_decision_mode'].includes(x.name)))delete c.changes[x.key];
+ renderModal();
+}
 else if(['cite','about'].includes(action))modal('credits');
 else if(action==='citation')download('Bactologix-'+id,S.citations[id]);
 else if(action==='export-workspace')download('Bactologix-workspace.json',JSON.stringify({exported:new Date().toISOString(),...S},null,2),'application/json');
@@ -274,7 +353,7 @@ else if(action==='save-databases'){const state=dbState(id),changes={};for(const 
 else if(action==='save-config'||action==='inspect-config')request(action.replace('-','_'),{tool:U.tool,text:v('yaml-'+U.tool)});
 else if(action==='download-yaml')download(U.tool+'-config.yaml',v('yaml-'+U.tool),'text/yaml');
 else if(action==='apply-setting')request('edit_setting',{tool:U.tool,text:v('yaml-'+U.tool),field:v('setting-'+U.tool),value:v('setting-value-'+U.tool)});
-else if(action==='create-runs')request('create_runs',{tool:v('run-tool'),ids:$$('[data-sample]:checked').map(x=>x.dataset.sample),cores:Number(v('run-cores')),memory_mb:Number(v('run-memory'))});
+else if(action==='create-runs')request('create_runs',{tool:v('run-tool'),ids:S.samples.filter(s=>val('run-sample-'+s.id,false)).map(s=>s.id),cores:Number(v('run-cores')),memory_mb:Number(v('run-memory')),config:runConfigPayload()});
 else if(action==='clear-selection'){U.selected=[];render();}
 else if(action==='run-detail'){U.detail=null;modal('run',id);request('inspect_run',{id});}
 else if(['dry-run','prepare','run'].includes(action))request('workflow',{ids:[id],action});
@@ -306,6 +385,10 @@ if(response.removed_sample){
  const key='run-sample-'+response.removed_sample;delete U.drafts[key];
  // render() captures the outgoing form once more before replacing the dialog.
  const checkbox=$$('[data-sample]').find(el=>el.dataset.sample===response.removed_sample);if(checkbox)checkbox.checked=false;
+}
+if(response.run_config){
+ const c=response.run_config;U.runConfigs ||= {};U.runConfigs[c.tool]={...c,changes:{},raw:false};
+ U.runConfigTab=response.run_config_view;setDraft('run-yaml-'+c.tool,c.text);
 }
 if(response.database_run_plan)U.databaseRunPlan=response.database_run_plan;
 if(response.database_check){const c=response.database_check,t=c.tool;dbState(t).checks[c.id]=c;setDraft(dbPath(t,c.id),c.path);delete dbState(t).resets[c.id];}

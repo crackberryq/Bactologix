@@ -1,3 +1,11 @@
+# Validation update: 0.1.0a12 candidate (2026-10-26)
+
+- Local application suite: **146 passed**, with 24 native/browser/deployment tests enabled separately. New checks cover typed and nested edits, custom keys (including dotted mapping keys), optional resource overrides, managed fields, invalid values, pipeline mismatch, batch drafts, frozen dialog defaults and unchanged saved configurations/history.
+- New native integration checks pass for both exact pinned sources: create a draft through the same run-configuration endpoint as the UI, then pass a real Snakemake dry-run with the selected options in its frozen command configuration. No biological tools execute.
+- Chromium acceptance covers Kraken on/off and decision-mode synchronization, polishing and BUSCO controls, searching settings, independent pipeline edits, YAML round trips, malformed-YAML recovery and creation of a run with the chosen values while preserving saved defaults.
+- The menu exposes the bundled configuration catalogue, recognized resource companion fields and keys present in the supplied YAML. Omitted values remain omitted until edited. Generated input/output locations and top-level CPU/memory assignments retain the existing managed-run contract. No native decision algorithms or scientific presets were changed.
+- Exact-commit CI runs Python 3.11/3.12, real Chromium, package builds and sample-free Conda deployment. Native dry-runs remain necessary for source-specific settings, resource availability and selected sample compatibility.
+
 # Validation update: 0.1.0a11 candidate (2026-10-26)
 
 - Local application checks: **130 passed**, with 22 native/browser/deployment checks enabled separately. Sample-removal regression verifies that registration disappears while input files, staged inputs, frozen runs and queued jobs remain intact; the existing run still generates its command. Removed samples cannot be selected by stale draft requests, and the original folder can be registered again.

@@ -1,5 +1,13 @@
 # Bactologix releases
 
+## 0.1.0a12 — configure each run before creating drafts (candidate)
+
+- Add Samples, Run settings and Full YAML tabs to Create run drafts, with searchable configuration sections, switches, dropdowns, numeric controls and structured-value editors for both pipelines.
+- Start from a snapshot of saved defaults and apply edits only to this request's drafts. Keep independent edits while switching pipelines; preserve custom keys and existing database paths.
+- Keep Kraken on/off and its Off/Manual/Auto/AWARE decision mode consistent. Expose polishing, quality/annotation, resource limits, BaSIS modules, AWARE and DeepSafe settings without changing native decision algorithms or presets.
+- Check input types and common invalid combinations before draft creation. Keep output/input locations and top-level CPU/memory assignment under the existing run adapter. Open a single created draft for review and a native dry-run.
+- Add application, pinned native dry-run and Chromium acceptance coverage for run-local configuration propagation and unchanged saved defaults.
+
 ## 0.1.0a11 — remove samples from selection (candidate)
 
 - Add **Remove sample** to Registered samples and the Create run drafts picker. Removal unregisters the sample, clears its selection and keeps the picker open.

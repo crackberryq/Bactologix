@@ -19,7 +19,7 @@ from .runs import (absolute_path, clone_runs, command, create_run, import_sample
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
 from . import databases, updates
-from . import followup, maintenance, database_runs
+from . import followup, maintenance, database_runs, run_config
 
 _SNAPSHOTS = {}
 
@@ -302,19 +302,43 @@ def dispatch(store, kind, p):
             store.put("configs", tool, text)
         return {"message": "Defaults saved for future drafts." if kind == "save_config" else "Configuration validated." if kind == "inspect_config" else "Setting applied to the draft; save when ready.",
                 "config": {"tool": tool, "text": text, "fields": configuration_fields(tool, text)}, "keep_modal": True}
+    if kind == "run_config_editor":
+        tool = _tool(p)
+        text = p.get("text", store.get("configs", tool, template(tool)))
+        if not isinstance(text, str):
+            raise ValueError("Provide configuration as YAML text.")
+        text = run_config.compile_config(tool, text, p.get("changes"))
+        if p.get("validate"):
+            run_config.validate(tool, text)
+        view = p.get("view", "settings")
+        if view not in {"samples", "settings", "yaml"}:
+            raise ValueError("Choose a run configuration view.")
+        return {"run_config": run_config.editor(tool, text), "run_config_view": view, "keep_modal": True,
+                "message": "Run settings checked. The native dry-run is still required." if p.get("validate") else ""}
     if kind == "create_runs":
         tool = _tool(p)
         cores, memory = int(p["cores"]), int(p["memory_mb"])
         if not 1 <= cores <= 512 or not 512 <= memory <= 2000000:
             raise ValueError("CPU or memory budget is outside the supported range")
         samples = [_item(store, "samples", sid) for sid in _ids(p)]
+        text = store.get("configs", tool, template(tool))
+        if "config" in p:
+            config = p["config"]
+            if not isinstance(config, dict) or config.get("tool") != tool or not isinstance(config.get("text"), str):
+                raise ValueError("The run configuration belongs to another pipeline. Review its settings again.")
+            text = run_config.compile_config(tool, config["text"], config.get("changes"))
+            run_config.validate(tool, text)
         made = []
         for sample in samples:
             try:
-                made.append(create_run(store, tool, sample, store.get("configs", tool, template(tool)), cores, memory))
+                made.append(create_run(store, tool, sample, text, cores, memory))
             except Exception as exc:
                 raise ValueError(f"Created {len(made)} draft(s). {sample['id']}: {exc}") from exc
-        return {"message": f"Created {len(made)} independent drafts.", "navigate": "samples"}
+        response = {"message": f"Created {len(made)} independent drafts with this run configuration.", "navigate": "samples"}
+        if len(made) == 1:
+            response.update(dispatch(store, "inspect_run", {"id": made[0]["id"]}))
+            response.update(keep_modal=False, open_run=made[0]["id"])
+        return response
     if kind == "inspect_run":
         run = copy.deepcopy(_item(store, "runs", p.get("id")))
         run["database_paths"] = database_runs.paths(store, run)

@@ -135,6 +135,25 @@ def test_saved_database_revision_fixes_native_missing_busco(tmp_path, monkeypatc
 
 
 @pytest.mark.parametrize('tool', ['hybas', 'basis'])
+def test_run_editor_settings_reach_native_dry_run(tmp_path, monkeypatch, tool):
+    from bactologix.ui_backend import dispatch
+    store, initial = setup_run(tmp_path, tool)
+    store.put('samples', initial['sample']['id'], initial['sample'])
+    store.put('configs', tool, initial['config'])
+    panel = dispatch(store, 'run_config_editor', {'tool': tool})['run_config']
+    values = ({'run_kraken': False, 'kraken_decision_mode': 'off', 'polish_mode': 'none', 'racon_rounds': '0'}
+              if tool == 'hybas' else {'extend': False, 'modules.rgi.enabled': False})
+    changes = {f['key']: values[f['name']] for f in panel['fields'] if f['name'] in values}
+    result = dispatch(store, 'create_runs', {'tool': tool, 'ids': [initial['sample']['id']], 'cores': 1,
+        'memory_mb': 16000, 'config': {'tool': tool, 'text': panel['text'], 'changes': changes}})
+    child = store.get('runs', result['open_run'])
+    output = snake(store, child, monkeypatch=monkeypatch)
+    assert 'Job stats' in output or 'Job statistics' in output
+    assert store.get('configs', tool) == initial['config']
+    check_run_files(child)
+
+
+@pytest.mark.parametrize('tool', ['hybas', 'basis'])
 def test_pinned_source_accepts_generated_draft(tmp_path, monkeypatch, tool):
     store, run = setup_run(tmp_path, tool)
     before = tree_digest(Path(run['folder']) / 'workflow')

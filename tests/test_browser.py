@@ -160,6 +160,53 @@ def test_sample_picker_configuration_and_report(tmp_path):
             register_again()
             page.get_by_role('button', name='Create run drafts', exact=True).click()
             expect(page.locator('[data-sample="browser.fixture"]')).not_to_be_checked()
+            page.locator('[data-sample="browser.fixture"]').check()
+            saved_defaults = Store(workspace).get('configs', 'hybas')
+            page.get_by_role('button', name='Run settings', exact=True).click()
+            page.locator('[data-run-name="run_kraken"]').uncheck()
+            expect(page.locator('[data-run-name="kraken_decision_mode"]')).to_have_value('off')
+            page.locator('[data-run-name="kraken_decision_mode"]').select_option('aware')
+            expect(page.locator('[data-run-name="run_kraken"]')).to_be_checked()
+            page.locator('[data-run-name="kraken_decision_mode"]').select_option('off')
+            expect(page.locator('[data-run-name="run_kraken"]')).not_to_be_checked()
+            page.locator('[data-action="run-setting-group"][data-id="Assembly & polishing"]').click()
+            page.locator('[data-run-name="polish_mode"]').select_option('none')
+            page.locator('[data-run-name="racon_rounds"]').fill('0')
+            page.locator('#run-setting-search').fill('run_busco')
+            page.locator('[data-run-name="run_busco"]').uncheck()
+            # Each pipeline retains its own edits while switching within the dialog.
+            page.locator('#run-tool').select_option('basis')
+            page.locator('#run-setting-search').fill('modules.rgi.enabled')
+            page.locator('[data-run-name="modules.rgi.enabled"]').uncheck()
+            page.locator('#run-tool').select_option('hybas')
+            page.locator('#run-setting-search').fill('run_kraken')
+            expect(page.locator('[data-run-name="run_kraken"]')).not_to_be_checked()
+            page.get_by_role('button', name='Full YAML', exact=True).click()
+            run_yaml = page.get_by_label('Run configuration YAML', exact=True)
+            original_yaml = run_yaml.input_value()
+            configured = yaml.safe_load(original_yaml)
+            assert configured['kraken_decision_mode'] == 'off' and configured['run_kraken'] is False
+            assert configured['run_busco'] is False and configured['racon_rounds'] == 0
+            assert configured['polish_mode'] == 'none'
+            run_yaml.fill('broken: [')
+            page.get_by_role('button', name='Run settings', exact=True).click()
+            expect(page.locator('#action-error')).not_to_be_empty()
+            expect(run_yaml).to_have_value('broken: [')
+            assert len(Store(workspace).all('runs')) == 2
+            run_yaml.fill(original_yaml + '\ncustom_menu: {literal.key: [false, 0, preserve]}\n')
+            page.get_by_role('button', name='Run settings', exact=True).click()
+            expect(page.locator('#run-setting-search')).to_be_visible()
+            page.get_by_role('button', name='Create drafts', exact=True).click()
+            expect(page.get_by_role('heading', name='browser.fixture', exact=True)).to_be_visible()
+            created, = [r for r in Store(workspace).all('runs') if r['id'] not in {parent['id'], child['id']}]
+            final_config = yaml.safe_load(created['config'])
+            assert final_config['kraken_decision_mode'] == 'off' and final_config['run_kraken'] is False
+            assert final_config['polish_mode'] == 'none' and final_config['run_busco'] is False
+            assert final_config['custom_menu']['literal.key'] == [False, 0, 'preserve']
+            assert final_config['custom_note'] == 'browser acceptance'
+            assert created['cores'] == 3 and not created['dry_run_ok']
+            assert Store(workspace).get('configs', 'hybas') == saved_defaults
+            assert Store(workspace).get('runs', parent['id']) == parent
             page.get_by_role('button', name='Close dialog', exact=True).click()
             page.get_by_role('link', name='Install & update', exact=True).click()
             page.get_by_role('button', name='Check / install environments', exact=True).last.click()
