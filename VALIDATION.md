@@ -1,3 +1,11 @@
+# Validation update: 0.1.0a14 (2026-10-26)
+
+- Local application suite and separately installed wheel: **169 passed**, with 24 native/browser/deployment checks enabled separately. All 36 packaged runtime files and the license match source; dependency checks and JavaScript syntax checks pass.
+- Saved-run inspection exposes the actual frozen settings through an Overview and pipeline category tabs. The command, YAML and complete field catalogue are collapsed under Advanced. Guided revisions start from the selected run's resolved configuration rather than today's defaults.
+- Regression checks cover HybAs and BaSIS revisions, nested/custom values, resolved database paths, CPU/memory edits, original input identities, installation/cache inheritance, new output folders, fresh dry-run requirements, unregistered samples and unchanged parent files/defaults. Changed inputs/source, stale editor signatures, invalid configuration, active jobs and archived runs are rejected before creating a revision.
+- Chromium acceptance covers saved-run tabs, collapsed YAML, cancelling edits, editing saved settings, YAML round trips, budget changes and opening the new revision. The `ui-previews` artifact contains the saved-run overview and revision editor for visual inspection. Exact-commit CI runs this flow alongside the existing Python 3.11/3.12 adapter checks and sample-free environment deployment; publication requires every job to pass.
+- This update changes presentation and draft orchestration. Native algorithms and pipeline presets are unchanged; no biological analysis is run by these checks.
+
 # Validation update: 0.1.0a13 (2026-10-26)
 
 - Publication checks add five regression cases for draft-to-public asset verification, checksum rejection, wrong tag/commit rejection, wrong wheel identity and immutable published releases. The publisher uses the actual app updater acceptance rules; publication is gated behind all software, browser and environment checks on `main`.
