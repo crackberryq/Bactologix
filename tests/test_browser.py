@@ -93,10 +93,62 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(page.get_by_role('heading', name='One sample, a clear history.', exact=True)).to_be_visible()
             assert Store(workspace).get('samples', 'browser.fixture')['path'] == str(sample)
             page.get_by_role('link', name='Configuration', exact=True).click()
-            page.get_by_label('Full configuration', exact=True).fill('threads: 2\ncustom_note: browser acceptance\n')
+            expect(page.get_by_role('heading', name='Your defaults, your settings.', exact=True)).to_be_visible()
+            def defaults_tab(name):
+                page.locator('.defaults-editor [data-action="guided-run-tab"][data-id="' + name + '"]').click()
+            def defaults_pipeline(name):
+                page.locator('[data-action="config-tool"][data-id="' + name + '"]').click()
+            expect(page.locator('.defaults-editor .mode-card')).to_have_count(4)
+            expect(page.get_by_label('Full configuration', exact=True)).to_have_count(0)
+            capture('configuration-hybas')
+            defaults_tab('quality')
+            page.locator('[data-run-name="run_busco"]').uncheck()
+            expect(page.locator('#default-save-status')).to_have_text('Unsaved changes')
+            defaults_pipeline('basis')
+            page.locator('[data-run-name="modules.rgi.enabled"]').uncheck()
+            capture('configuration-basis')
+            defaults_pipeline('hybas')
+            expect(page.locator('[data-run-name="run_busco"]')).not_to_be_checked()
+            assert Store(workspace).get('configs', 'hybas') is None
+            assert Store(workspace).get('configs', 'basis') is None
+            defaults_tab('advanced')
+            page.get_by_label('Search all settings', exact=True).fill('run_busco')
+            expect(page.locator('[data-run-name="run_busco"]')).not_to_be_checked()
+            capture('configuration-advanced')
+            page.set_viewport_size({'width': 390, 'height': 844})
+            assert page.locator('.defaults-editor').evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
+            expect(page.get_by_role('button', name='Save defaults', exact=True)).to_be_visible()
+            capture('configuration-mobile')
+            page.set_viewport_size({'width': 1440, 'height': 1100})
+            page.get_by_role('button', name='Full YAML', exact=True).click()
+            defaults_yaml = page.get_by_label('Full configuration', exact=True)
+            assert yaml.safe_load(defaults_yaml.input_value())['run_busco'] is False
+            defaults_yaml.fill('broken: [')
+            page.get_by_role('button', name='Back to controls', exact=True).click()
+            expect(page.get_by_role('alert')).not_to_be_empty()
+            expect(defaults_yaml).to_have_value('broken: [')
+            assert Store(workspace).get('configs', 'hybas') is None
+            imported_defaults = 'threads: 2\ncustom_note: browser acceptance\ncustom_defaults: {literal.key: [false, 0]}\n'
+            page.locator('#yaml-upload').set_input_files({'name': 'defaults.yaml', 'mimeType': 'text/yaml',
+                                                        'buffer': imported_defaults.encode()})
+            expect(defaults_yaml).to_have_value(imported_defaults)
+            page.get_by_role('button', name='Back to controls', exact=True).click()
+            page.get_by_label('Search all settings', exact=True).fill('custom_note')
+            expect(page.locator('[data-run-name="custom_note"]')).to_have_value('browser acceptance')
+            with page.expect_download() as exported:
+                page.get_by_role('button', name='Download YAML', exact=True).click()
+            exported_config = yaml.safe_load(Path(exported.value.path()).read_text())
+            assert exported_config['custom_defaults'] == {'literal.key': [False, 0]}
             page.get_by_role('button', name='Save defaults', exact=True).first.click()
             expect(page.locator('#toast')).to_contain_text('Defaults saved')
+            expect(page.locator('#default-save-status')).to_have_text('Saved defaults')
             assert 'browser acceptance' in Store(workspace).get('configs', 'hybas')
+            assert Store(workspace).get('runs', parent['id']) == parent
+            defaults_pipeline('basis')
+            expect(page.locator('[data-run-name="modules.rgi.enabled"]')).not_to_be_checked()
+            page.get_by_role('button', name='Reload saved defaults', exact=True).click()
+            expect(page.locator('[data-run-name="modules.rgi.enabled"]')).to_be_checked()
+            defaults_pipeline('hybas')
             page.get_by_role('link', name='Databases & models', exact=True).click()
             page.get_by_role('button', name=PIPELINES['basis']['name'], exact=True).click()
             card_panel = page.locator('.database-card').filter(has=page.get_by_role('heading', name='CARD / RGI', exact=True))
@@ -302,6 +354,22 @@ def test_sample_picker_configuration_and_report(tmp_path):
             assert Store(workspace).get('runs', created['id']) == created
             assert Store(workspace).get('configs', 'hybas') == saved_defaults
             page.get_by_role('button', name='Close dialog', exact=True).click()
+            # A clean defaults editor refreshes after database selections change.
+            page.get_by_role('link', name='Configuration', exact=True).click()
+            defaults_tab('databases')
+            expect(page.locator('[data-run-name="db_root"]')).to_have_value(final_config['db_root'])
+            # An edited copy cannot overwrite newer defaults from another window.
+            defaults_tab('quality')
+            page.locator('[data-run-name="run_multiqc"]').uncheck()
+            newer_defaults = saved_defaults + '\nnewer_selection: preserve this change\n'
+            Store(workspace).put('configs', 'hybas', newer_defaults)
+            page.get_by_role('button', name='Save defaults', exact=True).click()
+            expect(page.get_by_role('alert')).to_contain_text('Saved defaults changed')
+            expect(page.get_by_role('button', name='Save defaults', exact=True)).to_be_disabled()
+            assert Store(workspace).get('configs', 'hybas') == newer_defaults
+            page.get_by_role('button', name='Reload saved defaults', exact=True).click()
+            expect(page.get_by_role('button', name='Save defaults', exact=True)).to_be_enabled()
+            expect(page.locator('#default-save-status')).to_have_text('Saved defaults')
             page.get_by_role('link', name='Install & update', exact=True).click()
             page.get_by_role('button', name='Check / install environments', exact=True).last.click()
             expect(page.get_by_role('heading', name='Tool environments', exact=True)).to_be_visible()

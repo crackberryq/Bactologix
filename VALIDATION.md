@@ -1,3 +1,10 @@
+# Validation update: 0.1.0a15 (2026-10-26)
+
+- Local application suite: **179 passed**, with 24 native/browser/deployment checks enabled separately. New regression cases cover read/check/export without saving, future-run inheritance, unchanged frozen history, nested/custom values, invalid edits and stale saves including a competing database update during compilation.
+- Configuration shares the guided controls and Advanced renderer with the draft/revision editors, while maintaining independent pipeline edits, category selection and YAML state. The existing draft/revision acceptance flow is retained.
+- Chromium acceptance adds configuration category switching, Advanced search, narrow layout, YAML parse-error recovery, file import/export, save/reload, unchanged existing runs, refresh after database selection and refusal to overwrite a newer saved configuration. Screenshots are retained in the `ui-previews` Actions artifact. The release workflow requires the Python 3.11/3.12, browser and sample-free environment jobs to pass before publication.
+- Only UI and workspace configuration persistence are changed; native algorithms and presets are unchanged. These checks do not execute biological analyses.
+
 # Validation update: 0.1.0a14 (2026-10-26)
 
 - Local application suite and separately installed wheel: **169 passed**, with 24 native/browser/deployment checks enabled separately. All 36 packaged runtime files and the license match source; dependency checks and JavaScript syntax checks pass.
