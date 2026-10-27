@@ -9,7 +9,7 @@ import pytest
 
 from bactologix.catalog import DATA, PIPELINES
 from bactologix.engine import Context
-from bactologix.engine import prepare_controller
+from bactologix.engine import prepare_controller, inherited_cache
 from bactologix import maintenance as m
 from bactologix.store import Store
 
@@ -114,11 +114,12 @@ def test_missing_install_verified_and_broken_tool(tmp_path, monkeypatch):
     newer_commit = subprocess.check_output(['git', '-C', str(newer_source), 'rev-parse', 'HEAD'], text=True).strip()
     monkeypatch.setitem(PIPELINES['hybas'], 'commit', newer_commit)
     original_cache = item['rule_cache']
+    store.put('settings', 'active-hybas', item['id'])
     item = {**item, 'id': 'newer-deployment-fixture', 'source': str(newer_source),
-            'rule_cache': str(tmp_path / 'initially-empty-cache'),
+            'rule_cache': inherited_cache(store, 'hybas'),
             'version': {'commit': newer_commit, 'ref': 'newer software-only fixture'}}
     store.put('installs', item['id'], item)
-    m.set_cache(store, item['id'], original_cache)
+    assert item['rule_cache'] == original_cache  # No manual cache/reuse action during an update.
     reused = run('install')
     assert reused['status'] == 'Verified' and reused['path'] == str(prefix)
     assert (prefix / 'conda-meta/history').read_bytes() == history

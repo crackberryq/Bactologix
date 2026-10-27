@@ -14,6 +14,7 @@ from bactologix.store import Store
 from bactologix.catalog import PIPELINES
 from bactologix.runs import create_run
 from test_databases import busco
+from test_maintenance import installed
 
 pytestmark = pytest.mark.skipif(os.environ.get('BACTOLOGIX_BROWSER_TESTS') != '1',
                                 reason='Enable the browser acceptance job to run Chromium')
@@ -461,21 +462,35 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(page.get_by_role('button', name='Save defaults', exact=True)).to_be_enabled()
             expect(page.locator('#default-save-status')).to_have_text('Saved defaults')
             page.get_by_role('link', name='Install & update', exact=True).click()
-            page.locator('[data-installation="basis-ui-fixture"]').get_by_role('button', name='Check / install environments', exact=True).click()
-            expect(page.get_by_role('heading', name='Tool environments', exact=True)).to_be_visible()
+            page.locator('[data-installation="basis-ui-fixture"]').get_by_role('button', name='Check environments', exact=True).click()
+            expect(page.get_by_role('heading', name='Check environments', exact=True)).to_be_visible()
             expect(page.locator('.environment-row')).to_contain_text('VFDB and BacMet')
             expect(page.get_by_role('button', name='Check selected', exact=True)).to_be_enabled()
-            expect(page.get_by_role('button', name='Install selected', exact=True)).to_be_enabled()
+            expect(page.get_by_role('button', name='Install selected', exact=True)).to_have_count(0)
+            expect(page.get_by_label('Environment cache folder', exact=True)).not_to_be_visible()
             page.get_by_role('button', name='Close dialog', exact=True).click()
             current_card = page.locator('[data-installation="hybas-ui-fixture"]')
-            current_card.get_by_role('button', name='Reuse existing environments', exact=True).click()
-            expect(page.get_by_role('heading', name='Reuse existing environments', exact=True)).to_be_visible()
-            page.locator('#reuse-choice-hybas-ui-fixture').select_option(str(old_cache))
-            expect(page.locator('#reuse-cache-hybas-ui-fixture')).to_have_value(str(old_cache))
-            capture('reuse-existing-environments')
-            page.get_by_role('button', name='Use selected cache', exact=True).click()
-            expect(page.get_by_role('heading', name='Tool environments', exact=True)).to_be_visible()
+            expect(page.get_by_role('button', name='Reuse existing environments', exact=True)).to_have_count(0)
+            current_card.get_by_role('button', name='Install environments', exact=True).click()
+            expect(page.get_by_role('heading', name='Install environments', exact=True)).to_be_visible()
+            expect(page.get_by_role('button', name='Install selected', exact=True)).to_be_enabled()
+            expect(page.get_by_role('button', name='Check selected', exact=True)).to_have_count(0)
+            expect(page.get_by_label('Environment cache folder', exact=True)).not_to_be_visible()
+            capture('setup-install-environments')
+            page.get_by_role('button', name='Clear selection', exact=True).click()
+            expect(page.get_by_role('button', name='Install selected', exact=True)).to_be_disabled()
+            page.get_by_role('button', name='Select all', exact=True).click()
+            expect(page.get_by_role('button', name='Install selected', exact=True)).to_be_enabled()
+            page.locator('#environment-storage summary').click()
+            page.get_by_label('Environment cache folder', exact=True).fill(str(old_cache))
+            expect(page.get_by_role('button', name='Install selected', exact=True)).to_be_disabled()
+            expect(page.locator('#environment-cache-note')).to_contain_text('Save the folder change')
+            page.get_by_role('button', name='Save folder', exact=True).click()
+            expect(page.get_by_role('heading', name='Install environments', exact=True)).to_be_visible()
             expect(page.locator('#environment-cache-hybas-ui-fixture')).to_have_value(str(old_cache))
+            expect(page.get_by_role('button', name='Install selected', exact=True)).to_be_enabled()
+            expect(page.get_by_role('button', name='Save folder', exact=True)).to_be_disabled()
+            capture('advanced-environment-storage')
             assert Store(workspace).get('installs', hybas['id'])['rule_cache'] == str(old_cache)
             assert Store(workspace).get('runs', parent['id']) == parent
             page.get_by_role('button', name='Close dialog', exact=True).click()
@@ -619,33 +634,37 @@ def test_sample_picker_configuration_and_report(tmp_path):
         log.close()
 
 
+def render_component(page, store):
+    import bactologix
+    from bactologix.ui_backend import snapshot
+    ui = Path(bactologix.__file__).parent / 'ui'
+    page.set_content('<div id="component-host"></div>')
+    page.evaluate('''async ({html, css, js, workspace}) => {
+        const host = document.querySelector('#component-host');
+        const shadow = host.attachShadow({mode: 'open'});
+        shadow.innerHTML = '<style>' + css + '</style>' + html;
+        const url = URL.createObjectURL(new Blob([js], {type: 'text/javascript'}));
+        const component = (await import(url)).default;
+        URL.revokeObjectURL(url);
+        window.acceptanceEvents = [];
+        window.acceptanceRender = response => component({parentElement: shadow,
+            data: {workspace, response},
+            setTriggerValue: (trigger, value) => window.acceptanceEvents.push({trigger, value})});
+        window.acceptanceRender(null);
+    }''', {'html': (ui / 'shell.html').read_text(), 'css': (ui / 'styles.css').read_text(),
+           'js': (ui / 'workspace.js').read_text(), 'workspace': snapshot(store)})
+
+
 def test_background_poll_preserves_and_queues_a_foreground_action(tmp_path):
     """Exercise the real component with a controlled response boundary, without a worker."""
     from playwright.sync_api import sync_playwright, expect
-    import bactologix
-    from bactologix.ui_backend import snapshot
     store = Store(tmp_path / 'component-workspace')
     jid = store.submit('smoke', {})
     store.update_job(jid, status='running')
-    ui = Path(bactologix.__file__).parent / 'ui'
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={'width': 1440, 'height': 1100})
-        page.set_content('<div id="component-host"></div>')
-        page.evaluate('''async ({html, css, js, workspace}) => {
-            const host = document.querySelector('#component-host');
-            const shadow = host.attachShadow({mode: 'open'});
-            shadow.innerHTML = '<style>' + css + '</style>' + html;
-            const url = URL.createObjectURL(new Blob([js], {type: 'text/javascript'}));
-            const component = (await import(url)).default;
-            URL.revokeObjectURL(url);
-            window.acceptanceEvents = [];
-            window.acceptanceRender = response => component({parentElement: shadow,
-                data: {workspace, response},
-                setTriggerValue: (trigger, value) => window.acceptanceEvents.push({trigger, value})});
-            window.acceptanceRender(null);
-        }''', {'html': (ui / 'shell.html').read_text(), 'css': (ui / 'styles.css').read_text(),
-               'js': (ui / 'workspace.js').read_text(), 'workspace': snapshot(store)})
+        render_component(page, store)
         page.wait_for_function('window.acceptanceEvents.length === 1', timeout=10000)
         first = page.evaluate('window.acceptanceEvents[0].value')
         assert first['kind'] == 'refresh'
@@ -668,4 +687,37 @@ def test_background_poll_preserves_and_queues_a_foreground_action(tmp_path):
         expect(page.get_by_role('heading', name='Your input folders.', exact=True)).to_be_visible()
         assert page.evaluate('window.acceptanceEvents.length') == 2
         assert store.all('samples') == []  # UI boundary fixture; no backend mutation occurred.
+        browser.close()
+
+
+@pytest.mark.parametrize('action', ['install', 'check'])
+def test_setup_environment_actions_need_no_sample_or_run(installed, action):
+    """Click through the real component, stopping at the queued request boundary."""
+    from playwright.sync_api import sync_playwright, expect
+    store, item = installed
+    assert not store.all('samples') and not store.all('runs')
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+        render_component(page, store)
+        page.get_by_role('link', name='Install & update', exact=True).click()
+        card = page.locator('[data-installation="' + item['id'] + '"]')
+        expect(page.get_by_role('button', name='Reuse existing environments', exact=True)).to_have_count(0)
+        card.get_by_role('button', name=action.capitalize() + ' environments', exact=True).click()
+        expect(page.get_by_role('dialog')).to_contain_text('No sample or run draft is needed')
+        expect(page.get_by_label('Environment cache folder', exact=True)).not_to_be_visible()
+        assert page.evaluate('window.acceptanceEvents.length') == 0  # Opening only reviews.
+        page.get_by_role('button', name='Clear selection', exact=True).click()
+        confirm = page.get_by_role('button', name=action.capitalize() + ' selected', exact=True)
+        expect(confirm).to_be_disabled()
+        page.locator('[data-environment="qc"]').check()
+        expect(page.locator('#environment-selection-count')).to_have_text('1 of 2 selected')
+        expect(confirm).to_be_enabled()
+        confirm.click()
+        events = page.evaluate('window.acceptanceEvents')
+        assert len(events) == 1
+        request = events[0]['value']
+        assert request['kind'] == 'manage_environments'
+        assert request['payload'] == {'id': item['id'], 'action': action, 'selected': ['qc']}
+        assert not store.all('samples') and not store.all('runs') and not store.jobs()
         browser.close()

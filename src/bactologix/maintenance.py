@@ -44,7 +44,7 @@ def check_deployment_path(store, item):
     # path. Fail before it creates/deletes an environment, with a usable remedy.
     if re.search(r'''[\s"'`$\\;&|()<>{}]''', str(cache)):
         raise ValueError("Snakemake 9.6.2 needs an environment cache path without spaces or shell characters. "
-                         "Open Check / install environments, choose a different cache folder, and click Use this cache.")
+                         "Open Install environments, expand Advanced: environment storage, choose a different folder, and click Save folder.")
     return cache
 
 

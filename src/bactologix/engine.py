@@ -212,7 +212,7 @@ def prepare_controller(ctx, record, repair=False):
     record.update(controller=str(prefix), conda=conda, controller_digest=digest, controller_origin="managed", ready=True, checked=now())
     store.put("installs", record["id"], record)
     store.put("settings", "active-" + tool, record["id"])
-    ctx.write("Runner ready. Workflow tool environments will be prepared for the chosen run and reused from the stable cache.")
+    ctx.write("Runner ready. Matching tool environments are reused automatically. Use Install environments in Install & update to prepare missing tools.")
 
 
 def connect_existing(ctx):

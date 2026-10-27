@@ -1,3 +1,10 @@
+# Validation update: 0.1.0a22 (2026-10-27)
+
+- Setup cards expose separate installation and read-only checking actions. Chromium covers each confirmation from a workspace with no samples or runs, selection clearing, payload scope, collapsed storage controls, and blocking deployment until folder edits are saved.
+- Server tests verify that setup requests queue only selected software environments and do not create samples, run drafts or analysis jobs. Existing source/configuration, database, launcher and immutable-run checks remain required.
+- The real sample-free Conda fixture now inherits the old active version's cache using the same function as pipeline updates, without a manual cache-selection action, and checks that the existing prefix and Conda history remain unchanged after installation is requested for the new source version.
+- Publication remains gated by both Python matrices, real Chromium and real sample-free Conda deployment. Full biological analyses and target-workstation WSL behavior are outside these software checks.
+
 # Validation update: 0.1.0a21 (2026-10-27)
 
 - Local source and separately installed wheel suites each passed **298 tests**, with native/browser/deployment checks enabled separately. All 44 runtime package files match source; license and installed dependency checks pass.
