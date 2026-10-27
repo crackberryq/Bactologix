@@ -52,7 +52,8 @@ function modal(kind,id='',options={}){U.modal={kind,id,...options};renderModal()
 function closeModal(){if(U.modal?.kind==='edit-run'){const id=U.revision.id;U.revision=null;U.revisionConfig=null;openRun(id);return;}if(U.modal?.kind==='folders'&&U.browserReturn){U.modal=U.browserReturn;U.browserReturn=null;U.error='';renderModal();return;}U.modal=null;U.browserReturn=null;$('#modal-root').innerHTML='';$('.app-shell').removeAttribute('inert');render();}
 function setDraft(id,value){U.drafts[id]=value;const el=$('#'+id);if(el)el.value=value;}
 function browse(target,path='',nearest=false){U.browserReturn=U.modal?{...U.modal}:null;U.browser=null;U.drafts['folder-query']='';U.drafts['folder-hidden']=false;modal('folders',target);request('browse_folders',{path,nearest});}
-function draftInputs(){for(const el of $$('input[id],textarea[id],select[id]')){if(el.type==='file')continue;U.drafts[el.id]=el.type==='checkbox'?el.checked:el.value;}}
+function draftInputs(){for(const el of $$('input[id],textarea[id],select[id]')){if(el.type==='file')continue;U.drafts[el.id]=el.type==='checkbox'?el.checked:el.value;}if(U.modal?.kind==='new-run'&&U.runBudgetTool&&$('#run-cores')){U.runBudgets||={};U.runBudgets[U.runBudgetTool]={cores:val('run-cores'),memory_mb:val('run-memory')};}}
+function draftBudget(tool){U.runBudgets||={};U.budgetDefaults||={};const defaults=S.resource_defaults?.[tool]||{cores:4,memory_mb:16000},stamp=JSON.stringify(defaults);if(U.budgetDefaults[tool]!==stamp){delete U.runBudgets[tool];U.budgetDefaults[tool]=stamp;}return U.runBudgets[tool]||defaults;}
 function krakenLabel(r){return r.tool==='hybas'?({off:'Off',manual:'Manual',auto:'Auto',aware:'AWARE'}[r.kraken_mode]||r.kraken_mode||'Pipeline default'):'—';}
 function readMode(mode){return ({hybrid:'Hybrid',illumina_only:'Illumina only',ont_only:'ONT only'}[mode]||String(mode).replaceAll('_',' '));}
 function runTable(runs,checks=false,archived=false,context='runs'){
@@ -465,7 +466,7 @@ function filterVersions(){const q=val('version-search').toLowerCase(),c=val('ver
 async function change(event){const t=event.target;if(t.id&&t.type!=='file'){U.drafts[t.id]=t.type==='checkbox'?t.checked:t.value;}
 if(t.dataset.sample&&U.modal?.kind==='new-run')renderModal();
 if(t.dataset.runField){const c=runEditor(),f=c?.fields.find(f=>f.key===t.dataset.runField);if(f){editRunField(c,f,t.type==='checkbox'?t.checked:t.value);if(t.type==='checkbox'||t.tagName==='SELECT')renderEditor();}}
-if(t.id==='run-tool'){draftInputs();U.runBudgets||={};if(U.runBudgetTool)U.runBudgets[U.runBudgetTool]={cores:val('run-cores'),memory_mb:val('run-memory')};U.runBudgetTool=t.value;const budget=U.runBudgets[t.value]||S.resource_defaults?.[t.value]||{cores:4,memory_mb:16000};setDraft('run-cores',budget.cores);setDraft('run-memory',budget.memory_mb);const c=runEditor();if(c){if(c.raw){U.runSettingTab[c.tool]='advanced';U.runConfigTab='yaml';renderModal();}else if(U.runConfigTab==='yaml'&&Object.keys(c.changes).length)request('run_config_editor',{...runConfigPayload(),view:'yaml'});else renderModal();}else request('run_config_editor',{tool:t.value,view:U.runConfigTab||'samples'});}
+if(t.id==='run-tool'){draftInputs();U.runBudgetTool=t.value;const budget=draftBudget(t.value);setDraft('run-cores',budget.cores);setDraft('run-memory',budget.memory_mb);const c=runEditor();if(c){if(c.raw){U.runSettingTab[c.tool]='advanced';U.runConfigTab='yaml';renderModal();}else if(U.runConfigTab==='yaml'&&Object.keys(c.changes).length)request('run_config_editor',{...runConfigPayload(),view:'yaml'});else renderModal();}else request('run_config_editor',{tool:t.value,view:U.runConfigTab||'samples'});}
 if(t.dataset.applyRun||t.dataset.applyResource)renderModal();
 if(t.dataset.environment)syncEnvironmentControls();
 if(t.id==='run-filter-tool'||t.id==='run-filter-status')render();
@@ -517,7 +518,7 @@ else if(action==='import')modal('import');
 else if(action==='conda')modal('conda');
 else if(action==='new-run'||action==='sample-draft'){
  if(action==='sample-draft'){for(const sample of S.samples)setDraft('run-sample-'+sample.id,sample.id===id);}
- U.runConfigs={};U.runConfigGroup={};U.runSettingTab={};U.runConfigTab='samples';setDraft('run-setting-search','');delete U.drafts['run-cores'];delete U.drafts['run-memory'];U.runBudgets={};U.runBudgetTool=val('run-tool','hybas');
+ U.runConfigs={};U.runConfigGroup={};U.runSettingTab={};U.runConfigTab='samples';setDraft('run-setting-search','');U.runBudgetTool=val('run-tool','hybas');const budget=draftBudget(U.runBudgetTool);setDraft('run-cores',budget.cores);setDraft('run-memory',budget.memory_mb);
  modal('new-run');request('run_config_editor',{tool:val('run-tool','hybas'),view:'samples'});
 }
 else if(action==='run-config-tab'){
