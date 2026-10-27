@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a18 — one-command launch with browser opening
+
+- The installed `bactologix` command now opens the browser after its own Streamlit server binds and passes a local health check. Keep the existing `python -m bactologix.cli` entry point.
+- Detect the current WSL private address, prefer the default network interface, and open the Windows default browser through WSL interoperability. Mirrored networking and ordinary desktops use loopback. Browser failure leaves the server running with a printable URL.
+- Choose an available default port from 8501–8520; preserve explicit host/port overrides and add `--no-browser`. Keep source watching disabled, use the activated environment’s Python, and preserve foreground logs.
+- Forward shutdown to the web server without cancelling detached workflow workers. Add real console-command startup, readiness/browser-handoff, proxy bypass, opt-out and Ctrl+C/termination tests, alongside WSL routing and browser-command regression tests.
+
 ## 0.1.0a17 — automatic release-specific runners
 
 - Read the required Python and exact Snakemake versions from each reviewed pipeline release's environment file instead of enforcing one global runner version.

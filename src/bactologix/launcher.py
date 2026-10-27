@@ -1,0 +1,226 @@
+"""Start the local UI and open its ready address on Linux, macOS or WSL."""
+from __future__ import annotations
+
+import ipaddress
+import json
+import os
+from pathlib import Path
+import platform
+import re
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import time
+from urllib.request import ProxyHandler, build_opener
+
+
+def is_wsl():
+    return bool(os.environ.get('WSL_DISTRO_NAME') or 'microsoft' in platform.release().lower())
+
+
+def output(argv):
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=3, check=True).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ''
+
+
+def private_ipv4(values):
+    for value in values:
+        try:
+            ip = ipaddress.ip_address(value)
+        except ValueError:
+            continue
+        if ip.version == 4 and ip.is_private and not (ip.is_loopback or ip.is_link_local or ip.is_unspecified):
+            return str(ip)
+    return None
+
+
+def default_host():
+    if not is_wsl():
+        return '127.0.0.1'
+    info = shutil.which('wslinfo')
+    if not info and Path('/usr/lib/wsl/wslinfo').is_file():
+        info = '/usr/lib/wsl/wslinfo'
+    if info and output([info, '--networking-mode']).lower() in {'mirrored', 'none'}:
+        return '127.0.0.1'
+    # Prefer the default-route interface over Docker/VPN interfaces in hostname -I.
+    try:
+        routes = json.loads(output(['ip', '-j', '-4', 'route', 'show', 'default']) or '[]')
+        for route in sorted(routes, key=lambda r: r.get('metric', 0)):
+            dev = route.get('dev')
+            if not isinstance(dev, str) or not re.fullmatch(r'[A-Za-z0-9_.:@-]+', dev):
+                continue
+            addresses = json.loads(output(['ip', '-j', '-4', 'address', 'show', 'dev', dev]) or '[]')
+            found = private_ipv4(a.get('local', '') for interface in addresses
+                                 for a in interface.get('addr_info', []) if a.get('scope') == 'global')
+            if found:
+                return found
+    except (ValueError, TypeError, AttributeError):
+        pass
+    return private_ipv4(output(['hostname', '-I']).split()) or '127.0.0.1'
+
+
+def checked_host(host):
+    if not re.fullmatch(r'[A-Za-z0-9.:\[\]-]+', host):
+        raise ValueError('Use an IP address or hostname for --host, without a URL, port or shell characters.')
+    host = host.removeprefix('[').removesuffix(']')
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        if (len(host) <= 253 and all(re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?', label)
+                                    for label in host.rstrip('.').split('.'))):
+            return host
+    raise ValueError('Use an IP address or hostname for --host, without a URL, port or shell characters.')
+
+
+def browser_url(host, port):
+    host = checked_host(host)
+    host = {'0.0.0.0': '127.0.0.1', '::': '::1'}.get(host, host)
+    if ':' in host:
+        host = '[' + host + ']'
+    return f'http://{host}:{port}'
+
+
+def free_port(host, requested=None):
+    if requested is not None and not 1 <= requested <= 65535:
+        raise ValueError('--port must be between 1 and 65535.')
+    for port in ([requested] if requested is not None else range(8501, 8521)):
+        try:
+            addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            for family, socktype, protocol, _, address in addresses:
+                try:
+                    with socket.socket(family, socktype, protocol) as probe:
+                        probe.bind(address)
+                    return port
+                except OSError:
+                    continue
+        except OSError:
+            break
+    if requested is not None:
+        raise ValueError(f'Cannot listen on {host}:{requested}. Stop the app using it or omit --port to choose an available port.')
+    raise ValueError(f'No available port on {host} between 8501 and 8520. Check the address or choose --host / --port explicitly.')
+
+
+def server_command(host, port):
+    argv = [sys.executable, '-m', 'streamlit', 'run', str(Path(__file__).with_name('app.py')),
+            '--server.address', host, '--server.port', str(port), '--server.headless', 'true',
+            '--server.fileWatcherType', 'none', '--browser.gatherUsageStats', 'false',
+            '--server.baseUrlPath', '', '--logger.hideWelcomeMessage', 'false']
+    if host not in {'0.0.0.0', '::'}:
+        argv += ['--browser.serverAddress', host]
+    return argv
+
+
+def healthy(url):
+    # Local health checks must not be redirected through HTTP(S)_PROXY.
+    try:
+        with build_opener(ProxyHandler({})).open(url + '/_stcore/health', timeout=.5) as response:
+            return response.status == 200 and response.read(32).strip() == b'ok'
+    except OSError:
+        return False
+
+
+def open_browser(url):
+    """Use Windows' default browser in WSL; do not install a browser or change defaults."""
+    if is_wsl():
+        powershell = shutil.which('powershell.exe')
+        fallback = '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
+        if not powershell and Path(fallback).is_file():
+            powershell = fallback
+        commands = []
+        if powershell:
+            commands.append([powershell, '-NoProfile', '-NonInteractive', '-Command',
+                             "Start-Process -FilePath '" + url.replace("'", "''") + "'"])
+        if cmd := shutil.which('cmd.exe'):
+            # URL is generated only from a validated host and an integer port.
+            commands.append([cmd, '/d', '/c', 'start', '""', url])
+        if viewer := shutil.which('wslview'):
+            commands.append([viewer, url])
+    else:
+        if platform.system() == 'Linux' and not any(os.environ.get(k) for k in ('DISPLAY', 'WAYLAND_DISPLAY', 'BROWSER')):
+            return False
+        commands = [[sys.executable, '-c',
+                     'import sys, webbrowser; sys.exit(0 if webbrowser.open(sys.argv[1], new=2) else 1)', url]]
+    for argv in commands:
+        try:
+            result = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, timeout=10)
+            if result.returncode == 0:
+                return True
+        except (OSError, subprocess.SubprocessError):
+            continue
+    return False
+
+
+def stop_server(proc, sig=signal.SIGTERM):
+    if proc.poll() is None:
+        try:
+            proc.send_signal(sig)
+        except ProcessLookupError:
+            return
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
+
+def serve(home, host=None, port=None, browser=True):
+    host = checked_host(host or default_host())
+    port = free_port(host, port)
+    url = browser_url(host, port)
+    env = dict(os.environ, BACTOLOGIX_HOME=str(home), PYTHONUNBUFFERED='1')
+    print(f'Starting Bactologix at {url}\nKeep this terminal open. Press Ctrl+C to stop the app.', flush=True)
+    proc = subprocess.Popen(server_command(host, port), env=env, start_new_session=os.name != 'nt',
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    listening = threading.Event()
+    def relay_output():
+        for line in proc.stdout:
+            # The pinned Streamlit release prints this only after its server binds.
+            if 'You can now view your Streamlit app in your browser.' in line:
+                listening.set()
+            try:
+                print(line, end='', flush=True)
+            except (BrokenPipeError, OSError):
+                pass
+    reader = threading.Thread(target=relay_output, daemon=True)
+    reader.start()
+    previous_term = signal.getsignal(signal.SIGTERM)
+    def terminated(signum, frame):
+        # Unwind Popen.wait before waiting again: its waitpid lock is not reentrant.
+        try:
+            proc.send_signal(signum)
+        except ProcessLookupError:
+            pass
+        raise SystemExit(128 + signum)
+    signal.signal(signal.SIGTERM, terminated)
+    try:
+        deadline = time.monotonic() + 60
+        while proc.poll() is None:
+            if listening.is_set() and healthy(url):
+                if proc.poll() is not None:
+                    break
+                print(f'Bactologix is ready: {url}', flush=True)
+                if browser and not open_browser(url):
+                    print(f'Could not open a browser automatically. Open {url} in your browser.', flush=True)
+                return proc.wait()
+            if time.monotonic() >= deadline:
+                print(f'App startup timed out. Check the server output; its address is {url}.', flush=True)
+                return proc.wait()
+            time.sleep(.2)
+        code = proc.wait()
+        print(f'Bactologix stopped before becoming ready (exit {code}). See the server output above.', file=sys.stderr)
+        return code or 1
+    except KeyboardInterrupt:
+        stop_server(proc, signal.SIGINT)
+        return 0
+    finally:
+        signal.signal(signal.SIGTERM, previous_term)
+        stop_server(proc)
+        reader.join(timeout=1)
+        if not reader.is_alive():
+            proc.stdout.close()

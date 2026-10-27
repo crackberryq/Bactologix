@@ -1,3 +1,10 @@
+# Validation update: 0.1.0a18 (2026-10-27)
+
+- Local application suite: **254 passed**, with 25 native/browser/deployment checks enabled separately. Launcher coverage includes WSL NAT interface selection, mirrored loopback, missing network tools, explicit and automatic ports, IPv6/wildcard URLs, invalid hosts, Windows browser commands, headless operation and startup failure.
+- Real installed `bactologix` console-command checks start Streamlit, wait for its listening message and health endpoint, invoke a controlled browser helper only after readiness, and verify that Ctrl+C/SIGTERM stop the web server. The ordinary command is exercised with no flags; the explicit host/port and `--no-browser` path is also checked. Deliberately invalid proxy settings confirm that local health checks bypass proxies.
+- Chromium acceptance launches the installed console command and exercises the existing application flow. Windows browser invocation and WSL network detection use software fixtures; opening the Windows browser on a physical WSL workstation still requires user confirmation. No browser is installed and no Windows network settings are changed.
+- Publication requires both Python matrices, Chromium and sample-free environment deployment. This update changes the application launcher only; pipeline execution, databases and scientific settings are unchanged.
+
 # Validation update: 0.1.0a17 (2026-10-27)
 
 - Runner requirements now come from each reviewed source's pinned environment definition. Unit/integration fixtures cover distinct release versions, mismatches, malformed pins, automatic local Conda bootstrap, compatible reuse, failed activation and cancellation.
