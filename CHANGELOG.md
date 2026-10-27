@@ -1,5 +1,13 @@
 # Bactologix releases
 
+## 0.1.0a24 — workstation presets and environment repair
+
+- Add **Install & update → PC capacity** with automatic Linux/WSL CPU, RAM, swap, workspace disk, NVIDIA GPU/VRAM, driver CUDA capability and CUDA toolkit detection. Honor CPU affinity and cgroup v1/v2 limits; report unavailable probes without inventing capacity.
+- Add **High power**, **Medium** and **Low** presets for either pipeline or both. Save CPU and RAM defaults alongside the YAML resource settings used by future run drafts. High uses available CPU threads within app limits and reserves at least 1 GB or 5% of RAM for the system. GPU detection is informational; presets do not enable GPU tools.
+- Add **Repair environments** directly to pipeline setup. Reuse healthy environments, install missing ones, retain incomplete copies before rebuilding, and restore them on a failed/cancelled rebuild. Unsupported failures remain visible without deleting complete environments.
+- Check actual NanoPlot scatter/density HTML and PNG rendering. Explicit repair recognizes NanoPlot 1.46.2 with MultiQC 1.32 and applies the locally tested Plotly 6.1.2 / Kaleido 0.2.1 workaround, recording package versions before and after. This is a compatibility workaround for the shared QC recipe, not a replacement for upstream environment separation.
+- Preserve frozen run configurations and scientific settings. Repaired shared environments affect subsequent executions using that cache; the package repair receipt is retained in the maintenance job folder.
+
 ## 0.1.0a23 — consistent pipeline display names
 
 - Display **HybAs AWARE** consistently on pipeline cards, configuration/database tabs, run lists, selectors, help text and credits. Align the workspace header and footer with **HybAs AWARE + BaSIS AWARE**.

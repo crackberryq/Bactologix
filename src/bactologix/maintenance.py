@@ -19,6 +19,7 @@ from .engine import Cancelled, find_conda
 from .local import git_read, local_path
 from .runs import parse_config, template, tree_digest
 from .store import identifier, now
+from . import environment_health
 
 RECIPES = {
     "hybas": {"assembly": "Assembly and read preparation", "qc": "QC, Kraken2 and BUSCO",
@@ -120,11 +121,11 @@ def environment_panel(store, item, jobs):
 def environment_request(store, key, selected, action):
     item = installation(store, key)
     available = {r["id"]: r for r in recipes(item)}
-    if action not in {"check", "install"} or not isinstance(selected, list) or not selected:
-        raise ValueError("Select at least one environment and choose Check or Install.")
+    if action not in {"check", "install", "repair"} or not isinstance(selected, list) or not selected:
+        raise ValueError("Select at least one environment and choose Check, Install or Repair.")
     if any(not isinstance(name, str) or name not in available for name in selected):
         raise ValueError("Unknown environment selection.")
-    if action == "install":
+    if action in {"install", "repair"}:
         check_deployment_path(store, item)
     return {"installation": key, "tool": item["tool"], "action": action,
             "definitions": {name: available[name]["definition"] for name in dict.fromkeys(selected)},
@@ -159,7 +160,10 @@ def parse_environment_list(text, folder, rows, cache):
         path = (folder / recipe).resolve()
         if path not in expected or container:
             continue
-        prefix = (folder / location).resolve()
+        candidate = folder / location
+        if candidate.is_symlink():
+            raise ValueError("Snakemake returned a symbolic link instead of an environment directory.")
+        prefix = candidate.resolve()
         if prefix.parent != cache.resolve() or not re.fullmatch(r"[a-f0-9]{8}(?:[a-f0-9]{24})?_?", prefix.name):
             raise ValueError("Snakemake returned an unexpected environment cache location.")
         result[expected[path]] = prefix
@@ -201,15 +205,30 @@ def execute_environments(ctx):
         result.update(status="Checking", message="")
         saved[row["id"]] = result
         store.put("environment_checks", item["id"], saved)
-        if not (prefix / "conda-meta/history").is_file():
+        if payload['action'] == 'repair':
+            try:
+                def deploy():
+                    # Deploy exactly one selected recipe. Other caches remain untouched.
+                    target = folder / row['id']
+                    target.mkdir(exist_ok=True)
+                    recipe = environment_snakefile(target, [row])
+                    ctx.command([*snake_command(store, item, target, recipe), '--conda-create-envs-only'], cwd=target)
+                message = environment_health.repair(ctx, row, prefix, folder, deploy)
+                result.update(status='Verified', message=message)
+            except Cancelled:
+                raise
+            except Exception as exc:
+                result.update(status='Repair failed', message=str(exc))
+                failures.append(row['id'])
+        elif not (prefix / "conda-meta/history").is_file():
             result.update(status="Missing", message="Install this environment to prepare its tools.")
         elif not prefix.with_suffix(".env_setup_done").is_file():
             result.update(status="Incomplete", message="Snakemake has not marked deployment complete. Install to retry.")
         else:
             try:
-                probe = ["bash", row["hook"]] if row["hook"] else ["python", "-c", "import sys; print(sys.version)"]
-                ctx.command([find_conda(store), "run", "--no-capture-output", "-p", str(prefix), *probe], cwd=folder)
-                result.update(status="Verified", message="Native executable and version checks passed.")
+                environment_health.probe(ctx, row, prefix, folder)
+                result.update(status="Verified", message="Native executable checks passed." +
+                              (" NanoPlot HTML and PNG rendering passed." if environment_health.plotting_recipe(row) else ""))
             except Cancelled:
                 raise
             except Exception as exc:
