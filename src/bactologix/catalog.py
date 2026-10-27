@@ -10,7 +10,7 @@ from . import __version__
 
 DATA = Path(__file__).parent / "data"
 PIPELINES = {
-    "hybas": {"name": "HybAs", "repo": "crackberryq/Bactomics_HybAs", "preferred": "HybAs_v9.0.0-AWARE",
+    "hybas": {"name": "HybAs AWARE", "repo": "crackberryq/Bactomics_HybAs", "preferred": "HybAs_v9.0.0-AWARE",
               "commit": "780ee7086c15c49f2825800ec463327f009f14a6", "previous_commits": ["9477fd3b6578e23a84d6524e1c89e65e01590f03"],
               "snakefile": "Hybas.smk", "environment": "environment.yaml"},
     "basis": {"name": "BaSIS AWARE", "repo": "crackberryq/Bactomics_BaSIS", "preferred": "basis-aware",

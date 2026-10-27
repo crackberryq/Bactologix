@@ -38,7 +38,7 @@ CATALOG = {
     "hybas": [
         dict(id="kraken", name="Kraken2", description="Choose the folder containing the three Kraken2 index files.", hint="hash.k2d", fields=[]),
         dict(id="busco", name="BUSCO lineage", description="Choose a complete lineage dataset. A matching configured lineage is preferred.", hint="dataset.cfg", fields=[]),
-        dict(id="prokka", name="Prokka databases", managed=True, description="Bundled with the annotation tool environment; this HybAs version does not accept a separate database path."),
+        dict(id="prokka", name="Prokka databases", managed=True, description="Bundled with the annotation tool environment; this HybAs AWARE version does not accept a separate database path."),
     ],
     "basis": [
         _module("amrfinder", "AMRFinderPlus", "Choose a versioned database folder, or its parent containing latest.", "AMRProt.fa"),

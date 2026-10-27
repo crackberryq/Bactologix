@@ -1,8 +1,8 @@
-# Bactologix 0.1.0a22 — alpha
+# Bactologix 0.1.0a23 — alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
-Bactologix is a Python/Streamlit application for local HybAs and standalone BaSIS setup, version selection, configuration, sample registration, isolated run drafts, durable jobs, and HTML reports. This version executes real operations. Published wheels and source archives are listed in [GitHub Releases](https://github.com/crackberryq/Bactologix/releases). Bactologix is not published to PyPI.
+Bactologix is a Python/Streamlit application for local HybAs AWARE and standalone BaSIS AWARE setup, version selection, configuration, sample registration, isolated run drafts, durable jobs, and HTML reports. This version executes real operations. Published wheels and source archives are listed in [GitHub Releases](https://github.com/crackberryq/Bactologix/releases). Bactologix is not published to PyPI.
 
 **Alpha release:** the approved HTML interface now runs inside Streamlit with working Python controls. Software checks, real Chromium-to-Streamlit checks and native workflow dry-runs passed; full biological analyses and target-workstation browser testing remain outstanding. Read [VALIDATION.md](VALIDATION.md) and the alpha boundaries below before running samples.
 
@@ -13,7 +13,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a22-py3-none-any.whl
+pipx install ./bactologix-0.1.0a23-py3-none-any.whl
 bactologix
 ```
 
@@ -22,7 +22,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a22/bactologix-0.1.0a22-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a23/bactologix-0.1.0a23-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -31,7 +31,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a22/bactologix-0.1.0a22-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a23/bactologix-0.1.0a23-py3-none-any.whl"
 bactologix
 ```
 
@@ -39,7 +39,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a22-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a23-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 

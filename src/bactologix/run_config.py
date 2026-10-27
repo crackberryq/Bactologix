@@ -34,11 +34,11 @@ LABELS = {
 HELP = {
     'run_kraken': 'Switching off also sets the decision mode to Off. Switching on from Off selects AWARE.',
     'kraken_decision_mode': 'Off skips Kraken. Manual, Auto and AWARE enable it. The pipeline keeps its existing decision rules.',
-    'polish_mode': 'Available modes come from HybAs. The native dry-run checks compatibility with the selected read modes.',
+    'polish_mode': 'Available modes come from HybAs AWARE. The native dry-run checks compatibility with the selected read modes.',
     'db_root': 'Your saved database layout is inherited. Use an absolute path when choosing another root.',
     'resources.policy': 'Auto permits native resource preparation; Manual uses resources you have already supplied.',
     'deep.enabled': 'Saved defaults are inherited. Change this only for the new drafts you are creating.',
-    'kraken_mem_mb': 'Leave blank to let HybAs calculate memory from its database. Enter a positive MB value to override.',
+    'kraken_mem_mb': 'Leave blank to let HybAs AWARE calculate memory from its database. Enter a positive MB value to override.',
     'storage.native_results_directory': 'Optional absolute folder for retained native results. Leave blank to use the pipeline location.',
 }
 OPTIONAL = {'hybas': {'kraken_mem_mb'}, 'basis': {'storage.native_results_directory'}}
