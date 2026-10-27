@@ -34,7 +34,7 @@ def destination(path, label):
             raise ValueError('The destination filesystem is read-only.')
         result.update(checked_parent=str(folder), free_mb=shutil.disk_usage(folder).free // MIB)
         result['text'] = 'Directory permissions allow writing; actual writes are checked by the workflow.'
-    except (OSError, ValueError, RuntimeError) as exc:
+    except (OSError, ValueError, TypeError, RuntimeError) as exc:
         result.update(level='error', text=str(exc))
     return result
 
@@ -103,6 +103,7 @@ def panel(store, run):
     checked_at = now()
     locations = destinations(run)
     invalid = [x for x in locations if x['level'] == 'error']
+    measured = [x for x in locations if x['free_mb'] is not None]
     full = [x for x in locations if x['free_mb'] == 0]
     low = [x for x in locations if x['free_mb'] is not None and x['free_mb'] < 5120]
     info = hardware.inventory(store)
@@ -113,10 +114,10 @@ def panel(store, run):
                 ' '.join(x['label'] + ': ' + x['text'] for x in invalid) if invalid else
                 'The results and working folders, or their nearest existing parents, pass read-only permission checks. No probe files were created.',
                 'error' if invalid else 'info', action='paths'),
-            row('storage', 'Disk space', 'Less than 1 MB free' if full else 'Low free space' if low else 'Free space checked',
-                ' '.join(f"{x['label']}: {x['free_mb'] / 1024:.1f} GB free." for x in locations if x['free_mb'] is not None) +
+            row('storage', 'Disk space', 'Less than 1 MB free' if full else 'Low free space' if low else 'Partly checked' if invalid and measured else 'Free space checked' if measured else 'Unavailable',
+                (' '.join(f"{x['label']}: {x['free_mb'] / 1024:.1f} GB free." for x in measured) if measured else 'Disk space could not be checked for these destinations.') +
                 ' Output, temporary-file and database growth cannot be predicted here. Below 5 GB is a warning, not an analysis size estimate.',
-                'error' if full else 'warning' if low else 'info', action='paths'),
+                'error' if full else 'warning' if low else 'info' if measured else 'pending', action='paths'),
             row('resources', 'CPU and RAM budget', 'Review budget' if warnings else 'Within detected capacity',
                 ' '.join(warnings) if warnings else f"{run['cores']} CPU threads / {run['memory_mb']:,} MB. Tool requirements and concurrent memory use still apply.",
                 'warning' if warnings else 'info', action='budget', inventory_checked_at=info['checked_at'])]
