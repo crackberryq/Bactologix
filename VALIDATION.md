@@ -1,3 +1,10 @@
+# Validation update: 0.1.0a27 (2026-10-27)
+
+- Software tests cover changing checkpoint totals, parallel steps, clipped/truncated logs, process identity reuse, child-counter double counting, unavailable readings, bounded history compaction, per-attempt provenance, stale/interrupted records and validated JSON/CSV/ZIP exports.
+- Real software subprocess tests exercise stdout redirection, nonzero exit codes, cancellation and observer failures. Worker tests verify terminal statuses and recovery. A sample-free Snakemake checkpoint fixture checks actual progress messages; no biological analysis is used to test observation.
+- Chromium acceptance covers task counts, live/paused/partial states, checkpoint replanning, chart rendering, real ZIP/CSV downloads and narrow layouts. The full existing Python 3.11/3.12, pinned-adapter, browser and sample-free Conda suites remain publication gates.
+- Process sampling is best-effort, not exact scheduler accounting or unique physical RAM. Target-workstation WSL/GPU and complete analysis acceptance remain outside these software checks; the release remains alpha.
+
 # Validation update: 0.1.0a26 (2026-10-27)
 
 - Host-check regressions cover nonexistent output parents, broken links, file/directory conflicts, denied permissions, read-only filesystems, exhausted/low disk space, resource oversubscription, disabled tool limits, additional native output destinations and read-only environment-cache reuse. Assertions verify that checks preserve frozen configuration and do not create probe directories.

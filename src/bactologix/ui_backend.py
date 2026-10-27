@@ -18,7 +18,7 @@ from .runs import (absolute_path, clone_runs, command, create_run, import_sample
                    parse_config, register_sample, remove_sample, archive_runs, reports, template, validate_launch,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
-from . import databases, updates, hardware, methods
+from . import databases, updates, hardware, methods, telemetry
 from . import followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
 _SNAPSHOTS = {}
@@ -73,7 +73,9 @@ def configuration_fields(tool, text):
 
 
 def snapshot(store):
-    jobs = [{**j, "guidance": readiness.job_guidance(store, j)} for j in store.jobs()]
+    records = {r['id']: r for r in store.all('job_telemetry') if isinstance(r, dict) and 'id' in r}
+    jobs = [{**j, "guidance": readiness.job_guidance(store, j),
+             "telemetry": telemetry.view(records.get(j['id']), j)} for j in store.jobs()]
     app_update = updates.status(store)
     # pip briefly replaces package data. Keep the already-rendered workspace
     # available until restart instead of reading those files during replacement.
@@ -155,7 +157,7 @@ def dispatch(store, kind, p):
     """Only named UI commands are allowed. Browser-supplied objects are not trusted."""
     if not isinstance(p, dict):
         raise ValueError("Invalid action payload")
-    if kind not in {"refresh", "job_log", "download_log", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "refresh_app_releases", "cancel_job"}:
+    if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "refresh_app_releases", "cancel_job"}:
         updates.assert_current(store)
         if updates.status(store)["active_job"]:
             raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
@@ -443,6 +445,10 @@ def dispatch(store, kind, p):
             raise ValueError("This job is no longer active")
         store.cancel(p["id"])
         return {"message": "Stop requested. The job log will be retained."}
+    if kind == "job_metrics":
+        return {"usage": telemetry.inspect(store, p.get("id")), "keep_modal": True}
+    if kind == "download_metrics":
+        return {"download": telemetry.download(store, p.get("id"), p.get("format", "zip")), "keep_modal": True}
     if kind in {"job_log", "download_log"}:
         job = store.job(p["id"])
         if not job:

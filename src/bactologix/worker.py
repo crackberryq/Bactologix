@@ -47,6 +47,7 @@ def work(store):
                 ctx.write(traceback.format_exc())
                 store.update_job(job["id"], status="failed", finished=now(), error=str(exc))
             finally:
+                ctx.observe("finish", store.job(job["id"])["status"])
                 ctx.log.close()
             if job["kind"] == "app_update":
                 # Never claim more work with modules loaded before pip replaced them.

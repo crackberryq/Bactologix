@@ -70,6 +70,33 @@ class Context:
         self.store, self.job, self.lock_fd = store, job, lock_fd
         self.lock_fds = tuple(fd for fd in (lock_fd, environment_fd) if fd is not None)
         self.log = store.log_path(job["id"]).open("a", buffering=1)
+        self.observer = None
+        self.observer_warned = False
+        try:
+            from .telemetry import Recorder
+            self.observer = Recorder(store, job)
+        except Exception:
+            self.observation_warning()
+
+    def observation_warning(self):
+        if not self.observer_warned:
+            self.observer_warned = True
+            try:
+                self.write("Resource observation is unavailable or incomplete; job execution continues.")
+            except Exception:
+                pass
+
+    def observe(self, method, *args):
+        # Observation must never change a command's result or prevent cancellation.
+        if self.observer is not None:
+            try:
+                getattr(self.observer, method)(*args)
+            except Exception:
+                try:
+                    self.observer.record['observer_errors'] = True
+                except Exception:
+                    pass
+                self.observation_warning()
 
     def write(self, message):
         self.log.write(str(message) + "\n")
@@ -92,6 +119,7 @@ class Context:
                                 pass_fds=self.lock_fds)
         self.store.put("processes", self.job["id"], {"pid": proc.pid, "started": now()})
         try:
+            self.observe("begin_command", proc, argv[0])
             while proc.poll() is None:
                 if self.store.job(self.job["id"])["cancel"]:
                     if started_stop is None:
@@ -107,12 +135,14 @@ class Context:
                             os.killpg(proc.pid, signal.SIGKILL if elapsed > 60 else signal.SIGTERM)
                         except ProcessLookupError:
                             pass
+                self.observe("tick")
                 time.sleep(0.25)
             if started_stop is not None:
                 raise Cancelled("Stopped by user; inspect the log before resuming")
             if proc.returncode:
                 raise RuntimeError(f"Command exited with code {proc.returncode}; see the job log")
         finally:
+            self.observe("end_command")
             self.store.put("processes", self.job["id"], {"pid": None, "finished": now()})
 
 
