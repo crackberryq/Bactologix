@@ -374,7 +374,7 @@ if(m.kind==='versions'){wide=true;const t=m.id,c=S.catalogs[t];title='Choose '+S
 if(m.kind==='run'){
  wide=true;const r=runBy(m.id),d=U.detail?.id===m.id?U.detail:null;title=r?.label||'Run details';desc=m.id;
  body=d?renderSavedRun(r,d):'<p>Loading saved run settings…</p>';
- if(r&&d&&r.run_type!=='followup')foot=btn('use-run-databases','Use saved databases',false,r.id,'resources',r.busy||r.archived)+btn('edit-run-settings','Edit settings',true,r.id,'config',r.busy||r.archived);
+ if(r&&d&&r.run_type!=='followup')foot=btn('use-run-databases','Use saved databases',false,r.id,'resources',r.busy||r.archived)+btn('edit-run-settings','Edit settings',false,r.id,'config',r.busy||r.archived);
 }
 if(m.kind==='edit-run'){
  wide=true;title='Edit run settings';desc='Create a revised draft from the saved configuration.';body=renderRunRevision();

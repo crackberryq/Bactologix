@@ -464,6 +464,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             page.set_viewport_size({'width': 390, 'height': 844})
             assert page.get_by_role('dialog').evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
             expect(page.get_by_role('button', name='Run / resume', exact=True)).to_be_in_viewport()
+            assert page.locator('#toast').evaluate('(el) => {const r=el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth;}')
             capture('saved-run-checks-mobile')
             page.set_viewport_size({'width': 1440, 'height': 1100})
             page.get_by_role('button', name='Close dialog', exact=True).click()

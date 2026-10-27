@@ -43,3 +43,5 @@
 @media(max-width:650px){.run-draft-modal .modal-foot>small,.saved-run-modal .modal-foot>small{display:block;flex:1 0 100%;font-size:11px}}
 
 #toast{width:max-content;max-width:min(560px,calc(100vw - 40px))}.readiness-policy{font-size:12px;margin-bottom:16px}@media(max-width:650px){#toast{max-width:calc(100vw - 80px)}}
+
+#toast{transition:opacity .2s,transform .2s;overflow-wrap:anywhere}
