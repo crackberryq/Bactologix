@@ -1,3 +1,11 @@
+## 0.1.0a25 — run-specific publication Methods
+
+- Add a Methods tab to every saved HybAs AWARE and BaSIS run, with a Results shortcut, reviewable prose and text, Markdown, printable HTML and reproducibility ZIP downloads.
+- Generate descriptions from frozen settings and exact reviewed source defaults. Distinguish requested scope from recorded execution, account for read-mode-specific polishing and per-sample module exclusions, and retain unsupported versions as configuration-only exports.
+- Capture bounded execution metadata at workflow completion. Preserve historical follow-up records independently of shared outputs; identify legacy metadata read at export and leave missing tool/database versions explicit.
+- Include the exact YAML, settings origins, source/configuration hashes and available citation files. Record the app version for new drafts and update the bundled Bactologix citations. Export failures cannot fail an otherwise successful workflow.
+- No scientific algorithms, run configurations, environment policies or database preparation behavior changed.
+
 # Bactologix releases
 
 ## 0.1.0a24 — workstation presets and environment repair

@@ -209,6 +209,20 @@ def test_sample_picker_configuration_and_report(tmp_path):
             assert cfg['custom_note'] == 'preserve parent' and cfg['run_busco'] is True
             assert not child['dry_run_ok']
             assert Store(workspace).get('runs', parent['id'])['config'] == parent['config']
+            page.get_by_role('button', name='Methods', exact=True).click()
+            expect(page.locator('.methods-prose')).to_contain_text('Illumina-only input')
+            expect(page.locator('.methods-status')).to_contain_text('Planned methods')
+            capture('run-methods')
+            with page.expect_download() as methods_download:
+                page.get_by_role('button', name='Reproducibility ZIP', exact=True).click()
+            import zipfile
+            with zipfile.ZipFile(methods_download.value.path()) as methods_zip:
+                assert methods_zip.read('config.yaml').decode() == child['config']
+                assert b'Planned methods' in methods_zip.read('methods.txt')
+            page.set_viewport_size({'width': 390, 'height': 844})
+            assert page.locator('.methods-export').evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
+            capture('run-methods-mobile')
+            page.set_viewport_size({'width': 1440, 'height': 1100})
             page.get_by_role('button', name='Use saved databases', exact=True).click()
             expect(page.locator('[data-apply-resource="busco"]')).to_be_disabled()
             expect(page.locator('.database-apply-run')).to_contain_text('Already using this saved location')

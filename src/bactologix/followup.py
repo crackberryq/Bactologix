@@ -13,6 +13,7 @@ from .catalog import PIPELINES
 from .runs import (absolute_path, bind_paths, check_run_files, current_controller,
                    dry_run_current, parse_config, run_status, tree_digest)
 from .store import identifier, now
+from . import __version__
 
 
 def available(run):
@@ -79,6 +80,7 @@ def create_followup(store, parent_id, text, reviewed=False):
         (folder / "config.yaml").write_text(config)
         (folder / "submitted.yaml").write_text(text)
         run = {**copy.deepcopy(parent), "id": rid, "run_type": "followup", "folder": str(folder),
+               "bactologix_version": __version__,
                "parent": parent_id, "label": parent["sample"]["id"] + " · reviewed follow-up",
                "created": now(), "controller": current_controller(store, parent), "config": config,
                "submitted": text, "config_sha256": hashlib.sha256(config.encode()).hexdigest(),

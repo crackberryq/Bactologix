@@ -13,6 +13,7 @@ import subprocess
 import yaml
 from .catalog import DATA, PIPELINES, supported
 from .store import identifier, now
+from . import __version__
 
 
 def parse_config(text):
@@ -400,6 +401,7 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
                "config": text, "submitted": config_text, "config_sha256": hashlib.sha256(text.encode()).hexdigest(),
                "workflow_sha256": tree_digest(folder / "workflow"), "inputs": inputs, "input_layout": input_layout(output, tool), "cores": cores, "memory_mb": memory_mb,
                "parent": parent, "label": label or sample["id"], "created": now(), "dry_run_ok": False,
+               "bactologix_version": __version__,
                "reuse": "input-files-only; workflow outputs are independent"}
         (folder / "bactologix-run.json").write_text(json.dumps(run, indent=2) + "\n")
         store.register_run(run)
@@ -503,6 +505,12 @@ def execute_workflow(ctx):
         run["validated_controller"] = run["last_controller"]
     elif payload["action"] == "run":
         run["completed"] = now()
+        from . import methods
+        try:
+            methods.capture(store, run, ctx.job['id'])
+        except Exception as exc:
+            # Export metadata must never turn a successful workflow into a failed job.
+            ctx.write('Methods metadata could not be captured: ' + str(exc))
     store.put("runs", run["id"], run)
 
 
