@@ -1,3 +1,12 @@
+# Validation update: 0.1.0a20 (2026-10-27)
+
+- Local application and separately installed wheel suites each passed **293 tests**, with 25 native/browser/deployment checks enabled separately. All 44 packaged runtime files match source, the license is included and installed dependency checks pass.
+- New software regressions cover scoped run checks, changed inputs/configuration/source/runner, current native environment path parsing, missing/incomplete completion markers, stale receipts, failed checks, immutable saved runs/defaults and bounded failure-log guidance. Native inventory parsing fails closed on unexpected paths, containers or malformed rows.
+- Chromium acceptance adds unsaved-draft labels, mobile navigation names, five run checks, missing/available environment states, database preparation disclosure, readable installation status, polling outside Jobs, preservation of focused edits and actionable failure guidance. The existing real launcher restart/browser refresh flow remains required. Environment and job state fixtures exercise the interface without running sample analyses.
+- Screenshot review moved execution controls above check details on mobile, restored the narrow-layout draft save label and corrected toast width/expiry across component refreshes.
+- The real sample-free Conda acceptance job adds native `--list-conda-envs` checks under Snakemake 9.6.2 and 9.27.1. It verifies that listing missing or incomplete environments does not create/delete/repair those environments or execute a rule; existing reuse and execution-guard checks remain required.
+- Publication is gated on Python 3.11/3.12 application and pinned workflow adapter tests, Chromium and real Conda deployment. Inventory availability means completed folders, not executable verification or complete prediction of checkpoint-dependent environments. Database-path display does not claim full database compatibility. No biological analyses or target-workstation WSL browser interaction are performed.
+
 # Validation update: 0.1.0a19 (2026-10-27)
 
 - Local application suite: **275 passed**, with 25 native/browser/deployment checks enabled separately. Software regressions cover completed versus failed/in-progress/unrelated update handoffs, fresh interpreter verification, same-address restart, preserved workspace state and rejection of missing or incomplete environments without deleting them. The launcher test starts and replaces a real Streamlit process using a simulated verified updater result.

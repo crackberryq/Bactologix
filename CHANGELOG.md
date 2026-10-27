@@ -1,5 +1,13 @@
 # Bactologix releases
 
+## 0.1.0a20 — clearer run checks and database actions
+
+- Replace broad readiness claims with **Runner set up** on installation cards and five scoped checks on each saved run. Distinguish saved database paths, earlier native validation and current file integrity.
+- Add an explicit read-only **Check environments** action for a validated run's current native plan and selected cache. Keep installation deliberate; show missing/incomplete folders separately from available folders, and invalidate inventory receipts after runner/configuration/source/cache changes.
+- Clarify database selection versus saving for future runs versus revising existing drafts. Label Kraken preparation **Download and build** and disclose required tool-environment preparation before starting any database download.
+- Add recovery guidance for recognized job failures, live queue counts across pages, truthful unsaved-draft labels, clearer report/action wording, stronger text contrast, accessible mobile navigation names and toast placement above save controls.
+- Preserve frozen run settings, scientific algorithms, cache reuse and automatic application restart. This first UX pass focuses on clarity; dedicated run pages and the broader navigation redesign remain later work.
+
 ## 0.1.0a19 — automatic update restart and explicit environment installation
 
 - Successful app updates restart the supervised application on its existing address after fresh-version verification and job completion. Open tabs wait for the new server identity and health check, then refresh automatically; failed updates preserve the running server.

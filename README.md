@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a19 — alpha
+# Bactologix 0.1.0a20 — alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -13,7 +13,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a19-py3-none-any.whl
+pipx install ./bactologix-0.1.0a20-py3-none-any.whl
 bactologix
 ```
 
@@ -22,7 +22,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a19/bactologix-0.1.0a19-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a20/bactologix-0.1.0a20-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -31,7 +31,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a19/bactologix-0.1.0a19-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a20/bactologix-0.1.0a20-py3-none-any.whl"
 bactologix
 ```
 
@@ -39,7 +39,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a19-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a20-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -66,7 +66,7 @@ Finish or cancel queued/running jobs first. The updater checks the asset again, 
 
 After a successful, verified update, the `bactologix` launcher restarts the application on the **same address and port**. Keep the terminal and browser tab open: the tab refreshes automatically after the new server identifies itself and passes its health check. The launcher waits for the update job to succeed and the queue to become idle. Failed installation or fresh-import verification keeps the old server available with the log and manual restart guidance. A restart does not open a duplicate browser tab.
 
-**One-time transition from a18 or earlier:** the already-running launcher cannot gain this feature until restarted. After installing a19, press **Ctrl+C**, then run **`bactologix`** once (retain custom `--home`, `--host` or `--port` options). Later updates use automatic restart and refresh. Manually launched Streamlit sessions still show manual restart instructions. Downgrading to a release without the new server identity requires a manual browser refresh.
+**One-time transition from a18 or earlier:** the already-running launcher cannot gain this feature until restarted. After installing a19 or later, press **Ctrl+C**, then run **`bactologix`** once (retain custom `--home`, `--host` or `--port` options). Later updates use automatic restart and refresh. Manually launched Streamlit sessions still show manual restart instructions. Downgrading to a release without the new server identity requires a manual browser refresh.
 
 Pipeline runners, databases, settings, cached tool environments and run folders are separate from the application package. Pip may update application dependencies when required by the selected release.
 
@@ -80,7 +80,7 @@ Compatible snapshots remain selectable even after a branch moves. Unsupported do
 2. **Samples:** choose **Add sample → Browse folders**, navigate to the sample folder and select it, or import CSV/TSV columns `sample_id,input_folder,read_mode`. HybAs uses `raw/illumina` and `raw/nanopore`. BaSIS needs `annotation/<sample_id>.fna`, `.faa`, `.gff`, plus `.gbk` when enabled modules require it.
    **Remove sample** is available in Registered samples and in the run-draft sample picker. It unregisters the folder and moves its inactive saved runs from **Current runs** to **Archived**. Queued/running runs remain visible. Files, frozen configuration, jobs and reports are preserved. Use **Restore** to bring a run back, or **Add sample** to register the folder again. Individual runs also have **Remove from list**.
 3. **Configuration:** use the same category tabs, mode cards and switches as the draft editor. **Advanced** provides searchable sections and **Full YAML** for custom keys; YAML import/export and **Check settings** remain available. Each pipeline retains its own unsaved edits while switching tabs. **Save defaults** applies the configuration to future drafts and preserves existing runs. **Reload saved defaults** discards local edits. A stale editor cannot overwrite newer saved settings or database selections; download your edits before reloading if you need to keep them. Choose database/model locations in **Databases & models**.
-4. **Samples & variants → Create run drafts:** select samples, open **Run settings**, and customize the new drafts before creating them. Use category tabs and mode cards for Kraken/AWARE, Assembly, Quality and Databases; BaSIS has Modules, AWARE, DeepSafe and Resources. **Advanced** holds the searchable full field editor and **Full YAML** for custom keys. Finish in **Review** to check the selected samples and key settings; **Check settings** validates the editor input. Switching pipelines retains independent edits. **Reload saved defaults** resets this dialog to the currently saved configuration. Selected samples receive the same settings; create separate requests for different configurations. Saved defaults and existing runs are preserved. **Saved run details** has the same category tabs for reading its saved values. Choose **Edit settings** to use the guided editor, then review and create a separate revised draft; the original run remains intact. Raw commands and YAML are under **Advanced**. Each draft copies workflow source, references only input files, writes a frozen resolved config, and has independent outputs and scheduler state. CPU/memory budgets are set above the editor; generated input/output paths are shown as managed settings. Native defaults shown for omitted settings are only added when edited, so opening the editor does not enable extra modules. Run **Check / dry-run** first. Read its actual log, then prepare analysis tool environments or **Run / resume**.
+4. **Samples & variants → Create run drafts:** select samples, open **Run settings**, and customize the new drafts before creating them. Use category tabs and mode cards for Kraken/AWARE, Assembly, Quality and Databases; BaSIS has Modules, AWARE, DeepSafe and Resources. **Advanced** holds the searchable full field editor and **Full YAML** for custom keys. Finish in **Review** to check the selected samples and key settings; **Check settings** validates the editor input. Switching pipelines retains independent edits. **Reload saved defaults** resets this dialog to the currently saved configuration. Selected samples receive the same settings; create separate requests for different configurations. Saved defaults and existing runs are preserved. **Saved run details** has the same category tabs for reading its saved values. Choose **Edit settings** to use the guided editor, then review and create a separate revised draft; the original run remains intact. Raw commands and YAML are under **Advanced**. Each draft copies workflow source, references only input files, writes a frozen resolved config, and has independent outputs and scheduler state. CPU/memory budgets are set above the editor; generated input/output paths are shown as managed settings. Native defaults shown for omitted settings are only added when edited, so opening the editor does not enable extra modules. Run **Validate run** first. Read its actual log, then prepare analysis tool environments or **Run / resume**.
 5. **Results & reports:** native MultiQC/Safety reports are discovered by expected path, or register any existing local HTML. Embedded reports run in an isolated inner frame. Self-contained reports work best; use Open original for relative assets.
 6. **Overview → Run live smoke test:** executes a real tiny Snakemake workflow using an installed controller and creates an HTML software-test report. It performs no biological analysis.
 
@@ -98,6 +98,14 @@ Under **Install & update → HybAs/BaSIS → Connect existing**:
 4. Click **Connect installation** and inspect the job log. Bactologix copies the selected committed source locally and uses independent run outputs. It does not alter the original checkout or its local settings. Import other native settings in **Configuration**, then connect existing resources in **Databases & models**.
 
 Only the reviewed source commits below can be connected for managed runs. Modified working-tree files are excluded from the source snapshot; the dialog flags tracked edits. ZIP-only copies without Git metadata need a Git checkout. Existing results can be registered as HTML reports; existing external runs are not adopted for in-place resume. Repair creates a managed runner and leaves a selected external environment intact.
+
+## Run checks and environment availability
+
+Saved-run **Overview → Run checks** separates inputs/saved files, pipeline/runner setup, native validation, frozen database paths and tool environment availability. The panel reports the scope and time of each check. **Runner set up** on an installation card refers to the runner only; it does not mean every analysis tool or database is ready. **Validate run** performs the native dry-run. Saved database paths remain visible under **Databases**, independently of later default changes.
+
+After validation, **Check environments** asks the native workflow for its current environment inventory and checks completed folders in this run's own cache. This action never installs, deletes or repairs tool environments. The receipt is specific to the frozen configuration, source, runner and cache; completion markers are rechecked when the panel refreshes. It does not run executable probes or guarantee environments that later checkpoints may discover. Use the installation-level checker below for executable probes. Known missing/incomplete environments direct you to **Install environments**; normal execution retains its existing-environments-only guard.
+
+Jobs show focused recovery guidance for recognized missing database, input-change and missing-environment failures, with the original full log still available. Active job counts refresh across workspace pages without interrupting focused fields or editing dialogs.
 
 ## Check and install tool environments
 
@@ -123,7 +131,7 @@ Discovery includes registered Conda prefixes, pipeline resource folders, hidden 
 
 Open **Databases & models**, choose **HybAs** or **BaSIS**, and click **Auto scan**. Every selectable resource has its own name, location, **Browse**, and **Check location** controls. Detected installations appear in a dropdown. Add a specific scan folder to include another disk or a deeper directory; Windows Explorer paths work in WSL.
 
-The scan preselects a preferred candidate for each unchanged field. It keeps a valid saved location first, then prefers a matching configured BUSCO lineage or a completed BaSIS resource receipt. Remaining ties use a stable path order, not a claim that a particular release is scientifically best or newest. A choice you edited yourself is retained. Review the selected release and lineage, then click **Save locations**. The server rechecks every changed selection before saving; stale configuration revisions and incomplete locations are rejected. **Reload locations** discards unsaved resource choices. **Use pipeline default** resets only that resource's owned path/metadata fields when saved.
+The scan preselects a preferred candidate for each unchanged field. It keeps a valid saved location first, then prefers a matching configured BUSCO lineage or a completed BaSIS resource receipt. Remaining ties use a stable path order, not a claim that a particular release is scientifically best or newest. A choice you edited yourself is retained. Review the selected release and lineage, then click **Save for future runs**. The server rechecks every changed selection before saving; stale configuration revisions and incomplete locations are rejected. **Reload locations** discards unsaved resource choices. **Use pipeline default** resets only that resource's owned path/metadata fields when saved.
 
 - **HybAs:** Kraken2 and BUSCO may live on different disks. Bactologix creates a separate local link layout for each selection, writes the native shared-root configuration, and preserves earlier layouts for frozen run drafts. Database contents are neither copied nor downloaded.
 - **BaSIS:** named entries cover AMRFinderPlus, CARD/RGI, VFDB, BacMet, antiSMASH, geNomad, MOB-suite, MLST/PubMLST, CRISPRCasFinder/CASFinder, PROSITE, ProtT5/classifier models, and the deep reference bundle. Folder selection resolves native file-backed resources such as CARD JSON and DIAMOND indices. Completed resource receipts retain allowlisted companion paths and recorded identities; executable overrides and analysis switches are not imported. Model/reference bundles require their companion files; a filename alone does not establish their identity.
@@ -131,17 +139,17 @@ The scan preselects a preferred candidate for each unchanged field. It keeps a v
 
 Discovery is a quick structural check, not a full checksum verification or compatibility guarantee. It scans configured locations, registered pipeline sources/caches, workspace resources and common folders, with limits of 5,000 directories, 3,000 entries per folder, seven levels and an eight-second traversal budget. The result reports reached limits and inaccessible folders. Directory symlinks are inspected without recursive traversal; hidden directories are skipped unless included as explicit roots. This is not an exhaustive inventory of every disk. The native workflow still performs its resource checks during preparation.
 
-Saving affects future run drafts and preserves other analysis settings. To update an existing draft, open its details and click **Use saved databases**, or click **Use saved databases for runs** on this page to choose several runs. Review current/saved paths, select the valid changes, and confirm. A revised draft keeps the original inputs, pipeline version, environment cache, resource budgets and other settings; the selected paths are written into the configuration used by its command. A single revised draft opens immediately: click **Check / dry-run** before preparing tools or running it. Active runs and reviewed follow-up requests cannot use this action.
+Saving affects future run drafts and preserves other analysis settings. To update an existing draft, open its details and click **Use saved databases**, or click **Update saved drafts** on this page to choose several runs. Review current/saved paths, select the valid changes, and confirm. A revised draft keeps the original inputs, pipeline version, environment cache, resource budgets and other settings; the selected paths are written into the configuration used by its command. A single revised draft opens immediately: click **Validate run** before preparing tools or running it. Active runs and reviewed follow-up requests cannot use this action.
 
-Original drafts keep their frozen paths; independently changing database contents at those paths is outside this selection mechanism. Missing BaSIS resources continue to follow the saved `auto`/`manual` policy. Scanning and saving do not install environments or download databases. Use the separate Download database control to request preparation.
+Original drafts keep their frozen paths; independently changing database contents at those paths is outside this selection mechanism. Missing BaSIS resources continue to follow the saved `auto`/`manual` policy. Scanning and saving do not install environments or download databases. Use the separate download/preparation control to request preparation.
 
 ## Download databases to a chosen location
 
-Each selectable database card has **Download database**. Choose a writable parent folder with **Browse**, set threads/memory, and select the lineage for BUSCO. Bactologix creates a fresh subfolder, freezes a separate administrative configuration and invokes only the pinned pipeline's native database preparation target. Kraken2 uses the native standard database build, which can require substantial memory, storage and time. BaSIS uses its resource provider and required dependencies. Tool-managed resources are prepared through their tool environment instead.
+Each selectable database card has **Download and prepare**, or **Download and build** for Kraken2. Choose a writable parent folder with **Browse**, set threads/memory, and select the lineage for BUSCO. Bactologix creates a fresh subfolder, freezes a separate administrative configuration and invokes only the pinned pipeline's native database preparation target. Kraken2 uses the native standard database build, which can require substantial memory, storage and time. BaSIS uses its resource provider and required dependencies. Tool-managed resources are prepared through their tool environment instead.
 
-Downloads require the current recommended supported source snapshot and a ready runner. They do not use sample inputs or change saved analysis defaults. Native commands, receipts and provider logs remain available on disk; **Download log** includes recent provider output. A stopped or failed download offers **Resume download**, preserving its original destination, configuration and source identity. The native provider determines which partial work can be reused.
+The review dialog explains that native preparation may first install required tool environments. Downloads require the current recommended supported source snapshot and a ready runner. They do not use sample inputs or change saved analysis defaults. Native commands, receipts and provider logs remain available on disk; **Download log** includes recent provider output. A stopped or failed download offers **Resume download**, preserving its original destination, configuration and source identity. The native provider determines which partial work can be reused.
 
-When preparation succeeds, click **Use downloaded**, then **Save locations**. Paths are checked again at selection and saving. Earlier run drafts keep their frozen paths.
+When preparation succeeds, click **Select downloaded location**, then **Save for future runs**. Paths are checked again at selection and saving. Earlier run drafts keep their frozen paths.
 
 ## Version and environment policy
 

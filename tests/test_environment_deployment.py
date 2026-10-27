@@ -173,7 +173,28 @@ def assert_missing_guard(python_command, folder):
     snakefile = folder / 'Snakefile'
     snakefile.write_text('rule missing:\n    output: "unexpected.txt"\n    conda: ' + repr(str(recipe))
                          + '\n    shell: "touch {output}"\n')
+    # Native inventory is read-only, including incomplete prefixes, on both runner versions.
+    from bactologix.readiness import parse_inventory, environment_state
     cache = folder / 'empty-cache'
+    listing = [*python_command, '-m', 'snakemake', '--snakefile', str(snakefile),
+               '--directory', str(folder), '--cores', '1', '--use-conda',
+               '--conda-prefix', str(cache), '--list-conda-envs']
+    def check_inventory():
+        result = subprocess.run(listing, text=True, capture_output=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+        rows = parse_inventory(result.stdout, folder, cache)
+        assert len(rows) == 1
+        return rows[0]
+    row = check_inventory()
+    assert environment_state(row) == 'Missing'
+    prefix = Path(row['path'])
+    assert not prefix.exists() and not (folder / 'unexpected.txt').exists()
+    (prefix / 'conda-meta').mkdir(parents=True)
+    history = prefix / 'conda-meta/history'
+    history.write_text('incomplete software fixture retained')
+    assert environment_state(check_inventory()) == 'Incomplete'
+    assert history.read_text() == 'incomplete software fixture retained'
+    shutil.rmtree(prefix)  # remove only the test-created empty fixture
     result = subprocess.run([*python_command, str(DATA / 'run_existing.py'), 'snakemake',
                              '--snakefile', str(snakefile), '--directory', str(folder), '--cores', '1',
                              '--use-conda', '--conda-prefix', str(cache)], text=True, capture_output=True)
