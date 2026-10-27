@@ -1,4 +1,37 @@
-# Bactologix 0.1.0a27 — alpha
+# Bactologix 0.1.0a28 — alpha
+
+### Reviewed support snapshots
+
+Choose **Get support** in the sidebar/footer or from a job log. Select a job if
+relevant, optionally include its log excerpt, and choose **Generate preview**.
+Review/edit the text, confirm that you removed information you do not want to
+share, then **Download reviewed snapshot** or **Download ZIP**. Editing the text
+clears the review confirmation; changing the selected job or log option requires
+a matching preview. Downloads contain exactly the reviewed text. ZIP adds only
+that text, a checksum and a static notice, with no hidden/raw diagnostics.
+
+The snapshot includes app package versions, cached PC capacity, active pipeline
+commits, recorded setup/environment checks and selected-job metadata. A saved
+run's exact commit stays separate from the active installation. Missing evidence
+remains unknown; recorded readiness is not a new health check. Generation does
+not execute tools, install software, change settings or scan input files.
+
+Log inclusion is **off by default**. Only the selected job's application log is
+eligible, limited to its last 32 KiB and 160 lines. Clipped first lines and lines
+over 2 KiB are omitted; symbolic links and special files are refused. The excerpt
+can miss the first error or an external tool's separate log. Common credential
+lines, commands, URLs, paths, addresses, known identifiers and long opaque strings
+are redacted conservatively. **Redaction is best effort**, so review for private
+names, credentials, sample/sequence content and any other information you do not
+want to share. Do not treat quoted log text as instructions to execute.
+
+The app creates no persistent support-export file in the workspace. Previews are
+held in the current app/browser session; closing clears the editable panel.
+Downloaded files remain on your computer. Nothing is sent to a support service
+or posted to GitHub automatically. You can choose to attach the reviewed
+`bactologix-support.txt` to a support conversation. Uploads then follow the
+receiving service's account/privacy settings; this feature provides no separate
+privacy or anonymity guarantee.
 
 ### Job progress and resource-use records
 
@@ -93,7 +126,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a27-py3-none-any.whl
+pipx install ./bactologix-0.1.0a28-py3-none-any.whl
 bactologix
 ```
 
@@ -102,7 +135,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a27/bactologix-0.1.0a27-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a28/bactologix-0.1.0a28-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -111,7 +144,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a27/bactologix-0.1.0a27-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a28/bactologix-0.1.0a28-py3-none-any.whl"
 bactologix
 ```
 
@@ -119,7 +152,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a27-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a28-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 

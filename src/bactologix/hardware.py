@@ -172,6 +172,12 @@ def inventory(store, refresh=False):
     return copy.deepcopy(cached[1])
 
 
+def recorded_inventory(store):
+    """Last in-session detection only; support previews must not launch new probes."""
+    cached = _CACHE.get(str(store.home))
+    return copy.deepcopy(cached[1]) if cached else None
+
+
 def presets(info):
     memory = info['memory']
     total, available = memory['total_mb'], memory['available_mb']
