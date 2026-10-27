@@ -41,3 +41,5 @@
 @media(max-width:650px){.readiness-grid{grid-template-columns:1fr}.run-readiness{padding:14px}.readiness-heading{flex-wrap:wrap}.readiness-heading .btn{font-size:12px}.saved-run-actions .btn{flex-grow:1}.settings-tabs{scrollbar-width:thin}.settings-tab{font-size:13px}.defaults-toolbar .btn{font-size:12px}.modal-foot>small{font-size:11px}#toast{left:calc(50% + 28px);max-width:calc(100vw - 80px);top:100px}.top-actions .btn{font-size:11px}}
 
 @media(max-width:650px){.run-draft-modal .modal-foot>small,.saved-run-modal .modal-foot>small{display:block;flex:1 0 100%;font-size:11px}}
+
+#toast{width:max-content;max-width:min(560px,calc(100vw - 40px))}.readiness-policy{font-size:12px;margin-bottom:16px}@media(max-width:650px){#toast{max-width:calc(100vw - 80px)}}
