@@ -417,7 +417,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(page.locator('.saved-runs [data-run-row]')).to_have_count(0)
             page.get_by_role('button', name='Reset filters', exact=True).click()
             for run in (created, revised): page.locator('[data-select="' + run['id'] + '"]').check()
-            page.locator('#run-tool').select_option('basis')
+            page.locator('#run-filter-tool').select_option('basis')
             expect(page.locator('.selection-bar')).to_contain_text('2 outside this filter')
             page.get_by_role('button', name='Reset filters', exact=True).click()
             capture('runs-filters-selection')
