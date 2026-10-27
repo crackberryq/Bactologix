@@ -344,7 +344,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(page.get_by_role('link', name='Runs', exact=True)).to_have_attribute('aria-current', 'page')
             capture('saved-run-overview')
             def saved_tab(name):
-                page.locator('[data-action="saved-run-tab"][data-id="' + name + '"]').click()
+                page.locator('.saved-run-tabs [data-action="saved-run-tab"][data-id="' + name + '"]').click()
             saved_tab('kraken')
             expect(page.locator('[data-saved-setting="kraken_decision_mode"]')).to_have_text('Off')
             # Saved run URLs survive reload and browser Back/Forward.
@@ -544,6 +544,12 @@ def test_sample_picker_configuration_and_report(tmp_path):
             store.log_path(jid).write_text('BUSCO lineage database missing at /software-fixture')
             store.update_job(jid, status='failed', error='Command exited with code 1; see the job log')
             expect(page.locator('#queue-status')).to_have_text('No active jobs', timeout=12000)
+            # A later successful validation does not erase an earlier failed execution.
+            validation_job = store.submit('workflow', {'run_id': created['id'], 'action': 'dry-run'})
+            store.update_job(validation_job, status='succeeded')
+            page.get_by_role('button', name='Refresh workspace', exact=True).click()
+            expect(page.locator('.attention-card')).to_contain_text('Check the database location')
+            capture('overview-needs-attention')
             page.get_by_role('link', name='Jobs & progress', exact=True).click()
             expect(page.locator('.job-guidance')).to_contain_text('Check the database location')
             expect(page.get_by_role('button', name='Review run', exact=True)).to_be_visible()

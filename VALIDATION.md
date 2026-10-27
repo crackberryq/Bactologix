@@ -1,5 +1,6 @@
-# Validation update: 0.1.0a21 candidate (2026-10-27)
+# Validation update: 0.1.0a21 (2026-10-27)
 
+- Local source and separately installed wheel suites each passed **298 tests**, with 25 native/browser/deployment checks enabled separately. All 44 runtime package files match source; license and installed dependency checks pass.
 - Software regressions verify distinct saved Kraken modes in list data without rewriting run records. Existing run/configuration/database/revision, environment reuse and launcher checks remain required.
 - Chromium acceptance covers separate Samples/Runs, removal and archive/restore, run search and pipeline/status filters, explicit hidden selections, the unified comparison view, parent selection, dedicated run pages, browser Back/Forward/reload, native report overlays and unknown-run recovery. Existing guided configuration and revised-draft preservation checks remain in the same end-to-end flow.
 - Run Activity tests use injected job evidence and an actual request through an intentionally failing software-only Conda stub. They do not run biological analyses. The real supervisor restart fixture checks that the current workspace route survives a browser reload.
