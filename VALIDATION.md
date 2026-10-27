@@ -1,3 +1,10 @@
+# Validation update: 0.1.0a19 (2026-10-27)
+
+- Local application suite: **275 passed**, with 25 native/browser/deployment checks enabled separately. Software regressions cover completed versus failed/in-progress/unrelated update handoffs, fresh interpreter verification, same-address restart, preserved workspace state and rejection of missing or incomplete environments without deleting them. The launcher test starts and replaces a real Streamlit process using a simulated verified updater result.
+- Chromium acceptance arms the open tab during an update, waits for real launcher replacement, verifies an actual browser reload and a changed server identity on the same URL, and checks that samples, runs, defaults and installations survive. The fixture does not perform a pip self-update.
+- The sample-free Conda job checks the guard against Snakemake 9.6.2 and 9.27.1, runs a tiny checkpoint and Python-version rule in an existing environment, verifies unchanged Conda history and rejects missing/incomplete environments. It explicitly checks that the guard reaches the checkpoint subprocess.
+- Publication requires both Python matrices, Chromium and real Conda deployment. No biological analyses or target-workstation WSL browser interaction are performed by these checks. Installing this release from an older running launcher needs one manual restart before automatic updates are available.
+
 # Validation update: 0.1.0a18 (2026-10-27)
 
 - Local application suite: **254 passed**, with 25 native/browser/deployment checks enabled separately. Launcher coverage includes WSL NAT interface selection, mirrored loopback, missing network tools, explicit and automatic ports, IPv6/wildcard URLs, invalid hosts, Windows browser commands, headless operation and startup failure.

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bactologix"
-version = "0.1.0a18"
+version = "0.1.0a19"
 description = "A local workspace for HybAs and BaSIS"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,7 +23,7 @@ Issues = "https://github.com/crackberryq/Bactologix/issues"
 bactologix = "bactologix.cli:main"
 
 [tool.setuptools.package-data]
-bactologix = ["data/*.yaml", "data/*.json", "data/*.py", "data/LICENSE.*", "data/CITATION.*", "ui/*.html", "ui/*.css", "ui/*.js"]
+bactologix = ["data/*.yaml", "data/*.json", "data/*.py", "data/env_guard/*.py", "data/LICENSE.*", "data/CITATION.*", "ui/*.html", "ui/*.css", "ui/*.js"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

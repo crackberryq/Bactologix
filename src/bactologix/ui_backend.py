@@ -40,10 +40,10 @@ def installation_status(item, jobs):
     elif not supported_source:
         state, message = "Version not supported", "Source downloaded. Update Bactologix or choose a version marked Runner supported."
     elif item.get("ready"):
-        state, message = "Ready", "Runner verified. Analysis tool environments are prepared for each chosen run."
+        state, message = "Ready", "Runner verified. Runs reuse installed tool environments. Missing tools require an explicit installation."
         required = item.get("controller_requirements")
         if required:
-            message = f"Runner verified: Python {required['python']} / Snakemake {required['snakemake']}. Analysis tool environments are prepared for each chosen run."
+            message = f"Runner verified: Python {required['python']} / Snakemake {required['snakemake']}. Runs reuse installed tool environments. Missing tools require an explicit installation."
     elif latest and latest["status"] in {"failed", "cancelled", "interrupted"}:
         state, message = "Setup incomplete", latest.get("error") or "Read the setup log, then retry setup."
     else:
@@ -169,7 +169,8 @@ def dispatch(store, kind, p):
             raise ValueError("Refresh the releases and select an available Bactologix wheel.")
         if release["version"] == __version__:
             raise ValueError("You are already running this Bactologix version.")
-        jid = enqueue(store, "app_update", {"release": release})
+        launcher = updates.restart_control.current_launcher(store)
+        jid = enqueue(store, "app_update", {"release": release, 'launcher_id': launcher['id'] if launcher else None})
         return {"message": "Application update queued: " + jid, "navigate": "jobs"}
     if kind == "browse_folders":
         path = p.get("path", "")

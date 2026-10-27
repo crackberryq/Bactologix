@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from bactologix.catalog import PIPELINES
+from bactologix.catalog import DATA, PIPELINES
 from bactologix.engine import Context
 from bactologix.engine import prepare_controller
 from bactologix import maintenance as m
@@ -50,6 +50,12 @@ def test_release_declared_runner_is_installed_and_reused(tmp_path):
             assert Path(item['controller']) == prefix
             assert 'env create' not in log
             assert (prefix / 'conda-meta/history').read_bytes() == history
+    guard = DATA / 'run_existing.py'
+    result = subprocess.run([conda, 'run', '--no-capture-output', '-p', str(prefix), 'python',
+                             str(guard), 'snakemake', '--version'], text=True, capture_output=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert '9.27.1' in result.stdout
+    assert_missing_guard([conda, 'run', '--no-capture-output', '-p', str(prefix), 'python'], tmp_path / 'new-runner-guard')
     assert not store.all('samples') and not store.all('runs')
 
 
@@ -116,6 +122,39 @@ def test_missing_install_verified_and_broken_tool(tmp_path, monkeypatch):
     reused = run('install')
     assert reused['status'] == 'Verified' and reused['path'] == str(prefix)
     assert (prefix / 'conda-meta/history').read_bytes() == history
+    # Execute a software-only checkpoint and rule using the cache inherited by the new source.
+    folder = tmp_path / 'guarded-run'
+    folder.mkdir()
+    snakefile = folder / 'Snakefile'
+    snakefile.write_text(
+        'from pathlib import Path\n'
+        'rule all:\n    input: "done.txt"\n'
+        'checkpoint discover:\n    output: "checkpoint.txt"\n    run:\n'
+        '        from snakemake.deployment.conda import Env\n'
+        '        assert getattr(Env.create, "_bactologix_existing_only", False)\n'
+        '        Path(output[0]).write_text("ready")\n'
+        'rule finish:\n    input: lambda wc: checkpoints.discover.get().output[0]\n'
+        '    output: "done.txt"\n    conda: ' + repr(str(newer_source / 'workflow/envs/qc.yml')) + '\n'
+        '    shell: "python --version > {output}"\n')
+    argv = [sys.executable, str(DATA / 'run_existing.py'), 'snakemake', '--snakefile', str(snakefile),
+            '--directory', str(folder), '--cores', '1', '--use-conda', '--conda-prefix', original_cache]
+    result = subprocess.run(argv, text=True, capture_output=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'Python 3.11' in (folder / 'done.txt').read_text()
+    assert (prefix / 'conda-meta/history').read_bytes() == history
+    assert_missing_guard([sys.executable], tmp_path / 'missing-guard')
+    # Native Snakemake normally deletes an incomplete prefix. The guarded run must retain it.
+    from snakemake.deployment.conda import get_env_setup_done_flag_file
+    marker = get_env_setup_done_flag_file(prefix)
+    marker.unlink()
+    (folder / 'done.txt').unlink()
+    try:
+        result = subprocess.run(argv, text=True, capture_output=True)
+        assert result.returncode != 0 and 'existing environments only' in result.stderr
+        assert (prefix / 'conda-meta/history').read_bytes() == history
+        assert not (folder / 'done.txt').exists()
+    finally:
+        marker.touch()
     python = prefix / 'bin/python'
     held = prefix / 'bin/python-held-for-test'
     python.rename(held)
@@ -125,3 +164,20 @@ def test_missing_install_verified_and_broken_tool(tmp_path, monkeypatch):
     finally:
         held.rename(python)
     assert not store.all('runs') and not store.all('samples')
+
+
+def assert_missing_guard(python_command, folder):
+    folder.mkdir()
+    recipe = folder / 'missing.yaml'
+    recipe.write_text('channels: [conda-forge]\ndependencies: [python=3.11]\n')
+    snakefile = folder / 'Snakefile'
+    snakefile.write_text('rule missing:\n    output: "unexpected.txt"\n    conda: ' + repr(str(recipe))
+                         + '\n    shell: "touch {output}"\n')
+    cache = folder / 'empty-cache'
+    result = subprocess.run([*python_command, str(DATA / 'run_existing.py'), 'snakemake',
+                             '--snakefile', str(snakefile), '--directory', str(folder), '--cores', '1',
+                             '--use-conda', '--conda-prefix', str(cache)], text=True, capture_output=True)
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert 'existing environments only' in result.stderr, result.stdout + result.stderr
+    assert not (folder / 'unexpected.txt').exists()
+    assert not list(cache.glob('*/conda-meta/history'))

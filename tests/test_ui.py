@@ -115,7 +115,7 @@ def test_app_update_release_selection_through_component(tmp_path, monkeypatch):
     assert send(app, "refresh_app_releases")["ok"]
     result = send(app, "update_app", {"release_id": 17, "version": "99.0.0a1"}, "select-update")
     assert result["ok"] and result["navigate"] == "jobs"
-    assert captured[0][1:] == ("app_update", {"release": release})
+    assert captured[0][1:] == ("app_update", {"release": release, "launcher_id": None})
     send(app, "update_app", {"release_id": 17, "version": "99.0.0a1"}, "select-update")
     assert len(captured) == 1
 

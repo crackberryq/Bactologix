@@ -424,6 +424,33 @@ def test_sample_picker_configuration_and_report(tmp_path):
             page.get_by_role('button', name='View HTML', exact=True).click()
             expect(page.frame_locator('.html-report-frame').get_by_role('heading', name='Browser software fixture')).to_be_visible()
             assert page.locator('.html-report-frame').get_attribute('sandbox') == 'allow-scripts allow-downloads'
+            page.get_by_role('button', name='Close dialog', exact=True).click()
+            # Simulate the verified worker result without replacing CI's own package.
+            # The real supervisor must wait for success, exec a new server and refresh this tab.
+            from bactologix import __version__
+            live, = [x for x in store.all('launchers') if x['status'] == 'ready']
+            before = {kind: store.all(kind) for kind in ('samples', 'runs', 'configs', 'installs')}
+            jid = store.submit('app_update', {'release': {'version': __version__}, 'launcher_id': live['id']})
+            store.update_job(jid, status='running')
+            store.put('settings', 'app-update', {'job': jid, 'status': 'installed', 'version': __version__,
+                      'launcher_id': live['id'], 'environment': sys.prefix, 'pip_started_at': time.time()})
+            page.get_by_role('link', name='Jobs & progress', exact=True).click()
+            page.get_by_role('button', name='Refresh', exact=True).click()
+            page.wait_for_function('!!window.__bactologixRestart')
+            assert store.get('launchers', live['id'])['status'] == 'ready'
+            capture('automatic-update-waiting')
+            store.update_job(jid, status='succeeded')
+            page.wait_for_function("performance.getEntriesByType('navigation')[0]?.type === 'reload'", timeout=45000)
+            expect(page.get_by_role('link', name='Samples & variants', exact=True)).to_be_visible(timeout=30000)
+            page.wait_for_function('!window.__bactologixRestart')
+            assert page.url.rstrip('/') == url
+            with urlopen(url + '/app/static/runtime.json', timeout=5) as response:
+                import json
+                runtime = json.load(response)
+            assert runtime['id'] != live['id'] and runtime['version'] == __version__
+            assert store.get('settings', 'app-update')['restart_status'] == 'ready'
+            for kind, items in before.items(): assert store.all(kind) == items
+            capture('automatic-update-ready')
             assert not errors, errors
             browser.close()
     finally:

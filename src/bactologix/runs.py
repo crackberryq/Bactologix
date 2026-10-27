@@ -461,6 +461,9 @@ def command(store, run, action):
         argv.append("--dry-run")
     elif action == "prepare":
         argv.append("--conda-create-envs-only")
+    elif action == "run":
+        pos = argv.index('snakemake')
+        argv[pos:pos] = ['python', str(DATA / 'run_existing.py')]
     return argv
 
 
@@ -471,6 +474,8 @@ def execute_workflow(ctx):
         raise ValueError("The run's workflow source changed; create a new draft")
     ctx.write("Run " + run["id"] + " · source " + run["commit"])
     ctx.write("Input identity uses file size/mtime checks. Workflow provenance may add content checksums.")
+    if payload['action'] == 'run':
+        ctx.write('Environment policy: reuse matching installed environments only; automatic installation and repair are disabled.')
     if payload["action"] == "dry-run":
         run["dry_run_ok"] = False
     elif payload["action"] == "run":
