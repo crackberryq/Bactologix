@@ -1,3 +1,9 @@
+# Validation update: 0.1.0a26 (2026-10-27)
+
+- Host-check regressions cover nonexistent output parents, broken links, file/directory conflicts, denied permissions, read-only filesystems, exhausted/low disk space, resource oversubscription, disabled tool limits, additional native output destinations and read-only environment-cache reuse. Assertions verify that checks preserve frozen configuration and do not create probe directories.
+- Chromium acceptance covers the setup guide for both pipelines, full-page draft/revision editing, per-pipeline settings, raw invalid-YAML recovery after a real browser refresh, preserved CPU budgets, navigation away and resume, explicit discard confirmation, exact configuration creation and mobile overflow checks. Existing saved-run, Methods, environment, report and automatic restart tests remain required.
+- Release publication requires Python 3.11/3.12 application and pinned-adapter tests, real Chromium/Streamlit interaction and sample-free Conda deployment. These are software checks, not full analysis validation or tests on the user's physical Ubuntu/WSL workstation. The package remains alpha pending target-machine/lab beta acceptance.
+
 # Validation update: 0.1.0a25 (2026-10-27)
 
 - Methods tests cover frozen configuration isolation, read-mode/polishing routes, disabled steps, per-sample BaSIS exclusions, partial scope, version provenance, source/configuration drift, linked/oversized metadata, exact-YAML ZIP downloads and HTML escaping.

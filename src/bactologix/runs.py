@@ -448,6 +448,8 @@ def validate_launch(store, rid, action, check_busy=True):
     if action != "dry-run" and not dry_run_current(store, run):
         raise ValueError("A successful native dry-run with the current runner is required before preparing tools or running")
     check_run_files(run)
+    from .preflight import assert_launch
+    assert_launch(run, action)
     return run
 
 

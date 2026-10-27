@@ -28,7 +28,7 @@ def test_checks_do_not_claim_full_readiness_or_mutate_defaults(workspace, instal
     panel = r.panel(workspace, run)
     assert panel['next'] == 'dry-run' and not panel['blocked']
     states = {row['id']: row['state'] for row in panel['rows']}
-    assert states == {'inputs': 'Unchanged', 'pipeline': 'Setup recorded',
+    assert {k: v for k, v in states.items() if k not in {'destinations', 'storage', 'resources'}} == {'inputs': 'Unchanged', 'pipeline': 'Setup recorded',
                       'configuration': 'Validation needed', 'databases': 'Frozen in this draft',
                       'environments': 'Check this run’s cache'}
     run['dry_run_ok'] = True

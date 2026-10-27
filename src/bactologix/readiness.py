@@ -96,6 +96,11 @@ def panel(store, run):
     except (OSError, ValueError, KeyError) as exc:
         blocked = True
         row('pipeline', 'Pipeline and runner', 'Needs setup', str(exc), 'error', checked_at)
+    from . import preflight
+    host = preflight.panel(store, run)
+    rows.extend(host['rows'])
+    # Output permissions can block execution while a diagnostic dry-run remains useful.
+    execution_blocked = blocked or host['blocked']
     validated = dry_run_current(store, run) and not blocked
     row('configuration', 'Native validation', 'Dry-run passed' if validated else 'Validation needed',
         'The workflow accepted this saved configuration with the current runner.' if validated else 'Validate this run before installing tools or starting execution.',
@@ -118,9 +123,10 @@ def panel(store, run):
         missing = 0
         row('environments', 'Tool environments', 'Check this run’s cache',
             'Check environments after native validation. This reads the workflow inventory and never installs or repairs tools.', 'pending')
-    return {'rows': rows, 'environments': inventory, 'checked_at': checked_at, 'blocked': blocked,
+    return {'rows': rows, 'environments': inventory, 'destinations': host['destinations'],
+            'checked_at': checked_at, 'blocked': blocked, 'execution_blocked': execution_blocked,
             'validated': validated, 'environment_check_current': fresh, 'missing_environments': missing,
-            'next': 'review' if blocked else 'dry-run' if not validated else 'prepare' if missing else 'run' if fresh else 'check-environments'}
+            'next': 'review' if execution_blocked else 'dry-run' if not validated else 'prepare' if missing else 'run' if fresh else 'check-environments'}
 
 
 def job_guidance(store, job):
