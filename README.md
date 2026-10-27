@@ -1,4 +1,30 @@
-# Bactologix 0.1.0a26 — alpha
+# Bactologix 0.1.0a27 — alpha
+
+### Job progress and resource-use records
+
+**Jobs & progress** and a saved run's **Activity** show elapsed time, sampled CPU
+and peak sampled RAM. Recognized Snakemake log messages add active steps and
+completed tasks in the current plan. Checkpoints can change the total; a task
+percentage is neither an ETA nor evidence of complete biological results.
+
+Choose **Resource use** to view CPU/RAM charts or download JSON, CSV, or a ZIP
+containing both formats and measurement notes. Every job attempt has a separate
+record, including failed and cancelled jobs; a resumed run never overwrites the
+earlier attempt. Recording starts with jobs executed in a27. Historical usage
+cannot be reconstructed for older jobs.
+
+Measurements sample the command and discoverable descendants approximately every
+two seconds. 100% CPU represents one logical CPU. CPU seconds are observed
+user/system counter increments; RAM is the sum of process RSS in MiB, which can
+count shared memory more than once. Brief processes, detached children and
+between-sample peaks can be missed. Unavailable/stale readings and interrupted
+records are explicit. Charts save at most every 30 seconds and at command/job
+completion; long histories are combined into intervals preserving observed CPU
+seconds and sampled RSS peaks. These are local diagnostic measurements, not
+complete scheduler accounting; GPU usage, energy and remote jobs are not measured.
+Observation errors do not change command results or prevent cancellation. Exports
+include job/run IDs and source/configuration hashes, but no raw logs, command
+arguments or input sequences. No data is uploaded automatically.
 
 ### Guided setup and protected run editing
 
@@ -67,7 +93,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a26-py3-none-any.whl
+pipx install ./bactologix-0.1.0a27-py3-none-any.whl
 bactologix
 ```
 
@@ -76,7 +102,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a26/bactologix-0.1.0a26-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a27/bactologix-0.1.0a27-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -85,7 +111,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a26/bactologix-0.1.0a26-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a27/bactologix-0.1.0a27-py3-none-any.whl"
 bactologix
 ```
 
@@ -93,7 +119,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a26-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a27-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 

@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a27 — live job progress and resource-use records
+
+- Show elapsed time, sampled CPU, peak sampled RAM, active workflow steps and recognized current-plan task counts in Jobs, Run activity and job logs. Checkpoint changes, unavailable readings, stale updates and partial records remain explicit.
+- Add per-attempt CPU/RAM charts and JSON, CSV and ZIP downloads. Preserve failed/cancelled attempts separately from resumed jobs; retain run/source/configuration provenance without raw logs, command arguments or input sequences.
+- Sample only the launched command and discoverable descendants. Bound process counters, log reads and history storage; compact histories while retaining CPU integrals, observed RSS peaks and missing-reading counts. Document shared-memory accounting, brief/detached process gaps and excluded GPU/remote-job measurements.
+- Keep observation best-effort and independent of job results, cancellation, output redirection and environment handling. Older jobs have no synthesized usage records.
+
 ## 0.1.0a26 — guided setup and recoverable run drafts
 
 - Add a five-step setup guide for PC capacity, a selected pipeline, environments, databases and review. Reuse the existing explicit installation/download/repair controls, with scoped status and next actions.

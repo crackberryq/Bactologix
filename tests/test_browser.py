@@ -747,12 +747,110 @@ def render_component(page, store):
         const component = (await import(url)).default;
         URL.revokeObjectURL(url);
         window.acceptanceEvents = [];
+        window.acceptanceWorkspace = workspace;
         window.acceptanceRender = response => component({parentElement: shadow,
             data: {workspace, response},
             setTriggerValue: (trigger, value) => window.acceptanceEvents.push({trigger, value})});
         window.acceptanceRender(null);
     }''', {'html': (ui / 'shell.html').read_text(), 'css': (ui / 'styles.css').read_text(),
            'js': (ui / 'workspace.js').read_text(), 'workspace': snapshot(store)})
+
+
+def test_job_progress_resource_history_and_downloads(tmp_path):
+    import json
+    import zipfile
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix import telemetry
+    from bactologix.ui_backend import dispatch, snapshot
+    from bactologix.store import now
+    store = Store(tmp_path / 'usage-component')
+    jid = store.submit('workflow', {'run_id': 'run-software-fixture', 'action': 'run'})
+    store.update_job(jid, status='running')
+    store.log_path(jid).write_text('localrule software_check:\n    jobid: 2\n1 of 4 steps (25%) done\n')
+    recorder = telemetry.Recorder(store, store.job(jid))
+    recorder.history = [dict(start_s=0, end_s=2, cpu_s=3, rss_peak_mb=400,
+                            processes_peak=3, observed=1, unavailable=0),
+                        dict(start_s=2, end_s=4, cpu_s=0, rss_peak_mb=None,
+                            processes_peak=None, observed=0, unavailable=1)]
+    recorder.tick(force=True)
+    record = store.get('job_telemetry', jid)
+    record.update(elapsed_s=4, samples=1, unavailable_samples=1, observed_cpu_s=3, peak_rss_mb=400,
+                  latest={'cpu_percent': 150, 'rss_mb': 400, 'processes': 3})
+    store.put('job_telemetry', jid, record)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1100}, accept_downloads=True)
+        page.clock.install(time='2026-10-27T12:00:00Z')
+        page.clock.pause_at('2026-10-27T12:00:10Z')
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(page, store)
+        page.get_by_role('link', name='Jobs & progress', exact=True).click()
+        card = page.locator('.job-card')
+        expect(card).to_contain_text('1 / 4 tasks in current plan')
+        expect(card).to_contain_text('Active steps: software_check')
+        expect(card).to_contain_text('150%')
+        page.get_by_role('button', name='Resource use', exact=True).click()
+        def respond(expected_kind):
+            request = page.evaluate('window.acceptanceEvents.at(-1).value')
+            assert request['kind'] == expected_kind
+            result = dispatch(store, request['kind'], request['payload'])
+            page.evaluate('({response,workspace}) => {Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                          {'response': {'id': request['id'], 'ok': True, **result}, 'workspace': snapshot(store)})
+        respond('job_metrics')
+        dialog = page.get_by_role('dialog', name='Resource use & progress', exact=True)
+        expect(dialog).to_be_visible()
+        expect(dialog.locator('.usage-charts svg')).to_have_count(2)
+        expect(dialog).to_contain_text('100% = one logical CPU')
+        page.clock.fast_forward(4100)
+        respond('job_metrics')  # The open dialog polls the measurement endpoint.
+        with page.expect_download() as download:
+            dialog.get_by_role('button', name='Download record (ZIP)', exact=True).click()
+            respond('download_metrics')
+        archive_path = tmp_path / 'usage.zip'
+        download.value.save_as(archive_path)
+        with zipfile.ZipFile(archive_path) as archive:
+            saved = json.loads(archive.read('resource-use.json'))
+            assert saved['id'] == jid and saved['summary']['progress']['total'] == 4
+            assert 'resource-use.csv' in archive.namelist()
+        with page.expect_download() as download:
+            dialog.get_by_role('button', name='CSV', exact=True).click()
+            respond('download_metrics')
+        csv_path = tmp_path / 'usage.csv'
+        download.value.save_as(csv_path)
+        assert 'peak_process_rss_sum_mb' in csv_path.read_text()
+        # Simulate a checkpoint expanding the plan, then worker interruption.
+        record['progress'].update(completed=2, total=8, percent=25, dynamic_plan=True)
+        record['updated_at'] = now()
+        store.put('job_telemetry', jid, record)
+        dialog.get_by_role('button', name='Refresh', exact=True).click()
+        respond('job_metrics')
+        expect(dialog).to_contain_text('2 / 8 tasks in current plan')
+        expect(dialog).to_contain_text('Checkpoints can change the task total')
+        record['updated_at'] = '2000-01-01T00:00:00+00:00'
+        store.put('job_telemetry', jid, record)
+        dialog.get_by_role('button', name='Refresh', exact=True).click()
+        respond('job_metrics')
+        expect(dialog).to_contain_text('Updates paused')
+        expect(dialog).not_to_contain_text('150%')
+        store.update_job(jid, status='interrupted')
+        dialog.get_by_role('button', name='Refresh', exact=True).click()
+        respond('job_metrics')
+        expect(dialog).to_contain_text('Partial record')
+        expect(dialog).to_contain_text('Last reported steps: software_check')
+        page.set_viewport_size({'width': 390, 'height': 844})
+        assert dialog.evaluate('(node) => node.scrollWidth <= node.clientWidth+1')
+        assert dialog.locator('.modal-body').evaluate('(node) => node.scrollWidth <= node.clientWidth+1')
+        destination = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+        if destination:
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(Path(destination) / 'job-resource-use-mobile.png'), full_page=True)
+        dialog.get_by_role('button', name='Close dialog', exact=True).click()
+        expect(card).to_contain_text('Partial record')
+        assert card.evaluate('(node) => node.scrollWidth <= node.clientWidth+1')
+        assert errors == []
+        assert not store.all('samples') and not store.all('runs')
+        browser.close()
 
 
 def test_background_poll_preserves_and_queues_a_foreground_action(tmp_path):
