@@ -7,7 +7,7 @@ from .store import Store, workspace
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Bactologix — local HybAs and BaSIS workspace")
+    parser = argparse.ArgumentParser(description="Bactologix — local HybAs AWARE and BaSIS AWARE workspace")
     parser.add_argument("command", nargs="?", choices=["serve", "doctor", "smoke-test", "jobs"], default="serve")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--home", help="Workspace directory (default: platform user data directory)")

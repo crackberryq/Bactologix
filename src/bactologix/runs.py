@@ -408,7 +408,7 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
 def clone_runs(store, parent_id, aware_free=False, strategies=None):
     parent = store.get("runs", parent_id)
     if not parent or parent["tool"] != "hybas":
-        raise ValueError("Choose a HybAs parent run")
+        raise ValueError("Choose a HybAs AWARE parent run")
     check_run_files(parent)
     cfg = parse_config(parent["submitted"])
     if aware_free:

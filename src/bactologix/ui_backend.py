@@ -132,7 +132,7 @@ def _item(store, kind, key):
 def _tool(payload):
     tool = payload.get("tool")
     if tool not in PIPELINES:
-        raise ValueError("Choose HybAs or BaSIS")
+        raise ValueError("Choose HybAs AWARE or BaSIS AWARE")
     return tool
 
 
@@ -416,9 +416,9 @@ def dispatch(store, kind, p):
     if kind == "handoff":
         run = _item(store, "runs", p.get("id"))
         if run["tool"] != "hybas":
-            raise ValueError("Choose a HybAs run")
+            raise ValueError("Choose a HybAs AWARE run")
         if run_status(run, store.jobs(), dry_run_current(store, run)) != "completed":
-            raise ValueError("Complete the HybAs run before creating a BaSIS draft")
+            raise ValueError("Complete the HybAs AWARE run before creating a BaSIS AWARE draft")
         check_run_files(run)
         create_run(store, "basis", dict(run["sample"], path=run["output"]), store.get("configs", "basis", template("basis")), run["cores"], run["memory_mb"], run["id"], run["label"] + " · BaSIS")
         return {"message": "Created a new draft.", "navigate": "runs"}

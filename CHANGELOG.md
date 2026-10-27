@@ -1,5 +1,10 @@
 # Bactologix releases
 
+## 0.1.0a23 — consistent pipeline display names
+
+- Display **HybAs AWARE** consistently on pipeline cards, configuration/database tabs, run lists, selectors, help text and credits. Align the workspace header and footer with **HybAs AWARE + BaSIS AWARE**.
+- Use the shared pipeline names in run selectors so labels remain consistent. Native identifiers, repository/version names, workflow filenames, stored runs and environment locations are unchanged.
+
 ## 0.1.0a22 — simpler environment setup
 
 - Put distinct **Install environments** and **Check environments** actions directly on supported pipeline setup cards. Software preparation works without a sample or run draft; each dialog has a single explicit confirmation action.
