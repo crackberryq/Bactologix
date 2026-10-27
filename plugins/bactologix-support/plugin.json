@@ -1,0 +1,28 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "bactologix-support",
+  "version": "0.1.0",
+  "description": "Version-aware installation and troubleshooting support for Bactologix, HybAs and BaSIS using documentation and reviewed diagnostic snapshots.",
+  "author": {
+    "name": "Jimi Goldstein \u00b7 Human Link"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/crackberryq/Bactologix",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Bactologix Support",
+        "shortDescription": "Pipeline setup and support",
+        "longDescription": "Get documentation-grounded help with Bactologix, HybAs and BaSIS. Attach a reviewed diagnostic snapshot or error excerpt to troubleshoot software issues. No live machine connection or automatic changes.",
+        "developerName": "Jimi Goldstein \u00b7 Human Link",
+        "category": "Developer Tools",
+        "capabilities": [],
+        "defaultPrompt": [
+          "Help me install Bactologix.",
+          "Help me troubleshoot this Bactologix diagnostic snapshot.",
+          "Explain how to configure my installed pipeline version."
+        ]
+      }
+    }
+  }
+}

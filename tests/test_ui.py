@@ -143,3 +143,16 @@ def test_database_scan_browse_and_save_through_real_component(tmp_path, monkeypa
     import yaml
     config = yaml.safe_load(Store(tmp_path / 'workspace').get('configs', 'hybas'))
     assert (Path(config['db_root']) / config['kraken_db_name']).resolve() == db
+
+
+def test_support_preview_through_component(tmp_path, monkeypatch):
+    monkeypatch.setenv('BACTOLOGIX_HOME', str(tmp_path))
+    store = Store(tmp_path)
+    jid = store.submit('smoke', {})
+    store.log_path(jid).write_text('ERROR missing executable\npassword=hidden-value')
+    app = AppTest.from_file(str(APP)).run(timeout=20)
+    result = send(app, 'support_preview', {'job_ids': [jid], 'include_logs': True})
+    assert result['ok'] and result['keep_modal']
+    assert 'missing executable' in result['support_preview']
+    assert 'hidden-value' not in result['support_preview']
+    assert 'Get support' in app.get('bidi_component')[0].proto.html_content

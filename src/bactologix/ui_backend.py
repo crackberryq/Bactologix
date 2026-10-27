@@ -153,10 +153,13 @@ def dispatch(store, kind, p):
     """Only named UI commands are allowed. Browser-supplied objects are not trusted."""
     if not isinstance(p, dict):
         raise ValueError("Invalid action payload")
-    if kind not in {"refresh", "job_log", "download_log", "open_report", "open_original", "inspect_run", "refresh_app_releases", "cancel_job"}:
+    if kind not in {"support_preview", "refresh", "job_log", "download_log", "open_report", "open_original", "inspect_run", "refresh_app_releases", "cancel_job"}:
         updates.assert_current(store)
         if updates.status(store)["active_job"]:
             raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
+    if kind == "support_preview":
+        from .support import build_snapshot
+        return {"support_preview": build_snapshot(store, p.get("job_ids", []), p.get("include_logs", False)), "keep_modal": True}
     if kind == "refresh":
         return {}
     if kind == "refresh_app_releases":
