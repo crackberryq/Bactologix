@@ -1,4 +1,34 @@
-# Bactologix 0.1.0a25 — alpha
+# Bactologix 0.1.0a26 — alpha
+
+### Guided setup and protected run editing
+
+Start in **Install & update → Guided setup**. Choose a pipeline, review PC
+capacity, connect or install its runner, check/install/repair environments,
+select database locations, then review setup before creating a draft. Steps
+remain accessible in any order. Installation and download actions still require
+their explicit buttons. Setup status does not replace validation of a saved run.
+
+**Create run drafts** and **Edit settings** now open full pages: Samples → Run
+settings → Review. Unfinished run edits are retained in this browser tab, scoped
+to the workspace, and recovered after a refresh. **Save & exit** leaves the editor
+without creating a run; use **Resume editing** to return. **Discard edits** asks
+before clearing the unfinished editor. Browser storage may be unavailable or
+cleared when a tab closes; the editor reports recovery failures. Creating a draft
+stores it durably in the workspace and clears its browser recovery copy. This
+recovery feature applies to the run editor, not unsaved global defaults.
+
+Saved-run checks now show destination permissions, free space for results and
+working folders, and CPU/RAM budget warnings. Checks read directory permissions
+without creating files. Missing parents are checked at the closest existing
+directory. Unusable destinations and less than 1 MB free space block the relevant
+job, both at submission and worker start. Less than 5 GB is an advisory warning,
+not an output-size estimate. CPU/RAM oversubscription and explicit tool-memory
+limits above the run budget are advisory; no settings are silently adjusted.
+These checks cannot predict analysis storage/memory requirements, disk quotas,
+future disk growth, or every checkpoint-dependent environment. Native validation
+and runtime checks remain required. GPU detection now explicitly treats absent
+NVIDIA results as unknown availability, including on WSL.
+
 
 ### Run-specific Methods exports
 
@@ -37,7 +67,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a25-py3-none-any.whl
+pipx install ./bactologix-0.1.0a26-py3-none-any.whl
 bactologix
 ```
 
@@ -46,7 +76,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a25/bactologix-0.1.0a25-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a26/bactologix-0.1.0a26-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -55,7 +85,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a25/bactologix-0.1.0a25-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a26/bactologix-0.1.0a26-py3-none-any.whl"
 bactologix
 ```
 
@@ -63,7 +93,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a25-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a26-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 

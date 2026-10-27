@@ -1,3 +1,13 @@
+# Bactologix releases
+
+## 0.1.0a26 — guided setup and recoverable run drafts
+
+- Add a five-step setup guide for PC capacity, a selected pipeline, environments, databases and review. Reuse the existing explicit installation/download/repair controls, with scoped status and next actions.
+- Move new drafts and run revisions onto full pages. Retain unfinished selections, per-pipeline controls, raw YAML and budgets in this browser tab across navigation and refresh; require confirmation before discarding. Saved runs remain immutable and revisions stay separate.
+- Add read-only destination-permission, free-disk-space and CPU/RAM budget checks to saved runs. Recheck blocking destination failures when jobs are queued and when workers start; keep resource warnings advisory and never change frozen settings.
+- Clarify that an undetected NVIDIA GPU means availability is unknown, especially under WSL. Setup and hardware detection do not certify a complete run or working GPU environment.
+- Preserve explicit environment installation, automatic matching-cache reuse, database selection, Methods exports and application restart/update behavior.
+
 ## 0.1.0a25 — run-specific publication Methods
 
 - Add a Methods tab to every saved HybAs AWARE and BaSIS run, with a Results shortcut, reviewable prose and text, Markdown, printable HTML and reproducibility ZIP downloads.
@@ -5,8 +15,6 @@
 - Capture bounded execution metadata at workflow completion. Preserve historical follow-up records independently of shared outputs; identify legacy metadata read at export and leave missing tool/database versions explicit.
 - Include the exact YAML, settings origins, source/configuration hashes and available citation files. Record the app version for new drafts and update the bundled Bactologix citations. Export failures cannot fail an otherwise successful workflow.
 - No scientific algorithms, run configurations, environment policies or database preparation behavior changed.
-
-# Bactologix releases
 
 ## 0.1.0a24 — workstation presets and environment repair
 
