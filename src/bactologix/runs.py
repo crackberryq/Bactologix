@@ -427,7 +427,7 @@ def clone_runs(store, parent_id, aware_free=False, strategies=None):
 
 
 def validate_launch(store, rid, action, check_busy=True):
-    if action not in {"dry-run", "prepare", "run"}:
+    if action not in {"dry-run", "prepare", "run", "check-environments"}:
         raise ValueError("Unsupported workflow action")
     run = store.get("runs", rid)
     if not run:
@@ -459,6 +459,8 @@ def command(store, run, action):
             "--use-conda", "--conda-prefix", run.get("rule_cache") or str(store.home / "envs" / run["tool"]), "--rerun-incomplete"]
     if action == "dry-run":
         argv.append("--dry-run")
+    elif action == "check-environments":
+        argv.append("--list-conda-envs")
     elif action == "prepare":
         argv.append("--conda-create-envs-only")
     elif action == "run":
@@ -472,6 +474,10 @@ def execute_workflow(ctx):
     run = validate_launch(store, payload["run_id"], payload["action"], check_busy=False)
     if tree_digest(Path(run["folder"]) / "workflow") != run["workflow_sha256"]:
         raise ValueError("The run's workflow source changed; create a new draft")
+    if payload["action"] == "check-environments":
+        from .readiness import check_environments
+        check_environments(ctx, run)
+        return
     ctx.write("Run " + run["id"] + " · source " + run["commit"])
     ctx.write("Input identity uses file size/mtime checks. Workflow provenance may add content checksums.")
     if payload['action'] == 'run':

@@ -19,7 +19,7 @@ from .runs import (absolute_path, clone_runs, command, create_run, import_sample
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
 from . import databases, updates
-from . import followup, maintenance, database_runs, run_config, run_revisions, default_config, installations
+from . import followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
 _SNAPSHOTS = {}
 
@@ -40,7 +40,7 @@ def installation_status(item, jobs):
     elif not supported_source:
         state, message = "Version not supported", "Source downloaded. Update Bactologix or choose a version marked Runner supported."
     elif item.get("ready"):
-        state, message = "Ready", "Runner verified. Runs reuse installed tool environments. Missing tools require an explicit installation."
+        state, message = "Runner set up", "Runner verified. Runs reuse installed tool environments. Missing tools require an explicit installation."
         required = item.get("controller_requirements")
         if required:
             message = f"Runner verified: Python {required['python']} / Snakemake {required['snakemake']}. Runs reuse installed tool environments. Missing tools require an explicit installation."
@@ -73,7 +73,7 @@ def configuration_fields(tool, text):
 
 
 def snapshot(store):
-    jobs = store.jobs()
+    jobs = [{**j, "guidance": readiness.job_guidance(store, j)} for j in store.jobs()]
     app_update = updates.status(store)
     # pip briefly replaces package data. Keep the already-rendered workspace
     # available until restart instead of reading those files during replacement.
@@ -366,6 +366,7 @@ def dispatch(store, kind, p):
     if kind == "inspect_run":
         run = copy.deepcopy(_item(store, "runs", p.get("id")))
         run["database_paths"] = database_runs.paths(store, run)
+        run["readiness"] = readiness.panel(store, run)
         run["settings"] = run_config.editor(run["tool"], run["config"])
         try:
             run["command"] = shlex.join(command(store, run, "run"))
@@ -385,7 +386,7 @@ def dispatch(store, kind, p):
     if kind == "workflow":
         ids = _ids(p)
         action = p.get("action")
-        if action not in {"dry-run", "prepare", "run"}:
+        if action not in {"dry-run", "prepare", "run", "check-environments"}:
             raise ValueError("Unknown workflow action")
         for rid in ids:
             validate_launch(store, rid, action)
