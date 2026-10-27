@@ -189,7 +189,7 @@ def dispatch(store, kind, p):
         return {"message": "Environment " + payload["action"] + " queued: " + jid, "navigate": "jobs"}
     if kind == "set_environment_cache":
         maintenance.set_cache(store, p.get("id"), p.get("path"))
-        return {"message": "Environment cache selected for maintenance and future run drafts. Check selected to verify reuse.",
+        return {"message": "Environment folder saved for this installation and future drafts. Matching environments are reused automatically.",
                 "open_environments": p.get("id"), "keep_modal": True}
     if kind == "reuse_environment_choices":
         item = _item(store, 'installs', p.get('id'))

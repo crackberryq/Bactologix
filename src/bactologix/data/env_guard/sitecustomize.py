@@ -24,8 +24,8 @@ def enforce_existing_environments():
                 and conda.get_env_setup_done_flag_file(prefix).is_file()):
             raise WorkflowError(
                 'Bactologix runs use existing environments only. A matching environment is missing or incomplete: '
-                + str(prefix) + '. Choose Reuse existing environments to select the previous cache, '
-                'or explicitly use Install environments / Install selected before retrying. '
+                + str(prefix) + '. Use Install environments for this saved run, or open Install & update '
+                'to prepare the pipeline tools. Matching environments are reused automatically. '
                 'Nothing was installed, removed or repaired.')
         return str(prefix)
 

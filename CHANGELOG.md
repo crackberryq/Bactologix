@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a22 — simpler environment setup
+
+- Put distinct **Install environments** and **Check environments** actions directly on supported pipeline setup cards. Software preparation works without a sample or run draft; each dialog has a single explicit confirmation action.
+- Remove the separate **Reuse existing environments** control. Updates already inherit the previous active version's environment folder, and Snakemake automatically reuses matching environments. Show this behavior directly in setup.
+- Move manual storage changes into collapsed **Advanced: environment storage**, with selection counts and Select all / Clear selection controls. Require folder changes to be saved before checking or installing.
+- Preserve frozen run caches and explicit installation policy. Verify automatic cache inheritance with the real Conda reuse fixture; scientific configuration and workflow execution are unchanged.
+
 ## 0.1.0a21 — navigation and dedicated run pages
 
 - Separate registered input folders in **Samples** from saved drafts/history in **Runs**, with sample links, search and pipeline/status filters. Make hidden selections explicit before batch actions.

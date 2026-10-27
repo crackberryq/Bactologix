@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a21 — alpha
+# Bactologix 0.1.0a22 — alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -13,7 +13,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a21-py3-none-any.whl
+pipx install ./bactologix-0.1.0a22-py3-none-any.whl
 bactologix
 ```
 
@@ -22,7 +22,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a21/bactologix-0.1.0a21-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a22/bactologix-0.1.0a22-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -31,7 +31,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a21/bactologix-0.1.0a21-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a22/bactologix-0.1.0a22-py3-none-any.whl"
 bactologix
 ```
 
@@ -39,7 +39,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a21-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a22-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -120,13 +120,16 @@ Jobs show focused recovery guidance for recognized missing database, input-chang
 
 ## Check and install tool environments
 
-In **Install & update**, open **Check / install environments** on a ready installation. Select the environments to inspect and click **Check selected**. The worker asks Snakemake for the exact cache paths, checks deployment completion and runs each installed environment's native executable/version probes. Missing, incomplete and failed environments remain distinct from verified ones.
+Each ready pipeline card in **Install & update** has two direct actions:
 
-**Reuse existing environments** is available directly on each ready version card. Choose a cache recorded by an earlier version or browse to an existing Snakemake cache, then click **Use selected cache** and **Check selected** to verify matching tools. Select the parent cache folder, not an individual Conda environment. New pipeline installations inherit the previous active version’s selected cache; retries keep their existing selection.
+- **Install environments** opens the software selection. Choose the tools, then click **Install selected**. No sample or run draft is required. Existing matching environments are reused automatically; missing or changed requirements are prepared using the native recipes.
+- **Check environments** opens a read-only check. Choose the tools, then click **Check selected**. Snakemake identifies the exact paths, checks deployment completion and runs the installed tools' executable/version probes. Missing, incomplete and failed environments remain distinct from verified ones.
+
+**Reuse is automatic.** New pipeline installations inherit the previous active version's environment folder; retries retain their existing folder. Snakemake determines whether the environments match. There is no separate reuse button and no broad scan of unrelated Conda installations. The selected location remains visible on the setup card. Use **Check environments** for fresh evidence of which tools work.
 
 **Normal runs never create, repair or replace Snakemake tool environments.** They use matching completed environments in the saved cache. If an updated recipe has no matching environment, the run stops with its missing path and an explicit installation choice. Use **Install environments** on a saved run or **Install selected** in the environment panel to authorize deployment. Dry-runs remain available before installation. Snakemake's native environment hashes still determine compatibility; a different recipe is not forced into an old environment. This policy also applies to environments discovered by checkpoints and Snakemake subprocesses.
 
-**Environment cache folder → Browse → Use this cache** also selects an existing cache for maintenance and future drafts. Existing run drafts retain their original cache. Snakemake 9.6.2 invokes deployment scripts with an unquoted cache path, so choose a cache path without spaces or shell characters; Bactologix checks this before requesting installation. Source, workspace and database destination folders may contain spaces.
+**Advanced: environment storage → Environment cache folder → Browse → Save folder** changes storage or selects an external Snakemake cache. This section is collapsed by default. Save any folder change before checking or installing; unsaved changes disable those actions. Existing run drafts retain their original cache. Snakemake 9.6.2 invokes deployment scripts with an unquoted cache path, so choose a cache path without spaces or shell characters; Bactologix checks this before requesting installation. Source, workspace and database destination folders may contain spaces.
 
 **Install selected** deploys only the selected environment recipes, then checks them. No samples, analyses or database download targets are scheduled. Optional environments remain optional for analysis. Compatible environments are reused from the installation's configured cache. A completed environment whose tools fail checks is retained for diagnosis; this control does not delete it. Follow progress in **Jobs & progress**, then reopen the environment panel for status and check time.
 

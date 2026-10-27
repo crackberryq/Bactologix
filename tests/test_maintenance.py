@@ -92,6 +92,19 @@ def test_install_uses_only_environment_deployment_and_probes(installed):
     assert store.get('environment_checks', item['id'])['assembly']['status'] == 'Verified'
 
 
+@pytest.mark.parametrize('action', ['check', 'install'])
+def test_setup_action_queues_only_selected_software_without_a_run(installed, monkeypatch, action):
+    store, item = installed
+    monkeypatch.setattr('bactologix.ui_backend.enqueue', lambda store, kind, payload: store.submit(kind, payload))
+    response = dispatch(store, 'manage_environments', {'id': item['id'], 'action': action, 'selected': ['qc']})
+    assert response['navigate'] == 'jobs'
+    job, = store.jobs()
+    assert job['kind'] == 'environments' and job['payload']['action'] == action
+    assert set(job['payload']['definitions']) == {'qc'}
+    assert job['payload']['cache'] == item['rule_cache']
+    assert not store.all('samples') and not store.all('runs')
+
+
 def test_environment_failure_is_persisted_and_not_deleted(installed):
     store, item = installed
     prefix = ready_environment(store, item, 0)
