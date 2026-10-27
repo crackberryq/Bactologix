@@ -82,6 +82,14 @@ Compatible snapshots remain selectable even after a branch moves. Unsupported do
 
 Diagnostic commands: `bactologix doctor`, `bactologix jobs`, and `bactologix smoke-test`.
 
+## Get support (development feature)
+
+**Get support** in the top bar creates a diagnostic snapshot for the Bactologix Support ChatGPT plugin. Choose a job if relevant, optionally include its error and the last 32 KiB of its log, then **Generate preview**. Logs are off by default. Review and edit the preview before **Download reviewed snapshot**, then attach the downloaded text in ChatGPT. Nothing is uploaded automatically. This feature must be included in an installed release before the button is available.
+
+The snapshot includes application/platform versions, up to 100 recorded installation commits/readiness values, and selected job status/timestamps and frozen run commit when available. Readiness is stored state, not a new environment probe. Input files, reports, full configuration, job payloads, and environment variables are excluded. Paths, registered/frozen sample identifiers and common credential patterns are redacted from optional free text on a best-effort basis; other sensitive content can remain. Always review it. Log excerpts may omit the original error. Downloads use the exact editable preview, not a fresh collection.
+
+The plugin source lives in `plugins/bactologix-support`. It provides documentation-guided support with no live machine connection or automatic changes. Its bundled README is explicitly versioned; newer or pipeline-specific advice requires matching official documentation. Private plugin creation is separate from public directory publication.
+
 ## Browse samples and connect existing tools
 
 **Add sample → Browse folders** opens a folder explorer on the machine running Bactologix. Use Home, Workspace, Computer, or a mounted Windows drive shortcut; navigate into the sample folder and click **Select this folder**. Folder name and read subfolders suggest the sample ID and read mode, which remain editable. No reads are uploaded or copied by this picker. It is an in-app explorer and requires no desktop GUI toolkit. Windows drive paths (`C:\Users\...`) and paths to the active WSL distribution can also be pasted into the picker.

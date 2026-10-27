@@ -1,3 +1,8 @@
+## Unreleased
+
+- Add Get support: optional bounded log excerpts, best-effort redaction, editable preview and snapshot download without uploading data.
+- Add the Bactologix Support documentation plugin source.
+
 # Bactologix releases
 
 ## 0.1.0a18 — one-command launch with browser opening
