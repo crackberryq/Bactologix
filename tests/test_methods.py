@@ -116,6 +116,15 @@ def test_unknown_source_never_borrows_current_defaults(workspace, run):
     assert not doc['software']
 
 
+def test_derived_memory_default_and_quoted_boolean(workspace, run):
+    cfg = yaml.safe_load(run['config'])
+    cfg.update(assembly_mem_mb=6000, run_busco='false')
+    run = rewrite(run, cfg)
+    doc = methods.build(workspace, run)
+    assert next(p for p in doc['parameters'] if p['setting'] == 'spades_memory_gb')['value'] == '5'
+    assert 'BUSCO completeness' not in '\n'.join(doc['paragraphs'])
+
+
 def basis_run(run, monkeypatch, **overrides):
     monkeypatch.setitem(methods.DEFAULTS['sources'], 'basis', run['commit'])
     cfg = {'threads': 3, 'memory_mb': 5000, 'extend': False,

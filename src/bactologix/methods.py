@@ -168,10 +168,11 @@ def _configuration(run, warnings):
         return cfg, cfg, False
     effective = copy.deepcopy(DEFAULTS['defaults'][run['tool']])
     raw = _read(source, 'config.yaml')
-    if raw:
-        effective = _merge(effective, parse_config(raw.decode('utf-8')))
-    effective = _merge(effective, cfg)
+    configured = _merge(parse_config(raw.decode('utf-8')) if raw else {}, cfg)
+    effective = _merge(effective, configured)
     if run['tool'] == 'hybas':
+        if 'spades_memory_gb' not in configured:
+            effective['spades_memory_gb'] = max(1, int(effective['assembly_mem_mb']) // 1024)
         for key in ('run_kraken', 'run_busco', 'run_prokka', 'run_multiqc', 'run_polypolish'):
             value = effective[key]
             if isinstance(value, str):
@@ -184,12 +185,12 @@ def _configuration(run, warnings):
         for key in ('kraken_decision_mode', 'polish_mode'):
             effective[key] = str(effective[key]).strip().lower()
     if run['tool'] == 'basis':
-        threads = cfg.get('threads', 4)
+        threads = configured.get('threads', 4)
         for module, section in effective['modules'].items():
-            section['threads'] = cfg.get('modules', {}).get(module, {}).get('threads', threads)
+            section['threads'] = configured.get('modules', {}).get(module, {}).get('threads', threads)
         if isinstance(effective.get('deep'), bool):
             effective['deep'] = _merge(DEFAULTS['defaults']['basis']['deep'], {'enabled': effective['deep']})
-        effective['deep']['threads'] = cfg.get('deep', {}).get('threads', threads) if isinstance(cfg.get('deep', {}), dict) else threads
+        effective['deep']['threads'] = configured.get('deep', {}).get('threads', threads) if isinstance(configured.get('deep', {}), dict) else threads
         effective['modules']['pathogenfinder2']['enabled'] &= bool(effective.get('extend', True))
         effective['execution'].update(cores=threads, memory_mb=run['memory_mb'])
         if run.get('run_type') == 'followup':
