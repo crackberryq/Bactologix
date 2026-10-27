@@ -72,7 +72,8 @@ def test_sample_picker_configuration_and_report(tmp_path):
         port_socket.bind(('127.0.0.1', 0))
         port = port_socket.getsockname()[1]
     log = (tmp_path / 'server.log').open('w')
-    proc = subprocess.Popen([sys.executable, '-m', 'bactologix.cli', '--home', str(workspace), '--port', str(port)],
+    proc = subprocess.Popen([str(Path(sys.executable).with_name('bactologix')), '--home', str(workspace),
+                             '--host', '127.0.0.1', '--port', str(port), '--no-browser'],
                             stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     try:
         url = f'http://127.0.0.1:{port}'

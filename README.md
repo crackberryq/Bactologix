@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a17 — alpha
+# Bactologix 0.1.0a18 — alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -13,7 +13,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a17-py3-none-any.whl
+pipx install ./bactologix-0.1.0a18-py3-none-any.whl
 bactologix
 ```
 
@@ -22,7 +22,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a17/bactologix-0.1.0a17-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a18/bactologix-0.1.0a18-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -31,21 +31,32 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a17/bactologix-0.1.0a17-py3-none-any.whl"
-python -m bactologix.cli
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a18/bactologix-0.1.0a18-py3-none-any.whl"
+bactologix
 ```
 
 For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a17-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a18-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
-Open http://localhost:8501. The launcher runs headlessly, so WSL does not try to launch a Linux browser. Automatic source watching is disabled for the packaged app, preventing pip from triggering a rerun halfway through an update. Use `python -m bactologix.cli --port 8502` and http://localhost:8502 when using a different local port. On Windows, run these commands inside WSL2; use Linux paths such as `/home/jimi/...` or `/mnt/c/...` in the app. This app cannot operate the user's workstation from ChatGPT: install it on the machine containing the samples. Native Windows pipeline execution is not supported.
+After installation, activate the environment containing Bactologix and run:
 
-The launcher binds to `127.0.0.1` by default. If Windows-to-WSL localhost forwarding fails while the WSL health check succeeds, use `bactologix --host <WSL-private-IP> --port 8502` and open that same IP and port in Windows. Obtain the current WSL address with `hostname -I`; it may change after restarting WSL. This is a local, single-user tool, not a public server. `--home /absolute/workspace` selects a workspace; the default is the platform user data directory. `BACTOLOGIX_HOME` also selects it. Jobs persist in SQLite and logs remain on disk. Closing a browser does not stop a job; stop it from Jobs & progress.
+```bash
+conda activate bactomix
+bactologix
+```
+
+The installed `bactologix` command starts the application, waits for the server to report readiness and pass its health check, then opens the browser. Keep the terminal open; **Ctrl+C** stops the web UI. On WSL it opens the Windows default browser and detects the current private address, avoiding stale IP addresses and broken localhost forwarding. Mirrored WSL networking uses loopback. On a Linux desktop or macOS it uses the default browser. If automatic opening is unavailable, the terminal prints the address and the server remains available.
+
+The default port is 8501, with automatic selection through 8520 if occupied. `bactologix --no-browser` starts without opening a browser. `--host` and `--port` override the detected address and port; an occupied explicit port produces an error. The launcher does not kill other processes or modify Windows network/browser settings. Starting the command again starts another UI server on a free port; close the previous one with Ctrl+C before restarting after an update.
+
+Automatic source watching is disabled for the packaged app, preventing pip from triggering a rerun halfway through an update. `python -m bactologix.cli` remains available as an equivalent entry point. On Windows, run the command inside WSL2; use Linux paths such as `/home/jimi/...` or `/mnt/c/...` in the app. Native Windows pipeline execution is not supported. Windows browser opening requires WSL interoperability; if it is unavailable, open the printed URL manually.
+
+This is a local, single-user tool, not a public server. Ordinary Linux/macOS launches bind to `127.0.0.1`; WSL NAT launches bind to the detected private interface rather than all interfaces. `--home /absolute/workspace` selects a workspace; the default is the platform user data directory. `BACTOLOGIX_HOME` also selects it. Jobs persist in SQLite and logs remain on disk. Closing the browser or stopping the UI does not cancel a background job; use Jobs & progress to cancel it.
 
 ## Update Bactologix
 
@@ -53,7 +64,7 @@ Use **Update Bactologix** in the top bar or **Install & update**. Click **Refres
 
 Finish or cancel queued/running jobs first. The updater checks the asset again, verifies its size, checksum, package identity and Python requirement, then runs pip through the exact Python interpreter serving Bactologix. The job log records installation progress. Once installation starts it cannot be cancelled from the app. An environment lock also prevents an update from overlapping another Bactologix worker using that Python environment. These locks do not coordinate unrelated external pip/Conda commands.
 
-After it finishes, press **Ctrl+C** in the Bactologix terminal and rerun the same launch command, including `--host`, `--port` and `--home` if used. Refresh the browser after restart. A banner reminds you to restart, and new work is blocked in the old app process. This first updater does not automatically restart Streamlit. Pipeline runners, databases, settings, cached tool environments and run folders are separate from the application package. Pip may update application dependencies when required by the selected release.
+After it finishes, press **Ctrl+C** in the Bactologix terminal and run **`bactologix`** again. The new process opens the browser when ready. Retain `--home` or explicit host/port overrides if you use them. A banner reminds you to restart, and new work is blocked in the old app process. This first updater does not automatically restart Streamlit. Pipeline runners, databases, settings, cached tool environments and run folders are separate from the application package. Pip may update application dependencies when required by the selected release.
 
 For **v0.1.0a5 and earlier**, install this release once using the wheel command above; the update button becomes available after restarting. If BaSIS `f66dfedd` was already downloaded, open **Install & update → BaSIS → Finish setup**. This uses the downloaded source and creates or reuses its runner. The runner environment definition is unchanged from the earlier supported BaSIS revision. Read **Setup log** if setup fails; **Retry setup** reuses an existing runner, whereas **Repair runner** creates a separate replacement.
 

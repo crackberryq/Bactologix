@@ -243,7 +243,12 @@ def test_launcher_preserves_requested_listen_address(tmp_path, monkeypatch, host
     from bactologix.cli import main
     calls = []
     monkeypatch.setattr(sys, 'argv', ['bactologix', '--home', str(tmp_path), '--host', host, '--port', '8502'])
-    monkeypatch.setattr(subprocess, 'call', lambda argv: calls.append(argv) or 0)
+    from bactologix import launcher
+    def fake_serve(home, host, port, browser):
+        assert home == tmp_path and browser
+        calls.append(launcher.server_command(host, port))
+        return 0
+    monkeypatch.setattr(launcher, 'serve', fake_serve)
     with pytest.raises(SystemExit) as result:
         main()
     assert result.value.code == 0
