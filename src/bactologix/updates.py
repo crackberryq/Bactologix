@@ -21,6 +21,7 @@ from packaging.version import InvalidVersion, Version
 from . import __version__
 from .catalog import api, pages
 from .store import now
+from . import restart as restart_control
 
 REPO = "crackberryq/Bactologix"
 PROCESS_STARTED = time.time()
@@ -68,6 +69,10 @@ def status(store):
     except importlib.metadata.PackageNotFoundError:
         installed = __version__  # Source checkout or a wheel replacement in progress.
     restart = bool(state.get("pip_started_at", 0) > PROCESS_STARTED or installed != __version__)
+    launcher = restart_control.current_launcher(store)
+    automatic = bool(launcher
+                     and (not active or active['payload'].get('launcher_id') == launcher['id'])
+                     and (not restart or (state.get('launcher_id') == launcher['id'] and state.get('restart_status') != 'failed' and state.get('status') != 'failed')))
     catalog = copy.deepcopy(store.get("app_catalog", "releases"))
     if catalog:
         for release in catalog["releases"]:
@@ -75,12 +80,17 @@ def status(store):
     return {"running_version": __version__, "installed_version": installed, "python": sys.executable,
             "environment": sys.prefix, "catalog": catalog,
             "active_job": active["id"] if active else None, "restart_required": restart,
+            "automatic_restart": automatic,
+            "launcher": {k: launcher[k] for k in ('id', 'version', 'url')} if launcher else None,
             "last_update": state, "can_install": platform.system() == "Linux" and not restart
             and not any(j["status"] in {"queued", "running"} for j in store.jobs())}
 
 
 def assert_current(store):
-    if status(store)["restart_required"]:
+    info = status(store)
+    if info["restart_required"] and info["automatic_restart"]:
+        raise ValueError("Bactologix is updating and will restart automatically. Wait for this tab to refresh before starting more work.")
+    if info["restart_required"]:
         raise ValueError("Restart Bactologix to load the installed application before starting more work. In its terminal press Ctrl+C, then rerun your Bactologix launch command.")
 
 
@@ -137,7 +147,8 @@ def install_update(ctx):
     ctx.write("Wheel identity, checksum and Python requirement verified.")
     ctx.write("Updating only the application environment: " + sys.prefix)
     state = {"job": ctx.job["id"], "from_version": __version__, "version": latest["version"],
-             "wheel": str(wheel), "sha256": latest["sha256"], "pip_started_at": time.time(), "status": "installing"}
+             "wheel": str(wheel), "sha256": latest["sha256"], "pip_started_at": time.time(), "status": "installing",
+             "environment": sys.prefix, "launcher_id": ctx.job['payload'].get('launcher_id')}
     ctx.store.put("settings", "app-update", state)
     argv = [sys.executable, "-m", "pip", "--isolated", "install", "--upgrade", "--no-user", "--no-input",
             "--disable-pip-version-check", str(wheel)]
@@ -159,4 +170,7 @@ def install_update(ctx):
         raise
     state.update(status="installed", finished=now())
     ctx.store.put("settings", "app-update", state)
-    ctx.write("Update installed. In the Bactologix terminal press Ctrl+C, then rerun the same launch command (including your port). Refresh your browser after restart.")
+    if state['launcher_id']:
+        ctx.write('Update verified. The launcher will restart the app on the same address after this job finishes; open browser tabs will refresh automatically.')
+    else:
+        ctx.write('Update verified. This session has no automatic restart supervisor. Press Ctrl+C, then run bactologix once and refresh the browser.')

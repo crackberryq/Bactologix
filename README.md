@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a18 — alpha
+# Bactologix 0.1.0a19 — alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -13,7 +13,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a18-py3-none-any.whl
+pipx install ./bactologix-0.1.0a19-py3-none-any.whl
 bactologix
 ```
 
@@ -22,7 +22,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a18/bactologix-0.1.0a18-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a19/bactologix-0.1.0a19-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -31,7 +31,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a18/bactologix-0.1.0a18-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a19/bactologix-0.1.0a19-py3-none-any.whl"
 bactologix
 ```
 
@@ -39,7 +39,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a18-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a19-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -52,7 +52,7 @@ bactologix
 
 The installed `bactologix` command starts the application, waits for the server to report readiness and pass its health check, then opens the browser. Keep the terminal open; **Ctrl+C** stops the web UI. On WSL it opens the Windows default browser and detects the current private address, avoiding stale IP addresses and broken localhost forwarding. Mirrored WSL networking uses loopback. On a Linux desktop or macOS it uses the default browser. If automatic opening is unavailable, the terminal prints the address and the server remains available.
 
-The default port is 8501, with automatic selection through 8520 if occupied. `bactologix --no-browser` starts without opening a browser. `--host` and `--port` override the detected address and port; an occupied explicit port produces an error. The launcher does not kill other processes or modify Windows network/browser settings. Starting the command again starts another UI server on a free port; close the previous one with Ctrl+C before restarting after an update.
+The default port is 8501, with automatic selection through 8520 if occupied. `bactologix --no-browser` starts without opening a browser. `--host` and `--port` override the detected address and port; an occupied explicit port produces an error. The launcher does not kill other processes or modify Windows network/browser settings. Starting the command again starts another UI server on a free port; close the previous one with Ctrl+C when manually starting a replacement session.
 
 Automatic source watching is disabled for the packaged app, preventing pip from triggering a rerun halfway through an update. `python -m bactologix.cli` remains available as an equivalent entry point. On Windows, run the command inside WSL2; use Linux paths such as `/home/jimi/...` or `/mnt/c/...` in the app. Native Windows pipeline execution is not supported. Windows browser opening requires WSL interoperability; if it is unavailable, open the printed URL manually.
 
@@ -64,7 +64,11 @@ Use **Update Bactologix** in the top bar or **Install & update**. Click **Refres
 
 Finish or cancel queued/running jobs first. The updater checks the asset again, verifies its size, checksum, package identity and Python requirement, then runs pip through the exact Python interpreter serving Bactologix. The job log records installation progress. Once installation starts it cannot be cancelled from the app. An environment lock also prevents an update from overlapping another Bactologix worker using that Python environment. These locks do not coordinate unrelated external pip/Conda commands.
 
-After it finishes, press **Ctrl+C** in the Bactologix terminal and run **`bactologix`** again. The new process opens the browser when ready. Retain `--home` or explicit host/port overrides if you use them. A banner reminds you to restart, and new work is blocked in the old app process. This first updater does not automatically restart Streamlit. Pipeline runners, databases, settings, cached tool environments and run folders are separate from the application package. Pip may update application dependencies when required by the selected release.
+After a successful, verified update, the `bactologix` launcher restarts the application on the **same address and port**. Keep the terminal and browser tab open: the tab refreshes automatically after the new server identifies itself and passes its health check. The launcher waits for the update job to succeed and the queue to become idle. Failed installation or fresh-import verification keeps the old server available with the log and manual restart guidance. A restart does not open a duplicate browser tab.
+
+**One-time transition from a18 or earlier:** the already-running launcher cannot gain this feature until restarted. After installing a19, press **Ctrl+C**, then run **`bactologix`** once (retain custom `--home`, `--host` or `--port` options). Later updates use automatic restart and refresh. Manually launched Streamlit sessions still show manual restart instructions. Downgrading to a release without the new server identity requires a manual browser refresh.
+
+Pipeline runners, databases, settings, cached tool environments and run folders are separate from the application package. Pip may update application dependencies when required by the selected release.
 
 For **v0.1.0a5 and earlier**, install this release once using the wheel command above; the update button becomes available after restarting. If BaSIS `f66dfedd` was already downloaded, open **Install & update → BaSIS → Finish setup**. This uses the downloaded source and creates or reuses its runner. The runner environment definition is unchanged from the earlier supported BaSIS revision. Read **Setup log** if setup fails; **Retry setup** reuses an existing runner, whereas **Repair runner** creates a separate replacement.
 
@@ -100,6 +104,8 @@ Only the reviewed source commits below can be connected for managed runs. Modifi
 In **Install & update**, open **Check / install environments** on a ready installation. Select the environments to inspect and click **Check selected**. The worker asks Snakemake for the exact cache paths, checks deployment completion and runs each installed environment's native executable/version probes. Missing, incomplete and failed environments remain distinct from verified ones.
 
 **Reuse existing environments** is available directly on each ready version card. Choose a cache recorded by an earlier version or browse to an existing Snakemake cache, then click **Use selected cache** and **Check selected** to verify matching tools. Select the parent cache folder, not an individual Conda environment. New pipeline installations inherit the previous active version’s selected cache; retries keep their existing selection.
+
+**Normal runs never create, repair or replace Snakemake tool environments.** They use matching completed environments in the saved cache. If an updated recipe has no matching environment, the run stops with its missing path and an explicit installation choice. Use **Install environments** on a saved run or **Install selected** in the environment panel to authorize deployment. Dry-runs remain available before installation. Snakemake's native environment hashes still determine compatibility; a different recipe is not forced into an old environment. This policy also applies to environments discovered by checkpoints and Snakemake subprocesses.
 
 **Environment cache folder → Browse → Use this cache** also selects an existing cache for maintenance and future drafts. Existing run drafts retain their original cache. Snakemake 9.6.2 invokes deployment scripts with an unquoted cache path, so choose a cache path without spaces or shell characters; Bactologix checks this before requesting installation. Source, workspace and database destination folders may contain spaces.
 

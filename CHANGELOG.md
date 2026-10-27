@@ -1,5 +1,13 @@
 # Bactologix releases
 
+## 0.1.0a19 — automatic update restart and explicit environment installation
+
+- Successful app updates restart the supervised application on its existing address after fresh-version verification and job completion. Open tabs wait for the new server identity and health check, then refresh automatically; failed updates preserve the running server.
+- Upgrading from a18 or an older launcher needs one final manual restart with `bactologix`. Subsequent updates use the supervisor. Existing manual Streamlit sessions retain clear fallback instructions.
+- Normal runs reuse matching, completed Snakemake Conda environments only. Missing or incomplete environments stop the run with an explicit installation choice; no automatic creation, deletion or repair occurs, including checkpoint/subprocess deployment.
+- Pipeline updates retain the selected environment cache. The saved-run preparation action is now labelled **Install environments**; **Install selected** remains available for deliberate deployment. Changed requirements still require a matching environment.
+- Add real launcher restart, Chromium tab-refresh and sample-free Conda reuse/refusal checks. Scientific settings and workflow algorithms are unchanged.
+
 ## 0.1.0a18 — one-command launch with browser opening
 
 - The installed `bactologix` command now opens the browser after its own Streamlit server binds and passes a local health check. Keep the existing `python -m bactologix.cli` entry point.

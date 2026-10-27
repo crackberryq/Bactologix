@@ -12,9 +12,12 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from urllib.request import ProxyHandler, build_opener
+from .store import Store
+from . import restart
 
 
 def is_wsl():
@@ -94,6 +97,7 @@ def free_port(host, requested=None):
             for family, socktype, protocol, _, address in addresses:
                 try:
                     with socket.socket(family, socktype, protocol) as probe:
+                        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                         probe.bind(address)
                     return port
                 except OSError:
@@ -105,11 +109,11 @@ def free_port(host, requested=None):
     raise ValueError(f'No available port on {host} between 8501 and 8520. Check the address or choose --host / --port explicitly.')
 
 
-def server_command(host, port):
-    argv = [sys.executable, '-m', 'streamlit', 'run', str(Path(__file__).with_name('app.py')),
+def server_command(host, port, app=None):
+    argv = [sys.executable, '-m', 'streamlit', 'run', str(app or Path(__file__).with_name('app.py')),
             '--server.address', host, '--server.port', str(port), '--server.headless', 'true',
             '--server.fileWatcherType', 'none', '--browser.gatherUsageStats', 'false',
-            '--server.baseUrlPath', '', '--logger.hideWelcomeMessage', 'false']
+            '--server.baseUrlPath', '', '--logger.hideWelcomeMessage', 'false', '--server.enableStaticServing', 'true']
     if host not in {'0.0.0.0', '::'}:
         argv += ['--browser.serverAddress', host]
     return argv
@@ -173,54 +177,77 @@ def serve(home, host=None, port=None, browser=True):
     host = checked_host(host or default_host())
     port = free_port(host, port)
     url = browser_url(host, port)
-    env = dict(os.environ, BACTOLOGIX_HOME=str(home), PYTHONUNBUFFERED='1')
-    print(f'Starting Bactologix at {url}\nKeep this terminal open. Press Ctrl+C to stop the app.', flush=True)
-    proc = subprocess.Popen(server_command(host, port), env=env, start_new_session=os.name != 'nt',
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-    listening = threading.Event()
-    def relay_output():
-        for line in proc.stdout:
-            # The pinned Streamlit release prints this only after its server binds.
-            if 'You can now view your Streamlit app in your browser.' in line:
-                listening.set()
+    store = Store(home)
+    parent = store.home / 'launcher'
+    parent.mkdir(exist_ok=True)
+    restarting = False
+    with tempfile.TemporaryDirectory(prefix='server-', dir=parent) as temporary:
+        item = restart.register(store, url)
+        app = restart.make_app(temporary, item)
+        env = dict(os.environ, BACTOLOGIX_HOME=str(home), BACTOLOGIX_LAUNCH_ID=item['id'], PYTHONUNBUFFERED='1')
+        print(f'Starting Bactologix at {url}\nKeep this terminal open. Press Ctrl+C to stop the app.', flush=True)
+        proc = subprocess.Popen(server_command(host, port, app), env=env, start_new_session=os.name != 'nt',
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        listening = threading.Event()
+        def relay_output():
+            for line in proc.stdout:
+                # The pinned Streamlit release prints this only after its server binds.
+                if 'You can now view your Streamlit app in your browser.' in line:
+                    listening.set()
+                try:
+                    print(line, end='', flush=True)
+                except (BrokenPipeError, OSError):
+                    pass
+        reader = threading.Thread(target=relay_output, daemon=True)
+        reader.start()
+        previous_term = signal.getsignal(signal.SIGTERM)
+        def terminated(signum, frame):
+            # Unwind Popen.wait before waiting again: its waitpid lock is not reentrant.
             try:
-                print(line, end='', flush=True)
-            except (BrokenPipeError, OSError):
+                proc.send_signal(signum)
+            except ProcessLookupError:
                 pass
-    reader = threading.Thread(target=relay_output, daemon=True)
-    reader.start()
-    previous_term = signal.getsignal(signal.SIGTERM)
-    def terminated(signum, frame):
-        # Unwind Popen.wait before waiting again: its waitpid lock is not reentrant.
+            raise SystemExit(128 + signum)
+        signal.signal(signal.SIGTERM, terminated)
+        ready = False
         try:
-            proc.send_signal(signum)
-        except ProcessLookupError:
-            pass
-        raise SystemExit(128 + signum)
-    signal.signal(signal.SIGTERM, terminated)
-    try:
-        deadline = time.monotonic() + 60
-        while proc.poll() is None:
-            if listening.is_set() and healthy(url):
-                if proc.poll() is not None:
-                    break
-                print(f'Bactologix is ready: {url}', flush=True)
-                if browser and not open_browser(url):
-                    print(f'Could not open a browser automatically. Open {url} in your browser.', flush=True)
-                return proc.wait()
-            if time.monotonic() >= deadline:
-                print(f'App startup timed out. Check the server output; its address is {url}.', flush=True)
-                return proc.wait()
-            time.sleep(.2)
-        code = proc.wait()
-        print(f'Bactologix stopped before becoming ready (exit {code}). See the server output above.', file=sys.stderr)
-        return code or 1
-    except KeyboardInterrupt:
-        stop_server(proc, signal.SIGINT)
-        return 0
-    finally:
-        signal.signal(signal.SIGTERM, previous_term)
-        stop_server(proc)
-        reader.join(timeout=1)
-        if not reader.is_alive():
-            proc.stdout.close()
+            deadline = time.monotonic() + 60
+            while proc.poll() is None:
+                if not ready and listening.is_set() and healthy(url):
+                    if proc.poll() is not None:
+                        break
+                    ready = True
+                    restart.mark_ready(store, item)
+                    print(f'Bactologix is ready: {url}', flush=True)
+                    if browser and not open_browser(url):
+                        print(f'Could not open a browser automatically. Open {url} in your browser.', flush=True)
+                if ready:
+                    request = restart.pending(store, item)
+                    if request and restart.verify_and_mark(store, item, request):
+                        print('Update verified. Restarting Bactologix on ' + url, flush=True)
+                        restarting = True
+                        break
+                elif deadline and time.monotonic() >= deadline:
+                    print(f'App startup timed out. Check the server output; its address is {url}.', flush=True)
+                    deadline = None
+                time.sleep(.3)
+            if not restarting:
+                code = proc.wait()
+                if not ready:
+                    print(f'Bactologix stopped before becoming ready (exit {code}). See the server output above.', file=sys.stderr)
+                return code if ready else code or 1
+        except KeyboardInterrupt:
+            stop_server(proc, signal.SIGINT)
+            return 0
+        finally:
+            signal.signal(signal.SIGTERM, previous_term)
+            stop_server(proc)
+            reader.join(timeout=1)
+            if not reader.is_alive():
+                proc.stdout.close()
+            restart.unregister(store, item)
+    if restarting:
+        # A fresh interpreter loads the new launcher as well as the new application.
+        # Existing tabs reload through runtime.json; do not open duplicate browser tabs.
+        os.execv(sys.executable, [sys.executable, '-m', 'bactologix.cli', '--home', str(home),
+                                 '--host', host, '--port', str(port), '--no-browser'])
