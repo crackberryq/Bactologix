@@ -756,6 +756,102 @@ def render_component(page, store):
            'js': (ui / 'workspace.js').read_text(), 'workspace': snapshot(store)})
 
 
+def test_reviewed_support_snapshot_and_zip(tmp_path):
+    import zipfile
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import dispatch, snapshot
+    store = Store(tmp_path / 'support-component')
+    jid = store.submit('smoke', {})
+    store.update_job(jid, status='failed', error='Failed at /home/Private User/Secret Project')
+    store.log_path(jid).write_text('API_TOKEN=private-token\n'
+        'File "/home/Private User/worker.py", line 40\nValueError: software fixture\n'
+        'Private note to remove manually\n</textarea><script>window.supportInjected=true</script>\n')
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1100}, accept_downloads=True)
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(page, store)
+        page.get_by_role('button', name='Get support', exact=True).first.click()
+        dialog = page.get_by_role('dialog', name='Get support', exact=True)
+        download_button = dialog.get_by_role('button', name='Download reviewed snapshot', exact=True)
+        expect(download_button).to_be_disabled()
+        log_choice = dialog.locator('#support-log')
+        expect(log_choice).not_to_be_checked()
+        expect(log_choice).to_be_disabled()
+        expect(dialog.locator('#support-text')).to_have_count(0)
+        dialog.get_by_label('Job to troubleshoot', exact=True).select_option(jid)
+        expect(log_choice).to_be_enabled()
+        dialog.get_by_role('button', name='Generate preview', exact=True).click()
+        def respond(expected):
+            request = page.evaluate('window.acceptanceEvents.at(-1).value')
+            assert request['kind'] == expected
+            result = dispatch(store, request['kind'], request['payload'])
+            page.evaluate('({response,workspace}) => {Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                          {'response': {'id': request['id'], 'ok': True, **result}, 'workspace': snapshot(store)})
+            return request
+        request = respond('support_preview')
+        assert request['payload'] == {'job_id': jid, 'include_log': False}
+        editor = dialog.get_by_label('Review and edit snapshot', exact=True)
+        assert 'ValueError: software fixture' not in editor.input_value()
+        expect(download_button).to_be_disabled()
+        review = dialog.locator('#support-reviewed')
+        review.check()
+        expect(download_button).to_be_enabled()
+        editor.fill(editor.input_value()+'\nEdited note')
+        expect(review).not_to_be_checked()
+        expect(download_button).to_be_disabled()
+        log_choice.check()
+        expect(dialog).to_contain_text('Selection changed')
+        expect(download_button).to_be_disabled()
+        dialog.get_by_role('button', name='Generate new preview', exact=True).click()
+        request = respond('support_preview')
+        assert request['payload']['include_log'] is True
+        preview = editor.input_value()
+        assert 'private-token' not in preview and '/home/Private User' not in preview
+        assert 'ValueError: software fixture' in preview and 'Private note to remove manually' in preview
+        assert page.evaluate('window.supportInjected') is None
+        edited = preview.replace('Private note to remove manually', '[User removed private note]')+'\nReviewed edit: café\n</textarea><script>window.supportInjected=true</script>\n'
+        editor.fill(edited)
+        review.check()
+        assert page.evaluate('window.supportInjected') is None
+        with page.expect_download() as download:
+            download_button.click()
+            request = respond('download_support')
+        assert request['payload']['text'] == edited and request['payload']['reviewed'] is True
+        target = tmp_path / 'bactologix-support.txt'
+        download.value.save_as(target)
+        assert target.read_bytes() == edited.encode()
+        store.log_path(jid).write_text('NEW PRIVATE LOG CONTENT')
+        with page.expect_download() as download:
+            dialog.get_by_role('button', name='Download ZIP', exact=True).click()
+            respond('download_support')
+        target = tmp_path / 'bactologix-support.zip'
+        download.value.save_as(target)
+        with zipfile.ZipFile(target) as archive:
+            assert archive.read('bactologix-support.txt') == edited.encode()
+            assert set(archive.namelist()) == {'bactologix-support.txt', 'SHA256SUMS', 'README.txt'}
+        page.set_viewport_size({'width': 390, 'height': 844})
+        assert dialog.evaluate('(node) => node.scrollWidth <= node.clientWidth+1')
+        assert dialog.locator('.modal-body').evaluate('(node) => node.scrollWidth <= node.clientWidth+1')
+        destination = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+        if destination:
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            dialog.locator('.modal-body').evaluate('(node) => node.scrollTop=0')
+            page.screenshot(path=str(Path(destination) / 'reviewed-support-mobile.png'), full_page=True)
+        # Changing selection invalidates approval; closing removes the editable preview.
+        dialog.get_by_label('Job to troubleshoot', exact=True).select_option('')
+        expect(review).not_to_be_checked()
+        expect(download_button).to_be_disabled()
+        dialog.get_by_role('button', name='Close dialog', exact=True).click()
+        page.get_by_role('button', name='Get support', exact=True).last.click()
+        expect(dialog.locator('#support-text')).to_have_count(0)
+        expect(download_button).to_be_disabled()
+        assert errors == []
+        assert len(store.jobs()) == 1 and not store.all('samples') and not store.all('runs')
+        browser.close()
+
+
 def test_job_progress_resource_history_and_downloads(tmp_path):
     import json
     import zipfile

@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a28 — reviewed local support snapshots
+
+- Add **Get support** in the sidebar, footer and job logs: choose a job, optionally include its log excerpt, generate an editable preview, confirm review, then download text or ZIP. Edits clear review confirmation and changed choices require a matching preview.
+- Export allowlisted application versions, cached capacity, recorded setup/environment checks and selected-job provenance. Keep a saved run's exact source commit separate from the active installation; do not run new probes or include full configurations, input files, sample lists or environment-variable dumps.
+- Keep logs off by default. Bound selected-log reads, reject symbolic links and special files, omit clipped/oversized lines, and conservatively redact common credentials, paths, commands and identifiers. Explicitly require user review because redaction cannot guarantee anonymity.
+- Download exactly the reviewed text. ZIP contains that same text, a checksum and a static notice; no fresh/hidden diagnostics, automatic upload, external posting or persistent workspace export. Support remains available during app updates.
+
 ## 0.1.0a27 — live job progress and resource-use records
 
 - Show elapsed time, sampled CPU, peak sampled RAM, active workflow steps and recognized current-plan task counts in Jobs, Run activity and job logs. Checkpoint changes, unavailable readings, stale updates and partial records remain explicit.

@@ -1,3 +1,10 @@
+# Validation update: 0.1.0a28 (2026-10-27)
+
+- Support-export tests cover opt-in selected-job logs, older-run versus active-source provenance, omitted sample/configuration/payload fields, cached capacity allowlists, credential/path/identifier patterns, unknown evidence, bounded excerpts, and refused symlink/FIFO reads.
+- Exact text/ZIP assertions verify that manual edits survive, checksums match and subsequent job/log changes cannot append hidden diagnostics. Invalid review flags, selections, formats, Unicode byte limits and empty/null-containing text are rejected. Preview generation does not launch health probes or persist an export.
+- Chromium acceptance covers preview generation, opt-in log inclusion, review invalidation after edits/selection changes, escaped editable content, actual text/ZIP downloads and mobile overflow. Existing Python matrices, native adapter fixtures, browser flows and sample-free Conda checks remain release gates.
+- Redaction is deliberately best-effort and can over-redact diagnostic detail or miss private prose. A reviewed snapshot is not anonymous by guarantee, not a fresh environment health check, and not a complete log. No support-service connection or automatic sharing is implemented.
+
 # Validation update: 0.1.0a27 (2026-10-27)
 
 - Software tests cover changing checkpoint totals, parallel steps, clipped/truncated logs, process identity reuse, child-counter double counting, unavailable readings, bounded history compaction, per-attempt provenance, stale/interrupted records and validated JSON/CSV/ZIP exports.
