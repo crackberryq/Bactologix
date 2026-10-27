@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a20 — alpha
+# Bactologix 0.1.0a21 — alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -13,7 +13,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a20-py3-none-any.whl
+pipx install ./bactologix-0.1.0a21-py3-none-any.whl
 bactologix
 ```
 
@@ -22,7 +22,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a20/bactologix-0.1.0a20-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a21/bactologix-0.1.0a21-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -31,7 +31,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a20/bactologix-0.1.0a20-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a21/bactologix-0.1.0a21-py3-none-any.whl"
 bactologix
 ```
 
@@ -39,7 +39,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a20-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a21-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -80,7 +80,7 @@ Compatible snapshots remain selectable even after a branch moves. Unsupported do
 2. **Samples:** choose **Add sample → Browse folders**, navigate to the sample folder and select it, or import CSV/TSV columns `sample_id,input_folder,read_mode`. HybAs uses `raw/illumina` and `raw/nanopore`. BaSIS needs `annotation/<sample_id>.fna`, `.faa`, `.gff`, plus `.gbk` when enabled modules require it.
    **Remove sample** is available in Registered samples and in the run-draft sample picker. It unregisters the folder and moves its inactive saved runs from **Current runs** to **Archived**. Queued/running runs remain visible. Files, frozen configuration, jobs and reports are preserved. Use **Restore** to bring a run back, or **Add sample** to register the folder again. Individual runs also have **Remove from list**.
 3. **Configuration:** use the same category tabs, mode cards and switches as the draft editor. **Advanced** provides searchable sections and **Full YAML** for custom keys; YAML import/export and **Check settings** remain available. Each pipeline retains its own unsaved edits while switching tabs. **Save defaults** applies the configuration to future drafts and preserves existing runs. **Reload saved defaults** discards local edits. A stale editor cannot overwrite newer saved settings or database selections; download your edits before reloading if you need to keep them. Choose database/model locations in **Databases & models**.
-4. **Samples & variants → Create run drafts:** select samples, open **Run settings**, and customize the new drafts before creating them. Use category tabs and mode cards for Kraken/AWARE, Assembly, Quality and Databases; BaSIS has Modules, AWARE, DeepSafe and Resources. **Advanced** holds the searchable full field editor and **Full YAML** for custom keys. Finish in **Review** to check the selected samples and key settings; **Check settings** validates the editor input. Switching pipelines retains independent edits. **Reload saved defaults** resets this dialog to the currently saved configuration. Selected samples receive the same settings; create separate requests for different configurations. Saved defaults and existing runs are preserved. **Saved run details** has the same category tabs for reading its saved values. Choose **Edit settings** to use the guided editor, then review and create a separate revised draft; the original run remains intact. Raw commands and YAML are under **Advanced**. Each draft copies workflow source, references only input files, writes a frozen resolved config, and has independent outputs and scheduler state. CPU/memory budgets are set above the editor; generated input/output paths are shown as managed settings. Native defaults shown for omitted settings are only added when edited, so opening the editor does not enable extra modules. Run **Validate run** first. Read its actual log, then prepare analysis tool environments or **Run / resume**.
+4. **Runs → Create run drafts:** select samples, open **Run settings**, and customize the new drafts before creating them. Use category tabs and mode cards for Kraken/AWARE, Assembly, Quality and Databases; BaSIS has Modules, AWARE, DeepSafe and Resources. **Advanced** holds the searchable full field editor and **Full YAML** for custom keys. Finish in **Review** to check the selected samples and key settings; **Check settings** validates the editor input. Switching pipelines retains independent edits. **Reload saved defaults** resets this dialog to the currently saved configuration. Selected samples receive the same settings; create separate requests for different configurations. Saved defaults and existing runs are preserved. Each **saved run page** has the same category tabs for reading its saved values. Choose **Edit settings** to use the guided editor, then review and create a separate revised draft; the original run remains intact. Raw commands and YAML are under **Advanced**. Each draft copies workflow source, references only input files, writes a frozen resolved config, and has independent outputs and scheduler state. CPU/memory budgets are set above the editor; generated input/output paths are shown as managed settings. Native defaults shown for omitted settings are only added when edited, so opening the editor does not enable extra modules. Run **Validate run** first. Read its actual log, then prepare analysis tool environments or **Run / resume**.
 5. **Results & reports:** native MultiQC/Safety reports are discovered by expected path, or register any existing local HTML. Embedded reports run in an isolated inner frame. Self-contained reports work best; use Open original for relative assets.
 6. **Overview → Run live smoke test:** executes a real tiny Snakemake workflow using an installed controller and creates an HTML software-test report. It performs no biological analysis.
 
@@ -98,6 +98,17 @@ Under **Install & update → HybAs/BaSIS → Connect existing**:
 4. Click **Connect installation** and inspect the job log. Bactologix copies the selected committed source locally and uses independent run outputs. It does not alter the original checkout or its local settings. Import other native settings in **Configuration**, then connect existing resources in **Databases & models**.
 
 Only the reviewed source commits below can be connected for managed runs. Modified working-tree files are excluded from the source snapshot; the dialog flags tracked edits. ZIP-only copies without Git metadata need a Git checkout. Existing results can be registered as HTML reports; existing external runs are not adopted for in-place resume. Repair creates a managed runner and leaves a selected external environment intact.
+
+## Find your work
+
+- **Overview** shows active jobs, recent failures, recent runs and pipeline setup. It suggests a first setup/sample/draft action when needed.
+- **Samples** contains registered input folders. Search by sample or path, create a draft for one sample, or open that sample's runs. Removing a sample retains its files and archives inactive saved runs.
+- **Runs** contains current and archived drafts/history. Search by name, sample or run ID and filter by pipeline/status. Batch actions use the selected runs; selections outside the current filter are explicitly counted. Reset filters does not clear your selection.
+- **Comparisons** combines saved-setting comparisons and variant creation. Select runs to compare their configuration and provenance, or choose a HybAs parent for independent variant drafts. Native reports remain the source of scientific results.
+
+Open a run to use its dedicated page. Settings categories, **Activity** and **Results** stay with that run, and the URL records the selected run and section. Browser Back, Forward and refresh restore that location; unknown run links show a recovery action. Single-run validation/preparation/execution opened from this page switches to its Activity section. Batch jobs open Jobs & progress. Settings edits still create a separate revised draft, preserving the parent.
+
+URLs contain only the page, run ID and section, not configuration or input paths. Search filters, unsaved editor changes and comparison selections are session state, not saved in the URL. A run link works only in a workspace that contains that run. **Run software check** is available in Install & update.
 
 ## Run checks and environment availability
 

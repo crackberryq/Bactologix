@@ -30,7 +30,7 @@ def test_html_component_mount_and_config_trigger(tmp_path, monkeypatch):
     assert not app.exception
     component = app.get("bidi_component")[0].proto
     assert 'class="app-shell"' in component.html_content
-    assert "Your next run starts here." in component.js_content
+    assert "Pick up where you left off." in component.js_content
     result = send(app, "save_config", {"tool": "hybas", "text": "custom: {retain: [1, true]}\nthreads: 2\n"})
     assert result["ok"]
     assert "retain" in Store(tmp_path).get("configs", "hybas")
