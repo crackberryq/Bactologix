@@ -9,7 +9,7 @@
     ],
     "developerName": "Jimi Goldstein",
     "displayName": "Bactologix Support",
-    "longDescription": "Free installation, configuration and troubleshooting guidance for Bactologix, HybAs and BaSIS, grounded in version-matched official documentation and diagnostic snapshots you choose to share. No purchases, live machine connection or automatic changes. Host-platform availability and charges remain separate.",
+    "longDescription": "Installation, configuration and troubleshooting guidance for Bactologix, HybAs and BaSIS, grounded in version-matched official documentation and diagnostic snapshots you choose to share. The plugin provides guidance without a live machine connection or automatic changes.",
     "shortDescription": "Pipeline setup and support",
     "logo": "./assets/icon.png",
     "composerIcon": "./assets/icon.png",

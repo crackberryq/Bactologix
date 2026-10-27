@@ -4,7 +4,7 @@ Free software support for Bactologix, HybAs, and BaSIS, by **Jimi Goldstein · H
 
 Bactologix Support is a skills-only ChatGPT/Codex plugin. It helps with installation, configuration, and troubleshooting using official documentation matched to the user's software version, plus error excerpts or diagnostic snapshots the user chooses to attach.
 
-The plugin is free, has no purchases, and is intended for all countries supported by the host platform. ChatGPT account eligibility, availability, and any host subscription charges are separate. Public directory publication is pending review; this page does not establish that the plugin is publicly installable.
+The plugin is free, has no purchases, and is intended for all countries supported by the host platform. ChatGPT account eligibility, availability, and any host subscription charges are separate. The public submission draft was uploaded on 27 October 2026, but the portal currently blocks new skills-only submissions. It has not been submitted for review or published in the directory.
 
 ## What it does
 
@@ -24,3 +24,7 @@ Logs can contain confidential information. Redaction is best effort; review atta
 [Support and contact](SUPPORT.md) · [Privacy notice](PRIVACY.md) · [Terms of use](TERMS.md)
 
 [Project source](https://github.com/crackberryq/Bactologix) · [HybAs](https://github.com/crackberryq/Bactomics_HybAs) · [BaSIS](https://github.com/crackberryq/Bactomics_BaSIS)
+
+## Lab testing while directory publication is blocked
+
+Download the [plugin ZIP](../../plugins/releases/bactologix-support-0.1.1.zip). In ChatGPT, use Plugin Creator and attach the ZIP with the request: “Create a private plugin from this Bactologix Support package.” Each tester gets their own private copy; this is not a shared public-directory installation. Availability depends on their account's access to Plugin Creator. No API key or live machine connection is part of this package.
