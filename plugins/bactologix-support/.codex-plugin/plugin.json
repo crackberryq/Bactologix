@@ -1,0 +1,49 @@
+{
+  "interface": {
+    "capabilities": [],
+    "category": "Developer Tools",
+    "defaultPrompt": [
+      "Help me install Bactologix.",
+      "Help me troubleshoot this Bactologix diagnostic snapshot.",
+      "Explain how to configure my installed pipeline version."
+    ],
+    "developerName": "Jimi Goldstein",
+    "displayName": "Bactologix Support",
+    "longDescription": "Installation, configuration and troubleshooting guidance for Bactologix, HybAs and BaSIS, grounded in version-matched official documentation and diagnostic snapshots you choose to share. The plugin provides guidance without a live machine connection or automatic changes.",
+    "shortDescription": "Pipeline setup and support",
+    "logo": "./assets/icon.png",
+    "composerIcon": "./assets/icon.png",
+    "websiteURL": "https://github.com/crackberryq/Bactologix/blob/feat/support-publication/docs/support/README.md",
+    "supportURL": "https://github.com/crackberryq/Bactologix/blob/feat/support-publication/docs/support/SUPPORT.md",
+    "privacyPolicyURL": "https://github.com/crackberryq/Bactologix/blob/feat/support-publication/docs/support/PRIVACY.md",
+    "termsOfServiceURL": "https://github.com/crackberryq/Bactologix/blob/feat/support-publication/docs/support/TERMS.md"
+  },
+  "name": "bactologix-support",
+  "version": "0.1.1",
+  "description": "Version-aware installation and troubleshooting support for Bactologix, HybAs and BaSIS using documentation and reviewed diagnostic snapshots.",
+  "author": {
+    "name": "Jimi Goldstein",
+    "email": "jimi.goldstein@gmail.com"
+  },
+  "keywords": [],
+  "repository": "https://github.com/crackberryq/Bactologix",
+  "license": "MIT",
+  "skills": "./skills",
+  "extensions": {
+    "com.openai": {
+      "review": {
+        "prompts": [
+          "Help me install Bactologix.",
+          "Help me troubleshoot this Bactologix diagnostic snapshot.",
+          "Explain how to configure my installed pipeline version."
+        ],
+        "commerce": false,
+        "commerce_description": "The plugin is free. It does not sell products, offer purchases, or process payments. Host-platform charges are separate."
+      },
+      "publication": {
+        "countries": [],
+        "release_notes": "Prepare the initial public support release with version-aware documentation guidance, reviewed diagnostic snapshot support, a listing icon, and public support/privacy/terms pages. No live computer connection."
+      }
+    }
+  }
+}
