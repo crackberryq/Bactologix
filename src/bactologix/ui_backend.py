@@ -89,6 +89,7 @@ def snapshot(store):
         status = run_status(run, jobs, checked)
         runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type")} | {
             "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if cfg.get("kraken_decision_mode") == "off" else "aware",
+            "kraken_mode": "off" if cfg.get("run_kraken") is False else cfg.get("kraken_decision_mode"),
             "can_followup": followup.available(run) and status == "completed",
             "strategy": cfg.get("polish_mode", "—"), "can_handoff": run["tool"] == "hybas" and status == "completed" and all(
                 Path(run["output"], "annotation", run["sample"]["id"] + ext).is_file() for ext in (".fna", ".faa", ".gff"))})
@@ -358,7 +359,7 @@ def dispatch(store, kind, p):
                 made.append(create_run(store, tool, sample, text, cores, memory))
             except Exception as exc:
                 raise ValueError(f"Created {len(made)} draft(s). {sample['id']}: {exc}") from exc
-        response = {"message": f"Created {len(made)} independent drafts with this run configuration.", "navigate": "samples"}
+        response = {"message": f"Created {len(made)} independent drafts with this run configuration.", "navigate": "runs"}
         if len(made) == 1:
             response.update(dispatch(store, "inspect_run", {"id": made[0]["id"]}))
             response.update(keep_modal=False, open_run=made[0]["id"])
@@ -377,8 +378,8 @@ def dispatch(store, kind, p):
         return {"database_run_plan": database_runs.preview(store, p.get("ids")), "keep_modal": True}
     if kind == "apply_run_databases":
         made = database_runs.apply(store, p.get("ids"), p.get("selections"), p.get("signature"))
-        response = {"message": f"Created {len(made)} revised draft(s) with saved databases. Run a new Check / dry-run.",
-                    "navigate": "samples", "created_runs": [r["id"] for r in made]}
+        response = {"message": f"Created {len(made)} revised draft(s) with saved databases. Validate the revised draft before execution.",
+                    "navigate": "runs", "created_runs": [r["id"] for r in made]}
         if len(made) == 1:
             response.update(dispatch(store, "inspect_run", {"id": made[0]["id"]}))
             response.update(keep_modal=False, open_run=made[0]["id"])
@@ -401,14 +402,14 @@ def dispatch(store, kind, p):
         if not isinstance(p.get("aware_free"), bool) or not isinstance(p.get("strategies"), list) or not p["strategies"]:
             raise ValueError("Choose a source branch and at least one polishing strategy")
         made = clone_runs(store, p["id"], p["aware_free"], list(dict.fromkeys(p["strategies"])))
-        return {"message": f"Created {len(made)} independent variants.", "navigate": "samples"}
+        return {"message": f"Created {len(made)} independent variants.", "navigate": "runs"}
     if kind == "create_followup":
         followup.create_followup(store, p.get("id"), p["text"], p.get("reviewed") is True)
-        return {"message": "Created a reviewed follow-up draft. Check its native dry-run before execution.", "navigate": "samples"}
+        return {"message": "Created a reviewed follow-up draft. Check its native dry-run before execution.", "navigate": "runs"}
     if kind == "revise_run":
         child = run_revisions.apply(store, p)
         response = {"message": "Created a revised draft. The original run is unchanged; check a new dry-run.",
-                    "navigate": "samples", "open_run": child["id"], "keep_modal": False}
+                    "navigate": "runs", "open_run": child["id"], "keep_modal": False}
         response.update(dispatch(store, "inspect_run", {"id": child["id"]}))
         response["keep_modal"] = False
         return response
@@ -420,7 +421,7 @@ def dispatch(store, kind, p):
             raise ValueError("Complete the HybAs run before creating a BaSIS draft")
         check_run_files(run)
         create_run(store, "basis", dict(run["sample"], path=run["output"]), store.get("configs", "basis", template("basis")), run["cores"], run["memory_mb"], run["id"], run["label"] + " · BaSIS")
-        return {"message": "Created a new draft.", "navigate": "samples"}
+        return {"message": "Created a new draft.", "navigate": "runs"}
     if kind == "recover_jobs":
         launch_worker(store)
         return {"message": "Worker requested; active jobs retain their lock."}

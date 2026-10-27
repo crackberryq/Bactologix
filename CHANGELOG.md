@@ -1,5 +1,13 @@
 # Bactologix releases
 
+## 0.1.0a21 — navigation and dedicated run pages
+
+- Separate registered input folders in **Samples** from saved drafts/history in **Runs**, with sample links, search and pipeline/status filters. Make hidden selections explicit before batch actions.
+- Replace saved-run overlays with full pages for configuration, checks, Activity and Results. Support direct run links, browser Back/Forward and refresh, plus recovery for unknown run IDs. Single-run launches stay in the run’s Activity view.
+- Make Overview focus on active work, recent failures and recent runs. Move the software smoke check into Install & update.
+- Combine comparison navigation into **Comparisons**, with saved-run selection and independent variant creation. Display the actual saved Off/Manual/Auto/AWARE Kraken mode in lists and comparisons.
+- Preserve existing registration, archive/restore, guided draft/revision dialogs, frozen configurations, environment policy and automatic update restart. Scientific algorithms and pipeline execution semantics are unchanged.
+
 ## 0.1.0a20 — clearer run checks and database actions
 
 - Replace broad readiness claims with **Runner set up** on installation cards and five scoped checks on each saved run. Distinguish saved database paths, earlier native validation and current file integrity.
