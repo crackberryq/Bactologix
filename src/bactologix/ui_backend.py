@@ -18,7 +18,7 @@ from .runs import (absolute_path, clone_runs, command, create_run, import_sample
                    parse_config, register_sample, remove_sample, archive_runs, reports, template, validate_launch,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
-from . import databases, updates, hardware
+from . import databases, updates, hardware, methods
 from . import followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
 _SNAPSHOTS = {}
@@ -155,7 +155,7 @@ def dispatch(store, kind, p):
     """Only named UI commands are allowed. Browser-supplied objects are not trusted."""
     if not isinstance(p, dict):
         raise ValueError("Invalid action payload")
-    if kind not in {"refresh", "job_log", "download_log", "open_report", "open_original", "inspect_run", "refresh_app_releases", "cancel_job"}:
+    if kind not in {"refresh", "job_log", "download_log", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "refresh_app_releases", "cancel_job"}:
         updates.assert_current(store)
         if updates.status(store)["active_job"]:
             raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
@@ -381,6 +381,11 @@ def dispatch(store, kind, p):
         except Exception as exc:
             run["command"] = str(exc)
         return {"detail": run, "keep_modal": True}
+    if kind == 'inspect_methods':
+        return {'methods': methods.build(store, _item(store, 'runs', p.get('id'))), 'keep_modal': True}
+    if kind == 'download_methods':
+        return {'download': methods.download(store, _item(store, 'runs', p.get('id')), p.get('format')),
+                'keep_modal': True}
     if kind == "preview_run_databases":
         return {"database_run_plan": database_runs.preview(store, p.get("ids")), "keep_modal": True}
     if kind == "apply_run_databases":

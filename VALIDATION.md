@@ -1,3 +1,9 @@
+# Validation update: 0.1.0a25 (2026-10-27)
+
+- Methods tests cover frozen configuration isolation, read-mode/polishing routes, disabled steps, per-sample BaSIS exclusions, partial scope, version provenance, source/configuration drift, linked/oversized metadata, exact-YAML ZIP downloads and HTML escaping.
+- Pinned-source checks cover both current pipeline versions. Browser acceptance checks the Methods preview, actual ZIP contents and mobile overflow. Existing application, native-adapter, browser and real Conda checks remain release gates.
+- Completion metadata is captured separately from immutable run settings; older runs are explicitly identified as legacy metadata read at export. Unknown source templates use configuration-only output. Exports are writing aids requiring researcher review and complete tool/database citations; no biological analyses are executed by this feature or its software tests.
+
 # Validation update: 0.1.0a24 (2026-10-27)
 
 - Added software tests for CPU affinity, cgroup v1/v2 ancestor quotas and memory usage, WSL capacity, NVIDIA driver/toolkit distinctions, unknown capacity, preset rounding and system reserves, atomic defaults with stale-write rejection, and new-draft budget propagation. Existing runs and non-resource fields are preserved.

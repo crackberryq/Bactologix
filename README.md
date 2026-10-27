@@ -1,4 +1,28 @@
-# Bactologix 0.1.0a24 — alpha
+# Bactologix 0.1.0a25 — alpha
+
+### Run-specific Methods exports
+
+Open a saved run and choose **Methods**, or use **Results → Methods & downloads**.
+Review the generated prose, then download plain text, Markdown, printable HTML,
+or a reproducibility ZIP. The ZIP includes the frozen run YAML, settings with
+their origin, source/configuration hashes, retained execution metadata and
+available software citation files. Text and HTML can be copied into a manuscript;
+HTML can also be printed to PDF from a browser.
+
+Drafts describe planned methods. Completed runs incorporate available native
+execution records, tool versions and automatic decisions; workflow completion
+does not imply that every requested module completed. New executions retain a
+completion-time metadata snapshot. Older completed runs can use their available
+output metadata, clearly labelled as read at export. Unknown versions remain
+unknown, and older/unreviewed source versions receive a configuration-only
+export instead of borrowing current defaults. HybAs read modes, Kraken/AWARE,
+polishing, quality and annotation switches, and BaSIS module exclusions, AWARE
+and follow-up settings drive the prose. Follow-up exports distinguish inherited
+screening from new execution.
+
+Review the Methods text, database/model identities and tool/database citations
+before submission. Exports contain sample identifiers and local paths. Exporting
+does not run tools, change settings, install environments or download databases.
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -13,7 +37,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a24-py3-none-any.whl
+pipx install ./bactologix-0.1.0a25-py3-none-any.whl
 bactologix
 ```
 
@@ -22,7 +46,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a24/bactologix-0.1.0a24-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a25/bactologix-0.1.0a25-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -31,7 +55,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a24/bactologix-0.1.0a24-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a25/bactologix-0.1.0a25-py3-none-any.whl"
 bactologix
 ```
 
@@ -39,7 +63,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a24-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a25-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
