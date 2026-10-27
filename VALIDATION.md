@@ -1,5 +1,6 @@
-# Validation update: 0.1.0a20 candidate (2026-10-27)
+# Validation update: 0.1.0a20 (2026-10-27)
 
+- Local application and separately installed wheel suites each passed **293 tests**, with 25 native/browser/deployment checks enabled separately. All 44 packaged runtime files match source, the license is included and installed dependency checks pass.
 - New software regressions cover scoped run checks, changed inputs/configuration/source/runner, current native environment path parsing, missing/incomplete completion markers, stale receipts, failed checks, immutable saved runs/defaults and bounded failure-log guidance. Native inventory parsing fails closed on unexpected paths, containers or malformed rows.
 - Chromium acceptance adds unsaved-draft labels, mobile navigation names, five run checks, missing/available environment states, database preparation disclosure, readable installation status, polling outside Jobs, preservation of focused edits and actionable failure guidance. The existing real launcher restart/browser refresh flow remains required. Environment and job state fixtures exercise the interface without running sample analyses.
 - The real sample-free Conda acceptance job adds native `--list-conda-envs` checks under Snakemake 9.6.2 and 9.27.1. It verifies that listing missing or incomplete environments does not create/delete/repair those environments or execute a rule; existing reuse and execution-guard checks remain required.

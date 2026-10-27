@@ -66,7 +66,7 @@ Finish or cancel queued/running jobs first. The updater checks the asset again, 
 
 After a successful, verified update, the `bactologix` launcher restarts the application on the **same address and port**. Keep the terminal and browser tab open: the tab refreshes automatically after the new server identifies itself and passes its health check. The launcher waits for the update job to succeed and the queue to become idle. Failed installation or fresh-import verification keeps the old server available with the log and manual restart guidance. A restart does not open a duplicate browser tab.
 
-**One-time transition from a18 or earlier:** the already-running launcher cannot gain this feature until restarted. After installing a19, press **Ctrl+C**, then run **`bactologix`** once (retain custom `--home`, `--host` or `--port` options). Later updates use automatic restart and refresh. Manually launched Streamlit sessions still show manual restart instructions. Downgrading to a release without the new server identity requires a manual browser refresh.
+**One-time transition from a18 or earlier:** the already-running launcher cannot gain this feature until restarted. After installing a19 or later, press **Ctrl+C**, then run **`bactologix`** once (retain custom `--home`, `--host` or `--port` options). Later updates use automatic restart and refresh. Manually launched Streamlit sessions still show manual restart instructions. Downgrading to a release without the new server identity requires a manual browser refresh.
 
 Pipeline runners, databases, settings, cached tool environments and run folders are separate from the application package. Pip may update application dependencies when required by the selected release.
 
