@@ -167,7 +167,7 @@ def _installation(store, item):
         return None
     requirements = _dict(item.get('controller_requirements'))
     checks = _dict(store.get('environment_checks', item.get('id'), {}))
-    return {'commit': _hash(_dict(item.get('version')).get('commit')),
+    return {'pipeline': _choice(item.get('tool'), PIPELINES), 'commit': _hash(_dict(item.get('version')).get('commit')),
             'runner_ready_recorded': item.get('ready') if type(item.get('ready')) is bool else None,
             'runner_configured': bool(item.get('controller')), 'environment_cache_configured': bool(item.get('rule_cache')),
             'runner_requirements_recorded': {k: _version(requirements.get(k)) for k in ('python', 'snakemake')},
@@ -223,15 +223,17 @@ def preview(store, jid=None, include_log=False):
                                          for tool in PIPELINES}, 'selected_job': None}
     if job:
         usage = _dict(store.get('job_telemetry', jid, {}))
+        installation = _installation(store, store.get('installs', run.get('installation') or payload.get('installation')))
         metadata['selected_job'] = {'id': jid, 'kind': _choice(job['kind'], JOB_KINDS, 'Unknown'),
             'action': _choice(payload.get('action'), ACTIONS),
             'status': _choice(job['status'], JOB_STATES, 'Unknown'),
             'created': _date(job.get('created')), 'started': _date(job.get('started')), 'finished': _date(job.get('finished')),
-            'pipeline': _choice(run.get('tool', payload.get('tool')), PIPELINES),
+            'pipeline': _choice(run.get('tool') or payload.get('tool') or _dict(installation).get('pipeline'), PIPELINES),
             'run_commit': _hash(run.get('commit')), 'config_sha256': _hash(run.get('config_sha256'), 64),
+            'job_requested_commit': _hash(payload.get('commit') or _dict(payload.get('version')).get('commit')),
             'workflow_sha256': _hash(run.get('workflow_sha256'), 64),
             'run_budget': {k: _number(run.get(k)) for k in ('cores', 'memory_mb')},
-            'job_installation_recorded': _installation(store, store.get('installs', run.get('installation') or payload.get('installation'))),
+            'job_installation_recorded': installation,
             'usage_recorded': {k: _number(usage.get(k)) for k in ('elapsed_s', 'observed_cpu_s', 'peak_rss_mb', 'samples', 'unavailable_samples')},
             'usage_updated_at': _date(usage.get('updated_at'))}
     excerpt, log = '', {'status': 'not requested', 'truncated': False}

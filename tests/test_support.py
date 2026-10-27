@@ -191,6 +191,14 @@ def test_missing_run_is_unknown_and_never_borrows_active_commit(workspace):
     assert job['run_commit'] is None and job['pipeline'] is None and job['job_installation_recorded'] is None
 
 
+def test_environment_setup_identifies_selected_installation_without_inventing_a_run(workspace):
+    store, _ = workspace
+    jid = store.submit('environments', {'installation': 'older', 'action': 'check', 'commit': 'a'*40})
+    job = metadata(s.preview(store, jid))['selected_job']
+    assert job['pipeline'] == 'hybas' and job['job_installation_recorded']['commit'] == 'a'*40
+    assert job['job_requested_commit'] == 'a'*40 and job['run_commit'] is None
+
+
 @pytest.mark.parametrize('payload', [{'job_id': []}, {'job_id': 'job-missing'}, {'include_log': 'yes'}, {'include_log': True}])
 def test_invalid_preview_selection_is_rejected(workspace, payload):
     store, _ = workspace
