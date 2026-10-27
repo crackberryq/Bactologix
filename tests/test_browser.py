@@ -617,3 +617,55 @@ def test_sample_picker_configuration_and_report(tmp_path):
         os.killpg(proc.pid, signal.SIGTERM)
         proc.wait(timeout=10)
         log.close()
+
+
+def test_background_poll_preserves_and_queues_a_foreground_action(tmp_path):
+    """Exercise the real component with a controlled response boundary, without a worker."""
+    from playwright.sync_api import sync_playwright, expect
+    import bactologix
+    from bactologix.ui_backend import snapshot
+    store = Store(tmp_path / 'component-workspace')
+    jid = store.submit('smoke', {})
+    store.update_job(jid, status='running')
+    ui = Path(bactologix.__file__).parent / 'ui'
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+        page.set_content('<div id="component-host"></div>')
+        page.evaluate('''async ({html, css, js, workspace}) => {
+            const host = document.querySelector('#component-host');
+            const shadow = host.attachShadow({mode: 'open'});
+            shadow.innerHTML = '<style>' + css + '</style>' + html;
+            const url = URL.createObjectURL(new Blob([js], {type: 'text/javascript'}));
+            const component = (await import(url)).default;
+            URL.revokeObjectURL(url);
+            window.acceptanceEvents = [];
+            window.acceptanceRender = response => component({parentElement: shadow,
+                data: {workspace, response},
+                setTriggerValue: (trigger, value) => window.acceptanceEvents.push({trigger, value})});
+            window.acceptanceRender(null);
+        }''', {'html': (ui / 'shell.html').read_text(), 'css': (ui / 'styles.css').read_text(),
+               'js': (ui / 'workspace.js').read_text(), 'workspace': snapshot(store)})
+        page.wait_for_function('window.acceptanceEvents.length === 1', timeout=10000)
+        first = page.evaluate('window.acceptanceEvents[0].value')
+        assert first['kind'] == 'refresh'
+        page.get_by_role('button', name='Add samples', exact=True).click()
+        page.get_by_label('Sample ID', exact=True).fill('queued.fixture')
+        page.get_by_label('Input folder', exact=True).fill('/software-fixture/inputs')
+        page.get_by_role('button', name='Register sample', exact=True).click()
+        assert page.evaluate('window.acceptanceEvents.length') == 1
+        expect(page.get_by_role('button', name='Register sample', exact=True)).to_be_disabled()
+        page.evaluate('response => window.acceptanceRender(response)', {'id': first['id'], 'ok': True})
+        expect(page.get_by_role('dialog', name='Add a sample', exact=True)).to_be_visible()
+        expect(page.get_by_label('Sample ID', exact=True)).to_have_value('queued.fixture')
+        second = page.evaluate('window.acceptanceEvents[1].value')
+        assert second['kind'] == 'add_sample'
+        assert second['payload']['id'] == 'queued.fixture'
+        assert second['payload']['path'] == '/software-fixture/inputs'
+        page.evaluate('response => window.acceptanceRender(response)',
+                      {'id': second['id'], 'ok': True, 'navigate': 'samples', 'message': 'Sample registered.'})
+        expect(page.get_by_role('dialog')).to_have_count(0)
+        expect(page.get_by_role('heading', name='Your input folders.', exact=True)).to_be_visible()
+        assert page.evaluate('window.acceptanceEvents.length') == 2
+        assert store.all('samples') == []  # UI boundary fixture; no backend mutation occurred.
+        browser.close()
