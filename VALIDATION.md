@@ -1,3 +1,11 @@
+# Validation update: 0.1.0a24 (2026-10-27)
+
+- Added software tests for CPU affinity, cgroup v1/v2 ancestor quotas and memory usage, WSL capacity, NVIDIA driver/toolkit distinctions, unknown capacity, preset rounding and system reserves, atomic defaults with stale-write rejection, and new-draft budget propagation. Existing runs and non-resource fields are preserved.
+- Added repair regressions for read-only rendering checks, the recognized QC dependency conflict with package receipts, healthy reuse, unknown failures, symlink rejection, and preservation/restoration of incomplete environments on failed or cancelled deployment.
+- The actual NanoPlot 1.46.2 plotting module generated valid scatter/density HTML and PNG files locally using Plotly 6.1.2 and Kaleido 0.2.1, with synthetic numeric arrays only. This is a runtime workaround, not full resolution of upstream declared dependencies.
+- Chromium acceptance covers the PC capacity tab, explicit re-detection, saving a preset for one pipeline, CPU/RAM propagation into a new draft, preserving budget edits across pipeline switches, narrow layouts and the scoped Repair dialog. The real Conda fixture now checks healthy repair reuse and recreation of an incomplete environment with a retained backup.
+- Publication remains gated on both Python matrices, Chromium and real sample-free Conda deployment. Target-workstation WSL/GPU behavior and full analyses are outside these software checks.
+
 # Validation update: 0.1.0a22 (2026-10-27)
 
 - Setup cards expose separate installation and read-only checking actions. Chromium covers each confirmation from a workspace with no samples or runs, selection clearing, payload scope, collapsed storage controls, and blocking deployment until folder edits are saved.

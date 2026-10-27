@@ -385,6 +385,10 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
             cfg.pop("isolate", None)
         else:
             cfg.update(bactomics_root=str(folder / "outputs"), samples=str(folder / "samples.tsv"), memory_mb=memory_mb, isolates=[])
+            if 'execution' in cfg:
+                if not isinstance(cfg['execution'], dict):
+                    raise ValueError('The execution settings must be a mapping.')
+                cfg['execution'].update(cores=cores, memory_mb=memory_mb)
             cfg.pop("isolate", None)
         (folder / "samples.tsv").write_bytes(sample_sheet(sample, tool, output).encode())
         text = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)

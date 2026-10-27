@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a23 — alpha
+# Bactologix 0.1.0a24 — alpha
 
 Created by **Jimi Goldstein · Human Link**. ORCID: https://orcid.org/0000-0002-7829-0090.
 
@@ -13,7 +13,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a23-py3-none-any.whl
+pipx install ./bactologix-0.1.0a24-py3-none-any.whl
 bactologix
 ```
 
@@ -22,7 +22,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a23/bactologix-0.1.0a23-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a24/bactologix-0.1.0a24-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -31,7 +31,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a23/bactologix-0.1.0a23-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a24/bactologix-0.1.0a24-py3-none-any.whl"
 bactologix
 ```
 
@@ -39,7 +39,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a23-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a24-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -73,6 +73,24 @@ Pipeline runners, databases, settings, cached tool environments and run folders 
 For **v0.1.0a5 and earlier**, install this release once using the wheel command above; the update button becomes available after restarting. If BaSIS `f66dfedd` was already downloaded, open **Install & update → BaSIS → Finish setup**. This uses the downloaded source and creates or reuses its runner. The runner environment definition is unchanged from the earlier supported BaSIS revision. Read **Setup log** if setup fails; **Retry setup** reuses an existing runner, whereas **Repair runner** creates a separate replacement.
 
 Compatible snapshots remain selectable even after a branch moves. Unsupported downloads say **Version not supported** and link to the app updater; failed setup says **Setup incomplete** with its job log. Downloading a supported version normally completes runner setup in the same job.
+
+## PC capacity and power presets
+
+Open **Install & update → PC capacity**. Detection reports resources visible to the Linux process, including WSL/container limits, logical/physical CPU counts where available, RAM and available memory, swap, workspace disk space, NVIDIA GPUs/VRAM and driver/toolkit details. **Detect again** refreshes the snapshot. NVIDIA's driver CUDA capability is separate from the `nvcc` toolkit version; neither guarantees compatibility with a tool environment. PCI graphics information is included when `lspci` is available. Probes time out and unavailable information is labelled.
+
+Choose one pipeline or both, then **Use High power**, **Use Medium**, or **Use Low**. These buttons save resource values in the default YAML and in the CPU/RAM budgets used by future run drafts. High uses all available CPU threads (up to 512). RAM starts from the lower of total capacity and currently available RAM, reserves at least 1 GB or 5% of capacity, and rounds down to whole GB within the app limit of 2,000,000 MB. Medium uses half the threads and 60% of that RAM budget; Low uses a quarter of the threads and 30%, with a 1 GB minimum when available. The UI shows the exact budget before applying it.
+
+Presets set execution budgets; they do not guarantee full utilization or that every database/tool will fit. HybAs assembly, SPAdes and polishing budgets are aligned with the selected RAM. Existing database-derived requirements, GPU settings, enabled tools and scientific thresholds are preserved. GPU details are informational: there is no generic CUDA toggle that makes every tool GPU-capable. Saved runs keep their original configuration; **Edit run settings** creates a revised draft when needed. Ordinary Configuration edits made in another window are protected by revision checks.
+
+## Check and repair tool environments
+
+Each supported pipeline in **Install & update → Pipelines & environments** has **Install environments**, **Check environments**, and **Repair environments**. No sample or run draft is required. Checking is read-only and includes the native executable checks plus actual NanoPlot scatter/density HTML and PNG rendering when NanoPlot is part of the recipe.
+
+Repair checks each selected environment first. Healthy environments are retained. Missing environments are deployed using the reviewed native recipe. Incomplete environments are retained under `<cache>/.bactologix-repair-backups/<job>/<recipe>` before native deployment; a failed or cancelled rebuild restores the previous incomplete environment. Backups are not automatically removed. Unknown failures in complete environments are reported for diagnosis without deleting those environments.
+
+For the known shared QC conflict, repair recognizes **NanoPlot 1.46.2 + MultiQC 1.32** and runs a constrained Conda transaction for **Plotly 6.1.2 + python-kaleido 0.2.1**, then repeats the native and rendering checks. Package versions before and after the attempt are saved in `<workspace>/maintenance/<job>/<recipe>-repair.json`. This locally tested rendering workaround retains MultiQC's required Kaleido version; NanoPlot's upstream declared Kaleido requirement still differs, so the native QC recipe needs a future upstream dependency split. Other tool versions are not silently upgraded or patched.
+
+Repairs run through the serialized job worker. Shared runs using the repaired cache see those package changes; frozen source and YAML files are preserved. Do not run external workflows or Conda mutations against that cache while repair is active. Normal **Run / resume** still never installs or repairs environments automatically.
 
 ## First use
 

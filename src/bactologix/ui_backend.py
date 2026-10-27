@@ -18,7 +18,7 @@ from .runs import (absolute_path, clone_runs, command, create_run, import_sample
                    parse_config, register_sample, remove_sample, archive_runs, reports, template, validate_launch,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
-from . import databases, updates
+from . import databases, updates, hardware
 from . import followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
 _SNAPSHOTS = {}
@@ -101,7 +101,8 @@ def snapshot(store):
             version["supported"] = supported(tool, version["commit"])
     result = {"version": __version__, "workspace": str(store.home), "doctor": doctor(store),
             "pipelines": PIPELINES, "installs": [installation_status(i, jobs) for i in store.all("installs")],
-            "app_update": app_update,
+            "app_update": app_update, "hardware": hardware.panel(store),
+            "resource_defaults": {t: hardware.run_defaults(store, t) for t in PIPELINES},
             "active": {t: store.get("settings", "active-" + t) for t in PIPELINES},
             "catalogs": catalogs, "samples": store.all("samples"), "runs": runs,
             "jobs": jobs, "reports": reports(store), "configs": configs,
@@ -160,6 +161,11 @@ def dispatch(store, kind, p):
             raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
     if kind == "refresh":
         return {}
+    if kind == 'detect_hardware':
+        hardware.inventory(store, refresh=True)
+        return {'message': 'Hardware detection refreshed.', 'keep_modal': True}
+    if kind == 'apply_resource_preset':
+        return hardware.apply_preset(store, p.get('preset'), p.get('tools'), p.get('revisions'), p.get('hardware_id'))
     if kind == "refresh_app_releases":
         store.put("app_catalog", "releases", updates.fetch_releases())
         return {"message": "Bactologix releases refreshed.", "keep_modal": True}
@@ -342,7 +348,8 @@ def dispatch(store, kind, p):
                 "message": "Run settings checked. The native dry-run is still required." if p.get("validate") else ""}
     if kind == "create_runs":
         tool = _tool(p)
-        cores, memory = int(p["cores"]), int(p["memory_mb"])
+        defaults = hardware.run_defaults(store, tool)
+        cores, memory = int(p.get("cores", defaults['cores'])), int(p.get("memory_mb", defaults['memory_mb']))
         if not 1 <= cores <= 512 or not 512 <= memory <= 2000000:
             raise ValueError("CPU or memory budget is outside the supported range")
         samples = [_item(store, "samples", sid) for sid in _ids(p)]

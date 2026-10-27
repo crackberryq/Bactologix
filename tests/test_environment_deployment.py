@@ -164,6 +164,16 @@ def test_missing_install_verified_and_broken_tool(tmp_path, monkeypatch):
         assert prefix.is_dir()
     finally:
         held.rename(python)
+    # Explicit repair retains healthy environments, and preserves an incomplete
+    # copy before asking native Snakemake to recreate the same cache location.
+    assert run('repair')['status'] == 'Verified'
+    assert (prefix / 'conda-meta/history').read_bytes() == history
+    marker.unlink()
+    (prefix / 'retained-fixture.txt').write_text('keep the previous incomplete copy')
+    assert run('repair')['status'] == 'Verified'
+    assert marker.is_file() and (prefix / 'bin/python').exists()
+    backups = list(prefix.parent.glob('.bactologix-repair-backups/*/qc/retained-fixture.txt'))
+    assert len(backups) == 1 and backups[0].read_text() == 'keep the previous incomplete copy'
     assert not store.all('runs') and not store.all('samples')
 
 
