@@ -1727,3 +1727,104 @@ def test_full_saved_configuration_comparison(tmp_path, installed):
         expect(panel.locator('.table-wrap')).to_be_visible()
         assert store.all('runs') == original and not store.jobs() and errors == []
         browser.close()
+
+
+def test_reviewed_sample_import_preview_staleness_and_commit(tmp_path):
+    import csv
+    import io
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import snapshot, dispatch
+    from bactologix.runs import register_sample
+    store = Store(tmp_path/'import workspace')
+    folder = tmp_path/'original inputs, with spaces'; folder.mkdir()
+    original = folder/'unchanged.txt'; original.write_text('untouched input fixture')
+    def text(rows):
+        out = io.StringIO(); writer = csv.writer(out)
+        writer.writerow(['sample_id','input_folder','read_mode']); writer.writerows(rows)
+        return out.getvalue()
+    invalid = text([['first', folder, ''], ['FIRST', folder, 'hybrid'], ['<script>fixture</script>', '/missing', 'bad']])
+    valid = text([[f'sample{i:02d}', folder, '' if i % 2 else 'illumina_only'] for i in range(27)])
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(page, store)
+        page.get_by_role('link', name='Samples', exact=True).click()
+        page.get_by_role('button', name='Import table', exact=True).click()
+        dialog = page.get_by_role('dialog', name='Import a sample table', exact=True)
+        expect(dialog.get_by_role('button', name='Import reviewed samples', exact=True)).to_be_disabled()
+        contents = dialog.get_by_label('Table contents', exact=True)
+        contents.fill(invalid)
+        def respond(kind, failure=False):
+            req = page.evaluate('window.acceptanceEvents.at(-1).value')
+            assert req['kind'] == kind
+            try:
+                result = dispatch(store, kind, req['payload'])
+                assert not failure
+                response = {'id': req['id'], 'ok': True, **result}
+            except ValueError as exc:
+                assert failure
+                response = {'id': req['id'], 'ok': False, 'message': str(exc)}
+            page.evaluate('({response,workspace}) => {Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                          {'response': response, 'workspace': snapshot(store)})
+            return response
+        dialog.get_by_role('button', name='Preview table', exact=True).click()
+        respond('preview_samples')
+        expect(dialog).to_contain_text('0 ready · 3 need correction')
+        expect(dialog).to_contain_text('<script>fixture</script>')
+        expect(dialog.get_by_role('button', name='Import reviewed samples', exact=True)).to_be_disabled()
+        assert not store.all('samples') and not store.jobs()
+        contents.fill(valid)
+        expect(dialog).to_contain_text('Table changed')
+        expect(dialog.locator('#sample-import-preview')).to_be_hidden()
+        dialog.get_by_role('button', name='Preview table', exact=True).click()
+        respond('preview_samples')
+        expect(dialog).to_contain_text('27 ready · 0 need correction')
+        expect(dialog.locator('tbody tr')).to_have_count(25)
+        expect(dialog.get_by_role('button', name='Import 27 reviewed samples', exact=True)).to_be_enabled()
+        dialog.get_by_role('button', name='Next rows', exact=True).click()
+        expect(dialog.locator('tbody tr')).to_have_count(2)
+        dialog.get_by_label('Show problem rows only', exact=True).check()
+        expect(dialog).to_contain_text('No matching rows')
+        dialog.get_by_label('Show problem rows only', exact=True).uncheck()
+        expect(dialog.locator('tbody tr')).to_have_count(25)
+        # Uploading a changed table invalidates review just like typing.
+        page.locator('#sample-upload').set_input_files({'name': 'samples.csv', 'mimeType': 'text/csv', 'buffer': (valid+'\n').encode()})
+        expect(contents).to_have_value(valid.replace('\r\n','\n')+'\n')
+        expect(dialog.get_by_role('button', name='Import reviewed samples', exact=True)).to_be_disabled()
+        dialog.get_by_role('button', name='Preview table', exact=True).click(); respond('preview_samples')
+        register_sample(store, 'elsewhere', str(folder))
+        dialog.get_by_role('button', name='Import 27 reviewed samples', exact=True).click()
+        respond('import_samples', failure=True)
+        expect(dialog.get_by_role('alert')).to_contain_text('changed')
+        expect(dialog.get_by_role('button', name='Import reviewed samples', exact=True)).to_be_disabled()
+        assert len(store.all('samples')) == 1
+        dialog.get_by_role('button', name='Preview table', exact=True).click(); respond('preview_samples')
+        def capture(name):
+            destination = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+            if destination:
+                Path(destination).mkdir(parents=True, exist_ok=True)
+                page.screenshot(path=str(Path(destination)/name), full_page=True)
+        expect(page.locator('#toast.show')).to_have_count(0)
+        dialog.locator('.modal-body').evaluate('(el) => el.scrollTop=0'); capture('sample-import-desktop.png')
+        page.set_viewport_size({'width': 390, 'height': 844})
+        dialog.locator('.modal-body').evaluate('(el) => el.scrollTop=0')
+        assert dialog.evaluate('(el) => el.scrollWidth <= el.clientWidth+1')
+        expect(dialog.get_by_role('button', name='Import 27 reviewed samples', exact=True)).to_be_visible()
+        capture('sample-import-mobile.png')
+        dialog.locator('#sample-import-rows').scroll_into_view_if_needed()
+        capture('sample-import-rows-mobile.png')
+        page.set_viewport_size({'width': 1440, 'height': 1100})
+        dialog.get_by_role('button', name='Import 27 reviewed samples', exact=True).click()
+        respond('import_samples')
+        expect(dialog).to_have_count(0)
+        expect(page.locator('[data-sample-row]')).to_have_count(28)
+        assert store.get('samples','sample01')['mode'] == 'hybrid'
+        assert store.get('samples','sample00')['path'] == str(folder)
+        assert original.read_text() == 'untouched input fixture' and not store.jobs() and not store.all('runs')
+        # Reopening never reuses a previously approved import.
+        page.get_by_role('button', name='Import table', exact=True).click()
+        expect(dialog.get_by_role('button', name='Import reviewed samples', exact=True)).to_be_disabled()
+        assert errors == []
+        browser.close()

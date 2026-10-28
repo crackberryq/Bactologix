@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a36 — reviewed sample-table import
+
+- Preview CSV/TSV sample tables with resolved folders, effective read modes, row-level errors, paging and a problems-only filter. Bound input to 500 rows / 2 MB and reject malformed tables, duplicate/unknown columns and case-insensitive ID conflicts.
+- Require a matching error-free review before importing through the UI. Recheck table text, resolved folders and registrations at commit; invalidate stale previews and register the entire table atomically.
+- Check duplicate IDs inside the same SQLite write transaction for both bulk and single-sample registration, preventing concurrent case-only collisions. Preserve existing registrations and original files.
+- No input-content scan, run creation, workflow launch or scientific setting changes.
+
 ## 0.1.0a35 — full saved configuration comparison
 
 - Compare 2–4 saved runs against an explicit reference using stored YAML values and recorded provenance. Preserve custom keys, separate literal dotted keys, and distinguish missing/null/empty values, scalar types and list ordering without importing runtime defaults.

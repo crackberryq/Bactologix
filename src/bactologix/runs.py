@@ -59,12 +59,17 @@ def register_sample(store, sid, path, mode="hybrid"):
         raise ValueError("Sample folder does not exist: " + str(folder))
     if mode not in {"hybrid", "ont_only", "illumina_only"}:
         raise ValueError("Unsupported read mode")
-    matches = [s for s in store.all("samples") if s["id"].casefold() == sid.casefold()]
-    if matches:
-        if matches[0]["path"] == str(folder) and matches[0]["mode"] == mode:
-            return matches[0]
-        raise ValueError("That sample ID is already registered with different inputs")
-    return store.put("samples", sid, {"id": sid, "path": str(folder), "mode": mode, "created": now()})
+    with store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        matches = [json.loads(row[0]) for row in db.execute("SELECT body FROM items WHERE kind='samples'")]
+        matches = [s for s in matches if s['id'].casefold() == sid.casefold()]
+        if matches:
+            if matches[0]['path'] == str(folder) and matches[0]['mode'] == mode:
+                return matches[0]
+            raise ValueError('That sample ID is already registered with different inputs')
+        row = {'id': sid, 'path': str(folder), 'mode': mode, 'created': now()}
+        db.execute("INSERT INTO items(kind,id,body) VALUES ('samples',?,?)", (sid, json.dumps(row)))
+    return row
 
 
 def remove_sample(store, sid, expected):
@@ -130,28 +135,8 @@ def archive_runs(store, ids, archived=True):
 
 
 def import_samples(store, text):
-    text = text.lstrip("\ufeff")
-    delimiter = "\t" if "\t" in text.partition("\n")[0] else ","
-    reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
-    if not {"sample_id", "input_folder"} <= set(reader.fieldnames or []):
-        raise ValueError("Sample sheet requires sample_id and input_folder; read_mode is optional")
-    rows = list(reader)
-    seen = {s["id"].casefold() for s in store.all("samples")}
-    prepared = []
-    for row in rows:
-        sid = valid_id(row["sample_id"].strip())
-        if sid.casefold() in seen:
-            raise ValueError("Duplicate sample ID: " + sid)
-        seen.add(sid.casefold())
-        path = absolute_path(row["input_folder"].strip())
-        mode = row.get("read_mode", "hybrid").strip() or "hybrid"
-        if not path.is_dir() or mode not in {"hybrid", "ont_only", "illumina_only"}:
-            raise ValueError("Invalid folder/read mode for " + sid)
-        prepared.append({"id": sid, "path": str(path), "mode": mode, "created": now()})
-    with store.connect() as db:
-        for row in prepared:
-            db.execute("INSERT INTO items(kind,id,body) VALUES ('samples',?,?)", (row["id"], json.dumps(row)))
-    return prepared
+    from .sample_imports import commit
+    return commit(store, text)
 
 
 def snapshot_files(paths):

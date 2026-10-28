@@ -1,4 +1,27 @@
-# Bactologix 0.1.0a35 — alpha
+# Bactologix 0.1.0a36 — alpha
+
+### Reviewed sample-table import
+
+Open **Samples → Import table**, upload or paste a CSV/TSV file, then choose
+**Preview table**. Required columns are `sample_id` and `input_folder`;
+`read_mode` is optional. Blank or omitted read modes use `hybrid`. The other
+accepted modes are `ont_only` and `illumina_only`. Use absolute Linux paths or
+`~/...`; quote CSV folders containing commas. A UTF-8 BOM and CRLF lines are accepted.
+
+The preview shows line numbers, sample IDs, resolved folders, effective read modes
+and row errors. Both occurrences of duplicate IDs are flagged without regard to
+letter case. Existing IDs, invalid IDs/modes, inaccessible folders, wrong field
+counts, duplicate/unknown headers and malformed CSV are reported before saving.
+Review up to 500 rows / 2 MB, with 25-row pages and **Show problem rows only**.
+Blank rows are ignored. The check examines folder existence, not input contents.
+
+**Import N reviewed samples** becomes available only for a matching, error-free
+preview. Edits or uploads require a matching preview; closing/reopening clears it.
+Import rechecks the current table, resolved folders and sample registrations inside
+a database transaction. Changes since preview require review again. Either all
+rows are registered or none are; existing registrations are never overwritten.
+Single-sample registration also checks case-insensitive IDs under the same database
+write lock. Registration does not create runs, start jobs, or move original files.
 
 ### Full saved configuration comparison
 
@@ -324,7 +347,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a35-py3-none-any.whl
+pipx install ./bactologix-0.1.0a36-py3-none-any.whl
 bactologix
 ```
 
@@ -333,7 +356,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a35/bactologix-0.1.0a35-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a36/bactologix-0.1.0a36-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -342,7 +365,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a35/bactologix-0.1.0a35-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a36/bactologix-0.1.0a36-py3-none-any.whl"
 bactologix
 ```
 
@@ -350,7 +373,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a35-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a36-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 

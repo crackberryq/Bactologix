@@ -14,11 +14,11 @@ from . import __version__
 from .catalog import DATA, PIPELINES, fetch_versions, supported, versions
 from .engine import doctor, enqueue, launch_worker
 from .local import browse_folders, discover_environments, discover_installations, inspect_installation, local_path
-from .runs import (absolute_path, clone_runs, command, create_run, import_samples,
+from .runs import (absolute_path, clone_runs, command, create_run,
                    parse_config, register_sample, remove_sample, archive_runs, reports, template, validate_launch,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
-from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, compatibility, comparisons
+from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, compatibility, comparisons, sample_imports
 from . import followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
 _SNAPSHOTS = {}
@@ -158,7 +158,7 @@ def dispatch(store, kind, p):
     """Only named UI commands are allowed. Browser-supplied objects are not trusted."""
     if not isinstance(p, dict):
         raise ValueError("Invalid action payload")
-    if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "download_storage", "inspect_compatibility", "download_compatibility", "compare_saved_runs", "download_comparison", "refresh_app_releases", "cancel_job"}:
+    if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "download_storage", "inspect_compatibility", "download_compatibility", "compare_saved_runs", "download_comparison", "preview_samples", "refresh_app_releases", "cancel_job"}:
         updates.assert_current(store)
         if updates.status(store)["active_job"]:
             raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
@@ -318,8 +318,13 @@ def dispatch(store, kind, p):
         ids = archive_runs(store, _ids(p), archived)
         return {"message": f"{len(ids)} run(s) " + ("moved to Archived. Files and reports are preserved." if archived else "restored to the current run list."),
                 "archived_runs" if archived else "restored_runs": ids, "keep_modal": True}
+    if kind == 'preview_samples':
+        return {'sample_import': sample_imports.review(store, p.get('text')), 'keep_modal': True}
     if kind == "import_samples":
-        items = import_samples(store, p["text"])
+        token = p.get('token')
+        if not isinstance(token, str) or len(token) != 64:
+            raise ValueError('Preview the sample table before importing.')
+        items = sample_imports.commit(store, p.get('text'), token)
         return {"message": f"Imported {len(items)} samples.", "navigate": "samples"}
     if kind in {"default_config_editor", "save_default_config"}:
         return default_config.edit(store, _tool(p), p, save=kind == "save_default_config")
