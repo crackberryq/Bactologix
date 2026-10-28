@@ -51,7 +51,7 @@ def launch_worker(store):
 
 
 def enqueue(store, kind, payload):
-    if kind not in {"install", "connect", "bootstrap", "check", "workflow", "smoke", "app_update", "environments", "database_download"}:
+    if kind not in {"install", "connect", "bootstrap", "check", "workflow", "smoke", "workstation", "app_update", "environments", "database_download"}:
         raise ValueError("Unknown operation")
     if platform.system() != "Linux":
         raise RuntimeError("Run this app inside Linux or WSL2 to execute jobs.")
@@ -105,7 +105,7 @@ class Context:
         if self.store.job(self.job["id"])["cancel"]:
             raise Cancelled("Stopped by user")
 
-    def command(self, argv, cwd=None, extra_env=None, stdout=None):
+    def command(self, argv, cwd=None, extra_env=None, stdout=None, *, timeout=None, stop_after=None):
         import shlex
         self.check_cancel()
         self.write("$ " + shlex.join([str(x) for x in argv]))
@@ -113,6 +113,8 @@ class Context:
         env.update({"PYTHONUNBUFFERED": "1", "PYTHONNOUSERSITE": "1"})
         env.update(extra_env or {})
         started_stop = None
+        command_started = time.monotonic()
+        timed_out = False
         proc = subprocess.Popen([str(x) for x in argv], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                 stdout=stdout if stdout is not None else self.log,
                                 stderr=self.log if stdout is not None else subprocess.STDOUT, start_new_session=True,
@@ -121,7 +123,14 @@ class Context:
         try:
             self.observe("begin_command", proc, argv[0])
             while proc.poll() is None:
-                if self.store.job(self.job["id"])["cancel"]:
+                elapsed_command = time.monotonic() - command_started
+                timed_out = timed_out or (timeout is not None and elapsed_command >= timeout)
+                if timed_out:
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                if self.store.job(self.job["id"])["cancel"] or (stop_after is not None and elapsed_command >= stop_after):
                     if started_stop is None:
                         started_stop = time.monotonic()
                         self.write("Stopping process group gracefully (SIGINT)…")
@@ -137,6 +146,8 @@ class Context:
                             pass
                 self.observe("tick")
                 time.sleep(0.25)
+            if timed_out:
+                raise TimeoutError("Software check command exceeded its time limit; its process group was stopped.")
             if started_stop is not None:
                 raise Cancelled("Stopped by user; inspect the log before resuming")
             if proc.returncode:
@@ -398,6 +409,9 @@ def execute(ctx):
             raise
         finally:
             ctx.store.put("installs", record["id"], record)
+    elif kind == "workstation":
+        from .workstation import execute_check
+        execute_check(ctx)
     elif kind == "smoke":
         smoke(ctx)
     elif kind == "workflow":

@@ -148,3 +148,43 @@ def test_failed_jobs_offer_scoped_guidance(workspace, message, category):
     guidance = r.job_guidance(workspace, workspace.job(jid))
     assert guidance['category'] == category and guidance['run_id'] == 'run-fixture'
     assert '<script>' not in guidance['text']
+
+
+@pytest.mark.parametrize('message,category', [
+    ('OSError: [Errno 28] No space left on device', 'storage'),
+    ('Disk quota exceeded', 'storage'),
+    ('PermissionError: [Errno 13] Permission denied', 'permissions'),
+    ('OSError: [Errno 30] Read-only file system', 'permissions'),
+    ("AttributeError: module plotly.figure_factory has no attribute create_2d_density", 'dependencies'),
+    ("ModuleNotFoundError: No module named 'kaleido'", 'dependencies'),
+])
+def test_recovery_evidence_and_failed_step_are_bounded(workspace, message, category):
+    jid = workspace.submit('workflow', {'run_id': 'run-fixture', 'action': 'run'})
+    workspace.log_path(jid).write_text('Error in rule software_fixture:\n' + message + '\n')
+    workspace.update_job(jid, status='failed', error='Command exited with code 1; see the job log')
+    g = r.job_guidance(workspace, workspace.job(jid))
+    assert g['category'] == category and g['step'] == 'software_fixture'
+    assert g['evidence'] == message and g['confidence'] == 'Possible cause'
+    assert len(g['evidence']) <= 1200
+
+
+def test_unknown_interrupted_and_unsafe_logs_keep_uncertainty(workspace, tmp_path):
+    jid = workspace.submit('smoke', {})
+    external = tmp_path / 'external.log'
+    external.write_text('Permission denied private content')
+    workspace.log_path(jid).symlink_to(external)
+    workspace.update_job(jid, status='failed', error='Unknown error')
+    g = r.job_guidance(workspace, workspace.job(jid))
+    assert g['category'] == 'log' and g['confidence'] == 'Unknown'
+    assert 'private content' not in g['evidence'] and g['step'] is None
+    workspace.update_job(jid, status='interrupted', error='Worker ended unexpectedly')
+    g = r.job_guidance(workspace, workspace.job(jid))
+    assert g['category'] == 'interrupted' and g['confidence'] == 'Recorded interruption'
+    assert 'locks are not removed' in g['text']
+
+
+def test_command_text_is_not_failure_evidence(workspace):
+    jid = workspace.submit('smoke', {})
+    workspace.log_path(jid).write_text('$ echo "Permission denied"\n')
+    workspace.update_job(jid, status='failed')
+    assert r.job_guidance(workspace, workspace.job(jid))['category'] == 'log'

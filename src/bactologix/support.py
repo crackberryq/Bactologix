@@ -36,7 +36,7 @@ SAFE_FILES = {'Hybas.smk', 'Snakefile', 'config.yaml', 'environment.yaml', 'envi
               'engine.py', 'worker.py', 'runs.py', 'ui_backend.py', 'support.py', 'telemetry.py',
               'maintenance.py', 'environment_health.py', 'run_existing.py', 'snakemake.log'}
 JOB_STATES = {'queued', 'running', 'succeeded', 'failed', 'cancelled', 'interrupted'}
-JOB_KINDS = {'workflow', 'install', 'connect', 'bootstrap', 'check', 'smoke', 'app_update', 'environments', 'database_download'}
+JOB_KINDS = {'workflow', 'install', 'connect', 'bootstrap', 'check', 'smoke', 'workstation', 'app_update', 'environments', 'database_download'}
 ACTIONS = {'run', 'dry-run', 'prepare', 'check-environments', 'install', 'check', 'repair'}
 ENV_STATES = {'Verified', 'Missing', 'Incomplete', 'Available', 'Broken', 'Failed', 'Not checked',
               'Checking', 'Installation requested', 'Needs attention'}
@@ -122,7 +122,7 @@ class Redactor:
         return text
 
 
-def log_tail(store, jid):
+def log_tail(store, jid, *, max_bytes=MAX_LOG_BYTES):
     """Read one regular local log, refusing redirected directories/files and special files."""
     path = store.log_path(jid)
     workspace = directory = descriptor = None
@@ -135,9 +135,9 @@ def log_tail(store, jid):
         size = os.fstat(descriptor)
         if not stat.S_ISREG(size.st_mode):
             return '', {'status': 'not a regular file', 'truncated': False}
-        offset = max(0, size.st_size - MAX_LOG_BYTES)
+        offset = max(0, size.st_size - max_bytes)
         os.lseek(descriptor, offset, os.SEEK_SET)
-        content = os.read(descriptor, MAX_LOG_BYTES)
+        content = os.read(descriptor, max_bytes)
         if offset:
             content = content.partition(b'\n')[2]  # Never treat a clipped first line as complete.
         rows = content.splitlines()
@@ -147,7 +147,7 @@ def log_tail(store, jid):
         text = '\n'.join(row.decode('utf-8', errors='replace') if len(row) <= MAX_LINE_BYTES
                          else '[OVERSIZED LOG LINE REMOVED]' for row in rows)
         return text, {'status': 'included' if content else 'empty', 'truncated': truncated,
-                      'oversized_lines_removed': oversized, 'max_bytes': MAX_LOG_BYTES, 'max_lines': MAX_LOG_LINES}
+                      'oversized_lines_removed': oversized, 'max_bytes': max_bytes, 'max_lines': MAX_LOG_LINES}
     except FileNotFoundError:
         return '', {'status': 'not found', 'truncated': False}
     except OSError:

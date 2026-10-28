@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a29 — guided recovery and workstation checks
+
+- Add an evidence-backed **Why did this fail?** panel with a reported failed step, bounded error excerpt, possible cause and targeted review navigation. Recognize storage/quota, permissions, interrupted jobs and plotting dependency failures alongside existing guidance; unknown causes remain explicit. No automatic repair, retry or scheduler-lock removal.
+- Add explicit **Install & update → Workstation check** jobs for workspace file access, durable worker execution, child-process logging, controlled cancellation and an optional existing-runner software workflow. Preserve frozen runner selection, use bounded probe timeouts and install no software or databases.
+- Retain dated per-attempt results and partial evidence, with an HTML viewer and JSON download. Keep artifact delivery separate from user-confirmed browser/report/download observations. Preserve previous records and all sample/run settings and outputs.
+- Add software and real-browser acceptance coverage. GPU computation, Windows browser launching and physical-workstation reboot recovery remain unverified until checked on target machines.
+
 ## 0.1.0a28 — reviewed local support snapshots
 
 - Add **Get support** in the sidebar, footer and job logs: choose a job, optionally include its log excerpt, generate an editable preview, confirm review, then download text or ZIP. Edits clear review confirmation and changed choices require a matching preview.
