@@ -13,7 +13,9 @@ def main():
     parser.add_argument("--home", help="Workspace directory (default: platform user data directory)")
     parser.add_argument("--port", type=int, help="Listen port (default: first available port from 8501)")
     parser.add_argument("--host", help="Listen address (default: local loopback, or the current WSL address)")
-    parser.add_argument("--no-browser", action="store_true", help="Start the app without opening a browser")
+    launch = parser.add_mutually_exclusive_group()
+    launch.add_argument("--app-window", action="store_true", help="Open an installed Chrome/Edge/Chromium app-style window; fall back to the regular browser")
+    launch.add_argument("--no-browser", action="store_true", help="Start the app without opening a browser")
     args = parser.parse_args()
     home = workspace(args.home)
     os.environ["BACTOLOGIX_HOME"] = str(home)
@@ -28,7 +30,7 @@ def main():
     else:
         from .launcher import serve
         try:
-            code = serve(home, args.host, args.port, browser=not args.no_browser)
+            code = serve(home, args.host, args.port, browser=not args.no_browser, **({"app_window": True} if args.app_window else {}))
         except (OSError, ValueError) as exc:
             parser.exit(1, f"Bactologix could not start: {exc}\n")
         raise SystemExit(code)

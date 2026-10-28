@@ -1,3 +1,11 @@
+# Validation update: 0.1.0a37 (2026-10-28)
+
+- The final installed-wheel Python 3.12 suite passed **543 tests**, with 41 separately gated checks skipped. All **15 browser tests passed** in the final complete run.
+- Audited 31 main views, configuration/saved-run tabs and common dialogs at 1440, 1024 and 390 pixels (93 captures). The initial audit found phone-width overflow in all five Install & update views; the final audit reported none and no JavaScript errors. Additional browser acceptance covers the wizard, folder picker, reports, resource-use dialogs, import review and maintenance controls.
+- New browser coverage exercises responsive installation tabs, mobile drawer visibility, keyboard focus cycling and Escape, navigation dismissal, workspace tools, app-window help and the skip link. Existing saved-run, maintenance and support flows use their new control locations. Early browser failures exposed a decorative arrow in the support button's accessible name and incomplete request handling in the new test fixture; both were corrected before the final green run.
+- App-window regressions cover validated URLs, Windows/WSL PowerShell arguments and timeouts, executable paths with spaces, detached native windows, failed-browser fallback, headless hosts and mutually exclusive CLI flags. The existing real-server readiness and restart checks still pass. Actual Windows/WSL desktop window appearance is not physically verified; browser policy and platform support may affect app mode.
+- Wheel/source builds, all **59 runtime package files**, JavaScript syntax and dependency checks passed. Python 3.11/3.12 pinned-adapter, Chromium and real sample-free Conda suites remain mandatory release gates. This update changes presentation and optional browser launch, not scientific execution or saved settings.
+
 # Validation update: 0.1.0a36 (2026-10-28)
 
 - The installed-wheel Python 3.12 suite passed **537 tests**, with 40 separately gated checks skipped. Import coverage includes BOM/CRLF, quoted comma-containing folders, TSV, blank/default modes, duplicate and existing IDs, wrong field counts, malformed CSV, duplicate/unknown headers, invalid modes/folders and size/row limits.

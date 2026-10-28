@@ -160,6 +160,74 @@ def open_browser(url):
     return False
 
 
+def open_app_window(url):
+    """Request installed Chromium browser app mode; never install or change defaults."""
+    from urllib.parse import urlsplit
+    try:
+        target = urlsplit(url)
+        if target.scheme != 'http' or target.path or target.query or target.fragment or target.username or target.password:
+            return False
+        if not target.port or browser_url(target.hostname, target.port) != url:
+            return False
+    except (TypeError, ValueError):
+        return False
+    if is_wsl() or platform.system() == 'Windows':
+        powershell = shutil.which('powershell.exe')
+        fallback = '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
+        if not powershell and is_wsl() and Path(fallback).is_file():
+            powershell = fallback
+        if not powershell:
+            return False
+        # Paths are derived by Windows, including per-user and 32/64-bit installs.
+        script = ("$ErrorActionPreference='Stop'; "
+                  "$roots=@($env:ProgramFiles,${env:ProgramFiles(x86)},$env:LOCALAPPDATA) | Where-Object { $_ }; "
+                  "$names=@('Microsoft\\Edge\\Application\\msedge.exe','Google\\Chrome\\Application\\chrome.exe'); "
+                  "foreach($name in $names){foreach($root in $roots){$exe=Join-Path $root $name; "
+                  "if(Test-Path -LiteralPath $exe -PathType Leaf){try { "
+                  "Start-Process -FilePath $exe -ArgumentList @('--app=" + url + "','--window-size=1440,1000') -ErrorAction Stop; exit 0 "
+                  "} catch { } } } }; exit 1")
+        try:
+            result = subprocess.run([powershell, '-NoProfile', '-NonInteractive', '-Command', script],
+                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, timeout=10)
+            return result.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
+    if platform.system() == 'Linux' and not any(os.environ.get(k) for k in ('DISPLAY', 'WAYLAND_DISPLAY')):
+        return False
+    paths = []
+    if platform.system() == 'Darwin':
+        for root in (Path('/Applications'), Path.home() / 'Applications'):
+            for app, binary in (('Google Chrome', 'Google Chrome'), ('Microsoft Edge', 'Microsoft Edge')):
+                path = root / (app + '.app') / 'Contents/MacOS' / binary
+                if path.is_file():
+                    paths.append(str(path))
+    else:
+        paths = [path for name in ('google-chrome', 'google-chrome-stable', 'microsoft-edge', 'microsoft-edge-stable', 'chromium', 'chromium-browser')
+                 if (path := shutil.which(name))]
+    for path in dict.fromkeys(paths):
+        try:
+            proc = subprocess.Popen([path, '--app=' + url, '--window-size=1440,1000'],
+                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    start_new_session=True)
+            try:
+                if proc.wait(timeout=.5) == 0:
+                    return True  # Existing browser accepted the handoff.
+            except subprocess.TimeoutExpired:
+                return True  # Browser owns its window; do not wait for it to close.
+        except OSError:
+            continue
+    return False
+
+
+def launch_browser(url, app_window=False):
+    if app_window:
+        if open_app_window(url):
+            return True
+        print('App-window launch unavailable. Opening the regular browser instead.', flush=True)
+    return open_browser(url)
+
+
 def stop_server(proc, sig=signal.SIGTERM):
     if proc.poll() is None:
         try:
@@ -173,7 +241,7 @@ def stop_server(proc, sig=signal.SIGTERM):
             proc.wait()
 
 
-def serve(home, host=None, port=None, browser=True):
+def serve(home, host=None, port=None, browser=True, app_window=False):
     host = checked_host(host or default_host())
     port = free_port(host, port)
     url = browser_url(host, port)
@@ -219,7 +287,7 @@ def serve(home, host=None, port=None, browser=True):
                     ready = True
                     restart.mark_ready(store, item)
                     print(f'Bactologix is ready: {url}', flush=True)
-                    if browser and not open_browser(url):
+                    if browser and not launch_browser(url, app_window=app_window):
                         print(f'Could not open a browser automatically. Open {url} in your browser.', flush=True)
                 if ready:
                     request = restart.pending(store, item)
