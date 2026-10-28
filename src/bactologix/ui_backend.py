@@ -18,7 +18,7 @@ from .runs import (absolute_path, clone_runs, command, create_run, import_sample
                    parse_config, register_sample, remove_sample, archive_runs, reports, template, validate_launch,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
-from . import databases, updates, hardware, methods, telemetry, support, workstation, queue
+from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results
 from . import followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
 _SNAPSHOTS = {}
@@ -158,7 +158,7 @@ def dispatch(store, kind, p):
     """Only named UI commands are allowed. Browser-supplied objects are not trusted."""
     if not isinstance(p, dict):
         raise ValueError("Invalid action payload")
-    if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "refresh_app_releases", "cancel_job"}:
+    if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "refresh_app_releases", "cancel_job"}:
         updates.assert_current(store)
         if updates.status(store)["active_job"]:
             raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
@@ -396,6 +396,17 @@ def dispatch(store, kind, p):
         except Exception as exc:
             run["command"] = str(exc)
         return {"detail": run, "keep_modal": True}
+    if kind == 'inspect_results':
+        return {'results': results.inspect(store, p.get('id')), 'keep_modal': True}
+    if kind == 'open_result_report':
+        doc = results.inspect(store, p.get('id'))
+        row = next((r for r in doc['reports'] if r['id'] == p.get('report_id')), None)
+        if row is None:
+            raise ValueError('Choose a report from this run.')
+        artifact = results.download(store, doc['id'], 'report', row['id'])
+        return {'report': {**row, 'base64': artifact['base64']}, 'keep_modal': True}
+    if kind == 'download_result':
+        return {'download': results.download(store, p.get('id'), p.get('format'), p.get('report_id')), 'keep_modal': True}
     if kind == 'inspect_methods':
         return {'methods': methods.build(store, _item(store, 'runs', p.get('id'))), 'keep_modal': True}
     if kind == 'download_methods':
@@ -487,7 +498,7 @@ def dispatch(store, kind, p):
         if kind == "download_log":
             if not path.is_file() or path.stat().st_size > 20 * 1024 * 1024:
                 raise ValueError("Open the full log on disk: " + str(path))
-            return {"download": {"name": path.name, "text": path.read_text(errors="replace"), "type": "text/plain"}, "keep_modal": True}
+            return {"download": {"name": path.name, "text": results.read_file(path, results.LOG_LIMIT).decode("utf-8", errors="replace"), "type": "text/plain"}, "keep_modal": True}
         text = "Waiting for process output…"
         if path.exists():
             with path.open("rb") as handle:

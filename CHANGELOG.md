@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a31 — results and download centre
+
+- Add searchable per-run results navigation with pipeline and archived-run filters. Bring native reports, frozen YAML, a JSON results manifest, Methods, logs and resource records together on the saved-run Results tab.
+- Separate the latest execution from validation/environment attempts. Keep failed/cancelled/interrupted status, unavailable files and missing resource records explicit; report presence never proves complete scope.
+- Record best-effort before/after report-file metadata for new execution attempts. Show matching attempt observations and changed/unchanged metadata without asserting a producing process or reconstructing historical report copies. Preserve shared follow-up ownership.
+- Recheck bounded downloads, refusing linked/non-regular files. Keep original outputs, frozen settings, existing records and scientific execution unchanged.
+
 ## 0.1.0a30 — persistent queue controls
 
 - Hold/release and reorder waiting jobs in Jobs & progress. Held jobs remain queued, retaining duplicate-run, installation and update protections; existing queues retain FIFO order.

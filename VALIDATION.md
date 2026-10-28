@@ -1,3 +1,12 @@
+# Validation update: 0.1.0a31 (2026-10-28)
+
+- The installed-wheel Python 3.12 suite passed **473 tests**, with 35 separately gated checks skipped. Result regressions cover exact frozen YAML, legacy/changed reports, separate execution and validation status, repeated attempts, failed/cancelled/interrupted observations, missing-before and missing-after records, unavailable logs/metrics and shared follow-up ownership.
+- Real sample-free subprocesses exercise report observations around the workflow command path on both success and nonzero exit. Observation and diagnostic-write failures cannot mask workflow results. No native biological analysis is used by these tests.
+- All **9 browser tests passed** locally, including search, archived-run visibility, per-run navigation, actual YAML/HTML/log/manifest downloads, report iframe, Methods/resource links, refresh persistence, changed external reports and mobile overflow. The installed-wheel results flow was rechecked after final observation edge-case changes; desktop/mobile views were inspected. Local browser is Chromium 153; CI retains its pinned Playwright image.
+- Downloads recheck regular-file identity and size through no-follow directory/file descriptors. Tests reject symbolic links, linked parents, FIFO/directory paths, missing/empty/oversized reports, changed-during-read files and foreign report IDs. Per-run inspection only examines known report paths and selected-run log metadata, without recursive output scanning or implicit workflow execution.
+- Wheel/source builds, all **55 runtime package files**, JavaScript syntax and dependency checks passed. Python 3.11/3.12 pinned-adapter checks, the full browser suite and real sample-free Conda deployment remain mandatory release gates.
+- Report observations are metadata associations, not content hashes, proof of a producing process or completion of all requested scope. Historical HTML copies are not retained. Physical workstation/WSL reboot, GPU computation and complete analysis acceptance remain outside these software checks.
+
 # Validation update: 0.1.0a30 (2026-10-28)
 
 - Queue regressions cover legacy SQLite/FIFO compatibility, saved payload preservation, persistent pause/holds/order, new-job append order, stale and replayed browser requests, transactional claim/control races, terminal-job rejection, held-job protections and application-update interlocks.
