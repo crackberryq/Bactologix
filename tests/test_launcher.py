@@ -196,3 +196,85 @@ def test_real_console_launcher_ready_handoff_and_shutdown(tmp_path, no_browser):
                     proc.wait(timeout=15)
                 except subprocess.TimeoutExpired:
                     proc.kill(); proc.wait()
+
+
+def test_app_window_wsl_uses_known_windows_locations_and_validated_url(monkeypatch):
+    monkeypatch.setattr(l, 'is_wsl', lambda: True)
+    monkeypatch.setattr(l.shutil, 'which', lambda name: '/windows/powershell.exe' if name=='powershell.exe' else None)
+    calls=[]
+    monkeypatch.setattr(l.subprocess, 'run', lambda argv, **kw: calls.append((argv,kw)) or subprocess.CompletedProcess(argv,0))
+    assert l.open_app_window('http://172.21.21.143:8502')
+    argv,kw=calls[0]
+    assert argv[:3]==['/windows/powershell.exe','-NoProfile','-NonInteractive']
+    assert "'--app=http://172.21.21.143:8502'" in argv[-1]
+    assert 'msedge.exe' in argv[-1] and 'chrome.exe' in argv[-1] and '$env:LOCALAPPDATA' in argv[-1]
+    assert kw['timeout']==10 and not kw.get('shell')
+    for url in ["http://localhost:8501';calc",'https://example.com','http://localhost:8501/path','http://user@localhost:8501','http://localhost:8501?x=1']:
+        assert not l.open_app_window(url)
+    assert len(calls)==1
+
+
+def test_app_window_native_argv_and_detached_window(monkeypatch):
+    monkeypatch.setattr(l,'is_wsl',lambda:False);monkeypatch.setattr(l.platform,'system',lambda:'Linux')
+    monkeypatch.setenv('DISPLAY',':0')
+    monkeypatch.setattr(l.shutil,'which',lambda n:'/opt/browser with spaces/chrome' if n=='google-chrome' else None)
+    calls=[]
+    class Window:
+        def wait(self,timeout):
+            assert timeout==.5
+            raise subprocess.TimeoutExpired('browser',timeout)
+    monkeypatch.setattr(l.subprocess,'Popen',lambda argv,**kw:calls.append((argv,kw)) or Window())
+    assert l.open_app_window('http://127.0.0.1:8501')
+    assert calls[0][0]==['/opt/browser with spaces/chrome','--app=http://127.0.0.1:8501','--window-size=1440,1000']
+    assert calls[0][1]['start_new_session'] and not calls[0][1].get('shell')
+
+
+def test_app_window_fallback_and_browser_opt_out(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(l,'open_app_window',lambda url:False)
+    calls=[];monkeypatch.setattr(l,'open_browser',lambda url:calls.append(url) or True)
+    assert l.launch_browser('http://127.0.0.1:8501',True)
+    assert 'regular browser' in capsys.readouterr().out and len(calls)==1
+    from bactologix.cli import main
+    monkeypatch.setattr(l,'serve',lambda *a,**kw:calls.append(kw) or 0)
+    monkeypatch.setattr(sys,'argv',['bactologix','--home',str(tmp_path),'--app-window'])
+    with pytest.raises(SystemExit) as result:main()
+    assert result.value.code==0 and calls[-1]=={'browser':True,'app_window':True}
+    monkeypatch.setattr(sys,'argv',['bactologix','--no-browser','--app-window'])
+    with pytest.raises(SystemExit) as result:main()
+    assert result.value.code==2
+
+
+def test_app_window_no_desktop_does_not_launch_a_gui(monkeypatch):
+    monkeypatch.setattr(l,'is_wsl',lambda:False);monkeypatch.setattr(l.platform,'system',lambda:'Linux')
+    monkeypatch.delenv('DISPLAY',raising=False);monkeypatch.delenv('WAYLAND_DISPLAY',raising=False)
+    monkeypatch.setattr(l.subprocess,'Popen',lambda *a,**k:pytest.fail('GUI launch on headless host'))
+    assert not l.open_app_window('http://127.0.0.1:8501')
+
+
+def test_app_window_tries_next_browser_after_failed_launch(monkeypatch):
+    monkeypatch.setattr(l, 'is_wsl', lambda: False)
+    monkeypatch.setattr(l.platform, 'system', lambda: 'Linux')
+    monkeypatch.setenv('DISPLAY', ':0')
+    monkeypatch.setattr(l.shutil, 'which', lambda name: {'google-chrome': '/chrome', 'chromium': '/chromium'}.get(name))
+    calls = []
+    class Process:
+        def wait(self, timeout):
+            return 1 if len(calls) == 1 else 0
+    def start(argv, **kwargs):
+        calls.append(argv)
+        return Process()
+    monkeypatch.setattr(l.subprocess, 'Popen', start)
+    assert l.open_app_window('http://127.0.0.1:8501')
+    assert [call[0] for call in calls] == ['/chrome', '/chromium']
+
+
+def test_app_window_powershell_timeout_falls_back(monkeypatch):
+    monkeypatch.setattr(l, 'is_wsl', lambda: True)
+    monkeypatch.setattr(l.shutil, 'which', lambda name: '/powershell.exe')
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], kwargs['timeout'])
+    monkeypatch.setattr(l.subprocess, 'run', timeout)
+    opened = []
+    monkeypatch.setattr(l, 'open_browser', lambda url: opened.append(url) or True)
+    assert l.launch_browser('http://127.0.0.1:8501', app_window=True)
+    assert opened == ['http://127.0.0.1:8501']

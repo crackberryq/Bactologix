@@ -137,9 +137,12 @@ def test_sample_picker_configuration_and_report(tmp_path):
             page.set_viewport_size({'width': 390, 'height': 844})
             assert page.locator('.defaults-editor').evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
             expect(page.get_by_role('button', name='Save defaults', exact=True)).to_be_visible()
+            capture('configuration-mobile')
+            page.get_by_role('button', name='Open navigation', exact=True).click()
             expect(page.get_by_role('link', name='Databases & models', exact=True)).to_be_visible()
             expect(page.get_by_role('link', name='Install & update', exact=True)).to_be_visible()
-            capture('configuration-mobile')
+            page.keyboard.press('Escape')
+            expect(page.get_by_role('button', name='Open navigation', exact=True)).to_be_focused()
             page.set_viewport_size({'width': 1440, 'height': 1100})
             page.get_by_role('button', name='Full YAML', exact=True).click()
             defaults_yaml = page.get_by_label('Full configuration', exact=True)
@@ -376,7 +379,10 @@ def test_sample_picker_configuration_and_report(tmp_path):
             page.locator('[data-run-row="' + created['id'] + '"] a.sample-name').click()
             expect(page.get_by_role('heading', name=created['label'], exact=True)).to_be_in_viewport()
             def saved_tab(name):
-                page.locator('.saved-run-tabs [data-action="saved-run-tab"][data-id="' + name + '"]').click()
+                target = page.locator('.saved-run-tabs [data-action="saved-run-tab"][data-id="' + name + '"]')
+                if not target.is_visible():
+                    page.locator('.saved-settings-nav > summary').click()
+                target.click()
             saved_tab('kraken')
             expect(page.locator('[data-saved-setting="kraken_decision_mode"]')).to_have_text('Off')
             # Saved run URLs survive reload and browser Back/Forward.
@@ -553,11 +559,14 @@ def test_sample_picker_configuration_and_report(tmp_path):
             assert Store(workspace).get('installs', hybas['id'])['rule_cache'] == str(old_cache)
             assert Store(workspace).get('runs', parent['id']) == parent
             page.get_by_role('button', name='Close dialog', exact=True).click()
+            current_card.get_by_text('Maintenance & installation details', exact=True).click()
             current_card.get_by_role('button', name='Uninstall version', exact=True).click()
             expect(page.get_by_role('button', name='Uninstall this version', exact=True)).to_be_disabled()
             expect(page.locator('.modal')).to_contain_text('Select another active version')
             page.get_by_role('button', name='Close dialog', exact=True).click()
-            page.locator('[data-installation="' + old_id + '"]').get_by_role('button', name='Uninstall version', exact=True).click()
+            old_card = page.locator('[data-installation="' + old_id + '"]')
+            old_card.get_by_text('Maintenance & installation details', exact=True).click()
+            old_card.get_by_role('button', name='Uninstall version', exact=True).click()
             expect(page.get_by_role('button', name='Uninstall this version', exact=True)).to_be_enabled()
             expect(page.locator('.uninstall-kept')).to_contain_text(str(old_cache))
             capture('uninstall-version-review')
@@ -569,6 +578,8 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(current_card.locator('.installation-cache')).to_contain_text(str(old_cache))
             expect(current_card).to_contain_text('Runner set up')
             capture('install-environment-controls')
+            if not current_card.get_by_role('button', name='Repair environments', exact=True).is_visible():
+                current_card.get_by_text('Maintenance & installation details', exact=True).click()
             current_card.get_by_role('button', name='Repair environments', exact=True).click()
             expect(page.get_by_role('heading', name='Repair environments', exact=True)).to_be_visible()
             expect(page.get_by_role('dialog')).to_contain_text('Plotly 6.1.2')
@@ -844,6 +855,7 @@ def test_reviewed_support_snapshot_and_zip(tmp_path):
         expect(review).not_to_be_checked()
         expect(download_button).to_be_disabled()
         dialog.get_by_role('button', name='Close dialog', exact=True).click()
+        page.get_by_role('button', name='Open navigation', exact=True).click()
         page.get_by_role('button', name='Get support', exact=True).last.click()
         expect(dialog.locator('#support-text')).to_have_count(0)
         expect(download_button).to_be_disabled()
@@ -1827,4 +1839,59 @@ def test_reviewed_sample_import_preview_staleness_and_commit(tmp_path):
         page.get_by_role('button', name='Import table', exact=True).click()
         expect(dialog.get_by_role('button', name='Import reviewed samples', exact=True)).to_be_disabled()
         assert errors == []
+        browser.close()
+
+
+def test_responsive_navigation_and_workspace_tools(tmp_path):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import dispatch, snapshot
+    store = Store(tmp_path / 'workspace')
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1000})
+        page.clock.install(time='2026-10-28T12:00:00Z')
+        page.clock.pause_at('2026-10-28T12:00:01Z')
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(page, store)
+        page.get_by_role('link', name='Install & update', exact=True).click()
+        for width in (1440, 1024, 390):
+            page.set_viewport_size({'width': width, 'height': 844})
+            for name in ('Guided setup', 'Pipelines & environments', 'PC capacity', 'Workstation check', 'Compatibility'):
+                page.get_by_role('button', name=name, exact=True).click()
+                if name == 'Compatibility':
+                    req = page.evaluate('window.acceptanceEvents.at(-1)?.value')
+                    if req and req['kind'] == 'inspect_compatibility':
+                        result = {'id': req['id'], 'ok': True, **dispatch(store, req['kind'], req['payload'])}
+                        page.evaluate('({r,s})=>{Object.assign(window.acceptanceWorkspace,s);window.acceptanceRender(r)}', {'r': result, 's': snapshot(store)})
+                assert page.locator('.bacto-root').evaluate('(el) => el.scrollWidth <= innerWidth+1')
+                for tab in page.locator('.setup-tabs button').all():
+                    expect(tab).to_be_visible()
+        toggle = page.get_by_role('button', name='Open navigation', exact=True)
+        expect(page.locator('.sidebar')).to_be_hidden()
+        toggle.click()
+        expect(toggle).to_have_attribute('aria-expanded', 'true')
+        expect(page.get_by_role('link', name='Overview', exact=True)).to_be_focused()
+        page.locator('.sidebar a').first.focus()
+        page.keyboard.press('Shift+Tab')
+        expect(page.locator('.sidebar button').last).to_be_focused()
+        page.keyboard.press('Escape')
+        expect(toggle).to_be_focused()
+        expect(page.locator('.sidebar')).to_be_hidden()
+        toggle.click()
+        page.get_by_role('link', name='Samples', exact=True).click()
+        expect(page.locator('.sidebar')).to_be_hidden()
+        expect(page.locator('.workspace-shell')).not_to_have_attribute('inert', '')
+        page.locator('.workspace-tools > summary').click()
+        page.get_by_role('button', name='Desktop window', exact=True).click()
+        expect(page.get_by_role('dialog')).to_contain_text('bactologix --app-window')
+        expect(page.locator('.workspace-tools')).not_to_have_attribute('open', '')
+        page.keyboard.press('Escape')
+        expect(page.get_by_role('dialog')).to_have_count(0)
+        page.set_viewport_size({'width': 1440, 'height': 1000})
+        expect(page.get_by_role('link', name='Overview', exact=True)).to_be_visible()
+        page.locator('a.skip').focus()
+        page.keyboard.press('Enter')
+        expect(page.locator('#main')).to_be_focused()
+        assert errors == [] and not store.jobs() and not store.all('runs')
         browser.close()

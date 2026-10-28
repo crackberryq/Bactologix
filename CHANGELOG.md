@@ -1,5 +1,11 @@
 # Bactologix releases
 
+## 0.1.0a37 — interface cleanup and optional app window
+
+- Align shared cards, forms, tabs, action rows and dialogs; fix phone-width overflow across all five Install & update views. Simplify the header and group workspace tools.
+- Add a labeled mobile navigation drawer with keyboard focus handling. Keep saved-run result/activity tabs prominent and group configuration and maintenance controls. Collapse lengthy supporting explanations while retaining status and primary actions.
+- Add `bactologix --app-window` for installed Chromium-family browsers, including Windows/WSL detection and ordinary-browser fallback after the server is ready. Keep normal launch behavior as the default.
+
 ## 0.1.0a36 — reviewed sample-table import
 
 - Preview CSV/TSV sample tables with resolved folders, effective read modes, row-level errors, paging and a problems-only filter. Bound input to 500 rows / 2 MB and reject malformed tables, duplicate/unknown columns and case-insensitive ID conflicts.
