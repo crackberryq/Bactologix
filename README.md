@@ -1,4 +1,32 @@
-# Bactologix 0.1.0a34 — alpha
+# Bactologix 0.1.0a35 — alpha
+
+### Full saved configuration comparison
+
+In **Comparisons → Compare saved runs**, choose 2–4 current runs and a
+**Reference run**, then select **Compare configurations**. The reference defines
+the comparison order; it does not recommend a pipeline or settings. The table
+compares the stored YAML values plus recorded source commit, installation/runner,
+input references, output destination, parent, run type and resource budgets.
+
+Missing keys are distinct from null, empty containers, false and zero. Scalar
+types and list order matter; mapping order, comments and YAML formatting do not.
+Custom keys are included. Paths show separate key segments, preserving a literal
+`a.b` key separately from nested `a: {b: ...}`. Missing values are never filled
+from current defaults. A matching key across different pipelines may have a
+different meaning. The view does not compare results or verify referenced files.
+
+Use **Differences only**, path search and section filters to narrow the table.
+Rows are paged in groups of 50; long displayed values are explicitly shortened.
+Changing the selected runs or reference hides the previous table until you compare
+again. Configuration hashes distinguish exact saved YAML from its typed values.
+
+**Refresh & download comparison** rereads those saved records, updates the
+comparison and exports every row as JSON, including unchanged/filtered rows and
+full YAML cell values. The file contains local paths, labels and custom settings;
+review it before sharing. No workflows, environment checks, automatic defaults or
+settings changes are performed. At most 5,000 rows, 64 nested levels and 16 MB of
+exported comparison data are supported; larger records require individual YAML
+exports. The comparison reads saved workspace records, not files on disk.
 
 ### Searchable job history
 
@@ -296,7 +324,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a34-py3-none-any.whl
+pipx install ./bactologix-0.1.0a35-py3-none-any.whl
 bactologix
 ```
 
@@ -305,7 +333,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a34/bactologix-0.1.0a34-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a35/bactologix-0.1.0a35-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -314,7 +342,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a34/bactologix-0.1.0a34-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a35/bactologix-0.1.0a35-py3-none-any.whl"
 bactologix
 ```
 
@@ -322,7 +350,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a34-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a35-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
