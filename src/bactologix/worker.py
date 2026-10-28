@@ -15,10 +15,8 @@ def work(store):
         # the previous worker exits always has a worker waiting to acquire the lock.
         fcntl.flock(lock, fcntl.LOCK_EX)
         # Native children inherit the lock. Recovery cannot overlap a surviving child.
-        for old in store.jobs():
-            if old["status"] == "running":
-                store.update_job(old["id"], status="interrupted", finished=now(),
-                                 error="Worker ended unexpectedly. Inspect outputs and logs before resuming.")
+        from .queue import recover_interrupted
+        recover_interrupted(store)
         idle = 0
         processed = False
         while idle < 20:

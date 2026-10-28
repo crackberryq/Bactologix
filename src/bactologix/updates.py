@@ -63,6 +63,7 @@ def fetch_releases():
 
 def status(store):
     state = store.get("settings", "app-update", {})
+    queue_paused = store.queue_snapshot()["paused"]
     active = next((j for j in store.jobs() if j["kind"] == "app_update" and j["status"] in {"queued", "running"}), None)
     try:
         installed = importlib.metadata.version("bactologix")
@@ -80,9 +81,9 @@ def status(store):
     return {"running_version": __version__, "installed_version": installed, "python": sys.executable,
             "environment": sys.prefix, "catalog": catalog,
             "active_job": active["id"] if active else None, "restart_required": restart,
-            "automatic_restart": automatic,
+            "automatic_restart": automatic, "queue_paused": queue_paused,
             "launcher": {k: launcher[k] for k in ('id', 'version', 'url')} if launcher else None,
-            "last_update": state, "can_install": platform.system() == "Linux" and not restart
+            "last_update": state, "can_install": platform.system() == "Linux" and not restart and not queue_paused
             and not any(j["status"] in {"queued", "running"} for j in store.jobs())}
 
 

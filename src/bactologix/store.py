@@ -38,6 +38,9 @@ class Store:
                   id TEXT PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL,
                   status TEXT NOT NULL, created TEXT NOT NULL, started TEXT,
                   finished TEXT, error TEXT, cancel INTEGER NOT NULL DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS job_queue (
+                  job_id TEXT PRIMARY KEY, position INTEGER NOT NULL,
+                  held INTEGER NOT NULL DEFAULT 0 CHECK(held IN (0,1)));
             """)
 
     @contextmanager
@@ -95,6 +98,10 @@ class Store:
             pending = db.execute("SELECT kind FROM jobs WHERE status IN ('queued','running')").fetchall()
             if any(row[0] == "app_update" for row in pending):
                 raise ValueError("A Bactologix update is queued or running. Wait for it to finish and restart the app.")
+            if kind == "app_update":
+                from .queue import control
+                if control(db)['paused']:
+                    raise ValueError('Resume the queue before installing a Bactologix update.')
             if kind == "app_update" and pending:
                 raise ValueError("Finish or cancel queued/running jobs before updating Bactologix.")
             if kind == 'workstation' and any(row[0] == 'workstation' for row in pending):
@@ -112,16 +119,19 @@ class Store:
                     raise ValueError("This database download is already queued or running")
             db.execute("INSERT INTO jobs(id,kind,payload,status,created) VALUES (?,?,?,'queued',?)",
                        (jid, kind, json.dumps(payload), now()))
+            position = max(db.execute('SELECT COALESCE(MAX(position),0) FROM job_queue').fetchone()[0],
+                           db.execute('SELECT MAX(rowid) FROM jobs').fetchone()[0]) + 1
+            db.execute('INSERT INTO job_queue VALUES (?,?,0)', (jid, position))
         return jid
 
     def jobs(self):
         with self.connect() as db:
-            rows = db.execute("SELECT * FROM jobs ORDER BY rowid DESC").fetchall()
+            rows = db.execute("SELECT j.*,COALESCE(q.held,0) AS held,COALESCE(q.position,j.rowid) AS queue_position FROM jobs j LEFT JOIN job_queue q ON q.job_id=j.id ORDER BY j.rowid DESC").fetchall()
         return [dict(row, payload=json.loads(row["payload"])) for row in rows]
 
     def job(self, jid):
         with self.connect() as db:
-            row = db.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
+            row = db.execute("SELECT j.*,COALESCE(q.held,0) AS held,COALESCE(q.position,j.rowid) AS queue_position FROM jobs j LEFT JOIN job_queue q ON q.job_id=j.id WHERE j.id=?", (jid,)).fetchone()
         return dict(row, payload=json.loads(row["payload"])) if row else None
 
     def update_job(self, jid, **fields):
@@ -134,11 +144,22 @@ class Store:
     def claim(self):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT id FROM jobs WHERE status='queued' AND cancel=0 ORDER BY rowid LIMIT 1").fetchone()
+            from .queue import control
+            if control(db)['paused']:
+                return None
+            row = db.execute("SELECT j.id FROM jobs j LEFT JOIN job_queue q ON q.job_id=j.id "
+                             "WHERE j.status='queued' AND j.cancel=0 AND COALESCE(q.held,0)=0 "
+                             "ORDER BY COALESCE(q.position,j.rowid),j.rowid LIMIT 1").fetchone()
             if not row:
                 return None
             db.execute("UPDATE jobs SET status='running',started=? WHERE id=?", (now(), row[0]))
         return self.job(row[0])
+
+    def queue_snapshot(self):
+        from .queue import snapshot
+        with self.connect() as db:
+            db.execute('BEGIN')
+            return snapshot(db)
 
     def cancel(self, jid):
         with self.connect() as db:

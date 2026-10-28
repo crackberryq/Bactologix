@@ -1,3 +1,11 @@
+# Validation update: 0.1.0a30 (2026-10-28)
+
+- Queue regressions cover legacy SQLite/FIFO compatibility, saved payload preservation, persistent pause/holds/order, new-job append order, stale and replayed browser requests, transactional claim/control races, terminal-job rejection, held-job protections and application-update interlocks.
+- Real sample-free subprocess workers exercise stop-after-current behavior, skipped held jobs and interrupted-record recovery. Failed/cancelled current attempts also leave the queue paused. Recovery is lock-protected and pauses for review; it does not automatically retry interrupted attempts.
+- Chromium acceptance covers hold/release, reordering, refresh persistence, the global pause banner, interrupted-worker recovery, explicit resume, actual worker completion, retained prior attempts and desktop/mobile layout. Local verification uses Chromium 153 because this host could not download Playwright's pinned browser; CI retains its pinned browser image.
+- The installed-wheel Python 3.12 suite passed **451 tests**, with 34 separately gated checks skipped. Wheel/source builds, JavaScript syntax, all 54 runtime package files and dependency checks passed locally. Python 3.11/3.12 application/pinned-adapter checks, the complete browser suite and sample-free real-Conda deployment remain release gates.
+- These checks do not establish physical-workstation reboot recovery, Windows browser launching, GPU computation or complete analysis acceptance. No scientific algorithms, frozen run settings, input data or output files are changed by queue controls.
+
 # Validation update: 0.1.0a29 (2026-10-28)
 
 - The local Python 3.12 application suite passed **428 tests**, with 33 separately gated checks skipped. Added regressions cover permission/disk failures, bounded log evidence and escaped rendering, unknown causes, refused log symlinks, interrupted workers, duplicate checks, frozen runner selection, user cancellation, probe timeouts and retained per-attempt history.
