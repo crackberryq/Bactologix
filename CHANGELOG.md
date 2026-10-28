@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a33 — version compatibility overview
+
+- Add Install & update → Compatibility with app/runtime versions, exact supported commits, dated catalogue origin and installed runner records. Familiar branch/release names never grant support to an unreviewed commit.
+- Distinguish active versions for new drafts from each saved run’s recorded installation. Flag missing/mismatched bindings, missing setup and validation tied to a different runner path; retain earlier supported and archived runs.
+- Keep recorded requirements/check dates, latest check-job status and execution outcomes separate from fresh verification. Add search, pipeline/review/archive filters, existing setup/run navigation and a persistent tab route.
+- Export the same refreshed overview as JSON. No automatic network lookup, environment probe, job submission, run migration or active-version change.
+
 ## 0.1.0a32 — storage overview
 
 - Add explicit Storage measurements across runs, environments/runners, databases/models, retained repair folders, sources and logs. Show registered paths/references, category filters, review navigation, saved timestamps and JSON downloads.

@@ -1,3 +1,11 @@
+# Validation update: 0.1.0a33 (2026-10-28)
+
+- The installed-wheel Python 3.12 suite passed **502 tests**, with 37 separately gated checks skipped. Compatibility regressions cover exact current/earlier/unreviewed commits, moving branch labels, dated catalogue origin, missing active registrations, missing/mismatched installation bindings, replaced and revalidated runner paths, legacy validation records and archived runs.
+- Tests distinguish recorded requirements/check dates, latest explicit check status and failed execution outcomes. Missing/invalid application package requirements remain unknown, and a running/installed version mismatch requires restart. Read-only assertions prohibit external subprocess/network/enqueue operations and verify preserved installation/run records. JSON export is identical to the freshly returned overview.
+- All **11 browser tests passed** locally. Real Chromium acceptance covers the Compatibility route and reload, filters, archived visibility, native JSON download, refreshed source mismatch, escaped labels, saved-run navigation and mobile overflow. Desktop/mobile views were inspected. Local browser uses Chromium 153; CI retains its pinned Playwright image.
+- Wheel/source builds, all **57 runtime package files**, JavaScript syntax and dependency checks passed. Full Python 3.11/3.12 pinned-adapter, Chromium and real sample-free Conda suites remain release gates.
+- This is a local-record overview, not a fresh runner/package probe or launch-readiness check. It does not verify source/configuration integrity, input files, databases, tool environments or biological results; it does not fetch live releases or migrate saved runs. Physical-workstation/WSL/GPU and complete-analysis acceptance remain outside these software checks.
+
 # Validation update: 0.1.0a32 (2026-10-28)
 
 - The installed-wheel Python 3.12 suite passed **489 tests**, with 36 separately gated checks skipped. Storage regressions cover explicit traversal, metadata-only reads, unchanged files/settings/jobs, persistence, exact JSON exports, nested/shared references, archived runs, hard-link deduplication, sparse-file blocks and filesystem-capacity deduplication.
