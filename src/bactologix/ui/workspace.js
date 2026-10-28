@@ -635,7 +635,7 @@ if(m.kind==='existing'){
  ${notice('Keep your existing work','Connecting copies committed workflow source locally. Import your native YAML and set database paths in Configuration. Existing outputs are available as reports; they are not adopted for in-place resume.')}`;
  foot=btn('connect-local','Connect installation',true,t,'check',!info?.supported||info.path!==val('existing-source'));
 }
-if(m.kind==='import'){title='Import a sample table';desc='CSV or TSV · sample_id, input_folder, read_mode';body=`<label class="btn upload-label">Choose CSV / TSV<input type="file" id="sample-upload" accept=".csv,.tsv" class="visually-hidden"></label><div class="form-grid">${area('sample-table','Table contents','sample_id,input_folder,read_mode\n','rows="9"')}</div>${btn('sample-template','Download template')}`;foot=btn('import-samples','Import samples',true);}
+if(m.kind==='import'){wide=true;title='Import a sample table';desc='Preview every row before registering input folders.';body=`<label class="btn upload-label">Choose CSV / TSV<input type="file" id="sample-upload" accept=".csv,.tsv" class="visually-hidden"></label><div class="form-grid">${area('sample-table','Table contents','sample_id,input_folder,read_mode\n','rows="9" spellcheck="false"')}</div><div class="button-row">${btn('sample-template','Download template')}${btn('preview-samples','Preview table',true)}</div><p class="settings-note">CSV or TSV · sample_id, input_folder, optional read_mode. Blank read modes use Hybrid. Up to 500 rows / 2 MB. This registers folders; it does not validate input files or create runs.</p><div id="sample-import-status"></div><div id="sample-import-preview">${sampleImportPreview()}</div>`;foot=btn('import-samples','Import reviewed samples',true,'','',true);}
 if(m.kind==='conda'){title='Choose Conda';desc='Use an existing executable or install local Conda from Install & update.';body=field('conda-path','Conda executable',S.doctor.conda||'');foot=btn('save-conda','Save location',true);}
 
 if(m.kind==='clone'){title='Compare polishing strategies';desc='Choose a parent run and create independent variants.';const runs=visibleRuns().filter(r=>r.tool==='hybas');const id=val('clone-parent',m.id||runs[0]?.id);const r=runBy(id);const options=r?.sample.mode==='illumina_only'?[['none','Baseline'],['tripolish','Polypolish']]:[['none','Baseline'],['racon','Racon'],['medaka','Medaka'],['tripolish','Tripolish']];body=`${select('clone-parent','Parent run',runs.map(r=>[r.id,r.label+' · '+r.id]),id)}<label class="check-field"><input type="checkbox" id="clone-aware" ${val('clone-aware',false)?'checked':''}><span>Create an AWARE-free branch<small>Otherwise inherit the parent’s AWARE settings.</small></span></label><div class="strategy-grid">${options.map(([s,l])=>`<label class="strategy-card"><span class="row"><input type="checkbox" id="strategy-${s}" data-strategy="${s}" ${val('strategy-'+s,['none','tripolish'].includes(s))?'checked':''}>${l}</span></label>`).join('')}</div>${notice('Fresh workflows from original inputs','Full parent settings are inherited. Post-AWARE checkpoint reuse and polishing-only execution are not yet implemented.',true)}`;if(!r)body=empty('Create a HybAs AWARE run first.','A saved parent configuration is required.',btn('new-run','Create run draft',true));foot=r?btn('create-clones','Create variant drafts',true):'';}
@@ -657,10 +657,26 @@ $('#modal-root').innerHTML=`<div class="modal-shade"><section class="modal ${wid
 $('.app-shell').setAttribute('inert','');
 if(m.kind==='report'&&U.report?.id===m.id){const f=document.createElement('iframe');f.title=U.report.name;f.setAttribute('sandbox','allow-scripts allow-downloads');f.referrerPolicy='no-referrer';f.className='html-report-frame';f.srcdoc=new TextDecoder().decode(Uint8Array.from(atob(U.report.base64),c=>c.charCodeAt(0)));$('#report-frame-container').append(f);}
 if(m.kind==='support')syncSupport();
+if(m.kind==='import')syncSampleImport();
 if(m.kind==='versions')filterVersions();
 if(['new-run','edit-run'].includes(m.kind)&&U.runConfigTab==='settings')filterRunSettings();
 if(m.kind==='environments')syncEnvironmentControls();
 renderBusy();
+}
+function sampleImportPreview(){
+ const d=U.sampleImport;if(!d)return '<p class="padded">Preview the table to review resolved folders and row errors.</p>';
+ return `<section class="sample-import-review" aria-label="Sample import review"><p><strong>${d.ready_count} ready · ${d.invalid_count} need correction · ${d.rows.length} rows</strong></p><p class="settings-note">Checked ${e(d.checked_at)}. ${e(d.notice)}</p>${d.errors.length?`<ul class="error">${d.errors.map(x=>`<li>${e(x)}</li>`).join('')}</ul>`:''}<label class="check-field"><input type="checkbox" id="sample-import-errors" ${val('sample-import-errors',false)?'checked':''}> Show problem rows only</label><div id="sample-import-rows" tabindex="-1">${sampleImportRows()}</div></section>`;
+}
+function sampleImportRows(){
+ const rows=U.sampleImport.rows.filter(r=>!val('sample-import-errors',false)||r.errors.length),pages=Math.max(1,Math.ceil(rows.length/25));U.importPage=Math.max(0,Math.min(U.importPage||0,pages-1));const start=U.importPage*25;
+ return `<p role="status">${rows.length?`${start+1}–${Math.min(start+25,rows.length)} of ${rows.length} shown`:'No matching rows'}</p>${rows.length?`<div class="table-wrap"><table><thead><tr><th>Line / sample</th><th>Resolved input folder</th><th>Read mode</th><th>Review</th></tr></thead><tbody>${rows.slice(start,start+25).map(r=>`<tr data-import-line="${r.line}"><td>${r.line}<br><strong>${e(r.id.slice(0,150))}</strong></td><td class="path-cell">${e((r.path||r.input_folder).slice(0,1000))}${(r.path||r.input_folder).length>1000?'… [shortened; review table contents above]':''}${r.path&&r.path!==r.input_folder?'<small class="secondary-line">Resolved from '+e(r.input_folder.slice(0,200))+'</small>':''}</td><td>${e(readMode(r.mode))}</td><td>${r.errors.length?`<ul>${r.errors.map(x=>`<li>${e(x)}</li>`).join('')}</ul>`:badge('Ready to register','green')}</td></tr>`).join('')}</tbody></table></div>`:''}<div class="history-pagination">${btn('import-page','Previous rows',false,String(U.importPage-1),'',!U.importPage)}<span>Page ${U.importPage+1} of ${pages}</span>${btn('import-page','Next rows',false,String(U.importPage+1),'',U.importPage+1>=pages)}</div>`;
+}
+function syncSampleImport(){
+ if(U.modal?.kind!=='import')return;
+ const match=!!U.sampleImport&&U.importText===val('sample-table'),button=$('[data-action="import-samples"]'),status=$('#sample-import-status');
+ if(button){button.disabled=!match||!U.sampleImport.can_import||!!U.pending||!!U.queuedRequest;button.textContent=match&&U.sampleImport.can_import?'Import '+U.sampleImport.rows.length+' reviewed sample'+(U.sampleImport.rows.length===1?'':'s'):'Import reviewed samples';}
+ if(status){status.textContent=U.sampleImport&&!match?'Table changed. Preview again before importing.':'';status.className=U.sampleImport&&!match?'error':'';}
+ const preview=$('#sample-import-preview');if(preview)preview.hidden=!!U.sampleImport&&!match;
 }
 function syncEnvironmentControls(){
  const m=U.modal;if(m?.kind!=='environments')return;
@@ -686,6 +702,7 @@ if(['compatibility-search','compatibility-pipeline','compatibility-review','comp
 if(['history-status','history-pipeline','history-kind','history-order'].includes(t.id))refreshHistory(true);
 if(t.id==='comparison-reference')render();
 if(['comparison-scope','comparison-differences'].includes(t.id))refreshComparison(true);
+if(t.id==='sample-import-errors'){U.importPage=0;$('#sample-import-rows').innerHTML=sampleImportRows();}
 if(t.id==='storage-category')render();
 if(t.id==='run-filter-tool'||t.id==='run-filter-status')render();
 if(t.dataset.select){U.selected=t.checked?[...new Set([...U.selected,t.dataset.select])]:U.selected.filter(x=>x!==t.dataset.select);render();}
@@ -698,7 +715,7 @@ if(t.id==='yaml-upload'||t.id==='sample-upload'){
  const f=t.files?.[0];if(!f)return;if(f.size>2*1024*1024){toast('Choose a text file smaller than 2 MB.',true);return;}
  const c=t.id==='yaml-upload'?defaultEditor():null,text=await f.text();
  if(c){c.text=text;c.changes={};c.raw=true;const ui=editorUI(c);ui.runConfigTab='yaml';ui.runSettingTab[c.tool]='advanced';setDraft('config-yaml-'+c.tool,text);render();}
- else {setDraft('sample-table',text);}
+ else {setDraft('sample-table',text);syncSampleImport();}
 }
 }
 function onChange(event){const result=change(event);persistWizard();return result;}
@@ -708,7 +725,7 @@ if(t.id==='support-text'){setDraft('support-reviewed',false);const box=$('#suppo
 if(['run-cores','revision-cores','run-memory','revision-memory'].includes(t.id)){const kind=t.id.endsWith('cores')?'cores':'memory',label=$('[data-review-budget="'+kind+'"]');if(label)label.textContent=t.value+(kind==='cores'?' cores':' MB');}
 if(t.dataset.runField){const c=runEditor(),f=c?.fields.find(f=>f.key===t.dataset.runField);if(f)editRunField(c,f,t.type==='checkbox'?t.checked:t.value);}
 if(t.dataset.runYaml){const c=runEditor();c.text=t.value;c.changes={};c.raw=true;updateDefaultStatus();}
-if(t.id&&t.type!=='file')U.drafts[t.id]=t.type==='checkbox'?t.checked:t.value;if(t.id?.startsWith('environment-cache-'))syncEnvironmentControls();if(t.id?.startsWith('dbpath-')){const tool=U.resourceTool||'hybas',key=t.id.slice(('dbpath-'+tool+'-').length);delete dbState(tool).resets[key];setDraft('dbcand-'+tool+'-'+key,'');for(const b of $$('[data-action="save-databases"]'))b.disabled=false;const pos=t.selectionStart,id=t.id;render();const field=$('#'+id);field?.focus();if(pos!==null)field?.setSelectionRange(pos,pos);}if(t.id==='comparison-search')refreshComparison(true);if(t.id==='history-search')refreshHistory(true);if(t.id==='compatibility-search')filterCompatibility();if(t.id==='results-search')filterResults();if(t.id===editorSearchId(runEditor()||{}))filterRunSettings();if(t.id==='version-search'||t.id==='version-channel')filterVersions();if(['registered-sample-search','run-search'].includes(t.id)){const pos=t.selectionStart,id=t.id;render();$('#'+id).focus();$('#'+id).setSelectionRange(pos,pos);}}
+if(t.id&&t.type!=='file')U.drafts[t.id]=t.type==='checkbox'?t.checked:t.value;if(t.id?.startsWith('environment-cache-'))syncEnvironmentControls();if(t.id?.startsWith('dbpath-')){const tool=U.resourceTool||'hybas',key=t.id.slice(('dbpath-'+tool+'-').length);delete dbState(tool).resets[key];setDraft('dbcand-'+tool+'-'+key,'');for(const b of $$('[data-action="save-databases"]'))b.disabled=false;const pos=t.selectionStart,id=t.id;render();const field=$('#'+id);field?.focus();if(pos!==null)field?.setSelectionRange(pos,pos);}if(t.id==='sample-table')syncSampleImport();if(t.id==='comparison-search')refreshComparison(true);if(t.id==='history-search')refreshHistory(true);if(t.id==='compatibility-search')filterCompatibility();if(t.id==='results-search')filterResults();if(t.id===editorSearchId(runEditor()||{}))filterRunSettings();if(t.id==='version-search'||t.id==='version-channel')filterVersions();if(['registered-sample-search','run-search'].includes(t.id)){const pos=t.selectionStart,id=t.id;render();$('#'+id).focus();$('#'+id).setSelectionRange(pos,pos);}}
 function click(event){const nav=event.target.closest('[data-nav]');if(nav){if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();navigate(nav.dataset.nav);return;}const a=event.target.closest('[data-action]');if(!a)return;if(a.tagName==='A'){if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();}const action=a.dataset.action,id=a.dataset.id;draftInputs();U.error='';
 if(action==='close'){closeModal();return;}if(action.startsWith('go-')){navigate(action.slice(3));return;}
 const v=x=>$('#'+x)?.value??val(x);
@@ -743,7 +760,7 @@ else if(action==='app-updates'){modal('app-update');if(!S.app_update.catalog)req
 else if(action==='refresh-app-releases')request('refresh_app_releases');
 else if(action==='install-app-release'){const r=S.app_update.catalog?.releases.find(x=>String(x.id)===val('app-release'));if(r?.available)request('update_app',{release_id:r.id,version:r.version});}
 else if(action==='new-sample')modal('sample');
-else if(action==='import')modal('import');
+else if(action==='import'){U.sampleImport=null;U.importText=null;U.importPage=0;setDraft('sample-import-errors',false);modal('import');}
 else if(action==='conda')modal('conda');
 else if(action==='new-run'||action==='sample-draft'){
  if(U.wizard){openWizard();toast('Resumed your unfinished edits. Discard them explicitly to start again.');return;}
@@ -792,7 +809,9 @@ else if(action==='compare-selected'){U.comparisonTab='review';navigate('comparis
 else if(action==='archive-run'||action==='restore-run')request(action==='archive-run'?'archive_runs':'restore_runs',{ids:[id]});
 else if(action==='archive-selected')request('archive_runs',{ids:U.selected});
 else if(action==='remove-sample')request('remove_sample',{id,sample:S.samples.find(s=>s.id===id)});
-else if(action==='import-samples')request('import_samples',{text:v('sample-table')});
+else if(action==='preview-samples'){U.importRequestText=v('sample-table');U.importPage=0;request('preview_samples',{text:U.importRequestText});}
+else if(action==='import-page'){U.importPage=Number(id);$('#sample-import-rows').innerHTML=sampleImportRows();$('#sample-import-rows').focus({preventScroll:true});$('#sample-import-rows').scrollIntoView({block:'nearest'});}
+else if(action==='import-samples')request('import_samples',{text:v('sample-table'),token:U.sampleImport?.token});
 else if(action==='save-conda')request('save_conda',{path:v('conda-path')});
 else if(['bootstrap','smoke','refresh'].includes(action))request(action);
 else if(action==='history-page'){U.historyPage=Number(id);refreshHistory();$('#history-list').focus({preventScroll:true});$('#history-list').scrollIntoView({block:'start'});}
@@ -930,7 +949,7 @@ const newResponse=response&&response.id!==U.handled;
 const backgroundResponse=U.background;
 // Preserve drafts before rendering a new server snapshot.
 draftInputs();
-if(newResponse){U.handled=response.id;U.pending=null;U.error=response.ok?'':response.message;if(response.config){const c=response.config;U.drafts['yaml-'+c.tool]=c.text;U.fields[c.tool]=c.fields;const el=$('#yaml-'+c.tool);if(el)el.value=c.text;}if(response.browser){U.browser=response.browser;setDraft('folder-path',response.browser.path);}if(response.database_scan){const scan=response.database_scan,t=scan.tool,state=dbState(t);state.scan=scan;for(const r of S.databases[t].rows){const key=dbPath(t,r.id),preferred=scan.candidates[r.id]?.find(c=>c.preferred);if(preferred&&!state.resets[r.id]&&val(key,r.path)===r.path){setDraft(key,preferred.path);setDraft('dbcand-'+t+'-'+r.id,preferred.path);}}}
+if(newResponse){if(!response.ok&&U.requestOrigin?.kind==='import_samples'){U.sampleImport=null;U.importText=null;}U.handled=response.id;U.pending=null;U.error=response.ok?'':response.message;if(response.config){const c=response.config;U.drafts['yaml-'+c.tool]=c.text;U.fields[c.tool]=c.fields;const el=$('#yaml-'+c.tool);if(el)el.value=c.text;}if(response.browser){U.browser=response.browser;setDraft('folder-path',response.browser.path);}if(response.database_scan){const scan=response.database_scan,t=scan.tool,state=dbState(t);state.scan=scan;for(const r of S.databases[t].rows){const key=dbPath(t,r.id),preferred=scan.candidates[r.id]?.find(c=>c.preferred);if(preferred&&!state.resets[r.id]&&val(key,r.path)===r.path){setDraft(key,preferred.path);setDraft('dbcand-'+t+'-'+r.id,preferred.path);}}}
 if(response.removed_sample){
  const key='run-sample-'+response.removed_sample;delete U.drafts[key];
  // render() captures the outgoing form once more before replacing the dialog.
@@ -959,7 +978,7 @@ if(response.open_environments){const id=response.open_environments;setDraft('env
 if(response.database_run_plan)U.databaseRunPlan=response.database_run_plan;
 if(response.database_check){const c=response.database_check,t=c.tool;dbState(t).checks[c.id]=c;setDraft(dbPath(t,c.id),c.path);delete dbState(t).resets[c.id];}
 if(response.database_saved){clearDatabases(response.database_saved);}
-if(response.discovery)U.discovery=response.discovery;if(response.local_envs)U.localEnvs=response.local_envs;if(response.local_install){U.localInstall=response.local_install;setDraft('existing-source',response.local_install.path);setDraft('existing-cache',response.local_install.rule_cache);}if(response.detail)U.detail=response.detail;if(response.comparison)U.comparison=response.comparison;if(response.compatibility)U.compatibility=response.compatibility;if(response.storage)U.storage=response.storage;if(response.results)U.results=response.results;if(response.methods)U.methods=response.methods;if(response.log)U.log=response.log;if(response.usage)U.usage=response.usage;if(response.support&&U.modal?.kind==='support'){U.support=response.support;setDraft('support-text',response.support.text);setDraft('support-reviewed',false);}if(response.report)U.report=response.report;if(response.download)download(response.download.name,response.download.base64?Uint8Array.from(atob(response.download.base64),c=>c.charCodeAt(0)):response.download.text,response.download.type);if(response.ok&&['create_runs','revise_run'].includes(U.requestOrigin?.kind))clearWizard();if(response.ok&&!response.keep_modal&&!backgroundResponse)U.modal=null;if(response.navigate){if(response.navigate==='jobs'&&U.requestOrigin?.kind==='workflow'&&U.requestOrigin.view==='run'&&U.view==='run'&&U.requestOrigin.runId===U.runId){U.runDetailTab='activity';writeRoute(true);}else{U.view=response.navigate;writeRoute();}}if(response.open_run){U.runDetailTab='overview';U.revision=null;U.revisionConfig=null;U.modal=null;U.view='run';U.runId=response.open_run;writeRoute(true);}}
+if(response.discovery)U.discovery=response.discovery;if(response.local_envs)U.localEnvs=response.local_envs;if(response.local_install){U.localInstall=response.local_install;setDraft('existing-source',response.local_install.path);setDraft('existing-cache',response.local_install.rule_cache);}if(response.detail)U.detail=response.detail;if(response.sample_import){U.toast=null;U.sampleImport=response.sample_import;U.importText=U.importRequestText;}if(response.comparison)U.comparison=response.comparison;if(response.compatibility)U.compatibility=response.compatibility;if(response.storage)U.storage=response.storage;if(response.results)U.results=response.results;if(response.methods)U.methods=response.methods;if(response.log)U.log=response.log;if(response.usage)U.usage=response.usage;if(response.support&&U.modal?.kind==='support'){U.support=response.support;setDraft('support-text',response.support.text);setDraft('support-reviewed',false);}if(response.report)U.report=response.report;if(response.download)download(response.download.name,response.download.base64?Uint8Array.from(atob(response.download.base64),c=>c.charCodeAt(0)):response.download.text,response.download.type);if(response.ok&&['create_runs','revise_run'].includes(U.requestOrigin?.kind))clearWizard();if(response.ok&&!response.keep_modal&&!backgroundResponse)U.modal=null;if(response.navigate){if(response.navigate==='jobs'&&U.requestOrigin?.kind==='workflow'&&U.requestOrigin.view==='run'&&U.view==='run'&&U.requestOrigin.runId===U.runId){U.runDetailTab='activity';writeRoute(true);}else{U.view=response.navigate;writeRoute();}}if(response.open_run){U.runDetailTab='overview';U.revision=null;U.revisionConfig=null;U.modal=null;U.view='run';U.runId=response.open_run;writeRoute(true);}}
 window.addEventListener('beforeunload',beforeUnload);window.addEventListener('popstate',routeChanged);window.addEventListener('hashchange',routeChanged);
 root.addEventListener('click',click);root.addEventListener('input',onInput);root.addEventListener('change',onChange);root.addEventListener('keydown',keydown);
 render();

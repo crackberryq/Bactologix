@@ -1,3 +1,11 @@
+# Validation update: 0.1.0a36 (2026-10-28)
+
+- The installed-wheel Python 3.12 suite passed **537 tests**, with 40 separately gated checks skipped. Import coverage includes BOM/CRLF, quoted comma-containing folders, TSV, blank/default modes, duplicate and existing IDs, wrong field counts, malformed CSV, duplicate/unknown headers, invalid modes/folders and size/row limits.
+- Review is read-only. Tests reject missing/stale UI review tokens, changed text/registrations, removed folders and retargeted symlinks. A failing SQLite trigger verifies whole-batch rollback. Concurrent bulk and single-registration writers cannot create case-only duplicate IDs; original files and existing records remain intact.
+- All **14 browser tests passed** locally. The import flow covers invalid rows, escaped text, stale-review hiding after typing/upload, 25-row pages, problems-only filtering, a conflicting registration after preview, mandatory re-preview, full successful import and fresh review after reopening. Desktop/mobile layouts and review-table scrolling were inspected. Successful re-preview clears obsolete error toasts.
+- Wheel/source builds, all **59 runtime package files**, JavaScript syntax and dependency checks passed. Python 3.11/3.12 pinned-adapter, Chromium and real sample-free Conda suites remain mandatory release gates.
+- Registration validates table fields and directory existence only; it does not scan/validate input contents, certify readable sequence files, create runs or start workflows. Filesystem contents can change after directory checks. Physical-workstation/WSL/GPU and full biological-analysis acceptance remain outside these software checks.
+
 # Validation update: 0.1.0a35 (2026-10-28)
 
 - The installed-wheel Python 3.12 suite passed **521 tests**, with 39 separately gated checks skipped. New comparison tests cover missing/null/empty values, boolean/integer/float identity, list order, mapping-order independence, literal dotted paths, non-string nested keys, missing subtrees, scalar replacements, archived records and reordered references across four runs.
