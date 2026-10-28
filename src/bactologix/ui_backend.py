@@ -18,7 +18,7 @@ from .runs import (absolute_path, clone_runs, command, create_run, import_sample
                    parse_config, register_sample, remove_sample, archive_runs, reports, template, validate_launch,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
-from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results
+from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage
 from . import followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
 _SNAPSHOTS = {}
@@ -158,7 +158,7 @@ def dispatch(store, kind, p):
     """Only named UI commands are allowed. Browser-supplied objects are not trusted."""
     if not isinstance(p, dict):
         raise ValueError("Invalid action payload")
-    if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "refresh_app_releases", "cancel_job"}:
+    if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "download_storage", "refresh_app_releases", "cancel_job"}:
         updates.assert_current(store)
         if updates.status(store)["active_job"]:
             raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
@@ -396,6 +396,13 @@ def dispatch(store, kind, p):
         except Exception as exc:
             run["command"] = str(exc)
         return {"detail": run, "keep_modal": True}
+    if kind == 'inspect_storage':
+        return {'storage': storage.panel(store), 'keep_modal': True}
+    if kind == 'scan_storage':
+        storage.scan(store, p.get('revision'), p.get('include_external', False))
+        return {'storage': storage.panel(store), 'message': 'Storage measurement saved. Review its scope and limits.', 'keep_modal': True}
+    if kind == 'download_storage':
+        return {'download': storage.download(store), 'keep_modal': True}
     if kind == 'inspect_results':
         return {'results': results.inspect(store, p.get('id')), 'keep_modal': True}
     if kind == 'open_result_report':

@@ -1322,3 +1322,98 @@ def test_results_centre_downloads_and_attempt_provenance(tmp_path, installed):
             browser.close()
     finally:
         proc.terminate(); proc.wait(timeout=15)
+
+
+def test_storage_overview_is_explicit_persistent_and_read_only(tmp_path):
+    """Real UI requests measurements; no implicit traversal, cleanup or execution."""
+    import json
+    from playwright.sync_api import sync_playwright, expect
+    store = Store(tmp_path / 'storage workspace')
+    cache = store.home / 'envs/hybas'
+    backup = cache / '.bactologix-repair-backups/job-fixture/env'
+    backup.mkdir(parents=True)
+    (backup / 'retained').write_bytes(b'x' * 4096)
+    external = tmp_path / 'external database'
+    external.mkdir()
+    payload = external / 'database.bin'; payload.write_bytes(b'y' * 8192)
+    store.put('database_downloads', 'database-storage-fixture', {'id': 'database-storage-fixture',
+              'tool': 'basis', 'resource': 'rgi', 'destination': str(external), 'status': 'completed'})
+    with socket.socket() as sock:
+        sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
+    with (tmp_path / 'storage-server.log').open('w') as log:
+        proc = subprocess.Popen([str(Path(sys.executable).with_name('bactologix')), '--home', str(store.home),
+                                 '--host', '127.0.0.1', '--port', str(port), '--no-browser'],
+                                stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    try:
+        url = f'http://127.0.0.1:{port}'
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                with urlopen(url + '/_stcore/health', timeout=1) as response:
+                    if response.status == 200: break
+            except OSError:
+                if time.monotonic() >= deadline: pytest.fail((tmp_path / 'storage-server.log').read_text())
+                time.sleep(.2)
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            page.goto(url)
+            page.get_by_role('link', name='Storage', exact=True).click()
+            expect(page.get_by_role('button', name='Measure storage', exact=True)).to_be_enabled()
+            expect(page.locator('#main')).to_contain_text('No measurement saved yet')
+            assert store.get('storage', 'latest') is None and not store.jobs()
+            page.get_by_role('button', name='Measure storage', exact=True).click()
+            expect(page.locator('#main')).to_contain_text('Latest saved measurement')
+            rows = page.locator('.storage-locations')
+            expect(rows).to_contain_text('External · not selected')
+            saved = store.get('storage', 'latest')
+            assert not saved['include_external']
+            assert any(r['category'] == 'backups' and r['logical_bytes'] == 4096 for r in saved['locations'])
+            page.get_by_role('checkbox', name='Include registered external locations', exact=False).check()
+            page.get_by_role('button', name='Measure storage', exact=True).click()
+            expect(page.locator('#main')).to_contain_text('Workspace + registered external locations')
+            saved = store.get('storage', 'latest')
+            assert next(r for r in saved['locations'] if r['path'] == str(external))['logical_bytes'] == 8192
+            with page.expect_download() as event:
+                page.get_by_role('button', name='Download overview', exact=True).click()
+            assert json.loads(Path(event.value.path()).read_text()) == saved
+            page.get_by_label('Category', exact=True).select_option('backups')
+            expect(rows.locator('article')).to_have_count(1)
+            expect(rows).to_contain_text('Retained repair folders')
+            def capture(name):
+                folder = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+                if folder:
+                    Path(folder).mkdir(parents=True, exist_ok=True)
+                    page.screenshot(path=str(Path(folder) / name), full_page=True)
+            page.get_by_label('Category', exact=True).select_option('')
+            page.get_by_role('heading', name='Latest saved measurement', exact=True).scroll_into_view_if_needed()
+            capture('storage-desktop.png')
+            page.set_viewport_size({'width': 390, 'height': 844})
+            expect(page.get_by_role('button', name='Measure storage', exact=True)).to_be_enabled()
+            assert rows.evaluate('(el) => el.scrollWidth <= el.clientWidth+1')
+            assert page.locator('.storage-overview').evaluate('(el) => el.scrollWidth <= el.clientWidth+1')
+            page.locator('.storage-totals').scroll_into_view_if_needed()
+            capture('storage-mobile.png')
+            page.set_viewport_size({'width': 1440, 'height': 1100})
+            page.reload()
+            expect(page.locator('#main')).to_contain_text('Latest saved measurement')
+            assert store.get('storage', 'latest') == saved
+            # Registration changes require a fresh location review, not an automatic rescan.
+            added = tmp_path / 'new database'; added.mkdir()
+            store.put('database_downloads', 'database-added', {'id': 'database-added', 'tool': 'basis',
+                      'resource': 'rgi', 'destination': str(added), 'status': 'completed'})
+            page.get_by_role('button', name='Refresh locations', exact=True).click()
+            expect(page.locator('#main')).to_contain_text('Registered locations changed')
+            assert store.get('storage', 'latest') == saved
+            page.get_by_label('Category', exact=True).select_option('databases')
+            row = rows.locator('article').filter(has_text=str(external))
+            row.locator('summary').click()
+            row.get_by_role('button', name='Review databases', exact=True).click()
+            expect(page.get_by_role('heading', name='Find installed databases', exact=True)).to_be_visible()
+            assert not store.jobs() and payload.read_bytes() == b'y' * 8192
+            assert (backup / 'retained').read_bytes() == b'x' * 4096 and errors == []
+            browser.close()
+    finally:
+        proc.terminate(); proc.wait(timeout=15)
