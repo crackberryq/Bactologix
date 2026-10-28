@@ -1,3 +1,8 @@
+# Validation update: 0.1.0a38 (2026-10-28)
+
+- All 15 browser checks passed with the dialog focus restoration. The final packaged fallback refinement passed the focused mobile navigation/workspace-tools regression. JavaScript syntax and package builds passed.
+- Full Python, browser and environment CI remain release gates. This change affects keyboard focus only.
+
 # Validation update: 0.1.0a37 (2026-10-28)
 
 - The final installed-wheel Python 3.12 suite passed **543 tests**, with 41 separately gated checks skipped. All **15 browser tests passed** in the final complete run.
