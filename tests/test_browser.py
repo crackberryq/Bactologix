@@ -672,10 +672,10 @@ def test_sample_picker_configuration_and_report(tmp_path):
             capture('overview-needs-attention')
             page.get_by_role('link', name='Jobs & progress', exact=True).click()
             expect(page.locator('.job-guidance')).to_contain_text('Check the database location')
-            expect(page.get_by_role('button', name='Review run', exact=True)).to_be_visible()
+            expect(page.locator('[data-job-id="' + jid + '"]').get_by_role('button', name='Review run', exact=True)).to_be_visible()
             capture('job-actionable-error')
             # A failed run, its own report and an actual software-only failed launch stay in context.
-            page.get_by_role('button', name='Review run', exact=True).click()
+            page.locator('[data-job-id="' + jid + '"]').get_by_role('button', name='Review run', exact=True).click()
             saved_tab('activity')
             expect(page.locator('.run-activity')).to_contain_text('Check the database location')
             capture('run-activity')
@@ -1515,3 +1515,118 @@ def test_version_compatibility_overview_preserves_saved_bindings(tmp_path, insta
             browser.close()
     finally:
         proc.terminate(); proc.wait(timeout=15)
+
+
+def test_job_history_filters_pages_export_and_active_visibility(tmp_path, installed):
+    """Real Chromium component uses stored attempts without submitting or editing work."""
+    import json
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import snapshot, dispatch
+    store, item = installed
+    sample = tmp_path / 'history sample'
+    (sample / 'raw/illumina').mkdir(parents=True)
+    for mate in (1, 2):
+        (sample / f'raw/illumina/fixture_R{mate}.fastq').write_text('@fixture\nACGT\n+\nIIII\n')
+    run = create_run(store, 'hybas', {'id': 'history.sample', 'path': str(sample), 'mode': 'illumina_only'},
+                     'custom_note: unchanged\n', label='History <script> fixture')
+    history = []
+    for i in range(28):
+        jid = store.submit('workflow', {'run_id': run['id'], 'action': 'run' if i % 2 else 'dry-run',
+                                       'secret_fixture': 'never export payload'})
+        store.update_job(jid, status=['succeeded', 'failed', 'cancelled', 'interrupted'][i % 4])
+        history.append(jid)
+    runner_check = store.submit('check', {'installation': item['id']})
+    store.update_job(runner_check, status='succeeded')
+    app_check = store.submit('smoke', {})
+    store.update_job(app_check, status='succeeded')
+    missing = store.submit('workflow', {'run_id': 'missing-run', 'action': 'run'})
+    store.update_job(missing, status='failed')
+    waiting = store.submit('smoke', {})
+    running = store.submit('smoke', {})
+    store.update_job(running, status='running')
+    store.put('run_visibility', run['id'], {'id': run['id'], 'archived': True})
+    original = store.jobs()
+    original_run = store.get('runs', run['id'])
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+        page.clock.install(time='2026-10-28T12:00:00Z')
+        page.clock.pause_at('2026-10-28T12:00:10Z')
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(page, store)
+        page.get_by_role('link', name='Jobs & progress', exact=True).click()
+        active = page.get_by_role('region', name='Active jobs', exact=True)
+        panel = page.get_by_role('region', name='Job history', exact=True)
+        expect(active.locator('.job-card')).to_have_count(2)
+        expect(panel.locator('.job-card')).to_have_count(25)
+        expect(panel).to_contain_text('1–25 of 31 matching attempts')
+        page.get_by_role('button', name='Next page', exact=True).click()
+        expect(panel.locator('.job-card')).to_have_count(6)
+        expect(panel).to_contain_text('26–31 of 31 matching attempts')
+        page.get_by_label('Search history', exact=True).fill('  HISTORY.SAMPLE  ')
+        expect(panel).to_contain_text('1–25 of 28 matching attempts')
+        expect(page.get_by_label('Search history', exact=True)).to_be_focused()
+        with page.expect_download() as event:
+            page.get_by_role('button', name='Download matching history', exact=True).click()
+        doc = json.loads(Path(event.value.path()).read_text())
+        assert doc['count'] == 28 and [j['id'] for j in doc['jobs']] == history[::-1]
+        assert 'never export payload' not in json.dumps(doc) and 'payload' not in doc['jobs'][0]
+        assert all(j['pipeline'] == 'hybas' and j['run_label'] == run['label'] for j in doc['jobs'])
+        assert doc['jobs'][0]['started'] is None and doc['jobs'][0]['finished'] is None
+        page.get_by_label('History status', exact=True).select_option('succeeded')
+        expect(panel.locator('.job-card')).to_have_count(7)
+        page.get_by_label('History order', exact=True).select_option('oldest')
+        expect(panel.locator('.job-card').first).to_have_attribute('data-job-id', history[0])
+        page.get_by_label('History pipeline', exact=True).select_option('basis')
+        expect(panel).to_contain_text('No matching attempts')
+        expect(page.get_by_role('button', name='Download matching history', exact=True)).to_be_disabled()
+        expect(active.locator('.job-card')).to_have_count(2)
+        expect(page.locator('[data-waiting-job="' + waiting + '"]')).to_be_visible()
+        page.get_by_role('button', name='Clear history filters', exact=True).click()
+        page.get_by_label('History pipeline', exact=True).select_option('hybas')
+        expect(panel).to_contain_text('of 29 matching attempts')
+        page.get_by_label('Job type', exact=True).select_option('check')
+        expect(panel.locator('.job-card')).to_have_count(1)
+        expect(panel.locator('.job-card')).to_have_attribute('data-job-id', runner_check)
+        page.get_by_role('button', name='Clear history filters', exact=True).click()
+        page.get_by_label('History pipeline', exact=True).select_option('unassigned')
+        expect(panel.locator('.job-card')).to_have_count(2)
+        page.get_by_label('Search history', exact=True).fill('missing-run')
+        expect(panel.locator('.job-card')).to_have_count(1)
+        expect(panel.get_by_role('button', name='Review run', exact=True)).to_have_count(0)
+        # Refresh with a completed active attempt: history filtering remains local and intact.
+        store.update_job(running, status='succeeded')
+        page.evaluate('workspace => {Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(null);}', snapshot(store))
+        expect(active.locator('.job-card')).to_have_count(1)
+        expect(page.get_by_label('Search history', exact=True)).to_have_value('missing-run')
+        expect(panel).to_contain_text('1–1 of 1 matching attempts · 32 total history')
+        page.get_by_role('button', name='Clear history filters', exact=True).click()
+        page.get_by_label('Search history', exact=True).fill(history[0])
+        expect(panel.locator('.job-card')).to_have_count(1)
+        expect(panel).to_contain_text('History <script> fixture')
+        assert page.evaluate('window.historyInjected') is None
+        def capture(name):
+            folder = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+            if folder:
+                Path(folder).mkdir(parents=True, exist_ok=True)
+                page.screenshot(path=str(Path(folder) / name), full_page=True)
+        capture('history-desktop.png')
+        page.set_viewport_size({'width': 390, 'height': 844})
+        panel.scroll_into_view_if_needed()
+        assert panel.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
+        capture('history-mobile.png')
+        page.set_viewport_size({'width': 1440, 'height': 1100})
+        panel.get_by_role('button', name='Review run', exact=True).click()
+        request = page.evaluate('window.acceptanceEvents.at(-1).value')
+        assert request['kind'] == 'inspect_run' and request['payload']['id'] == run['id']
+        result = dispatch(store, request['kind'], request['payload'])
+        page.evaluate('response => window.acceptanceRender(response)', {'id': request['id'], 'ok': True, **result})
+        expect(page.locator('.run-workspace')).to_be_visible()
+        page.get_by_role('link', name='Jobs & progress', exact=True).click()
+        expect(page.get_by_label('Search history', exact=True)).to_have_value(history[0])
+        assert len(store.jobs()) == len(original) and store.get('runs', run['id']) == original_run
+        assert [j for j in store.jobs() if j['id'] != running] == [j for j in original if j['id'] != running]
+        assert [e['value']['kind'] for e in page.evaluate('window.acceptanceEvents')] == ['inspect_run']
+        assert errors == []
+        browser.close()

@@ -1,4 +1,26 @@
-# Bactologix 0.1.0a33 — alpha
+# Bactologix 0.1.0a34 — alpha
+
+### Searchable job history
+
+Open **Jobs & progress** to see active jobs separately from past attempts.
+Queue controls and all running/waiting jobs remain visible while you filter history.
+Search by job ID, run label, sample ID or action; combine status, pipeline and job
+type filters, and choose newest or oldest submission order. History includes
+attempts for archived runs. Each page shows up to 25 attempts; filters remain in
+this open workspace across navigation and status refreshes, but reset on browser reload.
+
+**Review run** opens the saved run for successful and unsuccessful attempts.
+Missing run records remain searchable by their recorded ID. Pipeline attribution
+uses the recorded job tool or its currently registered run/installation; jobs
+without one are listed under **App / unassigned**. It is not a version check.
+
+**Download matching history** exports all matching pages as JSON from the displayed
+workspace snapshot. It includes job IDs, labels, actions, recorded timestamps and
+statuses, not logs, full payloads or configurations. Missing timestamps remain
+null. Refresh first if needed; the export is not a live status check or a backup.
+Review run labels and identifiers before sharing. Filtering and exporting never
+change queue order, retry attempts, or modify stored jobs and saved runs.
+Pagination limits browser rendering; the workspace still loads all job records.
 
 ### Version compatibility overview
 
@@ -274,7 +296,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a33-py3-none-any.whl
+pipx install ./bactologix-0.1.0a34-py3-none-any.whl
 bactologix
 ```
 
@@ -283,7 +305,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a33/bactologix-0.1.0a33-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a34/bactologix-0.1.0a34-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -292,7 +314,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a33/bactologix-0.1.0a33-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a34/bactologix-0.1.0a34-py3-none-any.whl"
 bactologix
 ```
 
@@ -300,7 +322,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a33-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a34-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 

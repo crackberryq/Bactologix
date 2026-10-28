@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a34 — searchable job history
+
+- Separate always-visible active jobs and queue controls from past attempts. Add job/run/sample/action search, status/pipeline/type filters, submission ordering and 25-attempt pages, including archived-run history.
+- Link successful and unsuccessful attempts to their saved runs; retain missing-run IDs and distinguish app/unassigned jobs. Preserve filters across navigation and refreshed snapshots.
+- Download all matching pages as an explicit JSON snapshot containing selected job metadata only. Exclude logs, full payloads and configurations; preserve missing timestamps and stored jobs.
+- Keep worker execution, queue order, saved settings, environments and scientific processing unchanged.
+
 ## 0.1.0a33 — version compatibility overview
 
 - Add Install & update → Compatibility with app/runtime versions, exact supported commits, dated catalogue origin and installed runner records. Familiar branch/release names never grant support to an unreviewed commit.

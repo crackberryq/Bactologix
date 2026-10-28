@@ -1,3 +1,11 @@
+# Validation update: 0.1.0a34 (2026-10-28)
+
+- The installed-wheel Python 3.12 suite passed **502 tests**, with 38 separately gated checks skipped. This release changes browser presentation only; backend job records, queue transactions and scientific execution are unchanged.
+- All **12 browser tests passed** locally across the suite and a focused recheck. The first full run passed 11 tests but timed out in an existing configuration-editor transition; that test passed unchanged on an isolated rerun. Clean full browser CI remains a release gate.
+- New Chromium acceptance exercises 31 historical attempts plus active work, 25-item pagination, combined filters, ordering, archived and missing-run records, installation-derived pipeline attribution, all-page JSON download, omitted payload data and missing timestamps. A refreshed snapshot moves completed work into history without resetting filters; saved-run navigation and read-only record assertions pass.
+- Desktop/mobile views were inspected, including wrapping and horizontal overflow. Wheel/source builds, all **57 runtime package files**, JavaScript syntax and dependency checks passed. Python 3.11/3.12 pinned-adapter, Chromium and real sample-free Conda suites remain mandatory release gates.
+- History export reflects the displayed workspace snapshot and is not a live check or backup. Pagination bounds rendered history cards, not the backend snapshot size. Physical-workstation/WSL/GPU and complete-analysis acceptance remain outside these software checks.
+
 # Validation update: 0.1.0a33 (2026-10-28)
 
 - The installed-wheel Python 3.12 suite passed **502 tests**, with 37 separately gated checks skipped. Compatibility regressions cover exact current/earlier/unreviewed commits, moving branch labels, dated catalogue origin, missing active registrations, missing/mismatched installation bindings, replaced and revalidated runner paths, legacy validation records and archived runs.
