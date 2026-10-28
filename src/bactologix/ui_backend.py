@@ -18,7 +18,7 @@ from .runs import (absolute_path, clone_runs, command, create_run, import_sample
                    parse_config, register_sample, remove_sample, archive_runs, reports, template, validate_launch,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
-from . import databases, updates, hardware, methods, telemetry, support
+from . import databases, updates, hardware, methods, telemetry, support, workstation
 from . import followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
 _SNAPSHOTS = {}
@@ -103,7 +103,7 @@ def snapshot(store):
             version["supported"] = supported(tool, version["commit"])
     result = {"version": __version__, "workspace": str(store.home), "doctor": doctor(store),
             "pipelines": PIPELINES, "installs": [installation_status(i, jobs) for i in store.all("installs")],
-            "app_update": app_update, "hardware": hardware.panel(store),
+            "app_update": app_update, "hardware": hardware.panel(store), "workstation_checks": workstation.history(store),
             "resource_defaults": {t: hardware.run_defaults(store, t) for t in PIPELINES},
             "active": {t: store.get("settings", "active-" + t) for t in PIPELINES},
             "catalogs": catalogs, "samples": store.all("samples"), "runs": runs,
@@ -161,6 +161,18 @@ def dispatch(store, kind, p):
         updates.assert_current(store)
         if updates.status(store)["active_job"]:
             raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
+    if kind == 'check_workstation':
+        payload = workstation.request(store, p.get('installation'))
+        jid = enqueue(store, 'workstation', payload)
+        return {'message': 'Workstation check queued: ' + jid, 'navigate': 'jobs'}
+    if kind == 'inspect_workstation':
+        return {'workstation_check': workstation.inspect(store, p.get('id')), 'keep_modal': True}
+    if kind == 'observe_workstation':
+        return {'workstation_check': workstation.record_observation(store, p.get('id'), p.get('key'), p.get('confirmed')), 'keep_modal': True}
+    if kind == 'workstation_report':
+        return {'report': workstation.artifact(store, p.get('id'), 'report'), 'keep_modal': True}
+    if kind == 'download_workstation':
+        return {'download': workstation.artifact(store, p.get('id'), 'download'), 'keep_modal': True}
     if kind == "refresh":
         return {}
     if kind == 'detect_hardware':

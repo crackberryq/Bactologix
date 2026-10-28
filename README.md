@@ -1,4 +1,39 @@
-# Bactologix 0.1.0a28 — alpha
+# Bactologix 0.1.0a29 — alpha
+
+### Guided failure recovery and workstation checks
+
+Failed or interrupted jobs now offer **Why did this fail?** in Jobs, Run activity
+and the job log. The panel shows a recognized failed step when present, a bounded
+supporting error excerpt, a possible cause and a relevant review action. It covers
+storage/quota failures, permissions/read-only filesystems, missing environments,
+recognized plotting dependency errors, missing database locations, changed inputs
+and worker interruptions. Unknown causes remain unknown. Log hints can miss the
+first error or a separate tool log; the displayed local excerpt is not redacted.
+Opening guidance never repairs an environment, changes a run or retries a job.
+
+Open **Install & update → Workstation check** and choose **App-only checks** or
+one configured supported runner, then **Start workstation check**. This explicit
+queued job tests temporary workspace file creation/read/rename/removal, worker
+execution and durable recording, child-process logging and cancellation of its
+own disposable process. With a runner selected, it also checks the release's
+pinned runner imports/versions and executes a tiny sample-free Snakemake workflow.
+Runner selection is frozen and rechecked when executed. No analysis tools,
+databases or runner environments are installed or repaired. Checks run through
+the existing serialized queue; duplicate pending workstation checks are refused.
+
+Each attempt retains a dated result, including partial evidence after cancellation
+or interruption. Use **Review check**, **Open check report** and **Download check
+JSON**. Serving an artifact does not prove that the browser displayed or saved it:
+confirm browser launch, report readability and download opening only after you
+actually observe them. Those confirmations are explicitly user-reported and can
+be cleared. JSON includes local runner paths and error details; review it before
+sharing. It is separate from the reviewed/redacted Get support export.
+
+An app-only job can succeed while runner and browser checks remain unverified.
+These checks do not validate GPU computation, all output disks, database integrity,
+analysis results, Windows browser launching or physical-reboot recovery. Repeat
+on each target PC and after relevant changes. Temporary check folders are removed;
+saved runs, configurations, environments, results and earlier records are retained.
 
 ### Reviewed support snapshots
 
@@ -126,7 +161,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a28-py3-none-any.whl
+pipx install ./bactologix-0.1.0a29-py3-none-any.whl
 bactologix
 ```
 
@@ -135,7 +170,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a28/bactologix-0.1.0a28-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a29/bactologix-0.1.0a29-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -144,7 +179,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a28/bactologix-0.1.0a28-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a29/bactologix-0.1.0a29-py3-none-any.whl"
 bactologix
 ```
 
@@ -152,7 +187,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a28-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a29-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 

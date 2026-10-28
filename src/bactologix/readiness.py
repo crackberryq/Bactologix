@@ -130,26 +130,52 @@ def panel(store, run):
 
 
 def job_guidance(store, job):
-    """Bounded log hints; the original error and full log remain authoritative."""
+    """Evidence-backed hints, never a diagnosis or an automatic repair request."""
     if job['status'] not in {'failed', 'interrupted'}:
         return None
-    try:
-        with store.log_path(job['id']).open('rb') as log:
-            log.seek(0, 2)
-            log.seek(max(0, log.tell() - 24000))
-            text = log.read().decode('utf-8', errors='replace')
-    except OSError:
-        text = ''
-    text += '\n' + (job.get('error') or '')
-    title, help_text = 'Job needs attention', 'Open the full log to inspect the failure before retrying.'
-    category = 'log'
-    if 'existing environments only' in text:
-        title, category = 'A matching tool environment is missing or incomplete', 'environments'
-        help_text = 'Open the saved run and check its environment cache. Install environments only when you choose to, then retry.'
-    elif re.search(r'(?:database[^\n]{0,180}(?:missing|not found)|(?:BUSCO|Kraken)[^\n]{0,180}(?:missing|not found))', text, re.I):
-        title, category = 'Check the database location used by this run', 'databases'
-        help_text = 'Review the frozen database paths. If you selected a new location, apply it to a revised draft and validate that draft.'
-    elif any(x in text for x in ['Input changed since', 'Input is no longer accessible', 'Staged inputs changed', 'Saved configuration changed']):
-        title, category = 'Saved inputs or configuration changed', 'inputs'
-        help_text = 'Review the original folder and create a new draft for changed inputs or settings.'
-    return {'title': title, 'text': help_text, 'category': category, 'run_id': job['payload'].get('run_id')}
+    from .support import log_tail
+    text, scope = log_tail(store, job['id'], max_bytes=24000)
+    # Match complete bounded lines only; shell commands and huge payloads are not evidence.
+    lines = [line for line in text.splitlines() if not line.lstrip().startswith('$ ')]
+    error = str(job.get('error') or '')[:2048]
+    if error:
+        lines.append(error)
+    patterns = [
+        ('storage', r'No space left on device|Disk quota exceeded|\[Errno (?:28|122)\]',
+         'Storage space or quota blocked this job',
+         'Review the output, temporary and environment-cache disks and their quotas. Free space deliberately, then review the saved run before resuming.'),
+        ('permissions', r'Permission denied|Read-only file system|PermissionError|\[Errno (?:13|30)\]',
+         'A file location could not be accessed',
+         'Review the path in the error and its ownership, permissions or mount state. Use a writable location through the existing settings controls; changed run paths require a revised draft.'),
+        ('environments', r'existing environments only',
+         'A matching tool environment is missing or incomplete',
+         'Open the saved run and check its environment cache. Install environments only when you choose to, then review the run before retrying.'),
+        ('dependencies', r"(?:AttributeError[^\n]*create_2d_density|(?:ModuleNotFoundError|ImportError):[^\n]*(?:plotly|kaleido)|ValueError[^\n]*kaleido)",
+         'A plotting dependency may be incompatible',
+         'Open pipeline setup and Check environments to verify the installed packages and rendering. Repair environments offers the supported NanoPlot/MultiQC workaround only when its exact package conditions match.'),
+        ('databases', r'(?:database[^\n]{0,180}(?:missing|not found)|(?:BUSCO|Kraken)[^\n]{0,180}(?:missing|not found))',
+         'Check the database location used by this run',
+         'Review the frozen database paths. If you selected a new location, apply it to a revised draft and validate that draft.'),
+        ('inputs', r'Input changed since|Input is no longer accessible|Staged inputs changed|Saved configuration changed',
+         'Saved inputs or configuration changed',
+         'Review the original folder and create a new draft for changed inputs or settings.'),
+    ]
+    selected = None
+    for line in lines:
+        for category, pattern, title, help_text in patterns:
+            if re.search(pattern, line, re.I):
+                selected = (category, title, help_text, line)
+                break
+    category, title, help_text, evidence = selected or (
+        'log', 'Cause not identified', 'Open the full log to inspect the failure before retrying.', error)
+    if job['status'] == 'interrupted':
+        category, title = 'interrupted', 'The worker was interrupted'
+        help_text = ('Review the retained outputs and log, then validate the saved run before Run / resume. '
+                     'An interruption does not establish which tasks completed. Existing scheduler locks are not removed automatically.')
+        evidence = error or 'The job was recorded as interrupted during worker recovery.'
+    steps = re.findall(r'(?:Error in rule|Error in checkpoint) ([A-Za-z0-9_.-]{1,120})(?=[:\s]|$)', text)
+    return {'title': title, 'text': help_text, 'category': category,
+            'run_id': job['payload'].get('run_id'), 'step': steps[-1] if steps else None,
+            'evidence': evidence[:1200], 'confidence': 'Recorded interruption' if category == 'interrupted' else 'Possible cause' if selected else 'Unknown',
+            'scope': 'Hints use a bounded log excerpt and the recorded job error; the first error or another tool log may be missing.',
+            'log_status': scope['status']}

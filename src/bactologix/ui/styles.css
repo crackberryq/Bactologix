@@ -68,3 +68,14 @@
 @media(max-width:680px){.usage-charts,.usage-facts{grid-template-columns:1fr}.usage-inline{gap:8px 14px}.job-card .button-row,.run-job .button-row{justify-content:flex-start}.usage-chart{padding:10px}}
 /* Reviewed local support snapshots. */
 .support-link{margin-bottom:12px}.support-intro{display:grid;gap:14px;margin-bottom:18px}.support-scope{background:var(--paper);border:1px solid var(--border);border-radius:8px;padding:14px;display:grid;gap:5px;font-size:12px}.support-scope strong:not(:first-child){margin-top:5px}.support-log-choice{align-self:end;margin-bottom:7px}.support-log-choice small{display:block;color:var(--muted);font-size:11px;margin-top:4px}.support-generate{margin:16px 0}.support-generate small{overflow-wrap:anywhere;color:var(--muted)}textarea.support-preview{font:12px/1.6 "SFMono-Regular",Consolas,monospace;min-height:260px;white-space:pre-wrap;overflow-wrap:anywhere}.support-review{margin:16px 0 10px}.support-empty{border:1px dashed var(--border);padding:22px;border-radius:8px;color:var(--muted);font-size:13px}#support-size{display:block;margin-top:7px;color:var(--muted)}#support-size.error{color:var(--red)}
+
+/* Recovery evidence and workstation records remain readable at narrow widths. */
+.recovery-panel {margin-top:12px; max-width:100%; min-width:0; overflow-wrap:anywhere;}
+.recovery-panel summary {cursor:pointer; font-weight:700; padding:8px 0;}
+.recovery-panel .recovery-evidence {white-space:pre-wrap; overflow-wrap:anywhere; max-height:180px; overflow:auto;}
+.workstation-card .padded,.workstation-result {overflow-wrap:anywhere; min-width:0;}
+.workstation-row {padding:14px 0; border-bottom:1px solid var(--line,#dde3e5);}
+.workstation-row>div,.workstation-history {display:flex; gap:12px; align-items:center; flex-wrap:wrap;}
+.workstation-history {justify-content:space-between; padding:12px 0; overflow-wrap:anywhere;}
+.workstation-history>span {min-width:0; flex:1 1 220px;}
+.workstation-row p {margin:8px 0;}

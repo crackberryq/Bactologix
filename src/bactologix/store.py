@@ -97,6 +97,8 @@ class Store:
                 raise ValueError("A Bactologix update is queued or running. Wait for it to finish and restart the app.")
             if kind == "app_update" and pending:
                 raise ValueError("Finish or cancel queued/running jobs before updating Bactologix.")
+            if kind == 'workstation' and any(row[0] == 'workstation' for row in pending):
+                raise ValueError('A workstation check is already queued or running.')
             if kind == "workflow":
                 visible = db.execute("SELECT body FROM items WHERE kind='run_visibility' AND id=?", (payload["run_id"],)).fetchone()
                 if visible and json.loads(visible[0]).get("archived"):

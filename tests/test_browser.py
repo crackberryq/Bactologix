@@ -693,7 +693,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             page.get_by_role('button', name='Validate run', exact=True).click()
             expect(page.locator('.run-activity')).to_be_visible()
             assert page.url.endswith('/activity')
-            expect(page.locator('.run-activity')).to_contain_text('Job needs attention', timeout=30000)
+            expect(page.locator('.run-activity')).to_contain_text('Cause not identified', timeout=30000)
             page.goto(url + '#runs/run-not-in-this-workspace/overview')
             expect(page.get_by_role('heading', name='Run not found.', exact=True)).to_be_visible()
             page.get_by_role('button', name='Back to runs', exact=True).click()
@@ -1016,3 +1016,99 @@ def test_setup_environment_actions_need_no_sample_or_run(installed, action):
         assert request['payload'] == {'id': item['id'], 'action': action, 'selected': ['qc']}
         assert not store.all('samples') and not store.all('runs') and not store.jobs()
         browser.close()
+
+
+def test_workstation_check_and_failure_recovery_in_streamlit(tmp_path):
+    """Real browser -> worker -> dated record -> report and native JSON download."""
+    import json
+    from playwright.sync_api import sync_playwright, expect
+    store = Store(tmp_path / 'workstation acceptance')
+    failure = store.submit('smoke', {})
+    store.log_path(failure).write_text('Error in rule software_fixture:\nPermissionError: [Errno 13] Permission denied <script>window.recoveryInjected=true</script>\n')
+    store.update_job(failure, status='failed', error='Command exited with code 1; see the job log')
+    with socket.socket() as sock:
+        sock.bind(('127.0.0.1', 0))
+        port = sock.getsockname()[1]
+    with (tmp_path / 'server.log').open('w') as log:
+        proc = subprocess.Popen([str(Path(sys.executable).with_name('bactologix')), '--home', str(store.home),
+                                 '--host', '127.0.0.1', '--port', str(port), '--no-browser'],
+                                stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    try:
+        url = f'http://127.0.0.1:{port}'
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                with urlopen(url + '/_stcore/health', timeout=1) as response:
+                    if response.status == 200:
+                        break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    pytest.fail((tmp_path / 'server.log').read_text())
+                time.sleep(.2)
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 1440, 'height': 1100}, accept_downloads=True)
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            page.goto(url)
+            page.get_by_role('link', name='Jobs & progress', exact=True).click()
+            panel = page.locator('.recovery-panel')
+            panel.locator('summary').click()
+            expect(panel).to_contain_text('Possible cause')
+            expect(panel).to_contain_text('Reported failed step: software_fixture')
+            expect(panel.locator('.recovery-evidence')).to_contain_text('<script>')
+            assert page.evaluate('window.recoveryInjected') is None
+            panel.get_by_role('button', name='Open setup', exact=True).click()
+            page.get_by_role('button', name='Workstation check', exact=True).click()
+            expect(page.get_by_label('Runner to check', exact=True)).to_have_value('')
+            assert len(store.jobs()) == 1  # Visiting the panel never starts probes.
+            page.get_by_role('button', name='Start workstation check', exact=True).click()
+            page.get_by_role('button', name='Review check', exact=True).click()
+            dialog = page.get_by_role('dialog', name='Workstation check', exact=True)
+            expect(dialog).to_contain_text('succeeded', timeout=30000)
+            expect(dialog).to_contain_text('Process cancellation')
+            expect(dialog).to_contain_text('App-only checks were selected')
+            expect(dialog.locator('.workstation-row').filter(has_text='I opened and could read').get_by_role('button')).to_be_disabled()
+            jid = next(j['id'] for j in store.jobs() if j['kind'] == 'workstation')
+            assert not store.get('workstation_checks', jid)['observations']
+            dialog.get_by_role('button', name='Open check report', exact=True).click()
+            expect(page.frame_locator('.html-report-frame').get_by_role('heading', name='Bactologix workstation check')).to_be_visible()
+            page.get_by_role('button', name='Back to check', exact=True).click()
+            report_row = dialog.locator('.workstation-row').filter(has_text='I opened and could read')
+            report_row.get_by_role('button', name='Confirm observation', exact=True).click()
+            expect(report_row).to_contain_text('Confirmed by user')
+            with page.expect_download() as downloaded:
+                dialog.get_by_role('button', name='Download check JSON', exact=True).click()
+            destination = tmp_path / 'workstation.json'
+            downloaded.value.save_as(destination)
+            record = json.loads(destination.read_text())
+            assert record['id'] == jid and record['job_status'] == 'succeeded'
+            assert record['observations']['report']['source'] == 'user-reported'
+            assert 'download' not in record['observations']
+            download_row = dialog.locator('.workstation-row').filter(has_text='I downloaded and could open')
+            download_row.get_by_role('button', name='Confirm observation', exact=True).click()
+            expect(download_row).to_contain_text('Confirmed by user')
+            expect(dialog.locator('.workstation-row').filter(has_text='I launched Bactologix normally')).to_contain_text('Not confirmed')
+            download_row.get_by_role('button', name='Clear confirmation', exact=True).click()
+            expect(download_row).to_contain_text('Not confirmed')
+            def capture(name):
+                folder = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+                if folder:
+                    Path(folder).mkdir(parents=True, exist_ok=True)
+                    page.screenshot(path=str(Path(folder) / name), full_page=True)
+            capture('workstation-check-desktop.png')
+            page.set_viewport_size({'width': 390, 'height': 844})
+            assert dialog.evaluate('(el) => el.scrollWidth <= el.clientWidth+1')
+            assert dialog.locator('.modal-body').evaluate('(el) => el.scrollWidth <= el.clientWidth+1')
+            capture('workstation-check-mobile.png')
+            dialog.get_by_role('button', name='Close dialog', exact=True).click()
+            page.reload()
+            expect(page.get_by_role('button', name='Review check', exact=True)).to_be_visible()
+            page.get_by_role('button', name='Review check', exact=True).click()
+            expect(page.get_by_role('dialog')).to_contain_text('Confirmed by user')
+            assert not store.all('samples') and not store.all('runs')
+            assert errors == []
+            browser.close()
+    finally:
+        proc.terminate()
+        proc.wait(timeout=15)
