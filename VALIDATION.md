@@ -1,3 +1,11 @@
+# Validation update: 0.1.0a35 (2026-10-28)
+
+- The installed-wheel Python 3.12 suite passed **521 tests**, with 39 separately gated checks skipped. New comparison tests cover missing/null/empty values, boolean/integer/float identity, list order, mapping-order independence, literal dotted paths, non-string nested keys, missing subtrees, scalar replacements, archived records and reordered references across four runs.
+- Invalid selections, missing/invalid saved configurations, recursive aliases, unsupported YAML scalars and size/depth limits fail explicitly. Tests verify exact YAML versus typed-value hashes, unchanged stored runs, no subprocess/submission/mutation and identical refreshed UI/export documents during read-only update access.
+- All **13 browser tests passed** locally. New Chromium coverage includes two/three-run selections, reference changes, stale-result hiding, typed cells, search/section/difference filters, 50-row paging, missing values, explicit long-value shortening and full native JSON downloads containing filtered/unchanged rows. Desktop/mobile views were inspected; mobile download-button wrapping was corrected.
+- Wheel/source builds, all **58 runtime package files**, JavaScript syntax and dependency checks passed. Python 3.11/3.12 pinned-adapter, Chromium and real sample-free Conda suites remain mandatory release gates.
+- Comparison reads stored records only; it does not validate on-disk YAML, inputs, environments, source integrity or results. Defaults are not inferred and similarly named keys across pipelines need not be equivalent. Physical-workstation/WSL/GPU and full biological-analysis acceptance remain outside these software checks.
+
 # Validation update: 0.1.0a34 (2026-10-28)
 
 - The installed-wheel Python 3.12 suite passed **502 tests**, with 38 separately gated checks skipped. This release changes browser presentation only; backend job records, queue transactions and scientific execution are unchanged.

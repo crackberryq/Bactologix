@@ -1630,3 +1630,100 @@ def test_job_history_filters_pages_export_and_active_visibility(tmp_path, instal
         assert [e['value']['kind'] for e in page.evaluate('window.acceptanceEvents')] == ['inspect_run']
         assert errors == []
         browser.close()
+
+
+def test_full_saved_configuration_comparison(tmp_path, installed):
+    import json
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import snapshot, dispatch
+    store, item = installed
+    sample = tmp_path / 'comparison sample'
+    (sample / 'raw/illumina').mkdir(parents=True)
+    for mate in (1, 2):
+        (sample / f'raw/illumina/fixture_R{mate}.fastq').write_text('@fixture\nACGT\n+\nIIII\n')
+    common = ''.join(f'custom_{i:02d}: {i}\n' for i in range(65))
+    runs = [create_run(store, 'hybas', {'id': 'comparison.fixture', 'path': str(sample), 'mode': 'illumina_only'},
+                      common + text, label=label) for text, label in [
+        ('literal.key: true\nnested: {key: null}\nlong: ' + 'x'*1100 + '\n', 'Left <script> fixture'),
+        ('literal.key: 1\nnested: {key: false}\n', 'Right fixture'),
+        ('literal.key: false\n', 'Third fixture')]]
+    original = store.all('runs')
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(page, store)
+        page.get_by_role('link', name='Comparisons', exact=True).click()
+        page.get_by_label('Select ' + runs[0]['label'], exact=True).check()
+        panel = page.get_by_role('region', name='Full saved configuration comparison', exact=True)
+        expect(panel.get_by_role('button', name='Compare configurations', exact=True)).to_be_disabled()
+        page.locator('.comparison-picker summary').click()
+        page.get_by_label('Select ' + runs[1]['label'], exact=True).check()
+        page.get_by_label('Reference run', exact=True).select_option(runs[0]['id'])
+        def respond(kind):
+            req = page.evaluate('window.acceptanceEvents.at(-1).value')
+            assert req['kind'] == kind
+            result = dispatch(store, kind, req['payload'])
+            page.evaluate('({response,workspace}) => {Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                          {'response': {'id': req['id'], 'ok': True, **result}, 'workspace': snapshot(store)})
+            return result
+        page.get_by_role('button', name='Compare configurations', exact=True).click()
+        result = respond('compare_saved_runs')
+        assert result['comparison']['reference_id'] == runs[0]['id']
+        expect(panel).to_contain_text('This does not compare results')
+        page.get_by_label('Search setting paths', exact=True).fill('literal.key')
+        expect(panel.locator('tbody tr')).to_have_count(1)
+        expect(panel.locator('tbody tr')).to_contain_text('boolean')
+        expect(panel.locator('tbody tr')).to_contain_text('integer')
+        expect(panel.locator('tbody tr')).to_have_attribute('data-comparison-path', '["literal.key"]')
+        page.get_by_label('Search setting paths', exact=True).fill('nested.key')
+        expect(panel.locator('tbody tr')).to_contain_text('null')
+        expect(panel.locator('tbody tr')).to_contain_text('boolean')
+        page.get_by_label('Search setting paths', exact=True).fill('long')
+        expect(panel).to_contain_text('shortened; full value in download')
+        expect(panel.locator('tbody tr')).to_contain_text('Not recorded')
+        with page.expect_download() as event:
+            page.get_by_role('button', name='Refresh & download comparison', exact=True).click()
+            refreshed = respond('download_comparison')
+        doc = json.loads(Path(event.value.path()).read_text())
+        assert doc == refreshed['comparison'] and len(doc['rows']) > 65
+        assert len(next(r for r in doc['rows'] if r['path'] == ['long'])['cells'][0]['yaml']) == 1100
+        assert any(not r['changed'] for r in doc['rows'])  # Export includes rows hidden by filters.
+        page.get_by_label('Search setting paths', exact=True).fill('')
+        page.get_by_label('Differences only', exact=True).uncheck()
+        page.get_by_label('Compare section', exact=True).select_option('configuration')
+        expect(panel.locator('tbody tr')).to_have_count(50)
+        page.get_by_role('button', name='Next rows', exact=True).click()
+        expect(panel).to_contain_text('51–')
+        page.get_by_label('Search setting paths', exact=True).fill('not a recorded key')
+        expect(panel).to_contain_text('No matching rows')
+        page.get_by_label('Reference run', exact=True).select_option(runs[1]['id'])
+        expect(panel).to_contain_text('Selection changed')
+        expect(panel.locator('table')).to_have_count(0)
+        expect(page.get_by_role('button', name='Refresh & download comparison', exact=True)).to_have_count(0)
+        page.get_by_role('button', name='Compare configurations', exact=True).click()
+        assert respond('compare_saved_runs')['comparison']['reference_id'] == runs[1]['id']
+        page.get_by_label('Search setting paths', exact=True).fill('literal.key')
+        expect(panel.locator('thead th').nth(1)).to_contain_text('Right fixture')
+        page.locator('.comparison-picker summary').click()
+        page.get_by_label('Select ' + runs[2]['label'], exact=True).check()
+        expect(panel).to_contain_text('Selection changed')
+        page.get_by_role('button', name='Compare configurations', exact=True).click()
+        assert len(respond('compare_saved_runs')['comparison']['runs']) == 3
+        expect(panel.locator('thead th')).to_have_count(4)
+        page.get_by_label('Search setting paths', exact=True).fill('')
+        page.get_by_label('Differences only', exact=True).check()
+        def capture(name):
+            folder = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+            if folder:
+                Path(folder).mkdir(parents=True, exist_ok=True)
+                page.screenshot(path=str(Path(folder) / name), full_page=True)
+        panel.scroll_into_view_if_needed(); capture('configuration-comparison-desktop.png')
+        page.set_viewport_size({'width': 390, 'height': 844})
+        panel.scroll_into_view_if_needed()
+        capture('configuration-comparison-mobile.png')
+        assert panel.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1'), panel.evaluate('(el) => [...el.children].map(x=>[x.className,x.clientWidth,x.scrollWidth])')
+        expect(panel.locator('.table-wrap')).to_be_visible()
+        assert store.all('runs') == original and not store.jobs() and errors == []
+        browser.close()

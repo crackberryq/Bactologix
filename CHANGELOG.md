@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a35 — full saved configuration comparison
+
+- Compare 2–4 saved runs against an explicit reference using stored YAML values and recorded provenance. Preserve custom keys, separate literal dotted keys, and distinguish missing/null/empty values, scalar types and list ordering without importing runtime defaults.
+- Add differences-only, setting-path and section filters, 50-row pages, exact-YAML/typed-value hashes and explicit long-cell shortening. Hide stale tables after selection/reference changes.
+- Refresh and export all comparison rows as JSON, including full values hidden by filters. Bound comparison size/depth; report missing or invalid saved configurations instead of inventing values.
+- Keep saved records, pipeline execution, environments and scientific settings unchanged. Cross-pipeline keys are not assumed semantically equivalent.
+
 ## 0.1.0a34 — searchable job history
 
 - Separate always-visible active jobs and queue controls from past attempts. Add job/run/sample/action search, status/pipeline/type filters, submission ordering and 25-attempt pages, including archived-run history.
