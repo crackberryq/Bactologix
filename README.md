@@ -1,4 +1,22 @@
-# Bactologix 0.1.0a29 — alpha
+# Bactologix 0.1.0a30 — alpha
+
+### Persistent queue controls
+
+Open **Jobs & progress** to **Hold** or **Release** a waiting job and move it up
+or down. Held jobs stay queued and keep the existing run, installation and update
+guards. Eligible jobs run in the displayed order; new jobs join at the end.
+
+**Stop after current job** lets the current job finish and prevents the next one
+from starting. When idle, the same control is **Pause queue**. **Resume queue**
+starts eligible waiting jobs; it does not release held jobs or retry interrupted
+attempts. Holds, order and global pause survive application and worker restarts.
+Stale controls from another browser tab are rejected with a refresh message.
+
+After an unexpected worker exit, **Start / recover queue** marks abandoned work
+interrupted only after obtaining the worker lock, then pauses the queue for review.
+Inspect the interrupted job and outputs before resuming. Surviving child processes
+retain the lock. Finish or cancel all queued jobs (including held jobs), and resume
+the queue before installing an application update.
 
 ### Guided failure recovery and workstation checks
 
@@ -161,7 +179,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a29-py3-none-any.whl
+pipx install ./bactologix-0.1.0a30-py3-none-any.whl
 bactologix
 ```
 
@@ -170,7 +188,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a29/bactologix-0.1.0a29-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a30/bactologix-0.1.0a30-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -179,7 +197,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a29/bactologix-0.1.0a29-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a30/bactologix-0.1.0a30-py3-none-any.whl"
 bactologix
 ```
 
@@ -187,7 +205,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a29-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a30-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -347,7 +365,7 @@ Other listed versions can be downloaded; managed execution is withheld until the
 
 Controller environments are keyed by pipeline, environment-file bytes and platform. Each reviewed release must explicitly pin Python (minor series or patch) and a complete Snakemake version in its Conda environment file. Setup installs those requirements, rather than whatever happens to be the newest Snakemake. The verified versions appear on the installation card and in the setup log. A changed definition creates a separate runner; a failed installation/check never activates the new version. Existing controllers are health-checked against the selected release before reuse. Repair prepares a fresh controller and retains the old one. Existing drafts use the repaired controller for the same source commit, and require a fresh native dry-run before preparation or execution. Their original controller path remains recorded as creation provenance. Snakemake uses a stable absolute `--conda-prefix` per pipeline outside version-specific source folders; its native content/pin/deploy-script hashing governs rule environment reuse. No environment or old run is routinely deleted. Database/model storage is separate. BaSIS's configured `resources.policy: auto` can download missing resources during an actual run. HybAs database provisioning remains the upstream explicit workflow/configuration responsibility.
 
-One OS lock serializes jobs in each Bactologix workspace, including environment preparation. Child processes inherit the lock. The worker marks abandoned running jobs interrupted on recovery. Run/resume uses normal Snakemake metadata and `--rerun-incomplete`; Bactologix never fabricates completion records, deletes scheduler locks, or weakens rerun triggers. The generated sample sheet and exact staged input-link mapping are verified before every launch. Input size/mtime changes invalidate a draft; these are metadata checks, not full input content hashes. Older drafts reconstruct their expected link mapping from recorded source identities, never from the current staged links; unverifiable drafts are rejected. Comparison clones must retain the parent’s exact input snapshot, including its file inventory. A failed execution remains failed after later successful dry-runs, and discovered reports show their source run status. Native workflow provenance may provide additional content checksums.
+One OS lock serializes jobs in each Bactologix workspace, including environment preparation. Child processes inherit the lock. The worker marks abandoned running jobs interrupted on recovery and pauses the queue for review. Run/resume uses normal Snakemake metadata and `--rerun-incomplete`; Bactologix never fabricates completion records, deletes scheduler locks, or weakens rerun triggers. The generated sample sheet and exact staged input-link mapping are verified before every launch. Input size/mtime changes invalidate a draft; these are metadata checks, not full input content hashes. Older drafts reconstruct their expected link mapping from recorded source identities, never from the current staged links; unverifiable drafts are rejected. Comparison clones must retain the parent’s exact input snapshot, including its file inventory. A failed execution remains failed after later successful dry-runs, and discovered reports show their source run status. Native workflow provenance may provide additional content checksums.
 
 ## Reviewed BaSIS AWARE follow-up
 

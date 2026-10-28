@@ -1112,3 +1112,91 @@ def test_workstation_check_and_failure_recovery_in_streamlit(tmp_path):
     finally:
         proc.terminate()
         proc.wait(timeout=15)
+
+
+def test_queue_controls_persist_and_recover_in_real_browser(tmp_path):
+    """UI controls use real transactions and a worker; no sample workflow is run."""
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.workstation import request as workstation_request
+    store = Store(tmp_path / 'queue workspace')
+    interrupted = store.submit('smoke', {})
+    store.update_job(interrupted, status='running')  # Abandoned worker fixture for recovery.
+    workstation = store.submit('workstation', workstation_request(store))
+    held = store.submit('smoke', {})
+    with socket.socket() as sock:
+        sock.bind(('127.0.0.1', 0))
+        port = sock.getsockname()[1]
+    with (tmp_path / 'server.log').open('w') as log:
+        proc = subprocess.Popen([str(Path(sys.executable).with_name('bactologix')), '--home', str(store.home),
+                                 '--host', '127.0.0.1', '--port', str(port), '--no-browser'],
+                                stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    try:
+        url = f'http://127.0.0.1:{port}'
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                with urlopen(url + '/_stcore/health', timeout=1) as response:
+                    if response.status == 200: break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    pytest.fail((tmp_path / 'server.log').read_text())
+                time.sleep(.2)
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            page.goto(url)
+            page.get_by_role('link', name='Jobs & progress', exact=True).click()
+            controls = page.locator('.queue-controls')
+            page.get_by_role('button', name='Stop after current job', exact=True).click()
+            expect(controls).to_contain_text('Finishing current job · queue paused')
+            assert not store.job(interrupted)['cancel']
+            second = controls.locator('[data-waiting-job="' + held + '"]')
+            second.get_by_role('button', name='Hold job', exact=True).click()
+            expect(second.get_by_role('button', name='Release hold', exact=True)).to_be_visible()
+            second.get_by_role('button', name='Move up', exact=True).click()
+            expect(controls.locator('.waiting-job').first).to_have_attribute('data-waiting-job', held)
+            expect(second.get_by_role('button', name='Move up', exact=True)).to_be_disabled()
+            page.reload()
+            expect(controls.locator('.waiting-job').first).to_have_attribute('data-waiting-job', held)
+            expect(second.get_by_role('button', name='Release hold', exact=True)).to_be_visible()
+            page.get_by_role('link', name='Overview', exact=True).click()
+            expect(page.locator('.queue-banner')).to_contain_text('Waiting and newly submitted jobs will not start')
+            page.get_by_role('button', name='Review queue', exact=True).click()
+            page.get_by_role('button', name='Start / recover queue', exact=True).click()
+            expect(controls).to_contain_text('Review interrupted work before resuming', timeout=15000)
+            assert store.job(interrupted)['status'] == 'interrupted'
+            assert store.job(workstation)['status'] == store.job(held)['status'] == 'queued'
+            assert store.queue_snapshot()['paused']
+            def capture(name):
+                folder = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+                if folder:
+                    Path(folder).mkdir(parents=True, exist_ok=True)
+                    page.screenshot(path=str(Path(folder) / name), full_page=True)
+            capture('queue-controls-desktop.png')
+            page.set_viewport_size({'width': 390, 'height': 844})
+            assert controls.evaluate('(el) => el.scrollWidth <= el.clientWidth+1')
+            assert controls.locator('.waiting-jobs').evaluate('(el) => el.scrollWidth <= el.clientWidth+1')
+            capture('queue-controls-mobile.png')
+            page.set_viewport_size({'width': 1440, 'height': 1100})
+            page.get_by_role('button', name='Resume queue', exact=True).click()
+            expect(page.locator('.job-card').filter(has_text=workstation)).to_contain_text('succeeded', timeout=30000)
+            expect(controls).to_contain_text('All waiting jobs are held')
+            assert store.job(held)['status'] == 'queued' and store.job(interrupted)['status'] == 'interrupted'
+            second.get_by_role('button', name='Release hold', exact=True).click()
+            # This smoke job has no configured runner. Its expected failure must not alter history.
+            expect(page.locator('.job-card').filter(has_text=held)).to_contain_text('failed', timeout=30000)
+            expect(controls).to_contain_text('No waiting jobs')
+            assert store.job(interrupted)['status'] == 'interrupted'
+            assert store.job(workstation)['status'] == 'succeeded'
+            page.get_by_role('button', name='Pause queue', exact=True).click()
+            expect(page.locator('#queue-status')).to_contain_text('Queue paused')
+            page.reload()
+            expect(controls.get_by_role('button', name='Resume queue', exact=True)).to_be_visible()
+            assert errors == []
+            assert not store.all('samples') and not store.all('runs')
+            browser.close()
+    finally:
+        proc.terminate()
+        proc.wait(timeout=15)

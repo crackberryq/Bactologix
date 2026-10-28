@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a30 — persistent queue controls
+
+- Hold/release and reorder waiting jobs in Jobs & progress. Held jobs remain queued, retaining duplicate-run, installation and update protections; existing queues retain FIFO order.
+- Pause the queue after the current job, or while idle, and explicitly resume eligible work. Persist holds, order and pause across restarts; reject stale browser changes transactionally.
+- After acquiring the worker lock, mark abandoned running jobs interrupted and pause for review. Never automatically retry interrupted attempts or overlap surviving child processes.
+- Keep cancellation available, block queue changes during application updates, and require an unpaused empty queue before updating. Preserve job payloads, frozen settings and outputs.
+
 ## 0.1.0a29 — guided recovery and workstation checks
 
 - Add an evidence-backed **Why did this fail?** panel with a reported failed step, bounded error excerpt, possible cause and targeted review navigation. Recognize storage/quota, permissions, interrupted jobs and plotting dependency failures alongside existing guidance; unknown causes remain explicit. No automatic repair, retry or scheduler-lock removal.

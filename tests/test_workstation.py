@@ -207,6 +207,9 @@ def test_detached_worker_recovers_interrupted_check_without_rewriting_history(tm
     assert result.returncode == 0, result.stderr
     assert store.job(old)['status'] == 'interrupted'
     assert store.get('workstation_checks', old) == saved
+    from bactologix.queue import change
+    assert store.queue_snapshot()['paused']
+    change(store, 'resume', store.queue_snapshot()['revision'])
     new = store.submit('workstation', w.request(store))
     subprocess.run([sys.executable, '-m', 'bactologix.worker', '--home', str(store.home)], timeout=30, check=True)
     assert store.job(new)['status'] == 'succeeded'

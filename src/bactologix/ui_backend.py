@@ -18,7 +18,7 @@ from .runs import (absolute_path, clone_runs, command, create_run, import_sample
                    parse_config, register_sample, remove_sample, archive_runs, reports, template, validate_launch,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
-from . import databases, updates, hardware, methods, telemetry, support, workstation
+from . import databases, updates, hardware, methods, telemetry, support, workstation, queue
 from . import followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
 _SNAPSHOTS = {}
@@ -77,10 +77,11 @@ def snapshot(store):
     jobs = [{**j, "guidance": readiness.job_guidance(store, j),
              "telemetry": telemetry.view(records.get(j['id']), j)} for j in store.jobs()]
     app_update = updates.status(store)
+    queue_state = store.queue_snapshot()
     # pip briefly replaces package data. Keep the already-rendered workspace
     # available until restart instead of reading those files during replacement.
     if (app_update["active_job"] or app_update["restart_required"]) and store.home in _SNAPSHOTS:
-        return {**copy.deepcopy(_SNAPSHOTS[store.home]), "jobs": jobs, "app_update": app_update}
+        return {**copy.deepcopy(_SNAPSHOTS[store.home]), "jobs": jobs, "app_update": app_update, "queue": queue_state}
     runs = []
     archived = {r["id"] for r in store.all("run_visibility") if r.get("archived")}
     for run in store.all("runs"):
@@ -107,7 +108,7 @@ def snapshot(store):
             "resource_defaults": {t: hardware.run_defaults(store, t) for t in PIPELINES},
             "active": {t: store.get("settings", "active-" + t) for t in PIPELINES},
             "catalogs": catalogs, "samples": store.all("samples"), "runs": runs,
-            "jobs": jobs, "reports": reports(store), "configs": configs,
+            "jobs": jobs, "queue": queue_state, "reports": reports(store), "configs": configs,
             "fields": {t: configuration_fields(t, configs[t]) for t in PIPELINES},
             "databases": {t: databases.panel(store, t) for t in PIPELINES},
             "environments": {i["id"]: maintenance.environment_panel(store, i, jobs) for i in store.all("installs")},
@@ -448,9 +449,22 @@ def dispatch(store, kind, p):
         check_run_files(run)
         create_run(store, "basis", dict(run["sample"], path=run["output"]), store.get("configs", "basis", template("basis")), run["cores"], run["memory_mb"], run["id"], run["label"] + " · BaSIS")
         return {"message": "Created a new draft.", "navigate": "runs"}
+    if kind == 'queue_control':
+        state = queue.change(store, p.get('action'), p.get('revision'), p.get('id'))
+        if p.get('action') in {'resume', 'release'} and not state['paused']:
+            try:
+                launch_worker(store)
+            except Exception:
+                return {'message': 'Queue change saved, but the worker could not start. Use Start / recover queue to retry.'}
+        messages = {'pause': 'Queue paused. Any current job continues; no next job will start.',
+                    'resume': 'Queue resumed. Held jobs remain held; interrupted attempts are not retried.',
+                    'hold': 'Waiting job held. Other eligible jobs can continue.',
+                    'release': 'Job released from hold. The global queue pause still applies.',
+                    'up': 'Waiting order updated.', 'down': 'Waiting order updated.'}
+        return {'message': messages[p['action']]}
     if kind == "recover_jobs":
         launch_worker(store)
-        return {"message": "Worker requested; active jobs retain their lock."}
+        return {"message": "Worker requested; active jobs retain their lock. Pauses and holds remain in effect. Recovered interruptions pause the queue for review."}
     if kind == "cancel_job":
         job = store.job(p["id"])
         if not job or job["status"] not in {"queued", "running"}:

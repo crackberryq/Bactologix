@@ -236,6 +236,11 @@ def test_worker_finalizes_records_and_marks_prior_interrupted_job(tmp_path, monk
     monkeypatch.setattr(worker, 'environment_lock', lambda exclusive: nullcontext(1))
     monkeypatch.setattr(worker, 'time', SimpleNamespace(sleep=lambda seconds: None))
     worker.work(store)
+    assert store.job(jid)['status'] == 'queued'
+    assert store.queue_snapshot()['paused']
+    from bactologix.queue import change
+    change(store, 'resume', store.queue_snapshot()['revision'])
+    worker.work(store)
     assert store.job(jid)['status'] == status
     assert t.inspect(store, jid)['summary']['state'] == status
     assert t.inspect(store, old)['summary']['incomplete']
