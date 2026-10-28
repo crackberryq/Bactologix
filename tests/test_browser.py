@@ -1417,3 +1417,101 @@ def test_storage_overview_is_explicit_persistent_and_read_only(tmp_path):
             browser.close()
     finally:
         proc.terminate(); proc.wait(timeout=15)
+
+
+def test_version_compatibility_overview_preserves_saved_bindings(tmp_path, installed):
+    """Records-only browser overview, exact export, filters and review navigation."""
+    import json
+    from playwright.sync_api import sync_playwright, expect
+    store, item = installed
+    sample = tmp_path / 'compatibility sample'
+    (sample / 'raw/illumina').mkdir(parents=True)
+    for mate in (1, 2):
+        (sample / f'raw/illumina/fixture_R{mate}.fastq').write_text('@fixture\nACGT\n+\nIIII\n')
+    run = create_run(store, 'hybas', {'id': 'compatibility.fixture', 'path': str(sample), 'mode': 'illumina_only'},
+                     'custom_note: preserve compatibility fixture\n', label='Compatibility <script> fixture')
+    archived = create_run(store, 'hybas', run['sample'], 'custom_note: archived\n', label='Archived compatibility')
+    store.put('run_visibility', archived['id'], {'id': archived['id'], 'archived': True})
+    # Application catalog pins are known to the server. A new active installation must not migrate this run.
+    newer = {**item, 'id': 'active-new-fixture', 'version': {'commit': PIPELINES['basis']['commit'], 'ref': 'new selection'}, 'tool': 'basis'}
+    store.put('installs', newer['id'], newer)
+    store.put('settings', 'active-hybas', 'unregistered-selection')
+    store.put('settings', 'active-basis', newer['id'])
+    original = store.get('runs', run['id'])
+    with socket.socket() as sock:
+        sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
+    with (tmp_path / 'compatibility-server.log').open('w') as log:
+        proc = subprocess.Popen([str(Path(sys.executable).with_name('bactologix')), '--home', str(store.home),
+                                 '--host', '127.0.0.1', '--port', str(port), '--no-browser'],
+                                stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    try:
+        url = f'http://127.0.0.1:{port}'
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                with urlopen(url + '/_stcore/health', timeout=1) as response:
+                    if response.status == 200: break
+            except OSError:
+                if time.monotonic() >= deadline: pytest.fail((tmp_path / 'compatibility-server.log').read_text())
+                time.sleep(.2)
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            page.goto(url)
+            page.get_by_role('link', name='Install & update', exact=True).click()
+            page.get_by_role('button', name='Compatibility', exact=True).click()
+            overview = page.locator('.compatibility-overview')
+            expect(overview).to_contain_text('Versions and compatibility')
+            expect(overview).to_contain_text('unregistered-selection · not registered')
+            row = page.locator('[data-compat-run="' + run['id'] + '"]')
+            expect(row).to_contain_text('Recorded installation matches')
+            expect(row).to_contain_text('Separate from active selection for new drafts')
+            expect(row).to_contain_text('No successful validation recorded')
+            assert page.url.endswith('#install/compatibility')
+            assert not store.jobs() and store.get('runs', run['id']) == original
+            expect(page.locator('[data-compat-run]:visible')).to_have_count(1)
+            page.get_by_label('Include archived runs', exact=True).check()
+            expect(page.locator('[data-compat-run]:visible')).to_have_count(2)
+            page.get_by_label('Find a saved run', exact=True).fill('missing text')
+            expect(page.locator('#compatibility-no-matches')).to_be_visible()
+            page.get_by_label('Find a saved run', exact=True).fill('Compatibility <script> fixture')
+            expect(page.locator('[data-compat-run]:visible')).to_have_count(1)
+            page.get_by_label('Needs review only', exact=True).check()
+            expect(row).to_be_visible()
+            with page.expect_download() as event:
+                page.get_by_role('button', name='Download overview', exact=True).click()
+            doc = json.loads(Path(event.value.path()).read_text())
+            exported = next(r for r in doc['runs'] if r['id'] == run['id'])
+            assert exported['installation'] == item['id'] and exported['binding'] == 'recorded_match'
+            assert doc['app']['running_version'] and 'stored records' in doc['notice']
+            page.reload()
+            expect(overview).to_contain_text('Versions and compatibility')
+            # Change only fixture records to check refresh and mismatch presentation.
+            item['version']['commit'] = 'f' * 40
+            store.put('installs', item['id'], item)
+            page.get_by_role('button', name='Refresh overview', exact=True).click()
+            expect(row).to_contain_text('Installation/source mismatch')
+            expect(page.locator('[data-compat-installation="' + item['id'] + '"]')).to_contain_text('Unreviewed commit')
+            def capture(name):
+                folder = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+                if folder:
+                    Path(folder).mkdir(parents=True, exist_ok=True)
+                    page.screenshot(path=str(Path(folder) / name), full_page=True)
+            expect(page.get_by_role('button', name='Refresh overview', exact=True)).to_be_enabled()
+            capture('compatibility-desktop.png')
+            row.scroll_into_view_if_needed()
+            capture('compatibility-bindings-desktop.png')
+            page.set_viewport_size({'width': 390, 'height': 844})
+            assert overview.evaluate('(el) => el.scrollWidth <= el.clientWidth+1')
+            row.scroll_into_view_if_needed()
+            capture('compatibility-mobile.png')
+            page.set_viewport_size({'width': 1440, 'height': 1100})
+            row.get_by_role('button', name='Review saved run', exact=True).click()
+            expect(page.locator('.run-workspace')).to_be_visible()
+            assert page.url.endswith('/overview')
+            assert not store.jobs() and store.get('runs', run['id']) == original and errors == []
+            browser.close()
+    finally:
+        proc.terminate(); proc.wait(timeout=15)

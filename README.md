@@ -1,4 +1,35 @@
-# Bactologix 0.1.0a32 — alpha
+# Bactologix 0.1.0a33 — alpha
+
+### Version compatibility overview
+
+Open **Install & update → Compatibility** to review the running and installed
+Bactologix versions, application Python requirement, exact supported pipeline
+commits, registered runner records and saved-run bindings. The Compatibility tab
+has a persistent browser route and can be refreshed or exported as JSON.
+
+Support is matched by exact commit. A moving branch or familiar release label
+does not make a new commit supported. The catalogue's origin and fetch date are
+shown; **Refresh overview** rereads local records and does not fetch GitHub.
+Use **Review available versions** for the existing version-selection controls.
+
+The active installation applies to new drafts. Existing runs retain their own
+installation and source commit, including earlier supported snapshots. The
+run list distinguishes an unregistered installation, source mismatch, missing
+runner setup and validation tied to a different runner path. A replacement runner
+that has subsequently been validated is shown separately from the original draft
+runner. Search/filter these records and optionally include archived runs.
+
+Runner Python/Snakemake requirements and last successful setup/check dates are
+stored evidence, not current installed-version probes. Latest explicit check-job
+status and latest execution status remain separate. A matching binding or a
+validation record for the same runner path does not certify source/configuration
+integrity, inputs, database availability or tool health. Use **Review setup** and
+**Review saved run** to reach the existing explicit checks and native validation.
+Opening this overview does not launch checks, migrate runs or change active versions.
+
+**Download overview** refreshes the displayed records and exports that same JSON
+snapshot. It includes local interpreter/runner/source paths and run labels and is
+not redacted; review it before sharing.
 
 ### Storage overview
 
@@ -243,7 +274,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a32-py3-none-any.whl
+pipx install ./bactologix-0.1.0a33-py3-none-any.whl
 bactologix
 ```
 
@@ -252,7 +283,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a32/bactologix-0.1.0a32-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a33/bactologix-0.1.0a33-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -261,7 +292,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a32/bactologix-0.1.0a32-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a33/bactologix-0.1.0a33-py3-none-any.whl"
 bactologix
 ```
 
@@ -269,7 +300,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a32-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a33-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
