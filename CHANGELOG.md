@@ -1,5 +1,10 @@
 # Bactologix releases
 
+## 0.1.0a38 — dialog keyboard navigation
+
+- Restore keyboard focus after closing dialogs, including the workspace tools menu and mobile navigation. If the original control is no longer available, focus the workspace.
+- Preserve the original return destination across nested folder dialogs.
+
 ## 0.1.0a37 — interface cleanup and optional app window
 
 - Align shared cards, forms, tabs, action rows and dialogs; fix phone-width overflow across all five Install & update views. Simplify the header and group workspace tools.
