@@ -1,3 +1,8 @@
+# Validation update: 0.1.0a39 (2026-10-28)
+
+- All 15 installed-wheel browser tests passed. Coverage includes clicking outside workspace tools and cycling focus past controls inside hidden containers. Package builds and JavaScript syntax passed.
+- Full Python, browser and environment CI remain release gates. This change affects interface interactions only.
+
 # Validation update: 0.1.0a38 (2026-10-28)
 
 - All 15 browser checks passed with the dialog focus restoration. The final packaged fallback refinement passed the focused mobile navigation/workspace-tools regression. JavaScript syntax and package builds passed.

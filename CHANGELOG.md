@@ -1,5 +1,10 @@
 # Bactologix releases
 
+## 0.1.0a39 — menu dismissal and dialog tab navigation
+
+- Close workspace tools when clicking elsewhere in the interface.
+- Exclude hidden and disabled controls from dialog keyboard focus cycling.
+
 ## 0.1.0a38 — dialog keyboard navigation
 
 - Restore keyboard focus after closing dialogs, including the workspace tools menu and mobile navigation. If the original control is no longer available, focus the workspace.
