@@ -1,4 +1,33 @@
-# Bactologix 0.1.0a30 — alpha
+# Bactologix 0.1.0a31 — alpha
+
+### Results and download centre
+
+Open **Results & reports**, find a saved run and choose **Results & downloads**.
+Filter by pipeline or include archived runs. Each run brings together its native
+HTML reports, exact frozen YAML, a JSON results manifest, Methods exports, and
+separate logs and resource-use records for every execution, validation and
+environment attempt. The same centre is available on a saved run's Results tab.
+
+Report presence does not prove completed scope. Missing optional reports may be
+disabled or not applicable. The latest execution stays distinct from later
+validation jobs, and failed, cancelled and interrupted attempts retain their
+status. Missing logs or resource records are shown explicitly.
+
+For new execution attempts, Bactologix records bounded before/after metadata
+observations of the recognized report paths. A matching observation identifies
+the attempt after which that file was seen and whether its metadata changed;
+it does not establish the producing process or hash the report content. Older,
+externally changed and actively written reports have no verified producer.
+Historical HTML copies are not retained. Follow-up report ownership remains
+scoped to the run that currently owns the shared output.
+
+Use **Refresh results** to recheck files. HTML downloads/viewing are limited to
+50 MB and logs to 20 MB; larger files remain on disk at the displayed path.
+Native-report and log downloads from the centre refuse linked or non-regular files
+and recheck file state while reading.
+The manifest is an index, not a backup or a bundle of result contents. Downloads
+contain local paths and identifiers and are not redacted; use **Get support**
+for a reviewed support snapshot.
 
 ### Persistent queue controls
 
@@ -179,7 +208,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a30-py3-none-any.whl
+pipx install ./bactologix-0.1.0a31-py3-none-any.whl
 bactologix
 ```
 
@@ -188,7 +217,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a30/bactologix-0.1.0a30-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a31/bactologix-0.1.0a31-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -197,7 +226,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a30/bactologix-0.1.0a30-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a31/bactologix-0.1.0a31-py3-none-any.whl"
 bactologix
 ```
 
@@ -205,7 +234,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a30-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a31-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 

@@ -1200,3 +1200,125 @@ def test_queue_controls_persist_and_recover_in_real_browser(tmp_path):
     finally:
         proc.terminate()
         proc.wait(timeout=15)
+
+
+def test_results_centre_downloads_and_attempt_provenance(tmp_path, installed):
+    """Real browser downloads match frozen config, original HTML and attempt records."""
+    import json
+    from types import SimpleNamespace
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix import results, telemetry
+    from bactologix.store import now
+    store, item = installed
+    sample = tmp_path / 'result sample'
+    (sample / 'raw/illumina').mkdir(parents=True)
+    for mate in (1, 2):
+        (sample / f'raw/illumina/fixture_R{mate}.fastq').write_text('@fixture\nACGT\n+\nIIII\n')
+    run = create_run(store, 'hybas', {'id': 'result.fixture', 'path': str(sample), 'mode': 'illumina_only'},
+                     'custom_note: frozen results fixture\n', label='Results fixture <script>')
+    archived = create_run(store, 'hybas', run['sample'], 'custom_note: archived\n', label='Archived fixture')
+    store.put('run_visibility', archived['id'], {'id': archived['id'], 'archived': True})
+    jid = store.submit('workflow', {'run_id': run['id'], 'action': 'run'})
+    store.update_job(jid, status='running', started=now())
+    ctx = SimpleNamespace(store=store, job=store.job(jid), write=lambda text: None)
+    results.observe(ctx, run, 'before')
+    report = Path(run['output']) / 'reports/multiqc/multiqc_report.html'
+    report.parent.mkdir(parents=True)
+    report.write_text('<html><h1>Results centre software fixture</h1></html>')
+    store.log_path(jid).write_text('Attempt log fixture\n')
+    telemetry.Recorder(store, store.job(jid)).finish('failed')
+    results.observe(ctx, run, 'after')
+    store.update_job(jid, status='failed', finished=now())
+    check = store.submit('workflow', {'run_id': run['id'], 'action': 'dry-run'})
+    store.update_job(check, status='succeeded', finished=now())
+    original_run = store.get('runs', run['id'])
+    with socket.socket() as sock:
+        sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
+    with (tmp_path / 'results-server.log').open('w') as log:
+        proc = subprocess.Popen([str(Path(sys.executable).with_name('bactologix')), '--home', str(store.home),
+                                 '--host', '127.0.0.1', '--port', str(port), '--no-browser'],
+                                stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    try:
+        url = f'http://127.0.0.1:{port}'
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                with urlopen(url + '/_stcore/health', timeout=1) as response:
+                    if response.status == 200: break
+            except OSError:
+                if time.monotonic() >= deadline: pytest.fail((tmp_path / 'results-server.log').read_text())
+                time.sleep(.2)
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            page.goto(url)
+            page.get_by_role('link', name='Results & reports', exact=True).click()
+            picker = page.locator('.result-run-picker')
+            expect(picker.locator('.result-run:visible')).to_have_count(1)
+            page.get_by_label('Include archived runs', exact=True).check()
+            expect(picker.locator('.result-run:visible')).to_have_count(2)
+            page.get_by_label('Find a run', exact=True).fill('no match')
+            expect(page.locator('#results-no-matches')).to_be_visible()
+            page.get_by_label('Find a run', exact=True).fill('Results fixture')
+            expect(picker.locator('.result-run:visible')).to_have_count(1)
+            picker.get_by_role('button', name='Results & downloads', exact=True).filter(visible=True).click()
+            centre = page.locator('.results-centre')
+            expect(centre).to_contain_text('Metadata observed after ' + jid)
+            expect(centre).to_contain_text('Producing attempt: not recorded')
+            expect(centre.locator('.results-provenance')).to_contain_text('failed')
+            expect(centre.locator('.result-attempt')).to_have_count(2)
+            expect(centre.locator('.result-attempt').first).to_contain_text('Validation')
+            expect(centre.locator('.result-attempt').last).to_contain_text('Execution')
+            assert page.locator('.page-heading script').count() == 0
+            with page.expect_download() as event:
+                page.get_by_role('button', name='Frozen YAML', exact=True).click()
+            assert Path(event.value.path()).read_text() == run['config']
+            with page.expect_download() as event:
+                page.get_by_role('button', name='Results manifest', exact=True).click()
+            manifest = json.loads(Path(event.value.path()).read_text())
+            assert manifest['latest_execution']['id'] == jid and manifest['status'] == 'failed'
+            with page.expect_download() as event:
+                page.get_by_role('button', name='Download HTML', exact=True).click()
+            assert Path(event.value.path()).read_bytes() == report.read_bytes()
+            attempt = centre.locator('[data-result-attempt="' + jid + '"]')
+            with page.expect_download() as event:
+                attempt.get_by_role('button', name='Download log', exact=True).click()
+            assert Path(event.value.path()).read_text() == 'Attempt log fixture\n'
+            attempt.get_by_role('button', name='Resource usage', exact=True).click()
+            expect(page.locator('.modal')).to_contain_text(jid)
+            page.get_by_role('button', name='Close dialog', exact=True).click()
+            page.get_by_role('button', name='Open report', exact=True).click()
+            expect(page.frame_locator('.html-report-frame').get_by_role('heading', name='Results centre software fixture')).to_be_visible()
+            page.get_by_role('button', name='Close dialog', exact=True).click()
+            page.get_by_role('button', name='Methods & downloads', exact=True).click()
+            expect(page.locator('.methods-export')).to_be_visible()
+            page.locator('[data-action="saved-run-tab"][data-id="results"]').click()
+            expect(centre).to_contain_text('Metadata observed after ' + jid)
+            def capture(name):
+                folder = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+                if folder:
+                    Path(folder).mkdir(parents=True, exist_ok=True)
+                    page.screenshot(path=str(Path(folder) / name), full_page=True)
+            expect(page.get_by_role('button', name='Refresh results', exact=True)).to_be_enabled()
+            capture('results-centre-desktop.png')
+            attempt.scroll_into_view_if_needed()
+            capture('results-attempts-desktop.png')
+            page.set_viewport_size({'width': 390, 'height': 844})
+            assert centre.evaluate('(el) => el.scrollWidth <= el.clientWidth+1')
+            centre.locator('.results-report-list').scroll_into_view_if_needed()
+            capture('results-centre-mobile.png')
+            attempt.scroll_into_view_if_needed()
+            capture('results-attempts-mobile.png')
+            page.set_viewport_size({'width': 1440, 'height': 1100})
+            page.reload()
+            expect(centre).to_contain_text('Metadata observed after ' + jid)
+            report.write_text('<html>Changed outside the attempt</html>')
+            page.get_by_role('button', name='Refresh results', exact=True).click()
+            expect(centre).to_contain_text('No matching attempt observation')
+            assert errors == [] and store.get('runs', run['id']) == original_run
+            assert len(store.jobs()) == 2
+            browser.close()
+    finally:
+        proc.terminate(); proc.wait(timeout=15)

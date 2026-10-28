@@ -499,7 +499,12 @@ def execute_workflow(ctx):
             store.put("followup_output_owner", run["parent"], run["id"])
     run["last_controller"] = current_controller(store, run)
     store.put("runs", run["id"], run)
-    ctx.command(command(store, run, payload["action"]), cwd=Path(run["folder"]) / "workflow")
+    from . import results
+    results.observe(ctx, run, 'before')
+    try:
+        ctx.command(command(store, run, payload["action"]), cwd=Path(run["folder"]) / "workflow")
+    finally:
+        results.observe(ctx, run, 'after')
     run["last_action"] = payload["action"]
     if payload["action"] == "dry-run":
         run["dry_run_ok"] = True
@@ -516,18 +521,23 @@ def execute_workflow(ctx):
     store.put("runs", run["id"], run)
 
 
+def report_candidates(store, run):
+    if run.get("run_type") == "followup":
+        owned = store.get("followup_output_owner", run["parent"]) == run["id"]
+        entries = [("Follow-up report", "safety/deepsafe-report/report.html")] if owned else []
+    else:
+        entries = [("MultiQC", "reports/multiqc/multiqc_report.html"), ("Safety report", "safety/report.html")]
+        if run["tool"] == "basis" and not store.get("followup_output_owner", run["id"]):
+            entries.append(("Follow-up report", "safety/deepsafe-report/report.html"))
+    return entries
+
+
 def reports(store):
     result = []
     jobs = store.jobs()
     for run in store.all("runs"):
         output = Path(run["output"])
-        if run.get("run_type") == "followup":
-            owned = store.get("followup_output_owner", run["parent"]) == run["id"]
-            entries = [("Follow-up report", "safety/deepsafe-report/report.html")] if owned else []
-        else:
-            entries = [("MultiQC", "reports/multiqc/multiqc_report.html"), ("Safety report", "safety/report.html")]
-            if run["tool"] == "basis" and not store.get("followup_output_owner", run["id"]):
-                entries.append(("Follow-up report", "safety/deepsafe-report/report.html"))
+        entries = report_candidates(store, run)
         for name, rel in entries:
             path = output / rel
             if path.is_file() and path.stat().st_size:
