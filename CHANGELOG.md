@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a32 — storage overview
+
+- Add explicit Storage measurements across runs, environments/runners, databases/models, retained repair folders, sources and logs. Show registered paths/references, category filters, review navigation, saved timestamps and JSON downloads.
+- Keep external registered locations opt-in. Flag changed registrations, active work, missing/unavailable paths, scan limits and partial accounting; no implicit scans or cleanup.
+- Count regular-file logical bytes and allocated blocks separately, deduplicating overlapping roots and hard links. Show filesystem capacity once per device, without claiming reclaimable bytes or exclusive ownership.
+- Bound metadata traversal, refuse linked roots/parents, skip links/special files and unregistered cross-device entries. Preserve original data, environments, run settings and repair backups.
+
 ## 0.1.0a31 — results and download centre
 
 - Add searchable per-run results navigation with pipeline and archived-run filters. Bring native reports, frozen YAML, a JSON results manifest, Methods, logs and resource records together on the saved-run Results tab.

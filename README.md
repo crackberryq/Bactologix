@@ -1,4 +1,39 @@
-# Bactologix 0.1.0a31 — alpha
+# Bactologix 0.1.0a32 — alpha
+
+### Storage overview
+
+Open **Storage** to review registered paths, then choose **Measure storage**.
+Opening the page does not scan directories. Workspace locations are included;
+**Include registered external locations** explicitly adds known external run,
+runner, cache, database and source paths. No arbitrary drive search or cleanup is
+performed. **Refresh locations** updates references without replacing the saved
+measurement; changed registration is flagged until the next measurement.
+
+The saved overview separates runs/outputs, environments/runners, databases/models,
+retained repair folders, sources, logs and other workspace files. Review references
+to navigate to runs, installations or database settings. Archived runs and shared
+follow-up output paths remain visible. A path or backup-folder name does not
+establish exclusive ownership or permission to delete it.
+
+Logical file bytes and allocated file blocks are shown separately. Nested paths
+and hard links are counted once per scan, with specific locations visited before
+parents; bytes shared by hard links belong to the first encountered location.
+Directory/filesystem overhead is excluded. Reflinks, compression and snapshots
+can share physical space that this scan cannot identify. Filesystem capacity is
+shown once per device and must not be added to the measured file totals.
+
+The scan uses file metadata only and never reads dataset contents. It refuses
+linked roots/parents, skips symbolic links and special files, and does not cross
+device boundaries unless a location is separately registered. Same-device bind
+mounts are not distinguished. Bounds are 500 registered locations, 100,000
+directory entries, 64 directory levels and an 8-second traversal budget; slow
+filesystem calls can take longer. Limits, unavailable paths and skipped device
+boundaries produce explicit partial measurements. Files can change during a scan,
+especially while jobs are active; totals are not reclaimable-space estimates.
+
+Use **Download overview** for the saved JSON measurement. It includes registered
+local paths and references; review before sharing. Measurements survive app
+refresh/restart. Existing files, settings, jobs and repair backups are retained.
 
 ### Results and download centre
 
@@ -208,7 +243,7 @@ Use **Update Bactologix → Refresh releases** to see published updates, includi
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a31-py3-none-any.whl
+pipx install ./bactologix-0.1.0a32-py3-none-any.whl
 bactologix
 ```
 
@@ -217,7 +252,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a31/bactologix-0.1.0a31-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a32/bactologix-0.1.0a32-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -226,7 +261,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a31/bactologix-0.1.0a31-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a32/bactologix-0.1.0a32-py3-none-any.whl"
 bactologix
 ```
 
@@ -234,7 +269,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a31-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a32-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
