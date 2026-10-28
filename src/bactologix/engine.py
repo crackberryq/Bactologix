@@ -147,6 +147,7 @@ class Context:
                 self.observe("tick")
                 time.sleep(0.25)
             if timed_out:
+                self.check_cancel()  # A concurrent user stop keeps its cancellation status.
                 raise TimeoutError("Software check command exceeded its time limit; its process group was stopped.")
             if started_stop is not None:
                 raise Cancelled("Stopped by user; inspect the log before resuming")

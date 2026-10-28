@@ -212,3 +212,21 @@ def test_detached_worker_recovers_interrupted_check_without_rewriting_history(tm
     assert store.job(new)['status'] == 'succeeded'
     assert w.inspect(store, old)['partial']
     assert not w.inspect(store, new)['partial']
+
+
+def test_user_stop_takes_precedence_over_probe_timeout(tmp_path):
+    store = Store(tmp_path)
+    jid = check_job(store)
+    ctx = Context(store, store.job(jid))
+    thread = threading.Thread(target=lambda: (time.sleep(.4), store.cancel(jid)))
+    thread.start()
+    try:
+        with pytest.raises(Cancelled):
+            ctx.command([sys.executable, '-c',
+                         'import signal,time; signal.signal(signal.SIGINT, signal.SIG_IGN); time.sleep(100)'],
+                        timeout=1)
+        assert store.get('processes', jid)['pid'] is None
+    finally:
+        thread.join()
+        ctx.observe('finish', 'cancelled')
+        ctx.log.close()
