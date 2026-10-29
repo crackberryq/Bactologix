@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0a46 — retain installation history after updates
+
+- Includes MICPscope integration and first-time setup from a45.
+- Keep completed updates classified as existing installations when older source versions have been removed.
+- Distinguish incomplete updates from incomplete first installations in setup status.
+
 ## 0.1.0a45 — MICPscope and first-time setup
 
 - Add the native Snakemake MICPscope pipeline to setup, run drafts, configuration and reports.

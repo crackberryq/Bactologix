@@ -64,6 +64,18 @@ class MICPscopeTests(unittest.TestCase):
                 store.put('installs', tool, {'id': tool, 'tool': tool, 'version': {'commit': 'a'*40}, 'ready': True})
                 self.assertEqual(setup_state.mode(store, tool, 'b'*40), 'update')
 
+    def test_successful_update_remains_existing_without_older_records(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(directory)
+            item = {'id': 'update', 'tool': 'micpscope', 'ready': True,
+                    'setup_mode': 'update', 'version': {'commit': 'a'*40}}
+            store.put('installs', item['id'], item)
+            self.assertEqual(setup_state.mode(store, 'micpscope', 'b'*40), 'update')
+            item['ready'] = False
+            store.put('installs', item['id'], item)
+            self.assertEqual(setup_state.mode(store, 'micpscope', 'a'*40), 'update')
+            self.assertEqual(setup_state.overview(store, 'micpscope')['state'], 'Setup incomplete')
+
     def test_frozen_protein_inputs_and_snake_command(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); store = Store(root/'workspace')
