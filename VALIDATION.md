@@ -1,3 +1,15 @@
+# Validation update: 0.1.0a48 (2026-10-29)
+
+- Added regression coverage for reviewed/unreviewed and incompatible contracts, persisted approvals, offline preservation, checksum preflight, pipeline ordering and the MICP Scope database empty state at desktop/mobile widths.
+- Local focused software tests passed except the runner-version test requiring Snakemake, which is not installed in the local verification environment. Full Python 3.11/3.12, Chromium and sample-free environment CI remain mandatory publication gates. No existing sample analyses are launched.
+- Physical Windows/WSL Explorer, fresh-machine installation and printer/PDF destination selection remain workstation acceptance checks. UI tests do not validate scientific conclusions.
+
+# Validation record: a44–a47 (2026-10-29)
+
+- a44 integrated the exact BaSIS v0.4.0a2 source with ISEScan/report fixes and legacy run support. a45 introduced Snakemake MICP Scope and first-install preparation; its failed main CI did not produce a public release. a46 included that integration and corrected retained installation history. a47 changed the display name consistently.
+- Published a47 source: `2d5b89a88125f80ca82dd430754d997e274bf959`. [Release CI](https://github.com/crackberryq/Bactologix/actions/runs/40906609530) passed Python 3.11, Python 3.12, Chromium, sample-free environment deployment and publication. [a46 CI](https://github.com/crackberryq/Bactologix/actions/runs/40904710032) also passed.
+- These are software/adapter checks. They do not establish physical-workstation or biological-analysis acceptance. The earlier a45 local-only note below is historical and superseded by these completed release checks.
+
 # Validation update: 0.1.0a43 (2026-10-29)
 
 - Folder-launch tests cover WSL translation, shell-free arguments, desktop availability and server-resolved report paths. Browser regression covers companion-link replacement and report sizing.
