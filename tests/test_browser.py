@@ -477,9 +477,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(page.get_by_role('link', name='Compare variants', exact=True)).to_have_count(0)
             capture('comparisons-saved-runs')
             page.get_by_role('button', name='Create variants', exact=True).click()
-            page.locator('[data-run-row="' + created['id'] + '"]').get_by_role('button', name='Use as parent', exact=True).click()
-            expect(page.get_by_label('Parent run', exact=True)).to_have_value(created['id'])
-            page.get_by_role('button', name='Close dialog', exact=True).click()
+            expect(page.get_by_role('button', name='Use as parent', exact=True)).to_have_count(0)
             assert len(store.all('runs')) == 4
             page.get_by_role('link', name='Samples', exact=True).click()
             expect(page.locator('.saved-runs')).to_have_count(0)
@@ -744,6 +742,44 @@ def test_sample_picker_configuration_and_report(tmp_path):
             assert store.get('settings', 'app-update')['restart_status'] == 'ready'
             for kind, items in before.items(): assert store.all(kind) == items
             capture('automatic-update-ready')
+            # Result branching UI uses synthetic completion records only. No
+            # pipeline analysis is executed by this browser acceptance test.
+            from bactologix.store import now
+            import base64
+            completed = store.get('runs', created['id'])
+            metadata = Path(completed['folder']) / 'workflow/.snakemake/metadata'
+            for relative in ('work/assembly/unicycler/assembly.fasta', 'work/assembly/stage_unicycler.fasta'):
+                artifact = Path(completed['output']) / relative
+                artifact.parent.mkdir(parents=True, exist_ok=True)
+                artifact.write_text('>software_fixture\nACGT\n')
+                encoded = base64.urlsafe_b64encode(str(artifact).encode()).decode()
+                chunks = [encoded[i:i+254] for i in range(0, len(encoded), 254)]
+                record = metadata.joinpath(*['@' + x for x in chunks[:-1]], chunks[-1])
+                record.parent.mkdir(parents=True, exist_ok=True)
+                record.write_text(json.dumps({'record_format_version': 6, 'rule': 'unicycler', 'input': [], 'params': [],
+                                               'incomplete': False, 'endtime': artifact.stat().st_mtime}))
+            completed['completed'] = now()
+            store.put('runs', completed['id'], completed)
+            with store.connect() as db:
+                db.execute("INSERT INTO jobs(id,kind,payload,status,created,finished) VALUES (?,?,?,'succeeded',?,?)",
+                           ('job-variant-browser-fixture', 'workflow', json.dumps({'run_id': completed['id'], 'action': 'run'}), now(), now()))
+            page.get_by_role('button', name='Refresh workspace', exact=True).click()
+            page.get_by_role('link', name='Comparisons', exact=True).click()
+            page.get_by_role('button', name='Create variants', exact=True).click()
+            page.locator('[data-run-row="' + completed['id'] + '"]').get_by_role('button', name='Use as parent', exact=True).click()
+            expect(page.get_by_role('heading', name='Branch from existing results', exact=True)).to_be_visible()
+            page.reload()
+            expect(page.get_by_role('heading', name='Branch from existing results', exact=True)).to_be_visible()
+            page.get_by_role('button', name='Review drafts', exact=True).click()
+            page.get_by_role('button', name='Create variant', exact=True).click()
+            expect(page.get_by_role('heading', name=completed['label'] + ' · variant', exact=True)).to_be_visible()
+            expect(page.get_by_text('Result inheritance · 1 groups', exact=True)).to_be_visible()
+            variant, = [r for r in store.all('runs') if r.get('variant')]
+            assert variant['parent'] == completed['id'] and variant['variant']['checkpoints'] == 1
+            assert variant['inputs'] == completed['inputs'] and variant['commit'] == completed['commit']
+            assert store.get('runs', completed['id']) == completed
+            assert not any(j['payload'].get('run_id') == variant['id'] for j in store.jobs())
+            capture('result-variant-inheritance')
             assert not errors, errors
             browser.close()
     finally:

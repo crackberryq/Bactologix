@@ -97,7 +97,7 @@ def snapshot(store):
         active = next((j for j in run_jobs if j["status"] in {"queued", "running"}), None)
         checked = dry_run_current(store, run)
         status = run_status(run, jobs, checked)
-        runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type")} | {
+        runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant")} | {
             "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if cfg.get("kraken_decision_mode") == "off" else "aware",
             "kraken_mode": "off" if cfg.get("run_kraken") is False else cfg.get("kraken_decision_mode"),
             "can_followup": followup.available(run) and status == "completed",
@@ -372,7 +372,12 @@ def dispatch(store, kind, p):
         return {"message": "Defaults saved for future drafts." if kind == "save_config" else "Configuration validated." if kind == "inspect_config" else "Setting applied to the draft; save when ready.",
                 "config": {"tool": tool, "text": text, "fields": configuration_fields(tool, text)}, "keep_modal": True}
     if kind == "edit_run_settings":
-        return run_revisions.editor(store, p.get("id"))
+        response = run_revisions.editor(store, p.get("id"))
+        if p.get('variant'):
+            from . import variants
+            variants.eligible(store, _item(store, 'runs', p.get('id')))
+            response['edit_run']['variant'] = True
+        return response
     if kind == "run_config_editor":
         tool = _tool(p)
         text = p.get("text", store.get("configs", tool, template(tool)))
@@ -488,16 +493,13 @@ def dispatch(store, kind, p):
                 raise ValueError(f"Queued {len(queued)} job(s). {rid}: {exc}") from exc
         return {"message": f"Queued {len(queued)} jobs in order.", "navigate": "jobs"}
     if kind == "clone":
-        if not isinstance(p.get("aware_free"), bool) or not isinstance(p.get("strategies"), list) or not p["strategies"]:
-            raise ValueError("Choose a source branch and at least one polishing strategy")
-        made = clone_runs(store, p["id"], p["aware_free"], list(dict.fromkeys(p["strategies"])))
-        return {"message": f"Created {len(made)} independent variants.", "navigate": "runs"}
+        raise ValueError("Independent polishing clones have been replaced. Open a completed run and choose Create variant to reuse results.")
     if kind == "create_followup":
         followup.create_followup(store, p.get("id"), p["text"], p.get("reviewed") is True)
         return {"message": "Created a reviewed follow-up draft. Check its native dry-run before execution.", "navigate": "runs"}
     if kind == "revise_run":
         child = run_revisions.apply(store, p)
-        response = {"message": "Created a revised draft. The original run is unchanged; check a new dry-run.",
+        response = {"message": ("Created a result variant. Review inherited checkpoints and validate before running." if child.get("variant") else "Created a revised draft. The original run is unchanged; check a new dry-run."),
                     "navigate": "runs", "open_run": child["id"], "keep_modal": False}
         response.update(dispatch(store, "inspect_run", {"id": child["id"]}))
         response["keep_modal"] = False

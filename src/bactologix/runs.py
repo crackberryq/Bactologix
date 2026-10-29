@@ -202,6 +202,8 @@ def sample_sheet(sample, tool, output):
 
 
 def check_run_files(run):
+    from .variants import verify
+    verify(run, full=False)
     folder = Path(run["folder"])
     if hashlib.sha256((folder / "config.yaml").read_bytes()).hexdigest() != run["config_sha256"]:
         raise ValueError("Saved configuration changed. Create a new draft for changed settings.")
@@ -362,7 +364,7 @@ def bind_paths(cfg, tool, store, installed):
     return cfg
 
 
-def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, parent=None, label=None, installation=None, expected_inputs=None):
+def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, parent=None, label=None, installation=None, expected_inputs=None, register=True):
     spec = PIPELINES[tool]
     install_id = installation or store.get("settings", "active-" + tool)
     installed = store.get("installs", install_id)
@@ -414,7 +416,8 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
                "bactologix_version": __version__,
                "reuse": "input-files-only; workflow outputs are independent"}
         (folder / "bactologix-run.json").write_text(json.dumps(run, indent=2) + "\n")
-        store.register_run(run)
+        if register:
+            store.register_run(run)
         return run
     except BaseException:
         shutil.rmtree(folder)
@@ -471,12 +474,14 @@ def command(store, run, action):
     if not conda:
         raise ValueError("Conda is missing")
     folder = Path(run["folder"])
-    entry = "Followup.smk" if run.get("run_type") == "followup" else PIPELINES[run["tool"]]["snakefile"]
+    entry = run.get("variant_entry") or ("Followup.smk" if run.get("run_type") == "followup" else PIPELINES[run["tool"]]["snakefile"])
     argv = [conda, "run", "--no-capture-output", "-p", current_controller(store, run), "snakemake",
             "--snakefile", str(folder / "workflow" / entry),
             "--directory", str(folder / "workflow"), "--configfile", str(folder / "config.yaml"),
             "--cores", str(run["cores"]), "--resources", "mem_mb=" + str(run["memory_mb"]), "kraken_jobs=1",
             "--use-conda", "--conda-prefix", run.get("rule_cache") or str(store.home / "envs" / run["tool"]), "--rerun-incomplete"]
+    if run.get("variant_entry"):
+        argv.append("all")
     if action == "dry-run":
         argv.append("--dry-run")
     elif action == "check-environments":
@@ -492,6 +497,8 @@ def command(store, run, action):
 def execute_workflow(ctx):
     payload, store = ctx.job["payload"], ctx.store
     run = validate_launch(store, payload["run_id"], payload["action"], check_busy=False)
+    from .variants import verify
+    verify(run)  # Full hashes at execution, not on every UI readiness refresh.
     if tree_digest(Path(run["folder"]) / "workflow") != run["workflow_sha256"]:
         raise ValueError("The run's workflow source changed; create a new draft")
     if payload["action"] == "check-environments":

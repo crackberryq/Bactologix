@@ -371,6 +371,11 @@ def build(store, run):
                              and not r.get('upstream_incomplete')]
         paragraphs.append('The retained module records report completion of ' + (', '.join(completed_modules) or 'no modules') +
                           '. Incomplete, excluded and unavailable modules are listed in the execution supplement.')
+    if run.get('variant'):
+        lineage = run['variant']
+        paragraphs.append(f"This run branches from {lineage['parent']}. Eligible existing results were retained as isolated copies; affected workflow steps were scheduled independently.")
+        execution.append(f"Result inheritance: {lineage['checkpoints']} checkpoint groups offered for reuse. Native cache candidates may be recomputed if their execution identity differs.")
+        warnings.append('Inherited checkpoints are not new tool executions. Parent runtime and resource usage are not attributed to this variant. Inspect variant.json for source records and copied-result identities.')
     recorded = [r['tool'] + ' ' + r['version'] for r in software if r['version'] != UNKNOWN]
     if recorded:
         paragraphs.append('Recorded software versions: ' + '; '.join(recorded) + '.')

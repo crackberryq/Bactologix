@@ -139,6 +139,8 @@ def inspect(store, rid):
     return {'schema': 1, 'id': rid, 'label': run['label'], 'tool': run['tool'], 'sample': run['sample']['id'],
             'created_at': now(), 'status': run_status(run, jobs, dry_run_current(store, run)),
             'commit': run.get('commit'), 'config_sha256': hashlib.sha256(run['config'].encode()).hexdigest(),
+            'variant': run.get('variant'),
+            'variant_manifest_sha256': run.get('variant_manifest_sha256'),
             'latest_execution': {k: latest.get(k) for k in ('id', 'status', 'finished')} if latest else None,
             'reports': rows, 'attempts': attempts, 'notice': NOTICE,
             'shared_output_unavailable': run.get('run_type') == 'followup' and store.get('followup_output_owner', run.get('parent')) != rid}
@@ -150,7 +152,7 @@ def download(store, rid, kind, report_id=None):
         return {'name': rid + '.yaml', 'type': 'text/yaml', 'text': run['config']}
     if kind == 'manifest':
         return {'name': rid + '-results.json', 'type': 'application/json',
-                'text': json.dumps(inspect(store, rid), indent=2, ensure_ascii=False) + '\n'}
+                'text': json.dumps({**inspect(store, rid), **({'result_inheritance': json.loads(Path(run['folder'], 'variant.json').read_text())} if run.get('variant') else {})}, indent=2, ensure_ascii=False) + '\n'}
     if kind == 'report':
         row = next((r for r in inspect(store, rid)['reports'] if r['id'] == report_id), None)
         if not row or row['state'] != 'available':

@@ -1,3 +1,10 @@
+# Validation update: 0.1.0a51 (2026-10-29)
+
+- Added text-only native Snakemake regression tests for Racon 1→2→3 with no repeated upstream commands, parent isolation, multi-output MICP checkpoints, unscoped-change invalidation, source/input/cache integrity, rollback and recoverable copy locks.
+- Tested the actual pinned BaSIS native cache implementation with synthetic payloads: unchanged execution identity reuses results without invoking the callback; changed identity executes anew; unticked modules are not imported. Parsed the real pinned HybAs DAG with a generated checkpoint overlay and synthetic completion records, without running analysis tools.
+- Browser acceptance covers completed-parent selection, variant wizard recovery, isolated draft creation and inheritance display. Existing independent-revision, Methods, result-download and UI regressions remain release gates.
+- Python 3.11/3.12, Chromium and sample-free environment deployment CI must pass before publication. Native scientific tools, large datasets and physical Windows/WSL storage acceptance remain outstanding. No existing user analyses were launched. [Coverage and limitations](docs/result-variants.md).
+
 # Validation update: 0.1.0a48 (2026-10-29)
 
 - Added regression coverage for reviewed/unreviewed and incompatible contracts, persisted approvals, offline preservation, checksum preflight, pipeline ordering and the MICP Scope database empty state at desktop/mobile widths.

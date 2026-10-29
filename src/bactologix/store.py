@@ -95,6 +95,10 @@ class Store:
             if kind in {'check', 'environments', 'database_download'} and payload.get('installation'):
                 if not db.execute("SELECT 1 FROM items WHERE kind='installs' AND id=?", (payload['installation'],)).fetchone():
                     raise ValueError('This installation was removed. Refresh before starting maintenance.')
+            if kind == 'workflow':
+                from .variants import lock_active
+                if lock_active(db, payload.get('run_id')):
+                    raise ValueError('A variant is copying this run. Wait for the snapshot to finish.')
             pending = db.execute("SELECT kind FROM jobs WHERE status IN ('queued','running')").fetchall()
             if any(row[0] == "app_update" for row in pending):
                 raise ValueError("A Bactologix update is queued or running. Wait for it to finish and restart the app.")
