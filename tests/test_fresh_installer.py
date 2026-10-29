@@ -30,8 +30,9 @@ def test_conda_detection_does_not_guess_nonexistent_executable(monkeypatch, tmp_
     assert installer.find_conda() is None
 
 
+@pytest.mark.parametrize('launch', [False, True])
 @pytest.mark.parametrize('environment,existing', [(None, False), ('bactomics', False), ('bactomix', True), ('bactomics', True)])
-def test_install_and_reuse(tmp_path, monkeypatch, environment, existing):
+def test_install_and_reuse(tmp_path, monkeypatch, environment, existing, launch):
     import json
     from types import SimpleNamespace
     monkeypatch.setattr(installer.Path, 'home', lambda: tmp_path)
@@ -40,7 +41,7 @@ def test_install_and_reuse(tmp_path, monkeypatch, environment, existing):
     monkeypatch.setattr(installer.platform, 'machine', lambda: 'x86_64')
     monkeypatch.setattr(installer.shutil, 'disk_usage', lambda p: SimpleNamespace(free=10 * 2**30))
     monkeypatch.setattr(installer, 'find_conda', lambda: '/fixture/conda')
-    monkeypatch.setattr(installer.sys, 'argv', ['installer', '--no-launch'])
+    monkeypatch.setattr(installer.sys, 'argv', ['installer'] + ([] if launch else ['--no-launch']))
     envs = [str(tmp_path/environment)] if environment else []
     commands = []
     def run(argv, log, capture=False):
@@ -52,6 +53,11 @@ def test_install_and_reuse(tmp_path, monkeypatch, environment, existing):
     monkeypatch.setattr(installer, 'run', run)
     monkeypatch.setattr(installer, 'get_json', lambda url: [release('alpha', '2026-01-01', True)])
     monkeypatch.setattr(installer, 'download', lambda a,p:p.write_bytes(b'fixture'))
+    def launch_app(argv):
+        assert not (tmp_path/'.local/share/bactomics/install.lock').exists()
+        assert argv == [str(Path(envs[0])/'bin/bactologix')]
+        return 0
+    monkeypatch.setattr(installer.subprocess, 'call', launch_app)
     assert installer.main() == 0
     assert any('install' in cmd for cmd in commands) is not existing
     assert any('create' in cmd for cmd in commands) is (environment is None)
@@ -75,15 +81,16 @@ def test_download_integrity_and_interruption(tmp_path, monkeypatch):
     with pytest.raises(OSError):installer.download(asset,target)
 
 
+@pytest.mark.parametrize('has_conda', [False, True])
 @pytest.mark.parametrize('check', [False, True])
-def test_preflight_low_disk_has_no_install_side_effects(tmp_path, monkeypatch, check):
+def test_preflight_low_disk_has_no_install_side_effects(tmp_path, monkeypatch, check, has_conda):
     from types import SimpleNamespace
     monkeypatch.setattr(installer.Path,'home',lambda:tmp_path)
     monkeypatch.setattr(installer.os,'geteuid',lambda:1000)
     monkeypatch.setattr(installer.platform,'system',lambda:'Linux')
     monkeypatch.setattr(installer.platform,'machine',lambda:'x86_64')
     monkeypatch.setattr(installer.shutil,'disk_usage',lambda p:SimpleNamespace(free=1))
-    monkeypatch.setattr(installer,'find_conda',lambda:None)
+    monkeypatch.setattr(installer,'find_conda',lambda:'/fixture/conda' if has_conda else None)
     monkeypatch.setattr(installer.sys,'argv',['installer']+(['--check'] if check else []))
     monkeypatch.setattr(installer,'get_json',lambda *a:pytest.fail('Network request during failed preflight'))
     if check:assert installer.main()==1

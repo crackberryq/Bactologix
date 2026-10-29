@@ -1,5 +1,11 @@
 # Bactologix releases
 
+## 0.1.0a41 — installer preflight and lock fixes
+
+- Fail read-only preflight on insufficient disk even when Conda is present.
+- Release the setup lock before launching Bactologix, including reused installations.
+- Expand installer coverage to 16 tests; physical Windows/WSL acceptance remains outstanding.
+
 ## 0.1.0a40 — beginner installation
 
 - Add Windows/WSL/Ubuntu preparation instructions and a copy-paste installer. Discover Conda, optionally install verified Miniforge, and create bactomics or reuse legacy bactomix.

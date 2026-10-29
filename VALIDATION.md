@@ -1,3 +1,8 @@
+# Validation update: 0.1.0a41 (2026-10-29)
+
+- All 16 focused installer tests passed. New cases cover launch/no-launch for fresh and reused environments, lock removal before browser/application startup, and low-disk checks with and without Conda.
+- Python 3.11/3.12, Chromium and real sample-free environment checks passed for the implementation PR. The release commit must pass the same gates. Clean-machine Ubuntu/WSL and native Miniforge bootstrap remain outstanding. No sample analyses were run.
+
 # Validation update: 0.1.0a40 (2026-10-29)
 
 - Ten focused installer tests pass, covering release channels/drafts, missing digests, origin checks, checksum/size failures, interrupted connections, Conda discovery, fresh/reused application environments, preserved existing installations and low-disk/read-only preflight. Environment installation is simulated in these tests.
