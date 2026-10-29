@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0a53 — DeepSafe follow-up from completed variants
+
+- Fix reviewed follow-up requests created from completed BaSIS result variants. Verify the parent variant's content before creating the request, then use `Followup.smk` with the follow-up's own saved-evidence fingerprints. Screening variant manifests and restore commands remain with the parent.
+- Preserve parent results, configuration and provenance. Existing ordinary screening runs retain their follow-up route; previously broken follow-up drafts can be replaced by a new reviewed request from the completed parent.
+- Cover native-cache and completed-result variants, unchanged parent files, changed input content and changed screening evidence with software regression tests. Native DeepSafe execution on a workstation remains a separate acceptance check.
+
 ## 0.1.0a52 — preserve completed PathogenFinder2 results in variants
 
 - Reuse completed PathogenFinder2 result bundles from the reviewed BaSIS v0.4.0a2 release when recorded inputs, settings, artifacts, resources and environment provenance still agree. Rebind copied artifact paths to the child; retain original evidence and checksums.

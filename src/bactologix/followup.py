@@ -52,6 +52,8 @@ def create_followup(store, parent_id, text, reviewed=False):
     if run_status(parent, store.jobs(), dry_run_current(store, parent)) != "completed":
         raise ValueError("Complete screening before requesting follow-up")
     check_run_files(parent)
+    from .variants import verify
+    verify(parent)  # Check inherited content before creating a separate follow-up request.
     source = Path(parent["folder"]) / "workflow"
     if tree_digest(source) != parent["workflow_sha256"]:
         raise ValueError("The screening run's workflow source changed")
@@ -87,7 +89,10 @@ def create_followup(store, parent_id, text, reviewed=False):
                "workflow_sha256": tree_digest(folder / "workflow"), "followup_sources": sources,
                "dry_run_ok": False, "reviewed_at": now(),
                "reuse": "Saved screening inputs; follow-up outputs share the screening folder. Only the latest follow-up attempt owns its displayed report."}
-        for key in ("completed", "previous_completed", "validated", "validated_controller", "last_action", "last_controller"):
+        # Variant manifests and restore entry points belong to the screening
+        # request. Follow-up uses Followup.smk and its own evidence fingerprints.
+        for key in ("completed", "previous_completed", "validated", "validated_controller", "last_action", "last_controller",
+                    "variant", "variant_manifest_sha256", "variant_entry", "variant_restore_sha256"):
             run.pop(key, None)
         (folder / "bactologix-run.json").write_text(json.dumps(run, indent=2) + "\n")
         store.put("runs", rid, run)

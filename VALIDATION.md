@@ -1,3 +1,9 @@
+# Validation update: 0.1.0a53 (2026-10-30)
+
+- Reproduced the missing-variant-manifest failure when a reviewed follow-up inherits screening variant metadata. Four new regression cases cover both native-cache and completed-result wrappers, correct follow-up entry-point selection, unchanged parent files/records and content changes that preserve file size and timestamps.
+- The focused follow-up, run-integrity and revision checks passed locally: 35 passed. Another 26 variant checks require the separately provisioned Snakemake/pinned-source environment and were skipped locally; they remain covered by the full CI gates.
+- Python 3.11/3.12, Chromium and sample-free environment deployment remain publication gates. These checks do not launch native biological analyses. DeepSafe native execution and physical-workstation acceptance remain outstanding.
+
 # Validation update: 0.1.0a52 (2026-10-30)
 
 - Added opaque saved-result fixtures for PathogenFinder2 bundle copies, checksum/configuration/resource rejection, downstream native normalization and repeated branching. Original stages in the execution fixture fail if invoked; no inference or sample analysis is performed.
