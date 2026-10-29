@@ -624,7 +624,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             page.get_by_role('link', name='Results & reports', exact=True).click()
             page.get_by_role('button', name='Open report', exact=True).click()
             expect(page.frame_locator('.html-report-frame').get_by_role('heading', name='Browser software fixture')).to_be_visible()
-            assert page.locator('.html-report-frame').get_attribute('sandbox') == 'allow-scripts allow-downloads'
+            assert page.locator('.html-report-frame').get_attribute('sandbox') == 'allow-scripts allow-downloads allow-modals'
             page.get_by_role('button', name='Close dialog', exact=True).click()
             # Receipt fixtures exercise run guidance without installing or running biology.
             from bactologix.readiness import identity
@@ -1931,4 +1931,45 @@ def test_job_status_column_and_browser_switch(tmp_path):
         page.get_by_role('button', name='Restart as browser', exact=True).click()
         req = page.evaluate('window.acceptanceEvents.at(-1).value')
         assert req['kind'] == 'restart_as_browser' and req['payload'] == {}
+        browser.close()
+def test_saved_report_section_links_and_print(tmp_path):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import dispatch
+    store = Store(tmp_path / 'workspace')
+    report = tmp_path / 'report.html'
+    report.write_text('''<!doctype html><html><head><style>
+      nav {position:fixed;top:0;background:white} section {height:900px;padding-top:60px}
+      </style></head><body><nav>
+      <a href="#files">Run files</a><a href="#screening">Screening calls</a>
+      <a href="#citation">Cite BaSIS</a>
+      <button onclick="print()">Print / Save PDF</button></nav>
+      <section id="overview">Overview</section><section id="files">Saved files</section>
+      <section id="screening">Saved screening</section>
+      <details><summary>Citation</summary><section id="citation">Recorded citation</section></details>
+      <script>window.printEvents=0;addEventListener('beforeprint',()=>window.printEvents++);</script>
+      </body></html>''')
+    original = report.read_bytes()
+    dispatch(store, 'register_report', {'path': str(report), 'name': 'Saved report'})
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1000})
+        page.route('https://workspace.test/**', lambda route: route.fulfill(body='<html></html>'))
+        page.goto('https://workspace.test/app')
+        render_component(page, store)
+        page.get_by_role('link', name='Results & reports', exact=True).click()
+        page.get_by_role('button', name='Open report', exact=True).click()
+        req = page.evaluate('window.acceptanceEvents.at(-1).value')
+        page.evaluate('r=>window.acceptanceRender(r)', {'id': req['id'], 'ok': True,
+                      **dispatch(store, req['kind'], req['payload'])})
+        frame = page.frame_locator('.html-report-frame')
+        for label, target in [('Run files', 'files'), ('Screening calls', 'screening'), ('Cite BaSIS', 'citation')]:
+            frame.get_by_role('link', name=label, exact=True).click()
+            expect(frame.locator('#' + target)).to_be_in_viewport()
+            expect(frame.locator('nav')).to_be_visible()
+        frame.get_by_role('button', name='Print / Save PDF').click()
+        expect(frame.locator('body')).to_be_visible()
+        assert frame.locator('body').evaluate('()=>window.printEvents') == 1
+        assert frame.locator('body').evaluate('()=>{try{return !!parent.document.body}catch(_){return false}}') is False
+        assert report.read_bytes() == original
+        assert not store.jobs()
         browser.close()

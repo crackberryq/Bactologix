@@ -671,7 +671,7 @@ if(m.kind==='app-window-help'){title='Open Bactologix as an app';desc='A dedicat
 if(m.kind==='credits'){title='Built by Jimi Goldstein';desc='Bactologix · Human Link';body=`<div class="author-card"><span class="brand-mark">b<span>•</span></span><div><h3>Your workflow, connected.</h3><p>HybAs AWARE + BaSIS AWARE in one local workspace.</p></div></div><p class="credits-copy">Created by <strong>Jimi Goldstein</strong> · Human Link<br><a href="https://orcid.org/0000-0002-7829-0090" target="_blank" rel="noopener noreferrer">ORCID 0000-0002-7829-0090 ↗</a></p><pre class="code-block">${e(S.citations['CITATION.txt'])}</pre><div class="button-row">${['ris','bib','cff','txt'].map(x=>btn('citation','Download '+x.toUpperCase(),false,'CITATION.'+x,'download')).join('')}</div><p class="credits-copy">Cite the pipelines, individual tools and databases used in your analysis as well as Bactologix.</p><div class="button-row">${btn('citation','HybAs AWARE citation',false,'CITATION.HybAs.cff')}${btn('citation','BaSIS AWARE citation',false,'CITATION.BaSIS.cff')}</div><p class="credits-copy"><a href="https://github.com/crackberryq/Bactologix" target="_blank" rel="noopener noreferrer">Bactologix on GitHub ↗</a> · MIT license · v${e(S.version)}</p>`;}
 $('#modal-root').innerHTML=`<div class="modal-shade"><section class="modal ${wide?'':'narrow'} ${m.kind==='report'?'report-modal':['new-run','edit-run'].includes(m.kind)?'run-draft-modal':m.kind==='run'?'saved-run-modal':''}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-head"><div><h2 id="modal-title">${e(title)}</h2><p>${e(desc)}</p></div><button class="icon-btn" data-action="close" aria-label="Close dialog">${icon('close')}</button></div><div class="modal-body">${body}<div id="action-error" class="error" role="alert">${e(U.error||'')}</div></div><div class="modal-foot"><small>${['new-run','edit-run'].includes(m.kind)?'Draft not saved yet':m.kind==='run'?'Saved run · changes create a revision':m.kind==='download-database'?'Starts only when you confirm':m.kind==='apply-databases'?'Creates a new draft · original kept':'Local workspace'}</small><div class="button-row">${btn('close','Close')}${foot}</div></div></section></div>`;
 $('.app-shell').setAttribute('inert','');
-if(m.kind==='report'&&U.report?.id===m.id){const f=document.createElement('iframe');f.title=U.report.name;f.setAttribute('sandbox','allow-scripts allow-downloads');f.referrerPolicy='no-referrer';f.className='html-report-frame';f.srcdoc=new TextDecoder().decode(Uint8Array.from(atob(U.report.base64),c=>c.charCodeAt(0)));$('#report-frame-container').append(f);}
+if(m.kind==='report'&&U.report?.id===m.id){const f=document.createElement('iframe');f.title=U.report.name;f.setAttribute('sandbox','allow-scripts allow-downloads allow-modals');f.referrerPolicy='no-referrer';f.className='html-report-frame';f.srcdoc=reportDocument(U.report.base64);$('#report-frame-container').append(f);}
 if(m.kind==='support')syncSupport();
 if(m.kind==='import')syncSampleImport();
 if(m.kind==='versions')filterVersions();
@@ -1007,4 +1007,27 @@ if(newResponse&&U.queuedRequest){const queued=U.queuedRequest;U.queuedRequest=nu
 const dispose=()=>{window.removeEventListener('resize',syncNavigation);window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('popstate',routeChanged);window.removeEventListener('hashchange',routeChanged);clearTimeout(pollTimer);clearTimeout(toastTimer);root.removeEventListener('click',click);root.removeEventListener('input',onInput);root.removeEventListener('change',onChange);root.removeEventListener('keydown',keydown);};
 root._dispose=dispose;
 return dispose;
+}
+// srcdoc inherits the host's base URL. Fragment navigation must stay inside
+// the saved report, without granting it access to the workspace origin.
+function reportDocument(base64){
+ const doc=new DOMParser().parseFromString(new TextDecoder().decode(Uint8Array.from(atob(base64),c=>c.charCodeAt(0))),'text/html');
+ const script=doc.createElement('script');
+ script.textContent='('+function(){
+  document.addEventListener('click',function(event){
+   const link=event.target.closest?.('a[href]'),href=link?.getAttribute('href');
+   if(!href?.startsWith('#'))return;
+   event.preventDefault();
+   let id;try{id=decodeURIComponent(href.slice(1));}catch(_){id=href.slice(1);}
+   const target=document.getElementById(id)||document.getElementsByName(id)[0];
+   if(!target)return;
+   // Native report handlers may reveal panels during the same click.
+   setTimeout(function(){
+    for(let node=target;node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;
+    target.scrollIntoView({block:'start'});
+   },0);
+  },true);
+ }.toString()+')();';
+ doc.head.prepend(script);
+ return '<!doctype html>'+doc.documentElement.outerHTML;
 }
