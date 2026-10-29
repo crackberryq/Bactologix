@@ -624,7 +624,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             page.get_by_role('link', name='Results & reports', exact=True).click()
             page.get_by_role('button', name='Open report', exact=True).click()
             expect(page.frame_locator('.html-report-frame').get_by_role('heading', name='Browser software fixture')).to_be_visible()
-            assert page.locator('.html-report-frame').get_attribute('sandbox') == 'allow-scripts allow-downloads'
+            assert page.locator('.html-report-frame').get_attribute('sandbox') == 'allow-scripts allow-downloads allow-modals'
             page.get_by_role('button', name='Close dialog', exact=True).click()
             # Receipt fixtures exercise run guidance without installing or running biology.
             from bactologix.readiness import identity
