@@ -154,3 +154,12 @@ def test_missing_application_metadata_and_runtime_requirement_are_explicit(tmp_p
 def test_unknown_and_missing_commit_are_not_supported():
     assert c.source_state('unknown', 'f' * 40) == 'unknown_pipeline'
     assert c.source_state('hybas', None) == 'missing_commit'
+
+
+def test_basis_readable_report_release_and_prior_followup_remain_supported():
+    current = '14f161a1f252a712053892961edf2275469c8dab'
+    previous = '1d2d96b266e98d956254d1a518ff5b437ab7a10a'
+    assert c.source_state('basis', current) == 'recommended'
+    assert c.source_state('basis', previous) == 'earlier_supported'
+    assert current in PIPELINES['basis']['followup_commits']
+    assert previous in PIPELINES['basis']['followup_commits']

@@ -152,7 +152,8 @@ def _configuration(run, warnings):
     if disk is None:
         warnings.append('Frozen YAML is unavailable on disk; the verified saved configuration record is used.')
     cfg = parse_config(text)
-    known = run['commit'] == DEFAULTS['sources'].get(run['tool'])
+    known = run['commit'] in [DEFAULTS['sources'].get(run['tool']),
+        *DEFAULTS.get('equivalent_sources', {}).get(run['tool'], [])]
     source = Path(run['folder']) / 'workflow'
     if source.exists():
         try:

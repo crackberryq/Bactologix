@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a43 — alpha
+# Bactologix 0.1.0a44 — alpha
 
 ### Reviewed sample-table import
 
@@ -378,7 +378,7 @@ Run as your regular Ubuntu user, without sudo. The installer keeps a log at `~/.
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a43-py3-none-any.whl
+pipx install ./bactologix-0.1.0a44-py3-none-any.whl
 bactologix
 ```
 
@@ -387,7 +387,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a43/bactologix-0.1.0a43-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a44/bactologix-0.1.0a44-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -396,7 +396,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a43/bactologix-0.1.0a43-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a44/bactologix-0.1.0a44-py3-none-any.whl"
 bactologix
 ```
 
@@ -404,7 +404,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a43-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a44-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -566,11 +566,20 @@ The UI refreshes GitHub release/branch lists, resolves release tags to exact com
 |---|---|---|
 | HybAs | HybAs_v9.0.0-AWARE (recommended) | 780ee7086c15c49f2825800ec463327f009f14a6 |
 | HybAs | Earlier compatible snapshot | 9477fd3b6578e23a84d6524e1c89e65e01590f03 |
-| BaSIS AWARE | basis-aware / v0.4.0a1 (recommended) | 1d2d96b266e98d956254d1a518ff5b437ab7a10a |
+| BaSIS AWARE | basis-aware / v0.4.0a2 (recommended) | 14f161a1f252a712053892961edf2275469c8dab |
+| BaSIS AWARE | v0.4.0a1 (earlier compatible snapshot) | 1d2d96b266e98d956254d1a518ff5b437ab7a10a |
 | BaSIS | snakemake-standalone (earlier compatible snapshot) | f66dfedd46da05ae79bf769e7e6fada91270d4d1 |
 | BaSIS | snakemake-standalone (earlier compatible snapshot) | d2d2e7806df4d2f586dc4a11d5c1f980deb06857 |
 
 Other listed versions can be downloaded; managed execution is withheld until their adapter contract is reviewed. Branch updates to a new commit therefore require a Bactologix adapter update before execution. Choosing a different installed version affects future drafts only.
+
+BaSIS AWARE v0.4.0a2 generates the readable screening report automatically,
+including **Results by tool**, full saved finding descriptions and qualified
+**Tools finished** wording. After updating Bactologix, restart it, refresh BaSIS
+under **Install & update**, and select v0.4.0a2 (or its recommended exact snapshot).
+Complete setup/checks and create a new test draft using that installation.
+Existing drafts keep their recorded version; saved reports require an explicit
+report refresh to change their presentation.
 
 Controller environments are keyed by pipeline, environment-file bytes and platform. Each reviewed release must explicitly pin Python (minor series or patch) and a complete Snakemake version in its Conda environment file. Setup installs those requirements, rather than whatever happens to be the newest Snakemake. The verified versions appear on the installation card and in the setup log. A changed definition creates a separate runner; a failed installation/check never activates the new version. Existing controllers are health-checked against the selected release before reuse. Repair prepares a fresh controller and retains the old one. Existing drafts use the repaired controller for the same source commit, and require a fresh native dry-run before preparation or execution. Their original controller path remains recorded as creation provenance. Snakemake uses a stable absolute `--conda-prefix` per pipeline outside version-specific source folders; its native content/pin/deploy-script hashing governs rule environment reuse. No environment or old run is routinely deleted. Database/model storage is separate. BaSIS's configured `resources.policy: auto` can download missing resources during an actual run. HybAs database provisioning remains the upstream explicit workflow/configuration responsibility.
 
