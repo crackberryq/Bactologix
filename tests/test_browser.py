@@ -306,6 +306,12 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(page.locator('[data-run-name="deep.enabled"]')).not_to_be_checked()
             category('resources')
             expect(page.locator('[data-run-name="resources.directory"]')).to_be_visible()
+            page.locator('#run-tool').select_option('micpscope')
+            category('advanced')
+            expect(page.get_by_text('MICPscope inputs', exact=True)).to_be_visible()
+            expect(page.locator('.run-wizard')).to_contain_text('annotation/<sample_id>.faa')
+            expect(page.locator('.run-managed-value')).not_to_have_count(0)
+            capture('micpscope-settings')
             page.locator('#run-tool').select_option('hybas')
             category('kraken')
             expect(choice('kraken_decision_mode', 'off')).to_have_attribute('aria-pressed', 'true')
@@ -1986,3 +1992,4 @@ def test_saved_report_section_links_and_print(tmp_path):
         assert report.read_bytes() == original
         assert not store.jobs()
         browser.close()
+
