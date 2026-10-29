@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0a51 — isolated result variants
+
+- Add Create variant for completed managed HybAs, BaSIS and MICP Scope runs, preserving the parent and recording inherited results separately from new execution.
+- Reuse verified intermediate checkpoints on reviewed pipeline commits. HybAs Racon 1→2 retains eligible upstream results and computes the added round and affected downstream work. Changed dependencies require recomputation.
+- Import selected BaSIS native result-cache candidates with full native identity validation. Unticked modules are excluded; PathogenFinder2 and DeepSafe outputs without native cache support still recompute.
+- Verify copied artifacts, retain immutable provenance, protect parent runs during snapshots, and roll back failed variant creation.
+- Validation passed on Python 3.11 and 3.12 (623 tests each), Chromium (18 tests), and sample-free environment deployment (2 tests). Synthetic workflows verify incremental reuse; native scientific-tool and physical Windows/WSL acceptance remain outstanding. No existing user sample analyses were launched.
+
 ## 0.1.0a50 — compact MICP Scope reports
 
 - Recommend `micpscope-v0.1.0a5`: collapsible categories, filtered exports, composition and recorded genomic/protein context.
