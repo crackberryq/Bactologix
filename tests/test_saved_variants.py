@@ -232,3 +232,23 @@ output.write_text(json.dumps(result))
     parsed_copy = next(o['cache'] for o in next_manifest['checkpoints'][0]['outputs'] if o['path'].endswith('/parsed.json'))
     assert json.loads(Path(parsed_copy).read_text())['metrics'] == json.loads((native / 'parsed.json').read_text())['metrics']
     assert all(p.startswith(str(third)) for p in json.loads(Path(parsed_copy).read_text())['artifacts'])
+
+
+@pytest.mark.parametrize('kind', ['traversal', 'link'])
+def test_recorded_artifact_paths_cannot_escape_the_bundle(saved, kind):
+    parent, child, manifest, evidence, native, weight = saved
+    st = evidence.stat()
+    row = json.loads(evidence.read_text())
+    if kind == 'traversal':
+        outside = native.parent / 'outside.txt'
+        outside.write_text('Do not copy outside the bundle')
+        path = native / '..' / outside.name
+    else:
+        path = native / 'linked.txt'
+        path.symlink_to(weight)
+    row['artifact_hashes'][str(path)] = v.sha(path)
+    v.write(evidence, row)
+    os.utime(evidence, ns=(st.st_atime_ns, st.st_mtime_ns))
+    snapshot(parent, child, manifest)
+    assert not manifest['checkpoints']
+    assert 'linked or changed recorded artifact' in manifest['unknown_changes'][0]

@@ -107,6 +107,8 @@ def snapshot(parent, child, manifest):
 
 
 def prepare(parent, child, evidence):
+    if evidence.is_symlink():
+        raise ValueError('linked completion evidence is unsupported')
     row = read(evidence)
     if row.get('module') != MODULE or row.get('execution_status') != 'completed' or row.get('mode') != 'native':
         raise ValueError('no completed native assessment record')
@@ -146,7 +148,8 @@ def prepare(parent, child, evidence):
         raise ValueError('incomplete recorded artifact inventory')
     for path, digest in artifacts.items():
         p = Path(path)
-        if not p.is_relative_to(native) or any(a.is_symlink() for a in (p, *p.parents)) or v.sha(p) != digest:
+        if (not p.is_absolute() or '..' in p.parts or not p.is_relative_to(native)
+                or not p.is_file() or any(a.is_symlink() for a in (p, *p.parents)) or v.sha(p) != digest):
             raise ValueError('missing, linked or changed recorded artifact: ' + path)
     # The parsed result is opaque: retain all listed files without interpreting
     # scores. Every artifact it references must be backed by the native hashes.
