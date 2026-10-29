@@ -1,3 +1,8 @@
+# Validation update: 0.1.0a43 (2026-10-29)
+
+- Folder-launch tests cover WSL translation, shell-free arguments, desktop availability and server-resolved report paths. Browser regression covers companion-link replacement and report sizing.
+- Python, browser and sample-free environment CI gate publication. Physical Windows Explorer and desktop file-manager appearance require workstation acceptance. No sample analyses run.
+
 # Validation update: 0.1.0a42 (2026-10-29)
 
 - Added browser coverage for the four reported controls, nested section navigation, native beforeprint, origin isolation and unchanged saved files.

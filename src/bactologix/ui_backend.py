@@ -426,13 +426,24 @@ def dispatch(store, kind, p):
         return {'download': storage.download(store), 'keep_modal': True}
     if kind == 'inspect_results':
         return {'results': results.inspect(store, p.get('id')), 'keep_modal': True}
+    if kind == 'open_report_folder':
+        from .launcher import open_folder
+        if p.get('run_id'):
+            doc = results.inspect(store, p['run_id'])
+            report = next((r for r in doc['reports'] if r['id'] == p.get('id') and r['state'] == 'available'), None)
+            if report is None:
+                raise ValueError('Report no longer available for this run')
+        else:
+            report = _report(store, p.get('id'))
+        folder = open_folder(Path(report['path']).parent)
+        return {'message': 'Requested the file manager on the computer running Bactologix: ' + folder, 'keep_modal': True}
     if kind == 'open_result_report':
         doc = results.inspect(store, p.get('id'))
         row = next((r for r in doc['reports'] if r['id'] == p.get('report_id')), None)
         if row is None:
             raise ValueError('Choose a report from this run.')
         artifact = results.download(store, doc['id'], 'report', row['id'])
-        return {'report': {**row, 'base64': artifact['base64']}, 'keep_modal': True}
+        return {'report': {**row, 'run_id': doc['id'], 'base64': artifact['base64']}, 'keep_modal': True}
     if kind == 'download_result':
         return {'download': results.download(store, p.get('id'), p.get('format'), p.get('report_id')), 'keep_modal': True}
     if kind == 'inspect_methods':

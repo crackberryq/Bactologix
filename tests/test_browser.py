@@ -1940,7 +1940,7 @@ def test_saved_report_section_links_and_print(tmp_path):
     report.write_text('''<!doctype html><html><head><style>
       nav {position:fixed;top:0;background:white} section {height:900px;padding-top:60px}
       </style></head><body><nav>
-      <a href="#files">Run files</a><a href="#screening">Screening calls</a>
+      <a href="#files">Saved files</a><a href="metadata/files.html">Run files</a><a href="#screening">Screening calls</a>
       <a href="#citation">Cite BaSIS</a>
       <button onclick="print()">Print / Save PDF</button></nav>
       <section id="overview">Overview</section><section id="files">Saved files</section>
@@ -1962,7 +1962,7 @@ def test_saved_report_section_links_and_print(tmp_path):
         page.evaluate('r=>window.acceptanceRender(r)', {'id': req['id'], 'ok': True,
                       **dispatch(store, req['kind'], req['payload'])})
         frame = page.frame_locator('.html-report-frame')
-        for label, target in [('Run files', 'files'), ('Screening calls', 'screening'), ('Cite BaSIS', 'citation')]:
+        for label, target in [('Saved files', 'files'), ('Screening calls', 'screening'), ('Cite BaSIS', 'citation')]:
             frame.get_by_role('link', name=label, exact=True).click()
             expect(frame.locator('#' + target)).to_be_in_viewport()
             expect(frame.locator('nav')).to_be_visible()
@@ -1970,6 +1970,19 @@ def test_saved_report_section_links_and_print(tmp_path):
         expect(frame.locator('body')).to_be_visible()
         assert frame.locator('body').evaluate('()=>window.printEvents') == 1
         assert frame.locator('body').evaluate('()=>{try{return !!parent.document.body}catch(_){return false}}') is False
+        frame.get_by_role('link', name='Open report folder', exact=True).click()
+        page.wait_for_function("window.acceptanceEvents.at(-1).value.kind==='open_report_folder'")
+        req = page.evaluate('window.acceptanceEvents.at(-1).value')
+        assert req['payload']['id'] == store.all('reports')[0]['id']
+        assert 'path' not in req['payload']
+        assert frame.locator('body').evaluate('()=>location.href') == 'about:srcdoc'
+        for width, height in [(1440, 1500), (390, 844)]:
+            page.set_viewport_size({'width': width, 'height': height})
+            container = page.locator('#report-frame-container').bounding_box()
+            body = page.locator('.report-modal .modal-body').bounding_box()
+            assert abs(container['height'] - body['height']) < 3
+            iframe = page.locator('.html-report-frame').bounding_box()
+            assert abs(iframe['height'] - container['height']) < 3
         assert report.read_bytes() == original
         assert not store.jobs()
         browser.close()
