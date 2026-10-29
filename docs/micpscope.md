@@ -16,3 +16,12 @@ Bactologix 0.1.0a49 recommends `micpscope-v0.1.0a4`, pinned to its tested commit
 New reports group supplied gene/protein annotations into urease, maturation, inorganic carbon conversion, metabolism, biofilm matrix and sporulation context. Expand records for function, descriptors, evidence level and references. Search works offline. The packaged JSON catalog is a focused 20-entry starter review with coverage gaps recorded. Header mapping is not sequence-confirmed function detection; unannotated locus IDs remain unresolved.
 
 Aliphatic index and theoretical pI are not converted into unsupported temperature/pH optima. Source-linked measured observations can still be imported through `annotation/<sample_id>.evidence.csv`. Existing frozen reports are unchanged.
+
+
+## Compact reports (Bactologix 0.1.0a50 / MICP Scope 0.1.0a5)
+
+New reports open with collapsed categories, quality flags, unresolved records, protein details, evidence and methods. Search reveals matching sections; filters, TSV export and Print / Save PDF work offline. Protein cards include residue composition and identical-sequence records.
+
+Bactologix automatically stages optional `annotation/<sample_id>.gff` and `annotation/<sample_id>.interpro.tsv` alongside the required protein FASTA. GFF3 supports recorded CDS neighborhoods. Classic InterProScan TSV supports sequence-verified signature diagrams. These files are existing per-sample analyses; the pipeline does not run InterProScan, operon prediction or localization models implicitly. All optional inputs participate in frozen-input checks.
+
+Catalog and report assets still install with the pipeline update. Existing saved runs and reports retain their source versions.

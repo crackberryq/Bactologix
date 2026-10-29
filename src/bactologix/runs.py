@@ -172,7 +172,7 @@ def input_layout(output, tool):
         if not root.exists():
             continue
         for path in sorted(root.iterdir()):
-            used = re.search(r"\.(fastq|fq)(\.gz)?$", path.name, re.I) if tool == "hybas" else (path.suffix == ".faa" or path.name.endswith(".evidence.csv")) if tool == "micpscope" else path.suffix in {".fna", ".faa", ".gff", ".gbk"}
+            used = re.search(r"\.(fastq|fq)(\.gz)?$", path.name, re.I) if tool == "hybas" else (path.suffix in {".faa", ".gff"} or path.name.endswith((".evidence.csv", ".interpro.tsv"))) if tool == "micpscope" else path.suffix in {".fna", ".faa", ".gff", ".gbk"}
             if used:
                 if not path.is_symlink():
                     raise ValueError("Staged input is no longer its original link: " + str(path))
@@ -285,10 +285,10 @@ def stage_inputs(sample, tool, destination):
     elif tool == "micpscope":
         output = destination / "annotation"
         output.mkdir()
-        for suffix in (".faa", ".evidence.csv"):
+        for suffix in (".faa", ".evidence.csv", ".gff", ".interpro.tsv"):
             source = original / "annotation" / (sid + suffix)
             if not source.is_file():
-                if suffix == ".evidence.csv":
+                if suffix != ".faa":
                     continue
                 raise ValueError("Missing protein FASTA: " + str(source))
             (output / source.name).symlink_to(source.resolve())
@@ -564,4 +564,5 @@ def reports(store):
         if Path(item["report"]).is_file():
             result.append({"id": item["id"], "name": "Live test report", "path": item["report"], "run": item["id"], "sample": "Software smoke test"})
     return result
+
 

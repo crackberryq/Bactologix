@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0a50 — compact MICP Scope reports
+
+- Recommend `micpscope-v0.1.0a5`: collapsible categories, filtered exports, composition and recorded genomic/protein context.
+- Automatically stage optional sample GFF3 and InterProScan TSV inputs and track their identity with the frozen run.
+- Preserve older supported sources and the shared pipeline flow.
+
 ## 0.1.0a49 — named MICP Scope release and categorized reports
 
 - Recommend `micpscope-v0.1.0a4` with a cited JSON catalog and categorized gene/function reports.
@@ -361,4 +367,5 @@ Created by **Jimi Goldstein · Human Link**.
 - Existing external runs are not adopted for in-place resume. Jobs run sequentially; remote/HPC execution is not implemented.
 - Full biological analyses, analysis environments/databases/GPU tools, target-browser behavior and WSL2/aarch64-specific installation have not been validated in this development session.
 - This release is distributed through GitHub, not PyPI.
+
 

@@ -21,7 +21,7 @@ class MICPscopeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(directory)
             rows = versions(store, 'micpscope')['versions']
-            self.assertTrue(rows[0]['name'].startswith('micpscope-v0.1.0a4'))
+            self.assertTrue(rows[0]['name'].startswith('micpscope-v0.1.0a5'))
             self.assertNotIn('main', rows[0]['ref'])
             for commit in PIPELINES['micpscope']['previous_commits']:
                 self.assertTrue(supported('micpscope', commit))
@@ -102,12 +102,16 @@ class MICPscopeTests(unittest.TestCase):
             annotation=root/'sample/annotation';annotation.mkdir(parents=True)
             (annotation/'demo.faa').write_text('>synthetic\nAVIL\n')
             (annotation/'demo.evidence.csv').write_text('sample_id,subject_id,evidence_type,property,value,unit,source,notes\n')
+            (annotation/'demo.gff').write_text('##gff-version 3\n')
+            (annotation/'demo.interpro.tsv').write_text('')
             sample={'id':'demo','path':str(annotation.parent),'mode':'hybrid'}
             spec={**PIPELINES['micpscope'],'commit':sha}
             with patch.dict(PIPELINES,{'micpscope':spec}):
                 run=create_run(store,'micpscope',sample,template('micpscope'),1,2048)
                 check_run_files(run)
-                self.assertEqual(len(run['inputs']),2)
+                self.assertEqual(len(run['inputs']),4)
+                self.assertTrue((Path(run['output'])/'annotation/demo.gff').is_file())
+                self.assertTrue((Path(run['output'])/'annotation/demo.interpro.tsv').is_file())
                 rows=list(csv.DictReader(io.StringIO((Path(run['folder'])/'samples.tsv').read_text()),delimiter='\t'))
                 self.assertEqual(rows[0]['proteins'],str(Path(run['output'])/'annotation/demo.faa'))
                 self.assertTrue(rows[0]['evidence'].endswith('.evidence.csv'))
@@ -157,4 +161,5 @@ class MICPscopeTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
 
