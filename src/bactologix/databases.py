@@ -35,6 +35,7 @@ def _module(key, name, description, hint):
 
 
 CATALOG = {
+    "micpscope": [],
     "hybas": [
         dict(id="kraken", name="Kraken2", description="Choose the folder containing the three Kraken2 index files.", hint="hash.k2d", fields=[]),
         dict(id="busco", name="BUSCO lineage", description="Choose a complete lineage dataset. A matching configured lineage is preferred.", hint="dataset.cfg", fields=[]),
@@ -566,3 +567,4 @@ def save(store, tool, changes, expected_revision):
         for kind, value in (("configs", text), ("database_locations", locations)):
             db.execute("INSERT INTO items VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body", (kind, tool, json.dumps(value)))
     return text
+

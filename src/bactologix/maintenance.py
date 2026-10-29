@@ -22,6 +22,7 @@ from .store import identifier, now
 from . import environment_health
 
 RECIPES = {
+    "micpscope": {"properties": "Protein properties and evidence report"},
     "hybas": {"assembly": "Assembly and read preparation", "qc": "QC, Kraken2 and BUSCO",
               "polishing": "Racon and Polypolish", "medaka": "Medaka", "annotation": "Prokka",
               "controller": "Lightweight workflow Python"},
@@ -243,7 +244,7 @@ def execute_environments(ctx):
 
 
 def download_supported(item):
-    return bool(item and item.get("ready") and item["version"]["commit"] == PIPELINES[item["tool"]]["commit"])
+    return bool(item and item["tool"] != "micpscope" and item.get("ready") and item["version"]["commit"] == PIPELINES[item["tool"]]["commit"])
 
 
 def _number(value, label, maximum):
@@ -377,3 +378,4 @@ def download_log_tail(store, job):
         except OSError:
             continue
     return ''.join(tails)
+

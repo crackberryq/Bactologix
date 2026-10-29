@@ -351,3 +351,8 @@ Two issues discovered during live installation were corrected: Miniforge checksu
 - WSL2-specific installation, Windows filesystem paths, aarch64 Miniforge bootstrap and long-running recovery after workstation restart need target-machine testing.
 
 The app, controller environments, test inputs and output folders were separate. Test data, installed tools, credentials and machine-specific workspace state are excluded from the release artifacts.
+
+
+## MICPscope / first installation (0.1.0a45)
+
+Local Python syntax and JavaScript syntax checks passed. Four focused software contract tests passed: fresh snapshots/configuration for all pipelines, failed first setup and retry, legacy downloaded-source classification, and frozen protein/evidence inputs plus Snakemake command/report routing. Tests used the runtime's bundled platformdirs package. Full pytest/browser and native Snakemake checks are delegated to CI because test dependencies are unavailable in the local execution environment. Native MICPscope CI uses only synthetic fixtures and checks a dry-run, execution and a second dry-run.

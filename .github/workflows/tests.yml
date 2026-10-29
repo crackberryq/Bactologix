@@ -28,11 +28,17 @@ jobs:
           repository: crackberryq/Bactomics_BaSIS
           ref: 14f161a1f252a712053892961edf2275469c8dab
           path: upstream-basis
+      - uses: actions/checkout@v4
+        with:
+          repository: crackberryq/Bactomics_MICPscope
+          ref: 4e5cdfad54d6d7d0c198f9458aa27dd1316da0a2
+          path: upstream-micpscope
       - name: Install software test dependencies
-        run: python -m pip install . pytest build 'snakemake==9.6.2' 'numpy<3' 'biopython<2' 'openpyxl==3.1.5'
+        run: python -m pip install . pytest build 'snakemake==9.6.2' 'numpy<3' 'biopython==1.86' 'openpyxl==3.1.5'
       - name: Test application and pinned workflow adapters
         env:
           BACTOLOGIX_HYBAS_SOURCE: ${{ github.workspace }}/upstream-hybas
+          BACTOLOGIX_MICPSCOPE_SOURCE: ${{ github.workspace }}/upstream-micpscope
           BACTOLOGIX_BASIS_SOURCE: ${{ github.workspace }}/upstream-basis
         run: python -m pytest -q
       - name: Build and check installed package
@@ -117,3 +123,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python scripts/publish_release.py
+

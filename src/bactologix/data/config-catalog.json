@@ -280,6 +280,12 @@
         "conda_prefix": null
       },
       "sample_module_overrides": {}
+    },
+    "micpscope": {
+      "samples": "samples.tsv",
+      "output_dir": "results",
+      "threads": 1,
+      "memory_mb": 2048
     }
   }
 }

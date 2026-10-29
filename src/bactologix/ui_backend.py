@@ -19,6 +19,7 @@ from .runs import (absolute_path, clone_runs, command, create_run,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
 from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, compatibility, comparisons, sample_imports
+from . import setup_state
 from . import followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
 _SNAPSHOTS = {}
@@ -39,6 +40,12 @@ def installation_status(item, jobs):
         state, message = "Setting up", "Open the job log to follow setup."
     elif not supported_source:
         state, message = "Version not supported", "Source downloaded. Update Bactologix or choose a version marked Runner supported."
+    elif item.get('source') and not Path(item['source']).is_dir():
+        state, message = "Setup incomplete", "Downloaded source is missing. Retry setup to restore the pinned source."
+    elif item.get('setup_mode') == 'first_install' and not item.get('setup_completed'):
+        state, message = "Setup incomplete", "First installation has not finished. Retry setup to prepare and check its tool environments."
+    elif item.get("ready") and item.get('controller') and not Path(item['controller']).is_dir():
+        state, message = "Setup incomplete", "The recorded runner folder is missing. Retry setup to recreate it."
     elif item.get("ready"):
         state, message = "Runner set up", "Runner verified. Runs reuse installed tool environments. Missing tools require an explicit installation."
         required = item.get("controller_requirements")
@@ -103,6 +110,7 @@ def snapshot(store):
         for version in catalogs[tool]["versions"]:
             version["supported"] = supported(tool, version["commit"])
     result = {"version": __version__, "workspace": str(store.home), "doctor": doctor(store),
+            "setup_overview": {t: setup_state.overview(store, t) for t in PIPELINES},
             "pipelines": PIPELINES, "installs": [installation_status(i, jobs) for i in store.all("installs")],
             "app_update": app_update, "hardware": hardware.panel(store), "workstation_checks": workstation.history(store),
             "resource_defaults": {t: hardware.run_defaults(store, t) for t in PIPELINES},
@@ -580,3 +588,4 @@ def handle_request(store, request, session):
         response = {"id": request["id"], "ok": False, "message": str(exc)}
     session["ui-response"] = response
     return response
+

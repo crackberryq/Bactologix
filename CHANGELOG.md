@@ -1,4 +1,11 @@
-# Bactologix releases
+# Changelog
+
+## 0.1.0a45 — MICPscope and first-time setup
+
+- Add the native Snakemake MICPscope pipeline to setup, run drafts, configuration and reports.
+- Detect first-time installations across all three pipelines and prepare tool environments after runner setup.
+- Persist incomplete first setup for retries; retain existing environments, databases and outputs.
+
 
 ## 0.1.0a44 — BaSIS readable-report release
 
@@ -330,3 +337,4 @@ Created by **Jimi Goldstein · Human Link**.
 - Existing external runs are not adopted for in-place resume. Jobs run sequentially; remote/HPC execution is not implemented.
 - Full biological analyses, analysis environments/databases/GPU tools, target-browser behavior and WSL2/aarch64-specific installation have not been validated in this development session.
 - This release is distributed through GitHub, not PyPI.
+

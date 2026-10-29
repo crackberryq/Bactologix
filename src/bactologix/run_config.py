@@ -12,11 +12,13 @@ from .runs import parse_config
 
 
 MANAGED = {
+    'micpscope': {'samples', 'output_dir', 'threads', 'memory_mb'},
     'hybas': {'base_dir', 'sample_sheet', 'isolate', 'threads', 'setup_only', 'admin_mode', 'ci_mode'},
     'basis': {'bactomics_root', 'samples', 'isolates', 'isolate', 'threads', 'memory_mb',
               'execution.cores', 'execution.memory_mb'},
 }
 OPTIONS = {
+    'micpscope': {},
     'hybas': {'kraken_decision_mode': ['off', 'manual', 'auto', 'aware'],
               'polish_mode': ['none', 'racon', 'medaka', 'tripolish']},
     'basis': {'resources.policy': ['auto', 'manual'],
@@ -41,7 +43,7 @@ HELP = {
     'kraken_mem_mb': 'Leave blank to let HybAs AWARE calculate memory from its database. Enter a positive MB value to override.',
     'storage.native_results_directory': 'Optional absolute folder for retained native results. Leave blank to use the pipeline location.',
 }
-OPTIONAL = {'hybas': {'kraken_mem_mb'}, 'basis': {'storage.native_results_directory'}}
+OPTIONAL = {'micpscope': set(), 'hybas': {'kraken_mem_mb'}, 'basis': {'storage.native_results_directory'}}
 MODULE_NAMES = {'amrfinder': 'AMRFinderPlus', 'rgi': 'CARD / RGI', 'vfdb': 'VFDB', 'antismash': 'antiSMASH',
                 'genomad': 'geNomad', 'mobsuite': 'MOB-suite', 'integronfinder': 'IntegronFinder',
                 'bacmet': 'BacMet', 'isescan': 'ISEScan', 'icescreen': 'ICEscreen',
@@ -99,7 +101,7 @@ def editor(tool, text):
     defaults = _flatten(defaults)
     supplied = _flatten(cfg)
     extras = ({'busco_download_lineages': [cfg.get('busco_lineage', 'bacteria_odb10')], 'kraken_mem_mb': None}
-              if tool == 'hybas' else {'storage': {'native_results_directory': None}})
+              if tool == 'hybas' else {} if tool == 'micpscope' else {'storage': {'native_results_directory': None}})
     defaults.update(_flatten(extras))
     # Include companion paths and model identities recognized by the database selector.
     for spec in CATALOG[tool]:
@@ -237,3 +239,4 @@ def validate(tool, text):
             if row['included'] and row['options'] and row['value'] not in row['options']:
                 raise ValueError(row['name'] + ': choose ' + ', '.join(row['options']))
     return text
+

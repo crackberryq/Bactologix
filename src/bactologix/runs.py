@@ -172,7 +172,7 @@ def input_layout(output, tool):
         if not root.exists():
             continue
         for path in sorted(root.iterdir()):
-            used = re.search(r"\.(fastq|fq)(\.gz)?$", path.name, re.I) if tool == "hybas" else path.suffix in {".fna", ".faa", ".gff", ".gbk"}
+            used = re.search(r"\.(fastq|fq)(\.gz)?$", path.name, re.I) if tool == "hybas" else (path.suffix == ".faa" or path.name.endswith(".evidence.csv")) if tool == "micpscope" else path.suffix in {".fna", ".faa", ".gff", ".gbk"}
             if used:
                 if not path.is_symlink():
                     raise ValueError("Staged input is no longer its original link: " + str(path))
@@ -183,6 +183,14 @@ def input_layout(output, tool):
 def sample_sheet(sample, tool, output):
     if tool == "hybas":
         return "isolate\n" + sample["id"] + "\n"
+    if tool == "micpscope":
+        handle = io.StringIO(newline="")
+        writer = csv.DictWriter(handle, fieldnames=["sample_id", "proteins", "evidence"], delimiter="\t")
+        writer.writeheader()
+        evidence = Path(output) / "annotation" / (sample["id"] + ".evidence.csv")
+        writer.writerow({"sample_id": sample["id"], "proteins": str(Path(output) / "annotation" / (sample["id"] + ".faa")),
+                         "evidence": str(evidence) if evidence.is_file() else ""})
+        return handle.getvalue()
     handle = io.StringIO(newline="")
     writer = csv.DictWriter(handle, fieldnames=["sample_id", "isolate_dir", "hybas_dir", "input_mode"], delimiter="\t")
     writer.writeheader()
@@ -274,6 +282,17 @@ def stage_inputs(sample, tool, destination):
             for file in files:
                 (output / file.name).symlink_to(file.resolve())
             inputs.extend(files)
+    elif tool == "micpscope":
+        output = destination / "annotation"
+        output.mkdir()
+        for suffix in (".faa", ".evidence.csv"):
+            source = original / "annotation" / (sid + suffix)
+            if not source.is_file():
+                if suffix == ".evidence.csv":
+                    continue
+                raise ValueError("Missing protein FASTA: " + str(source))
+            (output / source.name).symlink_to(source.resolve())
+            inputs.append(source)
     else:
         output = destination / "annotation"
         output.mkdir()
@@ -307,6 +326,8 @@ def tree_digest(folder):
 def bind_paths(cfg, tool, store, installed):
     # Relative user resource paths would otherwise change when making isolated copies.
     cfg = copy.deepcopy(cfg)
+    if tool == "micpscope":
+        return cfg
     if tool == "hybas":
         raw = cfg.get("db_root", "db")
         if Path(str(raw)).expanduser().is_absolute():
@@ -347,6 +368,8 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
     installed = store.get("installs", install_id)
     if not installed or not installed.get("ready") or not supported(tool, installed["version"]["commit"]):
         raise ValueError("Set up a supported pipeline runner first")
+    if installed.get('setup_mode') == 'first_install' and not installed.get('setup_completed'):
+        raise ValueError('Finish first-time installation in Install & update before creating a run draft')
     cores, memory_mb = int(cores), int(memory_mb)
     if cores < 1 or memory_mb < 512:
         raise ValueError("Choose at least one core and 512 MB memory")
@@ -369,6 +392,8 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         if tool == "hybas":
             cfg.update(base_dir=str(folder / "outputs"), sample_sheet=str(folder / "samples.tsv"), setup_only=False, admin_mode=False, ci_mode=False)
             cfg.pop("isolate", None)
+        elif tool == "micpscope":
+            cfg.update(output_dir=str(folder / "outputs"), samples=str(folder / "samples.tsv"), memory_mb=memory_mb)
         else:
             cfg.update(bactomics_root=str(folder / "outputs"), samples=str(folder / "samples.tsv"), memory_mb=memory_mb, isolates=[])
             if 'execution' in cfg:
@@ -507,6 +532,8 @@ def execute_workflow(ctx):
 
 
 def report_candidates(store, run):
+    if run["tool"] == "micpscope":
+        return [("MICPscope report", "micpscope/report.html")]
     if run.get("run_type") == "followup":
         owned = store.get("followup_output_owner", run["parent"]) == run["id"]
         entries = [("Follow-up report", "safety/deepsafe-report/report.html")] if owned else []
@@ -535,3 +562,4 @@ def reports(store):
         if Path(item["report"]).is_file():
             result.append({"id": item["id"], "name": "Live test report", "path": item["report"], "run": item["id"], "sample": "Software smoke test"})
     return result
+

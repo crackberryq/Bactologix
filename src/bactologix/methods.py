@@ -84,6 +84,14 @@ def collect(run):
             result['warnings'].append('Could not read ' + rel + ': ' + str(exc))
             return None
 
+    if run['tool'] == 'micpscope':
+        data = read('micpscope/results.json') or {}
+        if data.get('sample_id') == run['sample']['id']:
+            result['versions']['biopython'] = data.get('provenance', {}).get('biopython_version', UNKNOWN)
+            result['versions']['micpscope'] = data.get('software_version', UNKNOWN)
+        else:
+            result['warnings'].append('MICPscope results are missing or belong to a different sample.')
+        return result
     if run['tool'] == 'hybas':
         summary = read('metadata/run_summary.json') or {}
         if summary.get('isolate', run['sample']['id']) != run['sample']['id']:
@@ -312,7 +320,9 @@ def build(store, run):
         warnings.append('The native report records incomplete requested scope. Review the module execution statuses before describing the analyses as completed.')
     if not complete:
         warnings.append('Planned settings only: this export does not claim that analyses completed. Download again after completion.')
-    if known:
+    if run['tool'] == 'micpscope':
+        paragraphs, tools = ['The workflow was configured to calculate protein sequence descriptors with Biopython and generate a source-labelled evidence report. These descriptors do not determine pH or temperature optima, shelf life, material performance or deployment safety.'], ['micpscope', 'biopython', 'snakemake']
+    elif known:
         paragraphs, tools = (_hybas if run['tool'] == 'hybas' else _basis)(effective, run)
     else:
         paragraphs, tools = ['The saved configuration is provided in the supplement. Method-specific prose is unavailable for this source version.'], []
@@ -432,3 +442,4 @@ def download(store, run, format):
         archive.writestr('citations/Bactologix-CITATION.cff', yaml.safe_dump(app_citation, sort_keys=False, allow_unicode=True))
         archive.writestr('README.txt', 'Review Methods and unresolved items before publication.\nThe YAML and supplement contain local paths and sample identifiers.\nSoftware versions are recorded evidence, not current environment probes.\nCite the pipeline source and tools/databases used; add verified publication references.\nThe workflow configuration and execution behavior were not changed by this export.\n')
     return {'name': name, 'base64': base64.b64encode(buffer.getvalue()).decode(), 'type': 'application/zip'}
+

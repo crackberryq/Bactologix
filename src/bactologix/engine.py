@@ -202,15 +202,42 @@ def install(ctx):
             raise
     if subprocess.check_output(["git", "-C", str(target), "status", "--porcelain"], text=True).strip():
         raise RuntimeError("Installed source has local changes; preserve them and choose a clean installation.")
+    from .setup_state import mode
+    setup_mode = mode(store, tool, commit)
     record = store.get("installs", key, {"id": key, "tool": tool, "source": str(target), "version": version,
                                         "created": now(), "controller": None, "ready": False,
                                         "rule_cache": inherited_cache(store, tool)})
+    record.setdefault('setup_mode', setup_mode)
+    record.setdefault('setup_phase', 'source')
     record.setdefault('rule_cache', str(store.home / 'envs' / tool))
     store.put("installs", key, record)
     if not supported(tool, commit):
         ctx.write("Source downloaded. This version needs an adapter compatibility review before managed execution.")
         return
+    record['setup_phase'] = 'runner'
+    store.put('installs', key, record)
     prepare_controller(ctx, record, repair=payload.get("repair", False))
+    if record.get('setup_mode') == 'first_install' and not record.get('setup_completed'):
+        prepare_first_install(ctx, record)
+
+
+def prepare_first_install(ctx, record):
+    from . import maintenance
+    rows = maintenance.recipes(record)
+    if not rows:
+        raise RuntimeError('No tool environment recipes found; first setup cannot be completed.')
+    record['setup_phase'] = 'environments'
+    ctx.store.put('installs', record['id'], record)
+    ctx.write('First installation: preparing and checking tool environments. Databases remain a separate setup step.')
+    original = ctx.job['payload']
+    try:
+        ctx.job['payload'] = maintenance.environment_request(ctx.store, record['id'], [r['id'] for r in rows], 'install')
+        maintenance.execute_environments(ctx)
+    finally:
+        ctx.job['payload'] = original
+    record.update(setup_phase='complete', setup_completed=now())
+    ctx.store.put('installs', record['id'], record)
+    ctx.write('First installation complete. Review databases and validate a run before execution.')
 
 
 def prepare_controller(ctx, record, repair=False):
@@ -423,4 +450,5 @@ def execute(ctx):
         (execute_environments if kind == "environments" else execute_download)(ctx)
     else:
         raise ValueError("Unsupported job")
+
 
