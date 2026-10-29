@@ -1,6 +1,7 @@
 """Application boundary checks; upstream biological tools are not executed."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 
@@ -9,10 +10,11 @@ import yaml
 
 from bactologix.catalog import PIPELINES
 from bactologix.followup import create_followup
-from bactologix.runs import create_run, command, reports, template, validate_launch
+from bactologix.runs import create_run, command, reports, template, tree_digest, validate_launch
 from bactologix.store import Store
 from bactologix.ui_backend import dispatch, snapshot
 from test_run_integrity import perform
+from bactologix import variants
 
 
 @pytest.fixture
@@ -82,6 +84,63 @@ def test_followup_uses_frozen_saved_screening_without_recreating_analysis(screen
     (safety / 'evidence/minced.json').write_text('{"changed":true}')
     with pytest.raises(ValueError, match='screening prerequisite changed'):
         validate_launch(store, child['id'], 'dry-run')
+
+
+@pytest.fixture(params=[False, True], ids=['native-cache', 'saved-result-wrapper'])
+def screening_variant(screening, request):
+    store, parent = screening
+    folder = Path(parent['folder'])
+    manifest = {'schema': 1, 'parent': 'earlier-screening', 'checkpoints': [],
+                'inputs': {row['path']: variants.sha(row['path']) for row in parent['inputs']},
+                'input_metadata': {row['path']: variants.metadata(row['path']) for row in parent['inputs']}}
+    variants.write(folder / 'variant.json', manifest)
+    parent['variant'] = {'schema': 1, 'parent': 'earlier-screening', 'checkpoints': 0,
+                         'changed': [], 'unknown_changes': [], 'mode': 'native_cache', 'items': []}
+    parent['variant_manifest_sha256'] = variants.sha(folder / 'variant.json')
+    if request.param:
+        wrapper = folder / 'workflow/BactologixVariant.smk'
+        wrapper.write_text('raise RuntimeError("Screening wrapper must not run during follow-up")\n')
+        restore = folder / 'restore_variant.py'
+        restore.write_text('raise RuntimeError("Screening restore must not run during follow-up")\n')
+        parent['variant_entry'] = wrapper.name
+        parent['variant_restore_sha256'] = variants.sha(restore)
+        parent['workflow_sha256'] = tree_digest(folder / 'workflow')
+    store.put('runs', parent['id'], parent)
+    return store, parent
+
+
+def test_followup_from_completed_variant_is_an_independent_followup(screening_variant):
+    store, parent = screening_variant
+    before = {str(p): (p.read_bytes(), p.stat().st_mtime_ns)
+              for p in Path(parent['folder']).rglob('*') if p.is_file() and not p.is_symlink()}
+    saved_parent = store.get('runs', parent['id'])
+    child = create_followup(store, parent['id'], 'deep: {enabled: true}', True)
+    validate_launch(store, child['id'], 'dry-run')
+    argv = command(store, child, 'dry-run')
+    assert Path(argv[argv.index('--snakefile') + 1]).name == 'Followup.smk'
+    assert child['parent'] == parent['id'] and child['output'] == parent['output']
+    assert not any(key in child for key in ('variant', 'variant_entry', 'variant_manifest_sha256',
+                                           'variant_restore_sha256'))
+    assert child['followup_sources'] and not child['dry_run_ok']
+    assert store.get('runs', parent['id']) == saved_parent
+    assert {str(p): (p.read_bytes(), p.stat().st_mtime_ns)
+            for p in Path(parent['folder']).rglob('*') if p.is_file() and not p.is_symlink()} == before
+    evidence = Path(parent['output']) / 'safety/evidence/minced.json'
+    evidence.write_text('{"changed":true}')
+    with pytest.raises(ValueError, match='screening prerequisite changed'):
+        validate_launch(store, child['id'], 'dry-run')
+
+
+def test_followup_checks_parent_variant_content_before_creating_child(screening_variant):
+    store, parent = screening_variant
+    path = Path(parent['inputs'][0]['path'])
+    original, stat = path.read_bytes(), path.stat()
+    path.write_bytes(b'X' + original[1:])
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    with pytest.raises(ValueError, match='variant input changed'):
+        create_followup(store, parent['id'], 'deep: {enabled: true}', True)
+    assert len(store.all('runs')) == 1
+    assert [p.name for p in (store.home / 'runs').iterdir()] == [parent['id']]
 
 
 def test_only_latest_followup_attempt_displays_shared_report(screening):
