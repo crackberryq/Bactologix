@@ -1,0 +1,13 @@
+# Reviewed release contract v1
+
+Bactologix refreshes `releases-v1.json` from this official repository when the user refreshes a pipeline catalogue. Changes to this registry can authorize a newly tested compatible release without rebuilding the app. Pipeline declarations alone do not authorize execution. Maintainers must review the exact released commit and its adapter regression results before adding an approval.
+
+Each record declares `tool`, `repository`, immutable `commit`, release `tag`, `channel` (`stable` or `prerelease`), `adapter_interface` (1), `configuration_schema` (`hybas-v1`, `basis-v1`, or `micpscope-v1`), `entry_points` (workflow and runner environment), exact `runner` Python/Snakemake versions, `files_sha256`, `tested: true`, and the successful GitHub Actions `test_run` URL. The current BaSIS release is included as the initial review; existing HybAs/MICP Scope and older BaSIS commits retain the explicit legacy fallback.
+
+Interface v1 means the existing per-pipeline sample layout, configuration binding, invocation, report paths and environment inventory remain compatible. Configuration v1 means the application's current settings and generated overrides retain their meaning. A breaking change needs a new application adapter; do not label it v1 merely to enable installation. Test the pinned upstream source with the relevant adapter, configuration, Methods, environment and browser regressions. Changes to defaults must be reviewed for Methods accuracy; unknown source defaults must remain qualified rather than borrowed from another version.
+
+The environment and workflow entry points require SHA-256 checksums; reviewers should include additional interface/configuration files. Installation and launch verify recorded hashes and the pinned runner definition. Existing source/configuration integrity and native dry-run checks still apply. File checksums complement, rather than replace, Git commit verification.
+
+Only a discovered published release with a matching tag, commit and channel receives an approval. Branches and arbitrary commits never receive approval from discovery alone. Cached approvals are immutable per commit and retained for saved runs; removing a registry entry does not silently invalidate historical runs. A conflicting changed approval is rejected. A refresh failure retains the previous catalogue and successful-check date. Stable-only selection excludes prereleases and legacy snapshots whose channel cannot be established from a release.
+
+This registry does not automatically add database-download adapters, follow-up adapters or Methods-default equivalence for newly approved commits. Those capabilities retain their own explicit checks. Review them separately rather than claiming full feature parity.

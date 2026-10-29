@@ -18,7 +18,7 @@ NOTICE = ('Adapter support is matched by exact commit, not a branch or release n
           'Exports include local paths and run labels and are not redacted.')
 
 
-def source_state(tool, commit):
+def source_state(tool, commit, store=None):
     spec = PIPELINES.get(tool)
     if not spec:
         return 'unknown_pipeline'
@@ -28,7 +28,8 @@ def source_state(tool, commit):
         return 'recommended'
     if commit in spec.get('previous_commits', []):
         return 'earlier_supported'
-    return 'unreviewed'
+    from .catalog import supported
+    return 'contract_supported' if supported(tool, commit, store) else 'unreviewed'
 
 
 def panel(store):
@@ -58,12 +59,12 @@ def panel(store):
         refs = [r for r in catalog['versions'] if r['kind'] != 'pinned']
         pipelines.append({'tool': tool, 'name': spec['name'], 'active_installation': active,
             'active_registered': bool(active in by_id and by_id[active].get('tool') == tool),
-            'commits': [{'commit': commit, 'support': source_state(tool, commit),
+            'commits': [{'commit': commit, 'support': source_state(tool, commit, store),
                          'url': f"https://github.com/{spec['repo']}/tree/{commit}"}
                         for commit in [spec['commit'], *spec.get('previous_commits', [])]],
             'catalog_checked_at': catalog.get('checkedAt'),
             'catalog_origin': 'Saved GitHub response' if catalog.get('live') else 'Bundled catalogue',
-            'unreviewed_catalog_refs': sum(source_state(tool, r.get('commit')) == 'unreviewed' for r in refs)})
+            'unreviewed_catalog_refs': sum(source_state(tool, r.get('commit'), store) == 'unreviewed' for r in refs)})
     installations = []
     for item in items:
         tool = item.get('tool')
@@ -73,7 +74,7 @@ def panel(store):
         requirements = item.get('controller_requirements') or {}
         installations.append({'id': item['id'], 'tool': tool,
             'ref': item.get('version', {}).get('ref'), 'commit': commit,
-            'support': source_state(tool, commit), 'active': store.get('settings', 'active-' + str(tool)) == item['id'],
+            'support': source_state(tool, commit, store), 'active': store.get('settings', 'active-' + str(tool)) == item['id'],
             'source': item.get('source'), 'runner': item.get('controller'),
             'runner_origin': item.get('controller_origin', 'Not recorded'),
             'setup_recorded': bool(item.get('ready') and item.get('controller')),
@@ -93,8 +94,8 @@ def panel(store):
             binding = 'setup_needed'
         else:
             binding = 'recorded_match'
-        support = source_state(tool, commit)
-        valid_support = support in {'recommended', 'earlier_supported'}
+        support = source_state(tool, commit, store)
+        valid_support = support in {'recommended', 'earlier_supported', 'contract_supported'}
         recorded_runner = run.get('controller')
         current_runner = item.get('controller') if item else None
         validated_runner = run.get('validated_controller', recorded_runner)

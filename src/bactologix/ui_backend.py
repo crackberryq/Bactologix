@@ -25,9 +25,9 @@ from . import followup, maintenance, database_runs, run_config, run_revisions, d
 _SNAPSHOTS = {}
 
 
-def installation_status(item, jobs):
+def installation_status(item, jobs, store=None):
     tool, commit = item["tool"], item["version"]["commit"]
-    supported_source = supported(tool, commit)
+    supported_source = supported(tool, commit, store)
     def matches(job):
         p = job["payload"]
         return ((job["kind"] == "check" and p.get("installation") == item["id"])
@@ -108,10 +108,10 @@ def snapshot(store):
     for tool in PIPELINES:
         catalogs[tool] = versions(store, tool)
         for version in catalogs[tool]["versions"]:
-            version["supported"] = supported(tool, version["commit"])
+            version["supported"] = supported(tool, version["commit"], store)
     result = {"version": __version__, "workspace": str(store.home), "doctor": doctor(store),
             "setup_overview": {t: setup_state.overview(store, t) for t in PIPELINES},
-            "pipelines": PIPELINES, "installs": [installation_status(i, jobs) for i in store.all("installs")],
+            "pipelines": PIPELINES, "installs": [installation_status(i, jobs, store) for i in store.all("installs")],
             "app_update": app_update, "hardware": hardware.panel(store), "workstation_checks": workstation.history(store),
             "resource_defaults": {t: hardware.run_defaults(store, t) for t in PIPELINES},
             "active": {t: store.get("settings", "active-" + t) for t in PIPELINES},
@@ -269,10 +269,10 @@ def dispatch(store, kind, p):
     if kind == "discover_installations":
         return {"discovery": discover_installations(store, _tool(p), p.get("root", "")), "keep_modal": True}
     if kind == "inspect_installation":
-        return {"local_install": inspect_installation(p["path"], _tool(p)), "keep_modal": True}
+        return {"local_install": inspect_installation(p["path"], _tool(p), store), "keep_modal": True}
     if kind == "connect_installation":
         tool = _tool(p)
-        info = inspect_installation(p["path"], tool)
+        info = inspect_installation(p["path"], tool, store)
         if info["commit"] != p.get("commit"):
             raise ValueError("The checkout changed. Inspect the folder again.")
         if not info["supported"]:
@@ -297,7 +297,11 @@ def dispatch(store, kind, p):
         return {"message": "Queued " + jid, "navigate": "jobs"}
     if kind == "refresh_versions":
         tool = _tool(p)
-        store.put("catalog", tool, fetch_versions(tool))
+        from .release_contract import refresh
+        try:
+            refresh(store, tool)
+        except (OSError, ValueError, KeyError) as exc:
+            return {"message": "Refresh failed; showing the dated cached catalogue. " + str(exc), "keep_modal": True}
         return {"message": "GitHub version list refreshed.", "keep_modal": True}
     if kind == "install":
         tool = _tool(p)
@@ -308,7 +312,7 @@ def dispatch(store, kind, p):
         return {"message": "Queued " + jid, "navigate": "jobs"}
     if kind in {"use_install", "check_install", "repair_install", "setup_install"}:
         item = _item(store, "installs", p.get("id"))
-        if not supported(item["tool"], item["version"]["commit"]):
+        if not supported(item["tool"], item["version"]["commit"], store):
             raise ValueError("This version is not supported. Update Bactologix or choose a Runner supported snapshot.")
         if kind == "use_install":
             if not item["ready"]:

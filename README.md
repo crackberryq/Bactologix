@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a44 — alpha
+# Bactologix 0.1.0a48 — alpha
 
 ### Reviewed sample-table import
 
@@ -378,7 +378,7 @@ Run as your regular Ubuntu user, without sudo. The installer keeps a log at `~/.
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
 
 ```bash
-pipx install ./bactologix-0.1.0a44-py3-none-any.whl
+pipx install ./bactologix-0.1.0a48-py3-none-any.whl
 bactologix
 ```
 
@@ -387,7 +387,7 @@ Your base Python can be any supported Python 3.11+ (including 3.13). The separat
 ```bash
 python -m pip install pipx
 python -m pipx ensurepath
-python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a44/bactologix-0.1.0a44-py3-none-any.whl"
+python -m pipx install --force "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a48/bactologix-0.1.0a48-py3-none-any.whl"
 "$HOME/.local/bin/bactologix"
 ```
 
@@ -396,7 +396,7 @@ To use a Conda environment named `bactomix`, create it once if it does not alrea
 ```bash
 conda create -n bactomix python=3.11 pip -y
 conda activate bactomix
-python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a44/bactologix-0.1.0a44-py3-none-any.whl"
+python -m pip install --upgrade "https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a48/bactologix-0.1.0a48-py3-none-any.whl"
 bactologix
 ```
 
@@ -404,7 +404,7 @@ For an alternative dedicated Python environment:
 
 ```bash
 python3 -m venv ~/.venvs/bactologix
-~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a44-py3-none-any.whl
+~/.venvs/bactologix/bin/python -m pip install ./bactologix-0.1.0a48-py3-none-any.whl
 ~/.venvs/bactologix/bin/bactologix
 ```
 
@@ -628,3 +628,7 @@ After a version bump and changelog entry reach `main`, the software workflow pub
 ## MICP Scope and first-time setup
 
 See [MICP Scope setup](docs/micpscope.md). New pipeline installations prepare their pinned Snakemake runner and tool environments; updates preserve compatible caches.
+
+### Reviewed pipeline releases
+
+The version picker separates stable releases from prereleases, displays installed/latest/recommended versions and dates its cached catalogue. Refresh checks GitHub releases and the official [compatibility registry](compatibility/README.md). Newly reviewed compatible releases can be enabled without an app rebuild. Unreviewed commits remain source-only; changed interfaces require an adapter update. Existing saved runs keep their source/configuration and retained approval.

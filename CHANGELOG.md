@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0a48 — reviewed releases and consistent pipeline flow
+
+- Order all shared pipeline controls as HybAs AWARE, BaSIS AWARE, then MICP Scope. Keep the database heading, tabs and resource-card layout for pipelines without external databases.
+- Refresh a versioned, maintainer-reviewed release contract registry alongside GitHub releases. Compatible tested releases can be approved without changing the application package; unreviewed commits stay source-only.
+- Validate adapter interface, configuration schema, entry points, exact commit, pinned runner and source checksums. Persist immutable approvals for older runs and retain dated cached catalogues when refresh fails. Add stable/prerelease filters and installed/latest/recommended version information.
+- Bring validation notes up to date for a44–a47 and document the new registry and workstation limits.
+
 ## 0.1.0a47 — MICP Scope display name
 
 - Display **MICP Scope** consistently in pipeline selectors, setup, input guidance, reports and documentation.

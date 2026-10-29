@@ -10,8 +10,6 @@ from . import __version__
 
 DATA = Path(__file__).parent / "data"
 PIPELINES = {
-    "micpscope": {"name": "MICP Scope", "repo": "crackberryq/Bactomics_MICPscope", "preferred": "main",
-                  "commit": "63b2ac9682d3afcd593302a01da4187af739d96f", "previous_commits": ["4e5cdfad54d6d7d0c198f9458aa27dd1316da0a2"], "snakefile": "MICPscope.smk", "environment": "environment.yml"},
     "hybas": {"name": "HybAs AWARE", "repo": "crackberryq/Bactomics_HybAs", "preferred": "HybAs_v9.0.0-AWARE",
               "commit": "780ee7086c15c49f2825800ec463327f009f14a6", "previous_commits": ["9477fd3b6578e23a84d6524e1c89e65e01590f03"],
               "snakefile": "Hybas.smk", "environment": "environment.yaml"},
@@ -21,6 +19,8 @@ PIPELINES = {
               "previous_commits": ["1d2d96b266e98d956254d1a518ff5b437ab7a10a", "f66dfedd46da05ae79bf769e7e6fada91270d4d1", "d2d2e7806df4d2f586dc4a11d5c1f980deb06857"],
               "previous_ref": "snakemake-standalone",
               "snakefile": "BaSIS.smk", "environment": "environment.yml"},
+    "micpscope": {"name": "MICP Scope", "repo": "crackberryq/Bactomics_MICPscope", "preferred": "main",
+                  "commit": "63b2ac9682d3afcd593302a01da4187af739d96f", "previous_commits": ["4e5cdfad54d6d7d0c198f9458aa27dd1316da0a2"], "snakefile": "MICPscope.smk", "environment": "environment.yml"},
 }
 
 
@@ -84,11 +84,20 @@ def versions(store, tool):
     result["versions"] = pinned + [row for row in result["versions"] if row["kind"] != "pinned"]
     for row in result["versions"]:
         row["preferred"] = bool(row.get("preferred") and row["commit"] == spec["commit"])
+    releases = sorted([r for r in result['versions'] if r['kind'] == 'release'],
+                      key=lambda r: r.get('publishedAt') or '', reverse=True)
+    result['latest_release'] = releases[0]['ref'] if releases else None
+    reviewed = [r for r in releases if supported(tool, r['commit'], store)]
+    result['recommended_release'] = reviewed[0]['ref'] if reviewed else None
+    for row in result['versions']:
+        row.setdefault('compatibility_reason', 'Reviewed legacy adapter' if supported(tool, row['commit'], store)
+                       else 'No tested compatible contract for this commit; source download only.')
     return result
 
 
-def supported(tool, commit):
+def supported(tool, commit, store=None):
+    from .release_contract import approval
     spec = PIPELINES[tool]
-    return commit in [spec["commit"], *spec.get("previous_commits", [])]
+    return commit in [spec["commit"], *spec.get("previous_commits", [])] or approval(store, tool, commit) is not None
 
 

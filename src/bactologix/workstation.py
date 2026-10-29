@@ -33,7 +33,7 @@ def selected_runner(store, iid):
     if not isinstance(iid, str):
         raise ValueError('Choose an installed runner or app-only checks.')
     item = store.get('installs', iid)
-    if not item or not item.get('ready') or not supported(item['tool'], item['version']['commit']):
+    if not item or not item.get('ready') or not supported(item['tool'], item['version']['commit'], store):
         raise ValueError('Choose a supported, configured runner.')
     definition = (Path(item['source']) / PIPELINES[item['tool']]['environment']).read_bytes()
     return {'id': iid, 'tool': item['tool'], 'commit': item['version']['commit'],

@@ -75,7 +75,7 @@ def installation(store, key):
     item = store.get("installs", key)
     if not item or not item.get("ready") or not item.get("controller"):
         raise ValueError("Finish pipeline runner setup first.")
-    if not supported(item["tool"], item["version"]["commit"]):
+    if not supported(item["tool"], item["version"]["commit"], store):
         raise ValueError("Choose a supported pipeline version.")
     source = Path(item["source"])
     if (git_read(source, "rev-parse", "HEAD") != item["version"]["commit"]
@@ -102,7 +102,7 @@ def recipes(item):
 
 def environment_panel(store, item, jobs):
     try:
-        rows = recipes(item) if supported(item["tool"], item["version"]["commit"]) else []
+        rows = recipes(item) if supported(item["tool"], item["version"]["commit"], store) else []
         saved = store.get("environment_checks", item["id"], {})
         cache = str(cache_path(store, item))
         for row in rows:

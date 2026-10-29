@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-10-29",
+  "releases": [
+    {
+      "tool": "basis",
+      "repository": "crackberryq/Bactomics_BaSIS",
+      "commit": "14f161a1f252a712053892961edf2275469c8dab",
+      "tag": "v0.4.0a2",
+      "channel": "prerelease",
+      "adapter_interface": 1,
+      "configuration_schema": "basis-v1",
+      "entry_points": {
+        "workflow": "BaSIS.smk",
+        "environment": "environment.yml"
+      },
+      "runner": {
+        "python": "3.11",
+        "snakemake": "9.6.2"
+      },
+      "tested": true,
+      "test_run": "https://github.com/crackberryq/Bactologix/actions/runs/40906609530",
+      "files_sha256": {
+        "BaSIS.smk": "86bc5f9a905d54207a0b4f36b0a6229a47ba5df4fbd3cb10ce0dcb4b98cb988f",
+        "environment.yml": "16555d39a4e8070617055d33f0624ef7218d1769cd0b740a46892b3dc76ae8ca"
+      }
+    }
+  ]
+}

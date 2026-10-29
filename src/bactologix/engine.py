@@ -211,9 +211,11 @@ def install(ctx):
     record.setdefault('setup_phase', 'source')
     record.setdefault('rule_cache', str(store.home / 'envs' / tool))
     store.put("installs", key, record)
-    if not supported(tool, commit):
+    if not supported(tool, commit, store):
         ctx.write("Source downloaded. This version needs an adapter compatibility review before managed execution.")
         return
+    from .release_contract import preflight
+    preflight(store, tool, commit, target)
     record['setup_phase'] = 'runner'
     store.put('installs', key, record)
     prepare_controller(ctx, record, repair=payload.get("repair", False))
@@ -289,7 +291,7 @@ def connect_existing(ctx):
     from .local import inspect_installation, local_path
     store, payload = ctx.store, ctx.job["payload"]
     tool = payload["tool"]
-    info = inspect_installation(payload["path"], tool)
+    info = inspect_installation(payload["path"], tool, store)
     if info["commit"] != payload["commit"]:
         raise ValueError("The checkout changed since inspection. Inspect it again before connecting.")
     if not info["supported"]:
@@ -311,6 +313,8 @@ def connect_existing(ctx):
     dirty = subprocess.check_output(["git", "-C", str(target), "status", "--porcelain"], text=True).strip()
     if actual != info["commit"] or dirty:
         raise ValueError("The local source snapshot changed. Choose a clean installation.")
+    from .release_contract import preflight
+    preflight(store, tool, info["commit"], target)
     previous = store.get("installs", key)
     prefix = local_path(payload["controller"]) if payload.get("controller") else None
     cache = local_path(payload["rule_cache"]) if payload.get("rule_cache") else None
@@ -424,8 +428,10 @@ def execute(ctx):
         if not record:
             raise ValueError("Installation no longer exists")
         try:
-            if not supported(record["tool"], record["version"]["commit"]):
+            if not supported(record["tool"], record["version"]["commit"], ctx.store):
                 raise ValueError("This source version needs an adapter review.")
+            from .release_contract import preflight
+            preflight(ctx.store, record["tool"], record["version"]["commit"], record["source"])
             if ctx.job["payload"].get("repair") or ctx.job["payload"].get("setup"):
                 prepare_controller(ctx, record, repair=ctx.job["payload"].get("repair", False))
                 return

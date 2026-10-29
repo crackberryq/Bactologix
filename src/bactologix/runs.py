@@ -366,7 +366,7 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
     spec = PIPELINES[tool]
     install_id = installation or store.get("settings", "active-" + tool)
     installed = store.get("installs", install_id)
-    if not installed or not installed.get("ready") or not supported(tool, installed["version"]["commit"]):
+    if not installed or not installed.get("ready") or not supported(tool, installed["version"]["commit"], store):
         raise ValueError("Set up a supported pipeline runner first")
     if installed.get('setup_mode') == 'first_install' and not installed.get('setup_completed'):
         raise ValueError('Finish first-time installation in Install & update before creating a run draft')
@@ -453,7 +453,9 @@ def validate_launch(store, rid, action, check_busy=True):
     if check_busy and any(j["kind"] == "workflow" and j["payload"]["run_id"] == rid and j["status"] in {"queued", "running"} for j in store.jobs()):
         raise ValueError("This run already has a queued or active job")
     current_controller(store, run)
-    if not supported(run["tool"], run["commit"]):
+    from .release_contract import preflight
+    preflight(store, run["tool"], run["commit"], Path(run["folder"]) / "workflow")
+    if not supported(run["tool"], run["commit"], store):
         raise ValueError("This source version has no reviewed execution adapter")
     if action != "dry-run" and not dry_run_current(store, run):
         raise ValueError("A successful native dry-run with the current runner is required before preparing tools or running")

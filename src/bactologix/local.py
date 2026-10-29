@@ -83,7 +83,7 @@ def git_read(path, *args):
     return result.stdout.strip()
 
 
-def inspect_installation(value, tool):
+def inspect_installation(value, tool, store=None):
     spec = PIPELINES[tool]
     path = local_path(value)
     if not (path / spec["snakefile"]).is_file() or not (path / spec["environment"]).is_file():
@@ -98,7 +98,7 @@ def inspect_installation(value, tool):
     dirty = bool(git_read(path, "diff", "--name-only", "HEAD", "--"))
     cache = path / ".snakemake/conda"
     return {"tool": tool, "path": str(path), "commit": commit, "ref": branch if branch != "HEAD" else commit[:12],
-            "supported": supported(tool, commit), "modified": dirty,
+            "supported": supported(tool, commit, store), "modified": dirty,
             "rule_cache": str(cache) if cache.is_dir() else ""}
 
 

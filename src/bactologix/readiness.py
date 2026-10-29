@@ -88,7 +88,7 @@ def panel(store, run):
         row('inputs', 'Inputs and saved files', 'Needs attention', str(exc), 'error', checked_at)
     try:
         current_controller(store, run)
-        if not supported(run['tool'], run['commit']):
+        if not supported(run['tool'], run['commit'], store):
             raise ValueError('This source version needs a supported execution adapter.')
         if tree_digest(Path(run['folder']) / 'workflow') != run['workflow_sha256']:
             raise ValueError('The saved workflow source changed. Create a new draft from a clean installation.')
