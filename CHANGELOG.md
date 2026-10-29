@@ -1,5 +1,11 @@
 # Bactologix releases
 
+## 0.1.0a43 — report viewer space and folder access
+
+- Fill the report dialog with the report, removing the fixed-height blank area and redundant helper text.
+- Add Open report folder and replace the embedded BaSIS metadata/files.html Run files shortcut without rewriting saved HTML.
+- Request Windows Explorer under WSL or the host desktop file manager using the recorded report location.
+
 ## 0.1.0a42 — saved report navigation
 
 - Keep report section links inside the embedded report instead of navigating to an empty application page. Open enclosing details when jumping to a section.

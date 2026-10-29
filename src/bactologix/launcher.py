@@ -128,6 +128,32 @@ def healthy(url):
         return False
 
 
+def open_folder(path):
+    """Request the desktop file manager without passing paths through a shell."""
+    folder = Path(path).resolve(strict=True)
+    if not folder.is_dir():
+        raise ValueError('Report folder no longer exists')
+    try:
+        if is_wsl():
+            converted = subprocess.run(['wslpath', '-w', str(folder)], check=True,
+                                       capture_output=True, text=True, timeout=5).stdout.strip()
+            if not converted:
+                raise ValueError('Could not translate the report folder for Windows Explorer')
+            argv = ['explorer.exe', converted]
+        elif sys.platform == 'darwin':
+            argv = ['open', str(folder)]
+        elif sys.platform == 'win32':
+            argv = ['explorer.exe', str(folder)]
+        else:
+            if not (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')):
+                raise ValueError('No desktop session is available. Open this folder manually: ' + str(folder))
+            argv = ['xdg-open', str(folder)]
+        subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ValueError('Could not open the file manager. Open this folder manually: ' + str(folder)) from exc
+    return str(folder)
+
+
 def open_browser(url):
     """Use Windows' default browser in WSL; do not install a browser or change defaults."""
     if is_wsl():
