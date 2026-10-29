@@ -625,6 +625,6 @@ Bactologix is released under the [MIT License](LICENSE), copyright (c) 2026 Jimi
 After a version bump and changelog entry reach `main`, the software workflow publishes the wheel and source archive only after both Python matrices, Chromium and environment deployment succeed. The publication job uses the tested Python 3.11 artifact, uploads to a draft, verifies GitHub asset digests using the application updater’s acceptance rules, and publishes it with alpha/beta/RC versions marked as prereleases. Existing published assets are never replaced; a new update needs a new package version. Workflow dispatch on `main` can retry a failed publication. Development branches do not publish releases.
 
 
-## MICPscope and first-time setup
+## MICP Scope and first-time setup
 
-See [MICPscope setup](docs/micpscope.md). New pipeline installations prepare their pinned Snakemake runner and tool environments; updates preserve compatible caches.
+See [MICP Scope setup](docs/micpscope.md). New pipeline installations prepare their pinned Snakemake runner and tool environments; updates preserve compatible caches.

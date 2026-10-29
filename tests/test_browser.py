@@ -310,7 +310,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(page.locator('[data-run-name="resources.directory"]')).to_be_visible()
             page.locator('#run-tool').select_option('micpscope')
             category('advanced')
-            expect(page.get_by_text('MICPscope inputs', exact=True)).to_be_visible()
+            expect(page.get_by_text('MICP Scope inputs', exact=True)).to_be_visible()
             expect(page.locator('.run-wizard')).to_contain_text('annotation/<sample_id>.faa')
             expect(page.locator('.run-managed-value')).not_to_have_count(0)
             capture('micpscope-settings')

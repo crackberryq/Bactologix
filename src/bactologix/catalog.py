@@ -10,8 +10,8 @@ from . import __version__
 
 DATA = Path(__file__).parent / "data"
 PIPELINES = {
-    "micpscope": {"name": "MICPscope", "repo": "crackberryq/Bactomics_MICPscope", "preferred": "main",
-                  "commit": "4e5cdfad54d6d7d0c198f9458aa27dd1316da0a2", "snakefile": "MICPscope.smk", "environment": "environment.yml"},
+    "micpscope": {"name": "MICP Scope", "repo": "crackberryq/Bactomics_MICPscope", "preferred": "main",
+                  "commit": "63b2ac9682d3afcd593302a01da4187af739d96f", "previous_commits": ["4e5cdfad54d6d7d0c198f9458aa27dd1316da0a2"], "snakefile": "MICPscope.smk", "environment": "environment.yml"},
     "hybas": {"name": "HybAs AWARE", "repo": "crackberryq/Bactomics_HybAs", "preferred": "HybAs_v9.0.0-AWARE",
               "commit": "780ee7086c15c49f2825800ec463327f009f14a6", "previous_commits": ["9477fd3b6578e23a84d6524e1c89e65e01590f03"],
               "snakefile": "Hybas.smk", "environment": "environment.yaml"},

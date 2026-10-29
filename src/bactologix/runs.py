@@ -533,7 +533,7 @@ def execute_workflow(ctx):
 
 def report_candidates(store, run):
     if run["tool"] == "micpscope":
-        return [("MICPscope report", "micpscope/report.html")]
+        return [("MICP Scope report", "micpscope/report.html")]
     if run.get("run_type") == "followup":
         owned = store.get("followup_output_owner", run["parent"]) == run["id"]
         entries = [("Follow-up report", "safety/deepsafe-report/report.html")] if owned else []

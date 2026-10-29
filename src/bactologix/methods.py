@@ -90,7 +90,7 @@ def collect(run):
             result['versions']['biopython'] = data.get('provenance', {}).get('biopython_version', UNKNOWN)
             result['versions']['micpscope'] = data.get('software_version', UNKNOWN)
         else:
-            result['warnings'].append('MICPscope results are missing or belong to a different sample.')
+            result['warnings'].append('MICP Scope results are missing or belong to a different sample.')
         return result
     if run['tool'] == 'hybas':
         summary = read('metadata/run_summary.json') or {}

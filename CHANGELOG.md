@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0a47 — MICP Scope display name
+
+- Display **MICP Scope** consistently in pipeline selectors, setup, input guidance, reports and documentation.
+- Pin the matching report-name update while retaining support for existing Snakemake MICPscope runs. Repository names, workflow filenames and commands remain unchanged.
+
 ## 0.1.0a46 — retain installation history after updates
 
 - Includes MICPscope integration and first-time setup from a45.
