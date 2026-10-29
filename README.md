@@ -386,13 +386,13 @@ bactologix
 
 The installed `bactologix` command starts the application, waits for the server to report readiness and pass its health check, then opens the browser. Keep the terminal open; **Ctrl+C** stops the web UI. On WSL it opens the Windows default browser and detects the current private address, avoiding stale IP addresses and broken localhost forwarding. Mirrored WSL networking uses loopback. On a Linux desktop or macOS it uses the default browser. If automatic opening is unavailable, the terminal prints the address and the server remains available.
 
-For an optional desktop-style window without the usual tabs and address bar, run:
+The standard launch opens a desktop-style window without the usual tabs and address bar:
 
 ```bash
-bactologix --app-window
+bactologix
 ```
 
-This uses an already installed Chrome, Edge or Chromium browser. Under WSL it looks for Windows Edge or Chrome; on macOS it checks the standard application folders. If application mode cannot be launched, Bactologix falls back to the ordinary browser. Keep the terminal open: closing the window does not stop the server or queued work; Ctrl+C stops the UI server. Browser policies and platform support can affect window appearance. Windows/WSL launch construction is software-tested; physical Windows window behavior still needs workstation verification. `--app-window` and `--no-browser` cannot be combined.
+This uses an already installed Chrome, Edge or Chromium browser. Under WSL it looks for Windows Edge or Chrome; on macOS it checks the standard application folders. If application mode cannot be launched, Bactologix falls back to the ordinary browser. Keep the terminal open: closing the window does not stop the server or queued work; Ctrl+C stops the UI server. Browser policies and platform support can affect window appearance. Windows/WSL launch construction is software-tested; physical Windows window behavior still needs workstation verification. `--browser` explicitly opens a regular browser; `--app-window` remains an explicit alias for the default. These launch flags and `--no-browser` are mutually exclusive. Use **Workspace tools → Restart as browser** to open the current workspace in a regular browser without stopping the server or jobs. The existing app window can then be closed.
 
 The header's **Workspace tools** menu groups citation, export, desktop-window help and credits. Phone-size screens use a labeled navigation drawer. Saved runs keep **Overview**, **Activity**, **Results** and **Methods** visible, with settings grouped under **Saved configuration**. Pipeline repair and uninstall actions are under **Maintenance & installation details**.
 

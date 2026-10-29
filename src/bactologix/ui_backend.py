@@ -162,6 +162,14 @@ def dispatch(store, kind, p):
         updates.assert_current(store)
         if updates.status(store)["active_job"]:
             raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
+    if kind == 'restart_as_browser':
+        from .launcher import open_browser
+        item = updates.restart_control.current_launcher(store)
+        if not item:
+            raise ValueError('This session has no active launcher. Open its current address in your browser.')
+        if not open_browser(item['url']):
+            raise ValueError('Could not open the regular browser. Open the current workspace address manually.')
+        return {'message': 'Workspace opened in your browser. You can close the app window; the server and jobs keep running.'}
     if kind == 'check_workstation':
         payload = workstation.request(store, p.get('installation'))
         jid = enqueue(store, 'workstation', payload)

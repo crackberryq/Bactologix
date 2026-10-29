@@ -1,4 +1,6 @@
-# Validation update: 0.1.0a39 (2026-10-28)
+# Validation update: 0.1.0a39 (2026-10-29)
+
+- Expanded release scope: fixed status-column geometry, default app-mode launch and a regular-browser handoff using only the current launcher address. Added backend/default-mode and Chromium geometry/button regressions. Full release CI must validate this final scope. Physical Windows app-window behavior remains unverified.
 
 - All 15 installed-wheel browser tests passed. Coverage includes clicking outside workspace tools and cycling focus past controls inside hidden containers. Package builds and JavaScript syntax passed.
 - Full Python, browser and environment CI remain release gates. This change affects interface interactions only.

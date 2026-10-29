@@ -1,7 +1,10 @@
 # Bactologix releases
 
-## 0.1.0a39 — menu dismissal and dialog tab navigation
+## 0.1.0a39 — aligned statuses and default app mode
 
+- Align job statuses in a consistent column regardless of action count.
+- Launch in app mode by default; provide `--browser` for explicit regular-browser launch.
+- Add Workspace tools → Restart as browser, opening the current server address without stopping jobs. The existing app window can then be closed.
 - Close workspace tools when clicking elsewhere in the interface.
 - Exclude hidden and disabled controls from dialog keyboard focus cycling.
 

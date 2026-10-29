@@ -241,7 +241,7 @@ def stop_server(proc, sig=signal.SIGTERM):
             proc.wait()
 
 
-def serve(home, host=None, port=None, browser=True, app_window=False):
+def serve(home, host=None, port=None, browser=True, app_window=True):
     host = checked_host(host or default_host())
     port = free_port(host, port)
     url = browser_url(host, port)

@@ -1887,7 +1887,7 @@ def test_responsive_navigation_and_workspace_tools(tmp_path):
         expect(page.locator('.workspace-tools')).not_to_have_attribute('open', '')
         page.locator('.workspace-tools > summary').click()
         page.get_by_role('button', name='Desktop window', exact=True).click()
-        expect(page.get_by_role('dialog')).to_contain_text('bactologix --app-window')
+        expect(page.get_by_role('dialog')).to_contain_text('Bactologix opens in app mode by default')
         dialog = page.get_by_role('dialog')
         dialog.evaluate('el => {const group=document.createElement("div");group.hidden=true;group.innerHTML="<button>Hidden action</button>";el.append(group)}')
         dialog.get_by_role('button', name='Close dialog', exact=True).focus()
@@ -1909,4 +1909,26 @@ def test_responsive_navigation_and_workspace_tools(tmp_path):
         page.keyboard.press('Enter')
         expect(page.locator('#main')).to_be_focused()
         assert errors == [] and not store.jobs() and not store.all('runs')
+        browser.close()
+
+
+def test_job_status_column_and_browser_switch(tmp_path):
+    from playwright.sync_api import sync_playwright, expect
+    store = Store(tmp_path / 'workspace')
+    for state in ('succeeded', 'cancelled', 'failed'):
+        jid = store.submit('smoke', {})
+        store.update_job(jid, status=state)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1600, 'height': 1000})
+        render_component(page, store)
+        page.get_by_role('link', name='Jobs & progress', exact=True).click()
+        badges = page.locator('.job-card > div:nth-child(2) > .pill')
+        expect(badges).to_have_count(3)
+        positions = badges.evaluate_all('(nodes)=>nodes.map(n=>n.getBoundingClientRect().left)')
+        assert max(positions)-min(positions) < 1
+        page.locator('.workspace-tools > summary').click()
+        page.get_by_role('button', name='Restart as browser', exact=True).click()
+        req = page.evaluate('window.acceptanceEvents.at(-1).value')
+        assert req['kind'] == 'restart_as_browser' and req['payload'] == {}
         browser.close()
