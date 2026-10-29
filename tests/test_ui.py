@@ -70,7 +70,7 @@ def test_reports_are_data_and_registered_only(tmp_path):
     with pytest.raises(ValueError, match="no longer exists"):
         dispatch(store, "open_report", {"id": str(source)})
     js = (APP.parent / "ui/workspace.js").read_text()
-    assert "f.setAttribute('sandbox','allow-scripts allow-downloads')" in js
+    assert "f.setAttribute('sandbox','allow-scripts allow-downloads allow-modals')" in js
     assert "allow-same-origin" not in js
     assert 'e(r.path)' in js
 
