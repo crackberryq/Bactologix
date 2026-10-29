@@ -342,6 +342,37 @@ Bactologix is a Python/Streamlit application for local HybAs AWARE and standalon
 
 Use **Update Bactologix → Refresh releases** to see published updates, including alpha versions. Development commits and pull requests are not releases and do not appear in that list. Check [GitHub Releases](https://github.com/crackberryq/Bactologix/releases) for available installable versions.
 
+## Beginner setup: Windows → Ubuntu → Bactologix
+
+On Windows, open **PowerShell as administrator** and run:
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Restart Windows if requested. Open **Ubuntu** from the Start menu and create your Linux username and password. Password entry is invisible while typing; this is normal. Run the remaining commands in Ubuntu, not PowerShell. Existing Ubuntu/WSL2 users can skip this step. See [Microsoft's WSL guide](https://learn.microsoft.com/windows/wsl/install).
+
+In Ubuntu, install the small download prerequisites if missing:
+
+```bash
+sudo apt-get update && sudo apt-get install -y python3 curl ca-certificates
+```
+
+Then download and run the Bactologix installer:
+
+```bash
+curl --fail --location --proto '=https' --tlsv1.2 \
+  https://raw.githubusercontent.com/crackberryq/Bactologix/main/scripts/install_bactologix.py \
+  --output /tmp/install_bactologix.py &&
+python3 /tmp/install_bactologix.py --install-conda
+```
+
+The installer detects existing Conda, or installs checksum-verified Miniforge when explicitly allowed by `--install-conda`. It reuses `bactomics`, then legacy `bactomix`, or creates `bactomics` with Python 3.11. Existing Bactologix installations are preserved; update those through the application. For a fresh installation it selects the most recently published installable release in the selected channel and verifies the wheel's GitHub SHA-256 digest and size. Alpha/prerelease is the default channel until a stable release is available; `--channel stable` explicitly selects stable releases.
+
+For a read-only local prerequisite check, use `python3 /tmp/install_bactologix.py --check`. This checks Linux, supported architecture, free home storage and Conda discovery; it does not certify network access, GPU readiness or pipeline compatibility. Missing Conda returns a nonzero result. Download or installation errors stop setup with a message; rerun after correcting the issue. Interrupted downloads restart from the beginning. An incomplete Conda directory requires inspection, and is never deleted automatically.
+
+Run as your regular Ubuntu user, without sudo. The installer keeps a log at `~/.local/share/bactomics/setup.log`. It does not edit shell startup files, move results, install databases or launch analyses. Pipeline environments remain separate. After launch, use **Install & update → Guided setup** for hardware detection, pipeline/environment setup, database locations and readiness checks. Keep the launching terminal open.
+
 ## Install on Linux or WSL2
 
 Install Python 3.11+ and Git. Download the wheel, then use its actual path:
