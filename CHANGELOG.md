@@ -1,5 +1,11 @@
 # Bactologix releases
 
+## 0.1.0a40 — beginner installation
+
+- Add Windows/WSL/Ubuntu preparation instructions and a copy-paste installer. Discover Conda, optionally install verified Miniforge, and create bactomics or reuse legacy bactomix.
+- Verify release downloads, preserve existing application installations and analysis data, and launch the existing guided setup. Include local preflight, installation lock and setup log.
+- Clean-machine Windows/WSL and native Miniforge installation remain user acceptance checks. Interrupted downloads restart from scratch; incomplete Conda locations require inspection.
+
 ## 0.1.0a39 — aligned statuses and default app mode
 
 - Align job statuses in a consistent column regardless of action count.
