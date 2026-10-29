@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from bactologix.catalog import PIPELINES
+from bactologix.catalog import PIPELINES, versions, supported
 from bactologix.controllers import controller_requirements
 from bactologix.engine import prepare_first_install
 from bactologix import maintenance, setup_state, run_config
@@ -17,6 +17,16 @@ from bactologix.ui_backend import snapshot, installation_status
 
 
 class MICPscopeTests(unittest.TestCase):
+    def test_named_micpscope_release_preserves_supported_snapshots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(directory)
+            rows = versions(store, 'micpscope')['versions']
+            self.assertTrue(rows[0]['name'].startswith('micpscope-v0.1.0a4'))
+            self.assertNotIn('main', rows[0]['ref'])
+            for commit in PIPELINES['micpscope']['previous_commits']:
+                self.assertTrue(supported('micpscope', commit))
+                self.assertTrue(any(row['commit'] == commit for row in rows))
+
     def test_fresh_workspace_all_three_pipelines(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(directory)
@@ -147,3 +157,4 @@ class MICPscopeTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

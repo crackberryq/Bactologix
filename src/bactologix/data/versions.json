@@ -343,8 +343,19 @@
       "checkedAt": "2026-10-29"
     },
     "micpscope": {
-      "checkedAt": "2026-10-29T00:00:00+00:00",
-      "versions": []
+      "checkedAt": "2026-10-29T00:00:00Z",
+      "versions": [
+        {
+          "id": "release:micpscope-v0.1.0a4",
+          "kind": "release",
+          "ref": "micpscope-v0.1.0a4",
+          "name": "MICP Scope 0.1.0a4",
+          "commit": "8490e9d1587a7ad40d0e8f687fcf9375637faa2e",
+          "url": "https://github.com/crackberryq/Bactomics_MICPscope/releases/tag/micpscope-v0.1.0a4",
+          "preferred": true,
+          "prerelease": true
+        }
+      ]
     }
   }
 }

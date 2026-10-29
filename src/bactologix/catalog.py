@@ -19,8 +19,9 @@ PIPELINES = {
               "previous_commits": ["1d2d96b266e98d956254d1a518ff5b437ab7a10a", "f66dfedd46da05ae79bf769e7e6fada91270d4d1", "d2d2e7806df4d2f586dc4a11d5c1f980deb06857"],
               "previous_ref": "snakemake-standalone",
               "snakefile": "BaSIS.smk", "environment": "environment.yml"},
-    "micpscope": {"name": "MICP Scope", "repo": "crackberryq/Bactomics_MICPscope", "preferred": "main",
-                  "commit": "63b2ac9682d3afcd593302a01da4187af739d96f", "previous_commits": ["4e5cdfad54d6d7d0c198f9458aa27dd1316da0a2"], "snakefile": "MICPscope.smk", "environment": "environment.yml"},
+    "micpscope": {"name": "MICP Scope", "repo": "crackberryq/Bactomics_MICPscope", "preferred": "micpscope-v0.1.0a4",
+                  "commit": "8490e9d1587a7ad40d0e8f687fcf9375637faa2e", "previous_commits": ["63b2ac9682d3afcd593302a01da4187af739d96f", "4e5cdfad54d6d7d0c198f9458aa27dd1316da0a2"],
+                  "release_names": {"8490e9d1587a7ad40d0e8f687fcf9375637faa2e": "micpscope-v0.1.0a4", "63b2ac9682d3afcd593302a01da4187af739d96f": "micpscope-v0.1.0a3", "4e5cdfad54d6d7d0c198f9458aa27dd1316da0a2": "micpscope-v0.1.0a2"}, "snakefile": "MICPscope.smk", "environment": "environment.yml"},
 }
 
 
@@ -47,7 +48,7 @@ def fetch_versions(tool):
     rows = []
     for branch in pages(base + "/branches"):
         name = branch["name"]
-        rows.append(dict(id="branch:" + name, kind="branch", ref=name, name=name,
+        rows.append(dict(id="branch:" + name, kind="branch", ref=name, name=("MICP Scope development" if tool == "micpscope" and name == "main" else name),
                          commit=branch["commit"]["sha"], url=f'https://github.com/{spec["repo"]}/tree/{quote(name, safe="")}',
                          preferred=name == spec["preferred"], prerelease=False))
     for release in pages(base + "/releases"):
@@ -76,9 +77,10 @@ def versions(store, tool):
     # Moving branches must never hide the compatible snapshots after a refresh.
     pinned = []
     for commit in [spec["commit"], *spec.get("previous_commits", [])]:
-        ref = spec["preferred"] if commit == spec["commit"] else spec.get("previous_ref", spec["preferred"])
+        ref = spec.get("release_names", {}).get(commit) or (spec["preferred"] if commit == spec["commit"] else spec.get("previous_ref", spec["preferred"]))
+        display_name = (ref + (" — recommended" if commit == spec["commit"] else " — earlier compatible snapshot")) if "release_names" in spec else ("Recommended compatible snapshot" if commit == spec["commit"] else "Earlier compatible snapshot")
         pinned.append(dict(id="commit:" + commit, kind="pinned", ref=ref + " @ " + commit[:8],
-                           name="Recommended compatible snapshot" if commit == spec["commit"] else "Earlier compatible snapshot",
+                           name=display_name,
                            commit=commit, url=f'https://github.com/{spec["repo"]}/tree/{commit}',
                            preferred=commit == spec["commit"], prerelease=False))
     result["versions"] = pinned + [row for row in result["versions"] if row["kind"] != "pinned"]

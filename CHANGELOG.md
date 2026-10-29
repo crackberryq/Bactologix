@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0a49 — named MICP Scope release and categorized reports
+
+- Recommend `micpscope-v0.1.0a4` with a cited JSON catalog and categorized gene/function reports.
+- Keep previous compatible snapshots, preserve the reviewed-release contract system, and label development sources explicitly.
+
+
 ## 0.1.0a48 — reviewed releases and consistent pipeline flow
 
 - Order all shared pipeline controls as HybAs AWARE, BaSIS AWARE, then MICP Scope. Keep the database heading, tabs and resource-card layout for pipelines without external databases.
