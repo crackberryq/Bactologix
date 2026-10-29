@@ -270,3 +270,7 @@ td{padding:16px 20px;line-height:1.5}.table-wrap{max-width:100%;overscroll-behav
  #toast{right:12px;bottom:12px;max-width:calc(100vw - 24px);font-size:12px}
 }
 @media(prefers-reduced-motion:reduce){.sidebar,#toast{transition:none}}
+
+/* Keep statuses aligned across rows with different action counts. */
+@media(min-width:1201px){.job-card{grid-template-columns:minmax(0,1fr) 112px 400px}.job-card>.button-row{width:400px;justify-content:flex-end}.job-card>div:nth-child(2){padding-top:8px}.job-card>div:nth-child(2)>.pill{min-width:88px;justify-content:center}}
+@media(min-width:601px) and (max-width:1200px){.job-card{grid-template-columns:minmax(0,1fr) 112px}.job-card>div:nth-child(2)>.pill{min-width:88px;justify-content:center}}
