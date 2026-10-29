@@ -192,11 +192,14 @@ def test_saved_followup_native_parse_and_empty_execution(tmp_path, monkeypatch):
     deep = default_config()['deep']
     deep.update(enabled=False, domain_scan=False, motifs=False, phylogeny=False,
                 auto_phylogeny=False, family_placement=False, prosite_profiles=False)
-    config = write('metadata/config.json', {'version': '0.4.0a1', 'engine': 'snakemake',
+    config = write('metadata/config.json', {'version': '0.4.0a2', 'engine': 'snakemake',
                    'options': {'deep': False}, 'modules': {'minced': {'enabled': True}}, 'deep': deep})
     evidence = write('evidence/minced.json', {'schema_version': 1, 'sample_id': 'synthetic', 'module': 'minced',
                      'execution_status': 'completed', 'input_hashes': hashes, 'findings': [], 'metrics': {}, 'artifacts': []})
     render(safety / 'metadata/sample.json', config, [evidence], safety, view='screening', evidence_root=safety)
+    page = (safety / 'report.html').read_text()
+    assert 'Results by tool' in page and 'Tools finished' in page
+    assert (safety / 'tables/screening-findings.tsv').is_file()
     before = {str(p): (hashlib.sha256(p.read_bytes()).hexdigest(), p.stat().st_mtime_ns)
               for p in safety.rglob('*') if p.is_file()}
     parent.update(completed='software fixture', dry_run_ok=True)

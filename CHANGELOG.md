@@ -1,5 +1,12 @@
 # Bactologix releases
 
+## 0.1.0a44 — BaSIS readable-report release
+
+- Support BaSIS AWARE v0.4.0a2 at its exact release commit, including the readable screening report and ISEScan zero-result parser fix. New runs generate the report automatically.
+- Update the recommended installation, bundled source metadata and adapter CI to the released commit. Earlier BaSIS installations and existing run bindings remain supported.
+- Retain Methods defaults for v0.4.0a1 through an explicit equivalence entry; the relevant analysis defaults are unchanged. Follow-up remains available for both reviewed releases.
+- Update Bactologix first, restart it, then refresh the BaSIS catalogue under Install & update and install/select v0.4.0a2. Complete its existing setup/check flow and create a new test draft; earlier drafts stay bound to their recorded version.
+
 ## 0.1.0a43 — report viewer space and folder access
 
 - Fill the report dialog with the report, removing the fixed-height blank area and redundant helper text.

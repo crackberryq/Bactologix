@@ -2,7 +2,7 @@
   "schema": 1,
   "sources": {
     "hybas": "780ee7086c15c49f2825800ec463327f009f14a6",
-    "basis": "1d2d96b266e98d956254d1a518ff5b437ab7a10a"
+    "basis": "14f161a1f252a712053892961edf2275469c8dab"
   },
   "defaults": {
     "hybas": {
@@ -277,5 +277,10 @@
         "directory": "resources"
       }
     }
+  },
+  "equivalent_sources": {
+    "basis": [
+      "1d2d96b266e98d956254d1a518ff5b437ab7a10a"
+    ]
   }
 }

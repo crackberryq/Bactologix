@@ -14,9 +14,9 @@ PIPELINES = {
               "commit": "780ee7086c15c49f2825800ec463327f009f14a6", "previous_commits": ["9477fd3b6578e23a84d6524e1c89e65e01590f03"],
               "snakefile": "Hybas.smk", "environment": "environment.yaml"},
     "basis": {"name": "BaSIS AWARE", "repo": "crackberryq/Bactomics_BaSIS", "preferred": "basis-aware",
-              "commit": "1d2d96b266e98d956254d1a518ff5b437ab7a10a",
-              "followup_commits": ["1d2d96b266e98d956254d1a518ff5b437ab7a10a"],
-              "previous_commits": ["f66dfedd46da05ae79bf769e7e6fada91270d4d1", "d2d2e7806df4d2f586dc4a11d5c1f980deb06857"],
+              "commit": "14f161a1f252a712053892961edf2275469c8dab",
+              "followup_commits": ["14f161a1f252a712053892961edf2275469c8dab", "1d2d96b266e98d956254d1a518ff5b437ab7a10a"],
+              "previous_commits": ["1d2d96b266e98d956254d1a518ff5b437ab7a10a", "f66dfedd46da05ae79bf769e7e6fada91270d4d1", "d2d2e7806df4d2f586dc4a11d5c1f980deb06857"],
               "previous_ref": "snakemake-standalone",
               "snakefile": "BaSIS.smk", "environment": "environment.yml"},
 }
@@ -66,7 +66,9 @@ def versions(store, tool):
     cached = store.get("catalog", tool)
     if not cached:
         snapshot = json.loads((DATA / "versions.json").read_text())
-        cached = {"checkedAt": snapshot["checkedAt"], "versions": snapshot["pipelines"][tool]["versions"], "live": False}
+        pipeline = snapshot["pipelines"][tool]
+        cached = {"checkedAt": pipeline.get("checkedAt", snapshot["checkedAt"]),
+                  "versions": pipeline["versions"], "live": False}
     result = copy.deepcopy(cached)
     spec = PIPELINES[tool]
     # Moving branches must never hide the compatible snapshots after a refresh.

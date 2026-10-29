@@ -73,13 +73,23 @@
     },
     "basis": {
       "repo": "crackberryq/Bactomics_BaSIS",
-      "preferred": "snakemake-standalone",
+      "preferred": "basis-aware",
       "sources": [
         "https://api.github.com/repos/crackberryq/Bactomics_BaSIS/releases?per_page=100",
         "https://api.github.com/repos/crackberryq/Bactomics_BaSIS/branches?per_page=100",
         "https://api.github.com/repos/crackberryq/Bactomics_BaSIS/git/matching-refs/tags/"
       ],
       "versions": [
+        {
+          "id": "release:v0.4.0a2",
+          "kind": "release",
+          "ref": "v0.4.0a2",
+          "name": "BaSIS AWARE 0.4.0a2 \u2014 Alpha",
+          "commit": "14f161a1f252a712053892961edf2275469c8dab",
+          "url": "https://github.com/crackberryq/Bactomics_BaSIS/releases/tag/v0.4.0a2",
+          "preferred": false,
+          "prerelease": true
+        },
         {
           "id": "release:v0.4.0a1",
           "kind": "release",
@@ -95,7 +105,7 @@
           "kind": "branch",
           "ref": "basis-aware",
           "name": "basis-aware",
-          "commit": "1d2d96b266e98d956254d1a518ff5b437ab7a10a",
+          "commit": "14f161a1f252a712053892961edf2275469c8dab",
           "url": "https://github.com/crackberryq/Bactomics_BaSIS/tree/basis-aware",
           "preferred": true,
           "prerelease": false
@@ -329,7 +339,8 @@
           "url": "https://github.com/crackberryq/Bactomics_BaSIS/tree/releases/0.3.0rc8",
           "preferred": false
         }
-      ]
+      ],
+      "checkedAt": "2026-10-29"
     }
   }
 }

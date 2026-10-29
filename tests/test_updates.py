@@ -38,11 +38,19 @@ def test_compatible_snapshots_survive_moving_branch_and_preserve_prior_commit(tm
     cached = {"live": True, "checkedAt": "test", "versions": [dict(id="branch:snakemake-standalone", kind="branch", commit="0"*40)]}
     store.put("catalog", "basis", cached)
     rows = versions(store, "basis")["versions"]
-    assert rows[0]["commit"] == "1d2d96b266e98d956254d1a518ff5b437ab7a10a"
+    assert rows[0]["commit"] == "14f161a1f252a712053892961edf2275469c8dab"
+    assert supported("basis", "1d2d96b266e98d956254d1a518ff5b437ab7a10a")
     assert supported("basis", "f66dfedd46da05ae79bf769e7e6fada91270d4d1")
     assert supported("basis", "d2d2e7806df4d2f586dc4a11d5c1f980deb06857")
     assert not supported("basis", "0"*40)
     assert store.get("catalog", "basis") == cached
+
+
+def test_bundled_basis_release_has_its_own_review_date(tmp_path):
+    row = versions(Store(tmp_path), 'basis')
+    assert row['checkedAt'] == '2026-10-29' and not row['live']
+    published = next(item for item in row['versions'] if item['id'] == 'release:v0.4.0a2')
+    assert published['commit'] == PIPELINES['basis']['commit']
 
 
 def test_downloaded_basis_can_finish_setup_without_forcing_repair(tmp_path, monkeypatch):

@@ -116,6 +116,17 @@ def test_unknown_source_never_borrows_current_defaults(workspace, run):
     assert not doc['software']
 
 
+def test_previous_basis_release_retains_equivalent_methods_defaults(run, monkeypatch):
+    saved = basis_run(run, monkeypatch)
+    saved['commit'] = '1d2d96b266e98d956254d1a518ff5b437ab7a10a'
+    warnings = []
+    _, _, known = methods._configuration(saved, warnings)
+    assert known and not warnings
+    saved['commit'] = 'e' * 40
+    _, _, known = methods._configuration(saved, [])
+    assert not known
+
+
 def test_derived_memory_default_and_quoted_boolean(workspace, run):
     cfg = yaml.safe_load(run['config'])
     cfg.update(assembly_mem_mb=6000, run_busco='false')
