@@ -326,3 +326,21 @@ def test_stale_fork_lock_is_recoverable(workspace, parent):
     with variants.freeze(workspace, parent['id']):
         assert workspace.get('variant_lock', parent['id']).get('path')
     assert workspace.get('variant_lock', parent['id']) is None
+
+
+def test_post_completion_replacements_are_not_parent_checkpoints(workspace, parent):
+    import os
+    from datetime import datetime
+    future = datetime.fromisoformat(parent['completed']).timestamp() + 60
+    root = Path(parent['folder']) / 'workflow/.snakemake/metadata'
+    for path in root.rglob('*'):
+        if path.is_file():
+            row = json.loads(path.read_text())
+            if row.get('rule') == 'unicycler':
+                row['endtime'] = future
+                path.write_text(json.dumps(row))
+    output = Path(parent['output'], 'assembly.txt')
+    os.utime(output, (future, future))
+    child = branch(workspace, parent, racon_rounds=2)
+    manifest = json.loads(Path(child['folder'], 'variant.json').read_text())
+    assert 'unicycler' not in {row['rule'] for row in manifest['checkpoints']}

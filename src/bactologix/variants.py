@@ -206,7 +206,8 @@ def native_records(parent):
             continue
         if (not output.is_relative_to(Path(parent['output'])) or record.get('incomplete') is not False
                 or record.get('record_format_version') != 6
-                or not record.get('endtime') or not record.get('rule')):
+                or not record.get('endtime') or not record.get('rule')
+                or record['endtime'] > datetime.fromisoformat(parent['completed']).timestamp() + 1):
             continue
         rows.append({'output': str(output), 'record': record})
     if parent.get('variant'):

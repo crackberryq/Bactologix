@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+from datetime import datetime
 
 
 def relocate(value, old, new):
@@ -50,6 +51,8 @@ def seed(request):
         if any(path not in imported_receipts for path in extras):
             continue  # Unknown cache dependencies are never rebound by guesswork.
         row = native.verify_receipt(receipt)
+        if parent.get('completed') and datetime.fromisoformat(row['finished_at']).timestamp() > datetime.fromisoformat(parent['completed']).timestamp() + 1:
+            raise ValueError('A native result was replaced after the parent completed; verify the parent before branching')
         payload = Path(row['payload_root'])
         destination = Path(row['destination'])
         if not destination.parent.resolve().is_relative_to(Path(parent['output']).resolve()) or not re.fullmatch(r'[a-z][a-z0-9_-]*', row['name']):
