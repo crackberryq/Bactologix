@@ -1,3 +1,8 @@
+# Validation update: 0.1.0a42 (2026-10-29)
+
+- Added browser coverage for the four reported controls, nested section navigation, native beforeprint, origin isolation and unchanged saved files.
+- Python 3.11/3.12, Chromium and sample-free environment CI are release gates. Physical Windows/WSL print-dialog and PDF destination selection remain workstation acceptance checks. No sample analyses are required or launched.
+
 # Validation update: 0.1.0a41 (2026-10-29)
 
 - All 16 focused installer tests passed. New cases cover launch/no-launch for fresh and reused environments, lock removal before browser/application startup, and low-disk checks with and without Conda.

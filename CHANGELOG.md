@@ -1,5 +1,11 @@
 # Bactologix releases
 
+## 0.1.0a42 — saved report navigation
+
+- Keep report section links inside the embedded report instead of navigating to an empty application page. Open enclosing details when jumping to a section.
+- Allow native report printing and Save PDF while retaining origin isolation. Existing saved HTML files are unchanged.
+- Add a Chromium regression for Run files, Screening calls, Cite BaSIS and native printing.
+
 ## 0.1.0a41 — installer preflight and lock fixes
 
 - Fail read-only preflight on insufficient disk even when Conda is present.
