@@ -78,7 +78,9 @@ def main():
     print('System:', platform.platform(), '\nArchitecture:', arch, '\nConda:', conda or 'missing', '\nHome free space: %.1f GiB' % (free / 2**30))
     print('Pipeline environments and databases need additional space and are configured inside Bactologix.')
     if args.check:
-        return 0 if conda else 1
+        if free < 3 * 2**30:
+            print('Blocked: application setup requires at least 3 GiB free home space.')
+        return 0 if conda and free >= 3 * 2**30 else 1
     if free < 3 * 2**30:
         parser.error('At least 3 GiB free home space is required for application setup; pipeline storage is additional.')
     if not conda and not args.install_conda:
@@ -117,20 +119,20 @@ def main():
             if installed == 'True':
                 print('Existing Bactologix preserved. Use its in-app updater to change versions.')
                 command = Path(prefix) / 'bin/bactologix'
-                return 0 if args.no_launch else subprocess.call([str(command)])
-            rows = get_json('https://api.github.com/repos/crackberryq/Bactologix/releases?per_page=100')
-            release = select_release(rows, args.channel)
-            asset = next(a for a in release['assets'] if a['name'].startswith('bactologix-') and a['name'].endswith('-py3-none-any.whl'))
-            wheel = temp / asset['name']
-            download(asset, wheel)
-            run([python, '-m', 'pip', 'install', '--upgrade', wheel], log)
-            run([python, '-m', 'pip', 'check'], log)
-            command = Path(prefix) / 'bin/bactologix'
-            print('Installed:', release['tag_name'], '\nLaunch:', command, '\nSetup log:', log)
-        if not args.no_launch:
-            return subprocess.call([str(command)])
+            else:
+                rows = get_json('https://api.github.com/repos/crackberryq/Bactologix/releases?per_page=100')
+                release = select_release(rows, args.channel)
+                asset = next(a for a in release['assets'] if a['name'].startswith('bactologix-') and a['name'].endswith('-py3-none-any.whl'))
+                wheel = temp / asset['name']
+                download(asset, wheel)
+                run([python, '-m', 'pip', 'install', '--upgrade', wheel], log)
+                run([python, '-m', 'pip', 'check'], log)
+                command = Path(prefix) / 'bin/bactologix'
+                print('Installed:', release['tag_name'], '\nLaunch:', command, '\nSetup log:', log)
     finally:
         lock.rmdir()
+    if not args.no_launch:
+        return subprocess.call([str(command)])
     return 0
 
 
