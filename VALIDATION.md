@@ -1,3 +1,8 @@
+# Validation update: 0.1.0a40 (2026-10-29)
+
+- Ten focused installer tests pass, covering release channels/drafts, missing digests, origin checks, checksum/size failures, interrupted connections, Conda discovery, fresh/reused application environments, preserved existing installations and low-disk/read-only preflight. Environment installation is simulated in these tests.
+- Python syntax passes. Full Python, browser and real sample-free environment CI remain release gates. Fresh workstation Ubuntu/WSL setup, Miniforge bootstrap and browser appearance remain outstanding acceptance checks. No sample analyses were launched.
+
 # Validation update: 0.1.0a39 (2026-10-29)
 
 - Expanded release scope: fixed status-column geometry, default app-mode launch and a regular-browser handoff using only the current launcher address. Added backend/default-mode and Chromium geometry/button regressions. Full release CI must validate this final scope. Physical Windows app-window behavior remains unverified.
