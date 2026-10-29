@@ -212,7 +212,7 @@ def native_records(parent):
         rows.append({'output': str(output), 'record': record})
     if parent.get('variant'):
         manifest = json.loads(Path(parent['folder'], 'variant.json').read_text())
-        inherited = {o['path']: o for e in manifest.get('checkpoints', []) for o in e.get('outputs', [])}
+        inherited = {o['path']: o for e in manifest.get('checkpoints', []) for o in e.get('outputs', []) if 'native_record' in o}
         rows = [r for r in rows if r['output'] not in inherited]
         for path, entry in inherited.items():
             source = Path(path) if Path(path).exists() else Path(entry['cache'])
@@ -418,7 +418,7 @@ def branch(store, parent, child):
                         'checkpoints': len(manifest.get('checkpoints', [])),
                         'changed': manifest.get('changed', []),
                         'unknown_changes': manifest.get('unknown_changes', []),
-                        'mode': 'native_cache' if parent['tool'] == 'basis' else 'checkpoints',
+                        'mode': ('mixed' if child.get('variant_entry') else 'native_cache') if parent['tool'] == 'basis' else 'checkpoints',
                         'items': [{'rule': e['rule'], 'outputs': [str(Path(o['path']).relative_to(child['output'])) for o in e.get('outputs', [])]} for e in manifest.get('checkpoints', [])]}
     child['reuse'] = 'Isolated result branch. Inherited results and newly executed work are recorded separately in variant.json.'
     child['label'] = parent['label'] + ' · variant'
@@ -440,6 +440,10 @@ def verify(run, full=True):
     if run.get('variant_entry') and sha(root / 'restore_variant.py') != run['variant_restore_sha256']:
         raise ValueError('The checkpoint restore program changed.')
     manifest = json.loads((root / 'variant.json').read_text())
+    if full and manifest.get('saved_result_dependencies'):
+        from .variants_saved import verify_dependencies, verify_resources
+        verify_dependencies(manifest['saved_result_dependencies'])
+        verify_resources(run, manifest.get('saved_result_resources', []))
     if manifest.get('checkpoints') and manifest.get('shared_context') and shared_context(run, manifest['shared_context']) != manifest['shared_context']:
         raise ValueError('Shared environments or databases changed after this variant was created. Recreate the variant to reassess reuse.')
     for path, expected in manifest.get('inputs', {}).items():

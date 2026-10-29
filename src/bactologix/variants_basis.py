@@ -20,6 +20,10 @@ def seed(parent, child):
                 'config_sha256': child['config_sha256'], 'changed': changes(parent, child),
                 'checkpoints': imported, 'verification': 'Native BaSIS verified payload copies. Each native job rechecks its full execution identity before reuse.',
                 'limitations': 'Only native completion-cache modules are imported. Other modules recompute through their native workflow.'}
+    from .variants_saved import snapshot
+    snapshot(parent, child, manifest)
+    manifest['verification'] = 'Native BaSIS caches recheck execution identity. Completed-result bundles use recorded artifact/input hashes and unchanged settings/resources.'
+    manifest['limitations'] = 'Modules without a reviewed cache or completed-result interface recompute through their native workflow.'
     write(root / 'variant.json', manifest)
     request.unlink()
     (root / 'variant-imported.json').unlink()

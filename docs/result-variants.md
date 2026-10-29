@@ -16,7 +16,7 @@ verification jobs; these do not imply that the original analysis tool ran again.
 | Pipeline | Reuse mechanism | Current boundary |
 | --- | --- | --- |
 | HybAs `780ee7086c15c49f2825800ec463327f009f14a6` | Completed Snakemake checkpoints, copied and SHA256-checked; concrete import rules supply them to the native DAG | Reviewed changes: Racon rounds, polishing mode, Medaka model, Polypolish/BUSCO/Prokka/MultiQC selection and BUSCO lineage. Other changes conservatively invalidate checkpoints. |
-| BaSIS `14f161a1f252a712053892961edf2275469c8dab` | Native verified completion caches, copied into the child and rebound to its paths | Native completion-cache modules, including the RGI database dependency when available. Every native job still checks its full execution identity before accepting a cache hit. PathogenFinder2, DeepSafe and other outputs without this native cache interface are not imported in this alpha. |
+| BaSIS `14f161a1f252a712053892961edf2275469c8dab` | Native verified completion caches, copied into the child and rebound to its paths | Native completion-cache modules, including the RGI database dependency when available. Every native job still checks its full execution identity before accepting a cache hit. PathogenFinder2 uses its older completed-evidence/checksum interface, described below. DeepSafe and other outputs without a reviewed reuse interface still recompute. |
 | MICP Scope a3–a5 | The native `protein_properties` multi-output checkpoint | Same inputs/configuration; report generation remains native. A changed/unrecognized setting conservatively recalculates properties. |
 
 For **Racon 1 → 2**, valid trimming, Kraken, AWARE, assembly and round-1 artifacts
@@ -29,6 +29,31 @@ B executes normally. If A's inputs, settings, executable, environment, resource
 identity or relevant source differ, BaSIS recomputes A according to its existing
 rules. Unticking A excludes its cache from import and lets the native workflow
 record its excluded scope. No interpretation thresholds are changed.
+
+## Completed PathogenFinder2 results
+
+Starting with Bactologix a52, a completed PathogenFinder2 assessment can be
+retained from the reviewed BaSIS v0.4.0a2 commit without updating or rerunning
+that parent. The adapter checks the native normalization completion record,
+recorded input and artifact SHA256 hashes, per-module settings, resource
+receipts and inventories, recorded classifier weights and environment records.
+It copies the recorded embeddings, classification artifacts and parsed result;
+only run-local paths in copied JSON documents are rebound. Original documents
+and evidence remain in `variant.json`. Native normalization and reporting run
+for the child; historical inference and runtime are not claimed as new work.
+
+Adding another module does not invalidate this completed bundle. Unticking
+PathogenFinder2 excludes it. Changes to its settings or shared configuration,
+missing provenance, modified bytes or changed environments prevent reuse and
+are explained under Result inheritance. This is completed-result reuse, not
+partial-stage recovery: an incomplete PathogenFinder2 assessment must finish
+normally before it can be inherited. No models, thresholds or interpretation
+rules are changed. Existing variants keep their frozen behavior; create a new
+variant after updating the application to use this adapter.
+
+Full resource checksum verification can take time for large model files. The
+copy needs space for both its immutable snapshot and materialized outputs.
+Files merely present on disk are never treated as completed results.
 
 ## Provenance and integrity
 

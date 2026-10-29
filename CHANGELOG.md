@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0a52 — preserve completed PathogenFinder2 results in variants
+
+- Reuse completed PathogenFinder2 result bundles from the reviewed BaSIS v0.4.0a2 release when recorded inputs, settings, artifacts, resources and environment provenance still agree. Rebind copied artifact paths to the child; retain original evidence and checksums.
+- Keep changed or unverified results out of reuse and explain why. Unticking the module excludes it; original runs remain unchanged. DeepSafe reuse remains outside the reviewed interfaces.
+- Fix native BaSIS cache imports to locate the nested workflow libraries in actual managed run folders. Regression fixtures now reproduce that layout.
+- Test opaque artifact restoration without invoking original stages, changed-input/resource rejection, repeated branching, the native normalization interface and the real BaSIS DAG. Native scientific-tool and physical Windows/WSL acceptance remain outstanding; no user analyses are run.
+
 ## 0.1.0a51 — isolated result variants
 
 - Add Create variant for completed managed HybAs, BaSIS and MICP Scope runs, preserving the parent and recording inherited results separately from new execution.
