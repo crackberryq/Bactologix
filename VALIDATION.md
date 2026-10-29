@@ -1,3 +1,9 @@
+# Validation update: 0.1.0a52 (2026-10-30)
+
+- Added opaque saved-result fixtures for PathogenFinder2 bundle copies, checksum/configuration/resource rejection, downstream native normalization and repeated branching. Original stages in the execution fixture fail if invoked; no inference or sample analysis is performed.
+- Parsed the reviewed BaSIS DAG with a completed-result overlay. Corrected the native-cache tests to reproduce the nested managed source layout, catching and fixing the a51 helper import path.
+- Full Python 3.11/3.12, browser and sample-free environment CI remain publication gates. Native scientific-tool, large-dataset and physical Windows/WSL acceptance remain outstanding.
+
 # Validation update: 0.1.0a51 (2026-10-29)
 
 - Added text-only native Snakemake regression tests for Racon 1→2→3 with no repeated upstream commands, parent isolation, multi-output MICP checkpoints, unscoped-change invalidation, source/input/cache integrity, rollback and recoverable copy locks.

@@ -180,19 +180,19 @@ def test_basis_native_cache_is_relocated_and_rechecked(tmp_path):
         pytest.skip('Pinned BaSIS source required')
     old, new = tmp_path / 'parent', tmp_path / 'child'
     for root in (old, new):
-        shutil.copytree(source / 'workflow', root / 'workflow')
+        shutil.copytree(source, root / 'workflow', ignore=shutil.ignore_patterns('.git', '__pycache__', '*.pyc'))
         (root / 'outputs/sample').mkdir(parents=True)
     input_file = tmp_path / 'input.txt'
     input_file.write_text('Synthetic cache input; no sequence data\n')
     program = tmp_path / 'fake-tool'
     program.write_text('Fixture executable identity; never executed\n')
-    env = {**os.environ, 'PYTHONPATH': str(old / 'workflow/lib')}
+    env = {**os.environ, 'PYTHONPATH': str(old / 'workflow/workflow/lib')}
     setup = '''
 import json, sys
 from pathlib import Path
 from safety import result_store as r
 root, input_file, program = map(Path, sys.argv[1:])
-source = root / 'workflow/lib/safety/native.py'
+source = root / 'workflow/workflow/lib/safety/native.py'
 identity = {'schema': r.INPUT_SCHEMA, 'module': 'minced',
  'inputs': {'assembly': {'path': str(input_file), 'sha256': r.sha256(input_file)}},
  'sources': {str(source): r.sha256(source)}, 'environments': [{'fixture': 'v1'}],
@@ -253,11 +253,11 @@ row, reused = r.run_cached('minced', identity, Path(record['destination']), root
  lambda payload: (payload / 'result.txt').write_text('changed tool ran'), lambda payload: None)
 assert not reused
 '''
-    subprocess.run([sys.executable, '-c', verify, str(new)], env={**env, 'PYTHONPATH': str(new / 'workflow/lib')}, check=True)
+    subprocess.run([sys.executable, '-c', verify, str(new)], env={**env, 'PYTHONPATH': str(new / 'workflow/workflow/lib')}, check=True)
     assert all(Path(p).read_bytes() == data for p, data in originals.items())
     # Unticking a tool excludes its cache from the new branch.
     third = tmp_path / 'excluded'
-    shutil.copytree(source / 'workflow', third / 'workflow')
+    shutil.copytree(source, third / 'workflow', ignore=shutil.ignore_patterns('.git', '__pycache__', '*.pyc'))
     excluded = {**child, 'folder': str(third), 'output': str(third / 'outputs/sample'),
                 'config': 'modules:\n  minced: {enabled: false}\n  rgi: {enabled: false}\n'}
     request.write_text(json.dumps({'parent': parent, 'child': excluded}))

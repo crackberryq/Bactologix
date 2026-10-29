@@ -29,7 +29,7 @@ def relocate(value, old, new):
 def seed(request):
     parent, child = request['parent'], request['child']
     old, new = parent['folder'], child['folder']
-    sys.path[:0] = [str(Path(new) / 'workflow/lib'), str(Path(new) / 'workflow/vendor')]
+    sys.path[:0] = [str(Path(new) / 'workflow/workflow/lib'), str(Path(new) / 'workflow/workflow/vendor')]
     from safety import result_store as native
     import yaml
     old_cfg, cfg = yaml.safe_load(parent['config']), yaml.safe_load(child['config'])
