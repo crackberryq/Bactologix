@@ -31,8 +31,10 @@ def test_sample_picker_configuration_and_report(tmp_path):
             source = tmp_path / (tool + '-ui-fixture')
             (source / recipe).parent.mkdir(parents=True)
             (source / recipe).write_text('dependencies: [python=3.11]\n')
+        runner = tmp_path / (tool + '-runner-fixture')
+        runner.mkdir()
         item = {'id': tool + '-ui-fixture', 'tool': tool, 'source': str(source),
-                'controller': '/ui-fixture/runner', 'ready': True,
+                'controller': str(runner), 'ready': True,
                 'version': {'commit': PIPELINES[tool]['commit'], 'ref': 'Browser UI fixture'}}
         store.put('installs', item['id'], item)
         store.put('settings', 'active-' + tool, item['id'])

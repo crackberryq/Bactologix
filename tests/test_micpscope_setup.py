@@ -109,6 +109,15 @@ class MICPscopeTests(unittest.TestCase):
                 (annotation/'demo.evidence.csv').write_text('changed')
                 with self.assertRaises(ValueError):check_run_files(run)
 
+    def test_missing_recorded_runner_requires_setup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            record = {'id': 'missing', 'tool': 'micpscope', 'source': directory,
+                      'version': {'commit': PIPELINES['micpscope']['commit']},
+                      'controller': str(Path(directory)/'missing-runner'), 'ready': True}
+            status = installation_status(record, [])
+            self.assertEqual(status['setup_state'], 'Setup incomplete')
+            self.assertIn('runner folder is missing', status['setup_message'])
+
     def test_native_micpscope_workflow(self):
         import os
         import json
