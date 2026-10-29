@@ -41,6 +41,24 @@ def editor(store, rid):
 
 
 def apply(store, payload):
+    if payload.get("variant"):
+        from . import variants
+        with variants.freeze(store, payload.get("id")):
+            parent = source(store, payload.get("id"))
+            variants.eligible(store, parent)
+            child = _apply(store, payload)
+            try:
+                return variants.branch(store, parent, child)
+            except BaseException:
+                import shutil
+                shutil.rmtree(child["folder"], ignore_errors=True)
+                with store.connect() as db:
+                    db.execute("DELETE FROM items WHERE kind='runs' AND id=?", (child["id"],))
+                raise
+    return _apply(store, payload)
+
+
+def _apply(store, payload):
     parent = source(store, payload.get('id'))
     config = payload.get('config')
     if config is not None:
@@ -51,14 +69,29 @@ def apply(store, payload):
         text = run_config.compile_config(parent['tool'], config['text'], config.get('changes'))
     else:
         text = payload['text']  # Compatibility with older application clients.
+    if payload.get('variant') and parent['tool'] == 'basis':
+        # Results belong to the new run, even when the parent used a shared
+        # external payload store. Database/resource paths remain unchanged.
+        import yaml
+        cfg = yaml.safe_load(text)
+        if isinstance(cfg.get('storage'), dict):
+            cfg['storage'].pop('native_results_directory', None)
+        text = yaml.safe_dump(cfg, sort_keys=False)
     run_config.validate(parent['tool'], text)
     cores, memory = int(payload.get('cores', parent['cores'])), int(payload.get('memory_mb', parent['memory_mb']))
     if not 1 <= cores <= 512 or not 512 <= memory <= 2000000:
         raise ValueError('CPU or memory budget is outside the supported range')
     child = create_run(store, parent['tool'], parent['sample'], text, cores, memory,
                        parent['id'], parent['label'] + ' · revised', parent['installation'],
-                       expected_inputs=parent['inputs'])
-    child['rule_cache'] = parent.get('rule_cache', child['rule_cache'])
-    Path(child['folder'], 'bactologix-run.json').write_text(json.dumps(child, indent=2) + '\n')
-    store.put('runs', child['id'], child)
-    return child
+                       expected_inputs=parent['inputs'], register=not payload.get('variant'))
+    try:
+        child['rule_cache'] = parent.get('rule_cache', child['rule_cache'])
+        Path(child['folder'], 'bactologix-run.json').write_text(json.dumps(child, indent=2) + '\n')
+        if not payload.get('variant'):
+            store.put('runs', child['id'], child)
+        return child
+    except BaseException:
+        if payload.get('variant'):
+            import shutil
+            shutil.rmtree(child['folder'], ignore_errors=True)
+        raise

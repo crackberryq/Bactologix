@@ -216,3 +216,44 @@ def test_saved_followup_native_parse_and_empty_execution(tmp_path, monkeypatch):
         path = Path(name)
         assert (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns) == expected
     check_run_files(child)
+
+
+def test_native_hybas_accepts_isolated_checkpoint_overlay(tmp_path, monkeypatch):
+    """Parse the real pinned DAG against synthetic completion records; no tools run."""
+    import base64
+    from bactologix import run_revisions
+    from bactologix.store import now
+    store, initial = setup_run(tmp_path, 'hybas')
+    ont = Path(initial['sample']['path']) / 'raw/nanopore'
+    ont.mkdir()
+    (ont / 'synthetic.fastq').write_text('@fixture\nACGT\n+\nIIII\n')
+    cfg = yaml.safe_load(initial['config'])
+    cfg.update(polish_mode='racon', racon_rounds=1)
+    sample = {**initial['sample'], 'mode': 'hybrid'}
+    parent = create_run(store, 'hybas', sample, yaml.safe_dump(cfg), 1, 16000)
+    root = Path(parent['output'])
+    metadata = Path(parent['folder']) / 'workflow/.snakemake/metadata'
+    for relative in ('work/assembly/unicycler/assembly.fasta', 'work/assembly/stage_unicycler.fasta'):
+        output = root / relative
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text('>software_fixture\nACGT\n')
+        encoded = base64.urlsafe_b64encode(str(output).encode()).decode()
+        parts = [encoded[i:i+254] for i in range(0, len(encoded), 254)]
+        record_path = metadata.joinpath(*['@' + part for part in parts[:-1]], parts[-1])
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+        record_path.write_text(json.dumps({'record_format_version': 6, 'rule': 'unicycler', 'input': [], 'params': [],
+                                          'incomplete': False, 'endtime': output.stat().st_mtime}))
+    parent['completed'] = now()
+    store.put('runs', parent['id'], parent)
+    job = store.submit('workflow', {'run_id': parent['id'], 'action': 'run'})
+    store.update_job(job, status='succeeded')
+    panel = run_revisions.editor(store, parent['id'])
+    config = yaml.safe_load(parent['config'])
+    config['racon_rounds'] = 2
+    child = run_revisions.apply(store, {'id': parent['id'], 'variant': True, 'signature': panel['edit_run']['signature'],
+                                        'config': {'tool': 'hybas', 'text': yaml.safe_dump(config), 'changes': {}}})
+    assert child['variant']['checkpoints'] == 1
+    output = snake(store, child, monkeypatch=monkeypatch)
+    assert 'bactologix_inherit_0' in output
+    assert 'rule unicycler:' not in output
+    assert 'racon_consensus' in output
