@@ -9,6 +9,25 @@ Expand-Archive -LiteralPath (Join-Path $repo 'dist/Bactologix-Windows.zip') -Des
 . (Join-Path $temporary 'Bactologix/Bactologix.ps1') -TestMode
 $views = @(); $profiles = @(); $browserProcesses = @()
 try {
+    foreach ($encoding in @('utf-8','utf-8-sig','utf-16','utf-16-le','utf-16-be')) {
+        $code = 'import sys; sys.stdout.buffer.write(("Ubuntu\\r\\nUbuntu-24.04\\r\\n".replace("\\r",chr(13)).replace("\\n",chr(10))).encode("' + $encoding + '"))'
+        if ($encoding -eq 'utf-16-be') { $code = 'import sys; sys.stdout.buffer.write(bytes([254,255])+"Ubuntu\\r\\nUbuntu-24.04\\r\\n".replace("\\r",chr(13)).replace("\\n",chr(10)).encode("utf-16-be"))' }
+        $probe = Start-Owned 'python.exe' @('-c',$code) -Unicode
+        Assert ($probe.Process.WaitForExit(15000)) 'WSL encoding fixture timed out'
+        Assert ($probe.Process.ExitCode -eq 0) $probe.Err.Result
+        $null = $probe.Copy.GetAwaiter().GetResult()
+        $decoded = Decode-WslOutput ($probe.Bytes.ToArray()); $probe.Bytes.Dispose()
+        Assert ($decoded -eq "Ubuntu`r`nUbuntu-24.04") ('WSL names corrupted for ' + $encoding)
+    }
+    $originalCapture = (Get-Item Function:Capture).ScriptBlock
+    try {
+        function Capture { return "Ubuntu-24.04`r`nUbuntu`r`n" }
+        Assert ((@(Get-InstalledDistributions) -join ',') -eq 'Ubuntu-24.04,Ubuntu') 'Installed distribution names not preserved'
+        function Capture { throw 'fixture WSL detection error' }
+        $message = ''
+        try { Get-InstalledDistributions } catch { $message = $_.Exception.Message }
+        Assert ($message -like '*Could not read installed WSL distributions*fixture WSL detection error*') 'Detection failure was treated as missing Ubuntu'
+    } finally { Set-Item Function:Capture $originalCapture }
     $scriptPath = Join-Path $repo 'scripts/windows/Bactologix.ps1'
     $tokens=$null; $errors=$null
     $null = [Management.Automation.Language.Parser]::ParseFile($scriptPath,[ref]$tokens,[ref]$errors)

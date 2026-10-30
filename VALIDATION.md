@@ -1,3 +1,8 @@
+# Validation update: 0.1.0a56 (2026-10-31)
+
+- Windows regression checks exercise UTF-8, UTF-8 BOM, UTF-16 BOM, UTF-16LE and UTF-16BE subprocess output, installed distribution parsing, and failed discovery. All existing release gates remain required.
+- No user sample analyses are launched. Real workstation WSL detection remains an acceptance check; CI uses recorded-format fixtures.
+
 # Validation update: 0.1.0a54 (2026-10-31)
 
 - Test desktop job ownership, racing-submission rejection, confirmation/reopen, supervisor loss, application-update protection, real server shutdown and descendant-process cancellation while unrelated processes stay alive. Tests use only software fixtures.
