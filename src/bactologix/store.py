@@ -92,6 +92,13 @@ class Store:
         jid = identifier("job")
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            owner = os.environ.get('BACTOLOGIX_DESKTOP_SESSION')
+            if owner:
+                import time
+                session = db.execute("SELECT body FROM items WHERE kind='desktop_sessions' AND id=?", (owner,)).fetchone()
+                state = json.loads(session[0]) if session else {}
+                if state.get('phase') != 'ready' or time.time() - state.get('last_seen', 0) > 30:
+                    raise ValueError('This desktop session is closing or disconnected. Reopen Bactologix before starting work.')
             if kind in {'check', 'environments', 'database_download'} and payload.get('installation'):
                 if not db.execute("SELECT 1 FROM items WHERE kind='installs' AND id=?", (payload['installation'],)).fetchone():
                     raise ValueError('This installation was removed. Refresh before starting maintenance.')
@@ -123,6 +130,8 @@ class Store:
                     raise ValueError("This database download is already queued or running")
             db.execute("INSERT INTO jobs(id,kind,payload,status,created) VALUES (?,?,?,'queued',?)",
                        (jid, kind, json.dumps(payload), now()))
+            if owner:
+                db.execute("INSERT INTO items VALUES ('job_owners',?,?)", (jid, json.dumps(owner)))
             position = max(db.execute('SELECT COALESCE(MAX(position),0) FROM job_queue').fetchone()[0],
                            db.execute('SELECT MAX(rowid) FROM jobs').fetchone()[0]) + 1
             db.execute('INSERT INTO job_queue VALUES (?,?,0)', (jid, position))

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0a54 — Windows desktop setup and owned-session shutdown
+
+- Add a downloadable Windows setup bundle with visible stage progress, setup logs, prerequisite guidance and a branded desktop shortcut. Reuse the existing Linux installer and Conda environment rather than introducing a separate installation layout.
+- Launch WSL invisibly through the shortcut and open a dedicated Edge/Chrome profile. Closing its last window requests shutdown, asks before stopping active jobs, and waits visibly for cleanup. App updates finish safely before exit.
+- Tag jobs by desktop session, gate submissions while closing, and reuse native cancellation. Lost supervisor/launcher leases cancel owned work. Independent Ubuntu work and other sessions remain untouched; no WSL distribution shutdown is used.
+- Share the b-dot logo across the application, favicon, installer and shortcut. Preserve the traditional terminal launcher and its documented lifetime.
+- Add Windows PowerShell/argument/shortcut/rendering/browser-isolation CI, Linux owned-process shutdown tests and deterministic release-bundle checks. Physical Windows/WSL first-install, reboot/UAC, browser policies and native-analysis interruption/resume remain workstation acceptance checks. No user sample analyses are run.
+
 ## 0.1.0a53 — DeepSafe follow-up from completed variants
 
 - Fix reviewed follow-up requests created from completed BaSIS result variants. Verify the parent variant's content before creating the request, then use `Followup.smk` with the follow-up's own saved-evidence fingerprints. Screening variant manifests and restore commands remain with the parent.

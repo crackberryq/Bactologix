@@ -267,11 +267,17 @@ def stop_server(proc, sig=signal.SIGTERM):
             proc.wait()
 
 
-def serve(home, host=None, port=None, browser=True, app_window=True):
+def serve(home, host=None, port=None, browser=True, app_window=True, desktop_control=None, desktop_session=None):
     host = checked_host(host or default_host())
     port = free_port(host, port)
     url = browser_url(host, port)
     store = Store(home)
+    desktop = None
+    if desktop_control:
+        from .desktop import Session, ENV
+        desktop = Session(store, desktop_control, desktop_session)
+        os.environ[ENV] = desktop_session
+        browser = False  # Windows owns the dedicated browser and its lifetime.
     parent = store.home / 'launcher'
     parent.mkdir(exist_ok=True)
     restarting = False
@@ -279,7 +285,7 @@ def serve(home, host=None, port=None, browser=True, app_window=True):
         item = restart.register(store, url)
         app = restart.make_app(temporary, item)
         env = dict(os.environ, BACTOLOGIX_HOME=str(home), BACTOLOGIX_LAUNCH_ID=item['id'], PYTHONUNBUFFERED='1')
-        print(f'Starting Bactologix at {url}\nKeep this terminal open. Press Ctrl+C to stop the app.', flush=True)
+        print(f'Starting Bactologix at {url}\n' + ('Windows desktop supervisor controls this session.' if desktop else 'Keep this terminal open. Press Ctrl+C to stop the app.'), flush=True)
         proc = subprocess.Popen(server_command(host, port, app), env=env, start_new_session=os.name != 'nt',
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         listening = threading.Event()
@@ -304,9 +310,14 @@ def serve(home, host=None, port=None, browser=True, app_window=True):
             raise SystemExit(128 + signum)
         signal.signal(signal.SIGTERM, terminated)
         ready = False
+        desktop_closed = False
         try:
             deadline = time.monotonic() + 60
             while proc.poll() is None:
+                if desktop and desktop.tick(url, ready):
+                    desktop_closed = True
+                    stop_server(proc)
+                    break
                 if not ready and listening.is_set() and healthy(url):
                     if proc.poll() is not None:
                         break
@@ -324,24 +335,34 @@ def serve(home, host=None, port=None, browser=True, app_window=True):
                 elif deadline and time.monotonic() >= deadline:
                     print(f'App startup timed out. Check the server output; its address is {url}.', flush=True)
                     deadline = None
+                    if desktop:
+                        desktop.stop('Server startup timed out')
                 time.sleep(.3)
             if not restarting:
                 code = proc.wait()
                 if not ready:
                     print(f'Bactologix stopped before becoming ready (exit {code}). See the server output above.', file=sys.stderr)
-                return code if ready else code or 1
+                return (0 if ready else 1) if desktop_closed else code if ready else code or 1
         except KeyboardInterrupt:
             stop_server(proc, signal.SIGINT)
             return 0
         finally:
+            if desktop and not restarting:
+                desktop.stop('Desktop session closing')
+                while desktop.jobs():
+                    desktop.publish(url)
+                    time.sleep(.25)
             signal.signal(signal.SIGTERM, previous_term)
             stop_server(proc)
             reader.join(timeout=1)
             if not reader.is_alive():
                 proc.stdout.close()
             restart.unregister(store, item)
+            if desktop and not restarting:
+                desktop.finish(url)
     if restarting:
         # A fresh interpreter loads the new launcher as well as the new application.
         # Existing tabs reload through runtime.json; do not open duplicate browser tabs.
+        extra = ['--desktop-control', str(desktop.root), '--desktop-session', desktop.key] if desktop else []
         os.execv(sys.executable, [sys.executable, '-m', 'bactologix.cli', '--home', str(home),
-                                 '--host', host, '--port', str(port), '--no-browser'])
+                                 '--host', host, '--port', str(port), '--no-browser', *extra])

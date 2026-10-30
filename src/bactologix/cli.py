@@ -13,11 +13,15 @@ def main():
     parser.add_argument("--home", help="Workspace directory (default: platform user data directory)")
     parser.add_argument("--port", type=int, help="Listen port (default: first available port from 8501)")
     parser.add_argument("--host", help="Listen address (default: local loopback, or the current WSL address)")
+    parser.add_argument('--desktop-control', help=argparse.SUPPRESS)
+    parser.add_argument('--desktop-session', help=argparse.SUPPRESS)
     launch = parser.add_mutually_exclusive_group()
     launch.add_argument("--app-window", action="store_true", help="Open an installed Chrome/Edge/Chromium app-style window; fall back to the regular browser")
     launch.add_argument("--browser", action="store_true", help="Open in the regular browser instead of the default app window")
     launch.add_argument("--no-browser", action="store_true", help="Start the app without opening a browser")
     args = parser.parse_args()
+    if bool(args.desktop_control) != bool(args.desktop_session):
+        parser.error('Desktop control directory and session identity must be supplied together.')
     home = workspace(args.home)
     os.environ["BACTOLOGIX_HOME"] = str(home)
     store = Store(home)
@@ -31,7 +35,8 @@ def main():
     else:
         from .launcher import serve
         try:
-            code = serve(home, args.host, args.port, browser=not args.no_browser, **({"app_window": False} if args.browser else {"app_window": True} if args.app_window else {}))
+            desktop = {'desktop_control': args.desktop_control, 'desktop_session': args.desktop_session} if args.desktop_control else {}
+            code = serve(home, args.host, args.port, browser=not args.no_browser, **desktop, **({"app_window": False} if args.browser else {"app_window": True} if args.app_window else {}))
         except (OSError, ValueError) as exc:
             parser.exit(1, f"Bactologix could not start: {exc}\n")
         raise SystemExit(code)

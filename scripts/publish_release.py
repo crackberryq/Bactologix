@@ -111,10 +111,16 @@ def publish(root, dist, commit):
         check_tag(tag, recovery['commit'])
         return finish_draft(release, recovery['assets'], version)
     check_tag(tag, commit)
+    packages = [wheel, source]
+    desktop = dist / 'Bactologix-Windows.zip'
+    if (root / 'scripts/windows').is_dir():
+        if not desktop.is_file():
+            raise ValueError('The checked Windows desktop bundle is required.')
+        packages.append(desktop)
     checksum = dist / 'SHA256SUMS'
     checksum.write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n'
-                               for p in (wheel, source)))
-    files = [wheel, source, checksum]
+                               for p in packages))
+    files = [*packages, checksum]
     heading = '## ' + version + ' '
     changelog = (root / 'CHANGELOG.md').read_text()
     sections = changelog.split(heading, 1)

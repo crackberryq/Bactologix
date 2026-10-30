@@ -1,0 +1,39 @@
+BACTOLOGIX FOR WINDOWS (alpha)
+
+1. Extract Bactologix-Windows.zip fully, then double-click Bactologix-Setup.cmd.
+2. Setup checks Ubuntu, installs/reuses Conda and the Bactomics environment,
+   updates the application, and creates the branded Bactologix desktop shortcut.
+3. If WSL/Ubuntu needs installation, accept the Windows administrator prompt.
+   Restart Windows if requested, open Ubuntu once to create your regular Linux
+   user, then rerun Setup. If prompted, install Ubuntu prerequisites with:
+   sudo apt update && sudo apt install -y python3 git ca-certificates
+4. Use the desktop shortcut afterwards. It opens a dedicated Edge/Chrome window
+   with Ubuntu running invisibly. Setup and startup failures remain visible.
+
+Close the LAST dedicated session window to stop its server. If it owns active
+jobs, a Windows dialog asks whether to stop and exit or reopen the app. Cleanup
+is visible until the owned work stops. An in-progress app update finishes first
+so its environment is not left half-installed. Independent Ubuntu terminals,
+other desktop sessions and independently launched pipelines are untouched.
+We never shut down WSL or terminate a distribution. Shared WSL services can
+remain running for other applications even after Bactologix stops.
+
+Completed workflow results and Snakemake metadata remain in place. Reopen the
+saved run and review its log/readiness before continuing; an interrupted step
+may need to run again. Arbitrary file corruption is not automatically repaired.
+An unexpected desktop-supervisor loss requests cancellation after 30 seconds.
+
+The shortcut and app share the same b-dot logo. Windows .cmd files themselves
+have a generic system icon; use the desktop shortcut for the branded icon.
+The shortcut uses Windows Script Host to avoid a console flash. If your Windows
+policy disables it, run Bactologix.ps1 with PowerShell or use the normal Ubuntu
+'bactologix' command. Desktop close behaviour applies only to shortcut launches.
+
+Setup files and logs: %LOCALAPPDATA%\Bactologix
+Session logs: %LOCALAPPDATA%\Bactologix\sessions\<session>\launcher.log
+Pipeline logs remain in the existing Linux Bactologix workspace.
+To select another existing distribution, run from this extracted folder:
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Bactologix.ps1 -Setup -Distro Ubuntu-24.04
+
+No sample analyses are run by this installer. Native physical Windows/WSL
+acceptance remains necessary; CI checks software, isolated browsers and fixtures.

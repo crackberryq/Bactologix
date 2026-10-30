@@ -46,8 +46,11 @@ def launch_worker(store):
     if platform.system() != "Linux":
         raise RuntimeError("Pipeline execution requires Linux or WSL2. Launch Bactologix inside WSL.")
     with (store.home / "logs/worker.log").open("ab") as log:
-        subprocess.Popen([sys.executable, "-m", "bactologix.worker", "--home", str(store.home)],
-                         stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+        env = dict(os.environ)
+        owner = env.pop('BACTOLOGIX_DESKTOP_SESSION', None)
+        args = ['--desktop-owner', owner] if owner else []
+        subprocess.Popen([sys.executable, "-m", "bactologix.worker", "--home", str(store.home), *args],
+                         stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True, env=env)
 
 
 def enqueue(store, kind, payload):
@@ -102,8 +105,14 @@ class Context:
         self.log.write(str(message) + "\n")
 
     def check_cancel(self):
+        self.refresh_desktop_cancel()
         if self.store.job(self.job["id"])["cancel"]:
             raise Cancelled("Stopped by user")
+
+    def refresh_desktop_cancel(self):
+        from .desktop import owner_cancelled
+        if self.job['kind'] != 'app_update' and owner_cancelled(self.store, self.job['id']):
+            self.store.cancel(self.job['id'])
 
     def command(self, argv, cwd=None, extra_env=None, stdout=None, *, timeout=None, stop_after=None):
         import shlex
@@ -123,6 +132,7 @@ class Context:
         try:
             self.observe("begin_command", proc, argv[0])
             while proc.poll() is None:
+                self.refresh_desktop_cancel()
                 elapsed_command = time.monotonic() - command_started
                 timed_out = timed_out or (timeout is not None and elapsed_command >= timeout)
                 if timed_out:
@@ -150,6 +160,12 @@ class Context:
                 self.check_cancel()  # A concurrent user stop keeps its cancellation status.
                 raise TimeoutError("Software check command exceeded its time limit; its process group was stopped.")
             if started_stop is not None:
+                # The session leader can exit before its children. This group
+                # was created by this command; never signal unrelated WSL PIDs.
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 raise Cancelled("Stopped by user; inspect the log before resuming")
             if proc.returncode:
                 raise RuntimeError(f"Command exited with code {proc.returncode}; see the job log")

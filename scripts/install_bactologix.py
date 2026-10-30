@@ -12,6 +12,17 @@ import sys
 import tempfile
 from urllib.request import Request, urlopen
 
+STATUS_FILE = None
+
+
+def progress(step, title, detail=''):
+    print(f'[{step}/5] {title}: {detail}', flush=True)
+    if STATUS_FILE:
+        path = Path(STATUS_FILE)
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(json.dumps({'step': step, 'title': title, 'detail': detail}))
+        os.replace(temporary, path)
+
 
 def get_json(url):
     with urlopen(Request(url, headers={'User-Agent': 'Bactologix-installer', 'Accept': 'application/vnd.github+json'}), timeout=45) as r:
@@ -59,12 +70,18 @@ def select_release(rows, channel):
 
 
 def main():
+    global STATUS_FILE
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--channel', choices=['stable', 'prerelease'], default='prerelease', help='Default: prerelease while Bactologix is alpha')
     parser.add_argument('--install-conda', action='store_true', help='Allow installation of checksum-verified Miniforge if Conda is missing')
     parser.add_argument('--check', action='store_true', help='Read-only prerequisite check; no downloads or installs')
     parser.add_argument('--no-launch', action='store_true')
+    parser.add_argument('--status-file', help='Write atomic progress for the Windows installer')
+    parser.add_argument('--result-file', help='Write the installed launcher paths as JSON')
+    parser.add_argument('--upgrade-app', action='store_true', help='Update an existing application; preserve its workspace and pipeline installations')
     args = parser.parse_args()
+    STATUS_FILE = args.status_file
+    progress(1, 'Checking Ubuntu', 'Operating system, disk space and existing Conda installation')
     if platform.system() != 'Linux':
         parser.error('Run inside Ubuntu/WSL2 or supported Linux, not Windows Python or PowerShell.')
     arch = platform.machine()
@@ -96,6 +113,7 @@ def main():
         with tempfile.TemporaryDirectory(prefix='bactologix-install-') as temporary:
             temp = Path(temporary)
             if not conda:
+                progress(2, 'Installing Conda', 'Downloading and verifying Miniforge')
                 release = get_json('https://api.github.com/repos/conda-forge/miniforge/releases/latest')
                 name = 'Miniforge3-Linux-' + arch + '.sh'
                 asset = next(a for a in release['assets'] if a['name'] == name)
@@ -106,6 +124,7 @@ def main():
                     raise ValueError('Incomplete Conda location already exists; inspect it before retrying: ' + str(prefix))
                 run(['bash', installer, '-b', '-p', prefix], log)
                 conda = str(prefix / 'bin/conda')
+            progress(3, 'Preparing Bactomics', 'Reusing the existing environment or creating it once')
             envs = json.loads(run([conda, 'env', 'list', '--json'], log, capture=True))['envs']
             known = {Path(p).name: p for p in envs}
             prefix = known.get('bactomics') or known.get('bactomix')
@@ -116,10 +135,11 @@ def main():
             python = Path(prefix) / 'bin/python'
             run([python, '-c', 'import sys; assert sys.version_info >= (3,11), "Python 3.11+ required"'], log)
             installed = run([python, '-c', 'import importlib.util; print(bool(importlib.util.find_spec("bactologix")))'], log, capture=True).strip()
-            if installed == 'True':
+            if installed == 'True' and not args.upgrade_app:
                 print('Existing Bactologix preserved. Use its in-app updater to change versions.')
                 command = Path(prefix) / 'bin/bactologix'
             else:
+                progress(4, 'Installing Bactologix', 'Discovering a published release and checking its download checksum')
                 rows = get_json('https://api.github.com/repos/crackberryq/Bactologix/releases?per_page=100')
                 release = select_release(rows, args.channel)
                 asset = next(a for a in release['assets'] if a['name'].startswith('bactologix-') and a['name'].endswith('-py3-none-any.whl'))
@@ -129,6 +149,12 @@ def main():
                 run([python, '-m', 'pip', 'check'], log)
                 command = Path(prefix) / 'bin/bactologix'
                 print('Installed:', release['tag_name'], '\nLaunch:', command, '\nSetup log:', log)
+            progress(5, 'Application ready', 'Your environments, databases and run folders are preserved')
+            if args.result_file:
+                path = Path(args.result_file)
+                temporary = path.with_suffix('.tmp')
+                temporary.write_text(json.dumps({'python': str(python), 'command': str(command), 'log': str(log)}))
+                os.replace(temporary, path)
     finally:
         lock.rmdir()
     if not args.no_launch:

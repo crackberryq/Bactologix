@@ -9,17 +9,27 @@ from .runtime import environment_lock
 from .updates import assert_current
 
 
-def work(store):
+def work(store, desktop_owner=None):
+    from .desktop import session_stopped
     with (store.home / "worker.lock").open("a+") as lock:
         # Waiting launchers also close the idle-shutdown race: a job submitted as
         # the previous worker exits always has a worker waiting to acquire the lock.
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        while True:
+            if session_stopped(store, desktop_owner):
+                return
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                time.sleep(.25)
         # Native children inherit the lock. Recovery cannot overlap a surviving child.
         from .queue import recover_interrupted
         recover_interrupted(store)
         idle = 0
         processed = False
         while idle < 20:
+            if session_stopped(store, desktop_owner):
+                return
             job = store.claim()
             if not job:
                 if not processed:
@@ -31,6 +41,7 @@ def work(store):
             processed = True
             ctx = Context(store, job, lock.fileno())
             try:
+                ctx.check_cancel()
                 ctx.write("Bactologix started " + now())
                 with environment_lock(exclusive=job["kind"] == "app_update") as environment_fd:
                     ctx.lock_fds = (lock.fileno(), environment_fd)
@@ -55,5 +66,6 @@ def work(store):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--home", required=True)
+    parser.add_argument('--desktop-owner')
     args = parser.parse_args()
-    work(Store(args.home))
+    work(Store(args.home), args.desktop_owner)
