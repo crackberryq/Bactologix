@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0a56 — Recognize existing Ubuntu installations
+
+- Decode WSL distribution listings as UTF-8 or UTF-16, with or without a byte-order mark, instead of assuming one Windows output format. Preserve versioned Ubuntu names.
+- Stop with actionable diagnostics when WSL discovery fails; never interpret a failed command as proof that Ubuntu is absent.
+- Add Windows subprocess encoding fixtures and regression coverage for discovery failures. Existing environments and analyses remain unchanged. Physical workstation acceptance remains required.
+
 ## 0.1.0a54 — Windows desktop setup and owned-session shutdown
 
 - Add a downloadable Windows setup bundle with visible stage progress, setup logs, prerequisite guidance and a branded desktop shortcut. Reuse the existing Linux installer and Conda environment rather than introducing a separate installation layout.

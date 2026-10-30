@@ -31,7 +31,24 @@ function Start-Owned([string]$Executable, [string[]]$Arguments, [switch]$Unicode
         $info.StandardErrorEncoding = [Text.Encoding]::UTF8
     }
     $process = [Diagnostics.Process]::Start($info)
-    return [pscustomobject]@{ Process = $process; Out = $(if (-not $Visible) { $process.StandardOutput.ReadToEndAsync() }); Err = $(if (-not $Visible) { $process.StandardError.ReadToEndAsync() }) }
+    $bytes = $null; $copy = $null; $output = $null
+    if ($Unicode -and -not $Visible) {
+        $bytes = New-Object IO.MemoryStream
+        $copy = $process.StandardOutput.BaseStream.CopyToAsync($bytes)
+    } elseif (-not $Visible) { $output = $process.StandardOutput.ReadToEndAsync() }
+    return [pscustomobject]@{ Process = $process; Out = $output; Bytes = $bytes; Copy = $copy; Err = $(if (-not $Visible) { $process.StandardError.ReadToEndAsync() }) }
+}
+function Decode-WslOutput([byte[]]$Bytes) {
+    # WSL versions/settings emit either UTF-8 or UTF-16, with or without BOM.
+    if ($Bytes.Length -ge 2 -and $Bytes[0] -eq 254 -and $Bytes[1] -eq 255) { $encoding = [Text.Encoding]::BigEndianUnicode }
+    elseif (($Bytes.Length -ge 2 -and $Bytes[0] -eq 255 -and $Bytes[1] -eq 254) -or $Bytes -contains 0) { $encoding = [Text.Encoding]::Unicode }
+    else { $encoding = [Text.Encoding]::UTF8 }
+    return $encoding.GetString($Bytes).Trim([char]0xFEFF).Trim()
+}
+function Get-InstalledDistributions {
+    try { $output = Capture @('--list','--quiet') -Unicode }
+    catch { throw ('Could not read installed WSL distributions. No Ubuntu installation was requested. Run wsl --list --verbose in Windows to check WSL, then retry Setup. Details: ' + $_.Exception.Message) }
+    return @($output -split "`r?`n" | ForEach-Object { $_.Trim().Trim([char]0xFEFF) } | Where-Object { $_ })
 }
 function Capture([string[]]$Arguments, [switch]$Unicode) {
     $task = Start-Owned 'wsl.exe' $Arguments -Unicode:$Unicode
@@ -41,6 +58,10 @@ function Capture([string[]]$Arguments, [switch]$Unicode) {
         if ($deadline.Elapsed.TotalSeconds -gt 45) { $task.Process.Kill(); throw 'Ubuntu did not respond. Open Ubuntu to finish initialization, then retry.' }
     }
     if ($task.Process.ExitCode -ne 0) { throw $task.Err.Result }
+    if ($Unicode) {
+        $null = $task.Copy.GetAwaiter().GetResult()
+        try { return Decode-WslOutput $task.Bytes.ToArray() } finally { $task.Bytes.Dispose() }
+    }
     return $task.Out.Result.Trim().Replace([string][char]0, '')
 }
 function Write-Json([string]$Path, $Value) {
@@ -169,9 +190,7 @@ function Save-Log($Task, [string]$Path) {
 }
 function Install-Desktop($View) {
     Show-Stage $View 'Checking Windows and Ubuntu' 'Checking the installed WSL distributions. Administrator prompts appear only when Windows needs them.'
-    $names = @()
-    try { $names = (Capture @('--list','--quiet') -Unicode) -split "`r?`n" | ForEach-Object { $_.Trim() } }
-    catch { }
+    $names = @(Get-InstalledDistributions)
     if ($Distro -eq 'Ubuntu' -and $Distro -notin $names) {
         $existing = @($names | Where-Object { $_ -like 'Ubuntu*' })
         if ($existing.Count -gt 0) { $Distro = $existing[0] }
