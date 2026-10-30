@@ -159,7 +159,8 @@ function Close-OwnedBrowser([string]$Profile) {
         # browser to consume the request and acknowledge or close the socket.
         $buffer = New-Object byte[] 4096
         $reply = [ArraySegment[byte]]::new($buffer)
-        $null = $socket.ReceiveAsync($reply, $cancel.Token).GetAwaiter().GetResult()
+        $received = $socket.ReceiveAsync($reply, $cancel.Token).GetAwaiter().GetResult()
+        Write-Verbose ('Browser close reply: ' + [Text.Encoding]::UTF8.GetString($buffer,0,$received.Count))
     } catch { Write-Verbose ('Browser close: ' + $_.Exception.Message) } finally { $socket.Dispose(); $cancel.Dispose() }
 }
 

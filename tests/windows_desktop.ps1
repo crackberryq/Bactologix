@@ -46,8 +46,10 @@ try {
         Assert ((Browser-State $profile).pages -ge 1) 'Dedicated browser was not observable'
     }
     Close-OwnedBrowser $profiles[0]
+    Write-Output ('Immediately after close: ' + ((Browser-State $profiles[0]) | ConvertTo-Json -Compress))
     $deadline = [Diagnostics.Stopwatch]::StartNew()
     while ($deadline.Elapsed.TotalSeconds -lt 15 -and (Browser-State $profiles[0]).reachable) { Start-Sleep -Milliseconds 200 }
+    Write-Output ('After wait: ' + ((Browser-State $profiles[0]) | ConvertTo-Json -Compress))
     Assert (-not (Browser-State $profiles[0]).reachable) 'Owned browser did not close'
     Assert ((Browser-State $profiles[1]).reachable) 'Independent browser was affected'
     Write-Output 'Windows desktop checks passed: syntax, exact argument transport, atomic control, shortcut icon, installer render and isolated browser shutdown.'
