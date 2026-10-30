@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+$VerbosePreference = 'Continue'
 $repo = Split-Path $PSScriptRoot -Parent
 function Assert($Condition, $Message) { if (-not $Condition) { throw $Message } }
 $temporary = Join-Path $env:TEMP ('bactologix-test-' + [Guid]::NewGuid().ToString('N'))

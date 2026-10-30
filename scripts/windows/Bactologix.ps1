@@ -152,14 +152,14 @@ function Close-OwnedBrowser([string]$Profile) {
         $socket.Options.Proxy = $null
         $null = $socket.ConnectAsync([Uri]"ws://127.0.0.1:$($endpoint.port)$($endpoint.socket)", $cancel.Token).GetAwaiter().GetResult()
         $bytes = [Text.Encoding]::UTF8.GetBytes('{"id":1,"method":"Browser.close"}')
-        $segment = New-Object 'ArraySegment[byte]' -ArgumentList @(,$bytes)
+        $segment = [ArraySegment[byte]]::new($bytes)
         $null = $socket.SendAsync($segment, [Net.WebSockets.WebSocketMessageType]::Text, $true, $cancel.Token).GetAwaiter().GetResult()
         # Do not abort the connection immediately after sending: wait for the
         # browser to consume the request and acknowledge or close the socket.
         $buffer = New-Object byte[] 4096
-        $reply = New-Object 'ArraySegment[byte]' -ArgumentList @(,$buffer)
+        $reply = [ArraySegment[byte]]::new($buffer)
         $null = $socket.ReceiveAsync($reply, $cancel.Token).GetAwaiter().GetResult()
-    } catch { } finally { $socket.Dispose(); $cancel.Dispose() }
+    } catch { Write-Verbose ('Browser close: ' + $_.Exception.Message) } finally { $socket.Dispose(); $cancel.Dispose() }
 }
 
 function Save-Log($Task, [string]$Path) {
