@@ -23,7 +23,7 @@ def reason(tool, row):
         return 'No reviewed release contract is available.'
     if row.get('adapter_interface') != INTERFACE:
         return 'Adapter update required: unsupported adapter interface.'
-    if row.get('configuration_schema') != tool + '-v1':
+    if row.get('configuration_schema') not in ({'hybas-v1', 'hybas-v2'} if tool == 'hybas' else {tool + '-v1'}):
         return 'Adapter update required: configuration schema changed.'
     if row.get('entry_points') != {'workflow': spec['snakefile'], 'environment': spec['environment']}:
         return 'Adapter update required: workflow or runner entry point changed.'

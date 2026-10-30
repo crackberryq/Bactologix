@@ -13,7 +13,7 @@ from .runs import parse_config
 
 MANAGED = {
     'micpscope': {'samples', 'output_dir', 'threads', 'memory_mb'},
-    'hybas': {'base_dir', 'sample_sheet', 'isolate', 'threads', 'setup_only', 'admin_mode', 'ci_mode'},
+    'hybas': {'base_dir', 'sample_sheet', 'input_manifest', 'isolate', 'threads', 'setup_only', 'admin_mode', 'ci_mode'},
     'basis': {'bactomics_root', 'samples', 'isolates', 'isolate', 'threads', 'memory_mb',
               'execution.cores', 'execution.memory_mb'},
 }
@@ -24,6 +24,32 @@ OPTIONS = {
     'basis': {'resources.policy': ['auto', 'manual'],
               'deep.aware.preset': ['auto-strict', 'auto-medium', 'auto-loose']},
 }
+AUTO_MODULES = {'run_kraken', 'run_busco', 'run_prokka', 'run_multiqc', 'run_polypolish'}
+AUTO_INTEGERS = {'threads', 'total_mem_mb', 'assembly_mem_mb', 'spades_memory_gb', 'polishing_mem_mb', 'kraken_mem_mb', 'busco_mem_mb', 'prokka_mem_mb'}
+AUTO_KEYS = AUTO_MODULES | AUTO_INTEGERS | {'run_mode', 'polish_mode'}
+
+
+def uses_auto(cfg):
+    return any(cfg.get(key) == 'auto' for key in AUTO_KEYS)
+
+
+def defaults(store, tool):
+    saved = store.get('configs', tool)
+    if saved is not None:
+        return saved
+    from .runs import template
+    text = template(tool)
+    if tool == 'hybas':
+        from .release_contract import approval
+        installed = store.get('installs', store.get('settings', 'active-hybas'))
+        row = approval(store, tool, installed['version']['commit']) if installed else None
+        if row and row['configuration_schema'] == 'hybas-v2':
+            cfg = parse_config(text)
+            cfg.update({key: 'auto' for key in AUTO_KEYS})
+            return yaml.safe_dump(cfg, sort_keys=False)
+    return text
+
+
 LABELS = {
     'run_kraken': 'Run Kraken2', 'kraken_decision_mode': 'Kraken decision mode',
     'run_busco': 'Run BUSCO', 'run_prokka': 'Run Prokka', 'run_multiqc': 'Run MultiQC',
@@ -100,6 +126,7 @@ def editor(tool, text):
     defaults = json.loads((DATA / 'config-catalog.json').read_text())['defaults'][tool]
     defaults = _flatten(defaults)
     supplied = _flatten(cfg)
+    auto = tool == 'hybas' and uses_auto(cfg)
     extras = ({'busco_download_lineages': [cfg.get('busco_lineage', 'bacteria_odb10')], 'kraken_mem_mb': None}
               if tool == 'hybas' else {} if tool == 'micpscope' else {'storage': {'native_results_directory': None}})
     defaults.update(_flatten(extras))
@@ -123,7 +150,14 @@ def editor(tool, text):
                 else 'number' if isinstance(value, float) else 'string' if isinstance(value, str) else 'yaml')
         if name in OPTIONAL[tool]:
             kind = 'optional_integer' if name == 'kraken_mem_mb' else 'optional_string'
-        options = OPTIONS[tool].get(name, [])
+        options = list(OPTIONS[tool].get(name, []))
+        if auto and name in AUTO_MODULES:
+            options = ['auto', 'true', 'false']
+            value = str(value).lower()
+        if auto and name == 'polish_mode':
+            options.insert(0, 'auto')
+        if auto and name in AUTO_INTEGERS:
+            kind = 'string'
         if options and isinstance(value, str):
             kind = 'select'
         rows.append({'key': key, 'name': name, 'path': path, 'value': value, 'kind': kind,
@@ -192,10 +226,16 @@ def compile_config(tool, text, changes=None):
                 if not isinstance(raw, str):
                     raise ValueError('enter a text value')
                 value = raw
-            if row['options'] and value not in row['options']:
+            if tool == 'hybas' and row['name'] in AUTO_KEYS and value == 'auto':
+                pass
+            elif row['options'] and value not in row['options']:
                 raise ValueError('choose ' + ', '.join(row['options']))
         except (ValueError, TypeError, OverflowError, yaml.YAMLError) as exc:
             raise ValueError(row['name'] + ': ' + str(exc)) from exc
+        if tool == 'hybas' and row['name'] in AUTO_MODULES and value in ('true', 'false'):
+            value = value == 'true'
+        if tool == 'hybas' and row['name'] in AUTO_INTEGERS and isinstance(value, str) and value.isdigit():
+            value = int(value)
         _assign(cfg, row['path'], value, remove)
     result = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True) if changes else text
     parse_config(result)
@@ -206,10 +246,10 @@ def validate(tool, text):
     cfg = parse_config(text)
     if tool == 'hybas':
         for name, options in OPTIONS[tool].items():
-            if name in cfg and cfg[name] not in options:
+            if name in cfg and cfg[name] not in options and not (name in AUTO_KEYS and cfg[name] == 'auto'):
                 raise ValueError(name + ': choose ' + ', '.join(options))
         for name in ('run_kraken', 'run_busco', 'run_prokka', 'run_multiqc', 'run_polypolish'):
-            if name in cfg and not isinstance(cfg[name], bool):
+            if name in cfg and not isinstance(cfg[name], bool) and cfg[name] != 'auto':
                 raise ValueError(name + ' must be true or false.')
         if cfg.get('kraken_decision_mode', 'aware') != 'off' and cfg.get('run_kraken', True) is False:
             raise ValueError('Kraken is off but its decision mode is enabled. Set the mode to Off or enable Run Kraken2.')
@@ -218,9 +258,9 @@ def validate(tool, text):
                 if isinstance(value, bool) or not isinstance(value, (int, float)) or not (1 if name == 'keep_percent' else 0) <= value <= 100:
                     raise ValueError(name + ' must be within ' + ('1–100.' if name == 'keep_percent' else '0–100.'))
         for name in ('assembly_mem_mb', 'polishing_mem_mb', 'kraken_mem_mb', 'spades_memory_gb', 'min_fasta_length', 'racon_rounds'):
-            if name in cfg and (isinstance(cfg[name], bool) or not isinstance(cfg[name], int) or cfg[name] < (0 if name == 'racon_rounds' else 1)):
+            if name in cfg and not (name in AUTO_KEYS and cfg[name] == 'auto') and (isinstance(cfg[name], bool) or not isinstance(cfg[name], int) or cfg[name] < (0 if name == 'racon_rounds' else 1)):
                 raise ValueError(name + ' must be a ' + ('nonnegative' if name == 'racon_rounds' else 'positive') + ' integer.')
-        if cfg.get('spades_memory_gb', 8) * 1024 > cfg.get('assembly_mem_mb', 8192):
+        if cfg.get('spades_memory_gb') != 'auto' and cfg.get('assembly_mem_mb') != 'auto' and cfg.get('spades_memory_gb', 8) * 1024 > cfg.get('assembly_mem_mb', 8192):
             raise ValueError('SPAdes memory (GB) must fit within assembly memory (MB).')
     else:
         if 'extend' in cfg and not isinstance(cfg['extend'], bool):

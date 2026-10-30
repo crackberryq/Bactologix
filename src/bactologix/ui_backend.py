@@ -103,7 +103,7 @@ def snapshot(store):
             "can_followup": followup.available(run) and status == "completed",
             "strategy": cfg.get("polish_mode", "—"), "can_handoff": run["tool"] == "hybas" and status == "completed" and all(
                 Path(run["output"], "annotation", run["sample"]["id"] + ext).is_file() for ext in (".fna", ".faa", ".gff"))})
-    configs = {t: store.get("configs", t, template(t)) for t in PIPELINES}
+    configs = {t: run_config.defaults(store, t) for t in PIPELINES}
     catalogs = {}
     for tool in PIPELINES:
         catalogs[tool] = versions(store, tool)
@@ -327,6 +327,12 @@ def dispatch(store, kind, p):
         else:
             jid = enqueue(store, "check", {"installation": item["id"]}) if kind == "check_install" else enqueue(store, "install", {"tool": item["tool"], "version": item["version"], "repair": kind == "repair_install"})
         return {"message": "Queued " + jid, "navigate": "jobs"}
+    if kind in {"preview_manifest", "import_manifest"}:
+        from . import manifest_inputs
+        if kind == "preview_manifest":
+            return {"manifest_import": manifest_inputs.review(str(local_path(p["path"]))), "keep_modal": True}
+        rows = manifest_inputs.commit(store, str(local_path(p["path"])), p.get("token"))
+        return {"message": f"Imported {len(rows)} manifest samples.", "navigate": "samples"}
     if kind == "add_sample":
         register_sample(store, p["id"].strip(), str(local_path(p["path"])), p["mode"])
         return {"message": "Sample registered.", "navigate": "samples"}
@@ -383,7 +389,7 @@ def dispatch(store, kind, p):
         return response
     if kind == "run_config_editor":
         tool = _tool(p)
-        text = p.get("text", store.get("configs", tool, template(tool)))
+        text = p.get("text", run_config.defaults(store, tool))
         if not isinstance(text, str):
             raise ValueError("Provide configuration as YAML text.")
         text = run_config.compile_config(tool, text, p.get("changes"))
@@ -401,7 +407,7 @@ def dispatch(store, kind, p):
         if not 1 <= cores <= 512 or not 512 <= memory <= 2000000:
             raise ValueError("CPU or memory budget is outside the supported range")
         samples = [_item(store, "samples", sid) for sid in _ids(p)]
-        text = store.get("configs", tool, template(tool))
+        text = run_config.defaults(store, tool)
         if "config" in p:
             config = p["config"]
             if not isinstance(config, dict) or config.get("tool") != tool or not isinstance(config.get("text"), str):
@@ -514,7 +520,7 @@ def dispatch(store, kind, p):
         if run_status(run, store.jobs(), dry_run_current(store, run)) != "completed":
             raise ValueError("Complete the HybAs AWARE run before creating a BaSIS AWARE draft")
         check_run_files(run)
-        create_run(store, "basis", dict(run["sample"], path=run["output"]), store.get("configs", "basis", template("basis")), run["cores"], run["memory_mb"], run["id"], run["label"] + " · BaSIS")
+        create_run(store, "basis", {"id": run["sample"]["id"], "path": run["output"], "mode": run["sample"]["mode"]}, store.get("configs", "basis", template("basis")), run["cores"], run["memory_mb"], run["id"], run["label"] + " · BaSIS")
         return {"message": "Created a new draft.", "navigate": "runs"}
     if kind == 'queue_control':
         state = queue.change(store, p.get('action'), p.get('revision'), p.get('id'))

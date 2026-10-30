@@ -219,6 +219,8 @@ def check_run_files(run):
     expected_sheet = sample_sheet(run["sample"], run["tool"], run["output"]).encode()
     if (folder / "samples.tsv").read_bytes() != expected_sheet:
         raise ValueError("Saved sample sheet changed. Create a new draft.")
+    from .manifest_inputs import verify as verify_manifest
+    verify_manifest(run)
     check_inputs(run)
     expected = run.get("input_layout")
     if expected is None:
@@ -266,6 +268,11 @@ def run_status(run, jobs, checked):
 
 
 def stage_inputs(sample, tool, destination):
+    if sample.get("input_manifest"):
+        if tool != "hybas":
+            raise ValueError("Manifest samples are HybAs inputs; use completed outputs for downstream pipelines")
+        from .manifest_inputs import stage
+        return stage(sample, destination)
     original = Path(sample["path"])
     sid = sample["id"]
     inputs = []
@@ -372,10 +379,18 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         raise ValueError("Set up a supported pipeline runner first")
     if installed.get('setup_mode') == 'first_install' and not installed.get('setup_completed'):
         raise ValueError('Finish first-time installation in Install & update before creating a run draft')
+    if sample.get("input_manifest"):
+        from .manifest_inputs import require_adapter
+        require_adapter(store, tool, installed)
     cores, memory_mb = int(cores), int(memory_mb)
     if cores < 1 or memory_mb < 512:
         raise ValueError("Choose at least one core and 512 MB memory")
     cfg = bind_paths(parse_config(config_text), tool, store, installed)
+    if tool == "hybas":
+        from .run_config import uses_auto
+        from .manifest_inputs import require_adapter
+        if uses_auto(cfg):
+            require_adapter(store, tool, installed)
     rid = identifier("run")
     folder = store.home / "runs" / rid
     folder.mkdir()
@@ -390,8 +405,15 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         inputs = stage_inputs(sample, tool, output)
         if expected_inputs is not None and inputs != expected_inputs:
             raise ValueError("Original inputs differ from the parent run. Register changed data as a new run, not a comparison variant.")
-        cfg["threads"] = cores
+        if tool != "hybas" or cfg.get("threads") != "auto":
+            cfg["threads"] = cores
+        frozen_manifest = None
         if tool == "hybas":
+            cfg.pop("input_manifest", None)
+            if sample.get("input_manifest"):
+                from .manifest_inputs import freeze
+                frozen_manifest = freeze(sample, folder)
+                cfg["input_manifest"] = frozen_manifest["path"]
             cfg.update(base_dir=str(folder / "outputs"), sample_sheet=str(folder / "samples.tsv"), setup_only=False, admin_mode=False, ci_mode=False)
             cfg.pop("isolate", None)
         elif tool == "micpscope":
@@ -415,6 +437,8 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
                "parent": parent, "label": label or sample["id"], "created": now(), "dry_run_ok": False,
                "bactologix_version": __version__,
                "reuse": "input-files-only; workflow outputs are independent"}
+        if frozen_manifest:
+            run["frozen_manifest"] = frozen_manifest
         (folder / "bactologix-run.json").write_text(json.dumps(run, indent=2) + "\n")
         if register:
             store.register_run(run)
@@ -550,6 +574,8 @@ def report_candidates(store, run):
         entries = [("MultiQC", "reports/multiqc/multiqc_report.html"), ("Safety report", "safety/report.html")]
         if run["tool"] == "basis" and not store.get("followup_output_owner", run["id"]):
             entries.append(("Follow-up report", "safety/deepsafe-report/report.html"))
+    if run["tool"] == "hybas" and run.get("run_type") != "followup":
+        entries.append(("HybAs research report", "reports/hybas_research/hybas_report.html"))
     return entries
 
 

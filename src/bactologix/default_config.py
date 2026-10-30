@@ -9,7 +9,7 @@ from .runs import template
 
 
 def edit(store, tool, payload, save=False):
-    original = store.get('configs', tool, template(tool))
+    original = run_config.defaults(store, tool)
     loaded = 'text' not in payload
     text = payload.get('text', original)
     if not isinstance(text, str):
@@ -27,7 +27,7 @@ def edit(store, tool, payload, save=False):
         with store.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             row = db.execute("SELECT body FROM items WHERE kind='configs' AND id=?", (tool,)).fetchone()
-            actual = json.loads(row[0]) if row else template(tool)
+            actual = json.loads(row[0]) if row else run_config.defaults(store, tool)
             if revision(actual) != expected:
                 raise ValueError('Saved defaults changed while you were editing. Download your edits or reload saved defaults before saving.')
             db.execute("INSERT INTO items VALUES ('configs',?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body",
