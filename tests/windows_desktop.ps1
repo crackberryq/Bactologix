@@ -33,7 +33,7 @@ try {
     Show-Stage $view 'Preparing Bactomics' 'Reusing your existing environment. Your pipelines, databases and completed work stay in place.'
     $view.Steps.Text = "Stage 3 of 5`r`nUbuntu  >  Conda  >  Bactomics  >  Bactologix  >  Desktop shortcut"
     $bitmap = New-Object Drawing.Bitmap($view.Form.Width, $view.Form.Height)
-    $view.Form.DrawToBitmap($bitmap, $view.Form.ClientRectangle)
+    $view.Form.DrawToBitmap($bitmap, (New-Object Drawing.Rectangle(0,0,$view.Form.Width,$view.Form.Height)))
     $bitmap.Save((Join-Path $repo 'windows-setup-preview.png')); $bitmap.Dispose()
     $view.Form.Hide()
     $browser = Find-Browser

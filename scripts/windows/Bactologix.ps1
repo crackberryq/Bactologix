@@ -2,6 +2,8 @@ param([switch]$Setup, [string]$Distro = 'Ubuntu', [switch]$TestMode)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+[Windows.Forms.Application]::EnableVisualStyles()
+[Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
 $script:Root = Join-Path $env:LOCALAPPDATA 'Bactologix'
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)
 
