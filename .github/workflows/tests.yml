@@ -52,6 +52,27 @@ jobs:
         with:
           name: packages-python-${{ matrix.python }}
           path: dist/*
+  hybas-v2-adapter:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/checkout@v4
+        with:
+          repository: crackberryq/Bactomics_HybAs
+          ref: 8c7bdd792259b5e540727a2283c8300b893b66c3
+          path: upstream-hybas-v2
+      - run: python -m pip install . pytest 'snakemake==9.27.1'
+      - name: Validate frozen manifest native DAGs
+        env:
+          BACTOLOGIX_HYBAS_V2_SOURCE: ${{ github.workspace }}/upstream-hybas-v2
+        run: python -m pytest -q tests/test_manifest_inputs.py tests/test_manifest_adapter_native.py
+
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -117,7 +138,7 @@ jobs:
           path: windows-setup-preview.png
   publish:
     name: Publish checked application release
-    needs: [tests, browser, environment-deployment, windows-desktop]
+    needs: [tests, browser, environment-deployment, windows-desktop, hybas-v2-adapter]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:

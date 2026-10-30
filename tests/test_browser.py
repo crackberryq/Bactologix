@@ -2054,3 +2054,43 @@ def test_pipeline_order_and_resource_empty_state(tmp_path):
             page.get_by_role('button',name='BaSIS AWARE',exact=True).click()
             expect(page.get_by_role('heading',name='Find installed databases')).to_be_visible()
         browser.close()
+
+
+def test_hybas_manifest_preview_and_registration(tmp_path):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import snapshot, dispatch
+    from test_manifest_inputs import manifest
+    store = Store(tmp_path/'manifest workspace')
+    path, reads = manifest(tmp_path)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+        errors = [];page.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(page, store)
+        page.get_by_role('link', name='Samples', exact=True).click()
+        page.get_by_role('button', name='Import HybAs manifest', exact=True).click()
+        dialog = page.get_by_role('dialog', name='Import HybAs libraries', exact=True)
+        expect(dialog.get_by_role('button', name='Import reviewed libraries', exact=True)).to_be_disabled()
+        dialog.get_by_label('Manifest path', exact=True).fill(str(path))
+        def respond(kind, failure=False):
+            req = page.evaluate('window.acceptanceEvents.at(-1).value');assert req['kind']==kind
+            try:
+                result=dispatch(store,kind,req['payload']);assert not failure
+                response={'id':req['id'],'ok':True,**result}
+            except ValueError as exc:
+                assert failure
+                response={'id':req['id'],'ok':False,'message':str(exc)}
+            page.evaluate('({response,workspace}) => {Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                          {'response':response,'workspace':snapshot(store)})
+        dialog.get_by_role('button',name='Preview libraries',exact=True).click();respond('preview_manifest')
+        expect(dialog.locator('tbody')).to_contain_text('pacbio')
+        path.write_text(path.read_text()+'# changed\n')
+        dialog.get_by_role('button',name='Import reviewed libraries',exact=True).click();respond('import_manifest',True)
+        expect(dialog.get_by_role('alert')).to_contain_text('changed')
+        assert not store.all('samples')
+        dialog.get_by_role('button',name='Preview libraries',exact=True).click();respond('preview_manifest')
+        dialog.get_by_role('button',name='Import reviewed libraries',exact=True).click();respond('import_manifest')
+        expect(dialog).to_have_count(0)
+        assert store.get('samples','sample')['mode']=='pacbio_only'
+        assert not store.jobs() and not store.all('runs') and not errors
+        browser.close()

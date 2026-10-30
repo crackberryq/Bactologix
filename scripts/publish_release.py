@@ -122,14 +122,18 @@ def publish(root, dist, commit):
                                for p in packages))
     files = [*packages, checksum]
     heading = '## ' + version + ' '
+    canonical_heading = '## Bactologix ' + version + ' '
     changelog = (root / 'CHANGELOG.md').read_text()
-    sections = changelog.split(heading, 1)
+    sections = changelog.split(canonical_heading if canonical_heading in changelog else heading, 1)
     if len(sections) != 2:
         raise ValueError('Add release notes to CHANGELOG.md before publishing.')
     notes = sections[1].split('\n', 1)[1].split('\n## ', 1)[0].strip()
     notes += f'\n\nTested source: `{commit}`. Install through **Update Bactologix → Refresh releases → {tag}**. Restart Bactologix after installation.\n'
+    parsed = Version(version)
+    stage = {'a': 'Alpha', 'b': 'Beta', 'rc': 'Release candidate'}.get(parsed.pre[0]) if parsed.pre else None
+    release_name = 'Bactologix ' + version + (' — ' + stage if stage else '')
     if not release:
-        release = github(base, 'POST', {'tag_name': tag, 'target_commitish': commit, 'name': 'Bactologix ' + tag,
+        release = github(base, 'POST', {'tag_name': tag, 'target_commitish': commit, 'name': release_name,
                                       'body': notes, 'draft': True, 'prerelease': Version(version).is_prerelease})
     # Draft retries reuse identical uploads; conflicting uploads require review.
     for file in files:

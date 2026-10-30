@@ -126,7 +126,7 @@ function overview(){
 }
 function samples(){
  const q=val('registered-sample-search').toLowerCase(),rows=S.samples.filter(s=>`${s.id} ${s.path}`.toLowerCase().includes(q));
- return heading('SAMPLES','Your input folders.','Register folders once, then use them in independent run drafts.',btn('import','Import table',false,'','file')+btn('new-sample','Add sample',true,'','plus'))+
+ return heading('SAMPLES','Your input folders.','Register folders once, then use them in independent run drafts.',btn('manifest','Import HybAs manifest',false,'','file')+btn('import','Import table',false,'','file')+btn('new-sample','Add sample',true,'','plus'))+
  `<section class="card registered-samples"><div class="card-head"><div><h2>Registered samples</h2><p>${S.samples.length} folder${S.samples.length===1?'':'s'} · Original files stay in their current location.</p></div><input class="search" id="registered-sample-search" aria-label="Search registered samples" placeholder="Find a sample or folder…" value="${e(val('registered-sample-search'))}"></div>${rows.length?`<div class="table-wrap"><table><thead><tr><th>Sample</th><th>Read mode</th><th>Input folder</th><th>Actions</th></tr></thead><tbody>${rows.map(s=>`<tr data-sample-row="${e(s.id)}"><td><strong>${e(s.id)}</strong><span class="secondary-line">${S.runs.filter(r=>r.sample.id===s.id&&!r.archived).length} current runs</span></td><td>${e(readMode(s.mode))}</td><td class="path-cell">${e(s.path)}</td><td><div class="table-actions">${btn('sample-draft','Create draft',false,s.id,'plus')}${quiet('sample-runs','View runs',s.id)}${btn('remove-sample','Remove sample',false,s.id,'trash')}</div></td></tr>`).join('')}</tbody></table></div>`:empty(S.samples.length?'No matching samples.':'Start with a sample folder.',S.samples.length?'Try a different sample ID or folder name.':'Use Add sample or import a CSV/TSV table.',S.samples.length?'':btn('new-sample','Add sample',true))}<div class="section-note">Removing a sample also archives its inactive runs. Input files and reports are kept; active jobs stay visible in Runs.</div></section>`;
 }
 function runsPage(){
@@ -345,10 +345,10 @@ function editRunField(c,f,value){
  c.changes[f.key]=value;
  const get=name=>c.fields.find(x=>x.name===name),put=(name,v)=>{const row=get(name);if(row)c.changes[row.key]=v;};
  if(c.tool==='hybas'&&f.name==='run_kraken'){
-  if(!value)put('kraken_decision_mode','off');
-  else if(runFieldValue(c,get('kraken_decision_mode'))==='off')put('kraken_decision_mode','aware');
+  if(value===false||value==='false')put('kraken_decision_mode','off');
+  else if(value!=='auto'&&runFieldValue(c,get('kraken_decision_mode'))==='off')put('kraken_decision_mode','aware');
  }
- if(c.tool==='hybas'&&f.name==='kraken_decision_mode')put('run_kraken',value!=='off');
+ if(c.tool==='hybas'&&f.name==='kraken_decision_mode')put('run_kraken',get('run_kraken')?.options?.includes('auto')?String(value!=='off'):value!=='off');
  updateDefaultStatus();
  const counter=editorRoot(c)?.querySelector('[data-edited-count]');if(counter)counter.textContent=Object.keys(c.changes).length+' edited settings';
  for(const b of editorRoot(c)?.querySelectorAll('[data-action="reset-run-field"]')||[])b.disabled=!Object.hasOwn(c.changes,b.dataset.id);
@@ -435,7 +435,7 @@ function runSettingsPanel(c){
 }
 function runReview(c,chosen,budget={cores:val('run-cores',S.resource_defaults?.[c.tool]?.cores??4),memory_mb:val('run-memory',S.resource_defaults?.[c.tool]?.memory_mb??16000)}){
  const v=name=>{const f=c.fields.find(f=>f.name===name);return f?runFieldValue(c,f):'—';};
- const pairs=c.tool==='micpscope'?[['Input','Annotated protein FASTA'],['Workflow','Protein properties + report']]:c.tool==='hybas'?[['Kraken mode',v('run_kraken')?v('kraken_decision_mode'):'off'],['Polishing',v('polish_mode')],['BUSCO',v('run_busco')?'On':'Off'],['Prokka',v('run_prokka')?'On':'Off'],['MultiQC',v('run_multiqc')?'On':'Off']]:[['Enabled modules',c.fields.filter(f=>f.name.startsWith('modules.')&&f.name.endsWith('.enabled')&&runFieldValue(c,f)===true).length],['AWARE',v('deep.aware.enabled')?'On':'Off'],['DeepSafe',v('deep.enabled')?'On':'Off']];
+ const pairs=c.tool==='micpscope'?[['Input','Annotated protein FASTA'],['Workflow','Protein properties + report']]:c.tool==='hybas'?[['Kraken mode',v('run_kraken')?v('kraken_decision_mode'):'off'],['Polishing',v('polish_mode')],['BUSCO',v('run_busco')==='auto'?'Auto':v('run_busco')===true||v('run_busco')==='true'?'On':'Off'],['Prokka',v('run_prokka')==='auto'?'Auto':v('run_prokka')===true||v('run_prokka')==='true'?'On':'Off'],['MultiQC',v('run_multiqc')==='auto'?'Auto':v('run_multiqc')===true||v('run_multiqc')==='true'?'On':'Off']]:[['Enabled modules',c.fields.filter(f=>f.name.startsWith('modules.')&&f.name.endsWith('.enabled')&&runFieldValue(c,f)===true).length],['AWARE',v('deep.aware.enabled')?'On':'Off'],['DeepSafe',v('deep.enabled')?'On':'Off']];
  return `<div class="settings-intro"><div><h3>Ready to create your drafts?</h3><p>Each sample gets its own saved run. Nothing starts until you launch it.</p></div></div><div class="review-stats"><div><span>Samples</span><strong>${chosen.length}</strong></div><div><span>CPU per run</span><strong data-review-budget="cores">${e(budget.cores)} cores</strong></div><div><span>Memory per run</span><strong data-review-budget="memory">${e(budget.memory_mb)} MB</strong></div></div><dl class="review-settings">${pairs.map(([k,v])=>`<div><dt>${e(k)}</dt><dd>${e(v)}</dd></div>`).join('')}</dl><div class="review-samples">${chosen.map(s=>`<div>${icon('samples')}<strong>${e(s.id)}</strong><span>${e(s.mode.replaceAll('_',' '))}</span></div>`).join('')||'<p>No samples selected. Return to Samples to choose one.</p>'}</div><p class="settings-note">Saved defaults and existing runs are unchanged. Check each new draft with a native dry-run before preparing tools or running it.</p>`;
 }
 function wizardPage(){
@@ -652,6 +652,7 @@ if(m.kind==='existing'){
  ${notice('Keep your existing work','Connecting copies committed workflow source locally. Import your native YAML and set database paths in Configuration. Existing outputs are available as reports; they are not adopted for in-place resume.')}`;
  foot=btn('connect-local','Connect installation',true,t,'check',!info?.supported||info.path!==val('existing-source'));
 }
+if(m.kind==='manifest'){wide=true;title='Import HybAs libraries';desc='Declare platform, preparation, orientation and read groups.';body=`${field('manifest-path','Manifest path','','text','placeholder="/home/user/inputs.yaml"')}<p>JSON or YAML. Relative read paths resolve beside the manifest. A reviewed HybAs v2 alpha is required to create runs.</p>${btn('preview-manifest','Preview libraries',true)}${U.manifestImport?`<p>${e(U.manifestImport.notice)}</p><div class="table-wrap"><table><thead><tr><th>Sample</th><th>Mode</th><th>Libraries</th></tr></thead><tbody>${U.manifestImport.rows.map(r=>`<tr><td>${e(r.id)}</td><td>${e(readMode(r.mode))}</td><td>${r.input_manifest.libraries.map(l=>e([l.library_id,l.platform,l.chemistry||l.library_type,l.orientation||'',l.preprocessing||'default'].join(' · '))).join('<br>')}</td></tr>`).join('')}</tbody></table></div>`:''}`;foot=btn('import-manifest','Import reviewed libraries',true,'','',!U.manifestImport);}
 if(m.kind==='import'){wide=true;title='Import a sample table';desc='Preview every row before registering input folders.';body=`<label class="btn upload-label">Choose CSV / TSV<input type="file" id="sample-upload" accept=".csv,.tsv" class="visually-hidden"></label><div class="form-grid">${area('sample-table','Table contents','sample_id,input_folder,read_mode\n','rows="9" spellcheck="false"')}</div><div class="button-row">${btn('sample-template','Download template')}${btn('preview-samples','Preview table',true)}</div><p class="settings-note">CSV or TSV · sample_id, input_folder, optional read_mode. Blank read modes use Hybrid. Up to 500 rows / 2 MB. This registers folders; it does not validate input files or create runs.</p><div id="sample-import-status"></div><div id="sample-import-preview">${sampleImportPreview()}</div>`;foot=btn('import-samples','Import reviewed samples',true,'','',true);}
 if(m.kind==='conda'){title='Choose Conda';desc='Use an existing executable or install local Conda from Install & update.';body=field('conda-path','Conda executable',S.doctor.conda||'');foot=btn('save-conda','Save location',true);}
 
@@ -780,6 +781,9 @@ else if(action==='connect-local'){if(!U.localInstall?.supported)return;request('
 else if(action==='app-updates'){modal('app-update');if(!S.app_update.catalog)request('refresh_app_releases');}
 else if(action==='refresh-app-releases')request('refresh_app_releases');
 else if(action==='install-app-release'){const r=S.app_update.catalog?.releases.find(x=>String(x.id)===val('app-release'));if(r?.available)request('update_app',{release_id:r.id,version:r.version});}
+else if(action==='manifest'){U.manifestImport=null;modal('manifest');}
+else if(action==='preview-manifest')request('preview_manifest',{path:v('manifest-path')});
+else if(action==='import-manifest')request('import_manifest',{path:v('manifest-path'),token:U.manifestImport?.token});
 else if(action==='new-sample')modal('sample');
 else if(action==='import'){U.sampleImport=null;U.importText=null;U.importPage=0;setDraft('sample-import-errors',false);modal('import');}
 else if(action==='conda')modal('conda');
@@ -970,7 +974,7 @@ const newResponse=response&&response.id!==U.handled;
 const backgroundResponse=U.background;
 // Preserve drafts before rendering a new server snapshot.
 draftInputs();
-if(newResponse){if(!response.ok&&U.requestOrigin?.kind==='import_samples'){U.sampleImport=null;U.importText=null;}U.handled=response.id;U.pending=null;U.error=response.ok?'':response.message;if(response.config){const c=response.config;U.drafts['yaml-'+c.tool]=c.text;U.fields[c.tool]=c.fields;const el=$('#yaml-'+c.tool);if(el)el.value=c.text;}if(response.browser){U.browser=response.browser;setDraft('folder-path',response.browser.path);}if(response.database_scan){const scan=response.database_scan,t=scan.tool,state=dbState(t);state.scan=scan;for(const r of S.databases[t].rows){const key=dbPath(t,r.id),preferred=scan.candidates[r.id]?.find(c=>c.preferred);if(preferred&&!state.resets[r.id]&&val(key,r.path)===r.path){setDraft(key,preferred.path);setDraft('dbcand-'+t+'-'+r.id,preferred.path);}}}
+if(newResponse){if(!response.ok&&U.requestOrigin?.kind==='import_samples'){U.sampleImport=null;U.importText=null;}U.handled=response.id;U.pending=null;U.error=response.ok?'':response.message;if(response.manifest_import)U.manifestImport=response.manifest_import;if(response.config){const c=response.config;U.drafts['yaml-'+c.tool]=c.text;U.fields[c.tool]=c.fields;const el=$('#yaml-'+c.tool);if(el)el.value=c.text;}if(response.browser){U.browser=response.browser;setDraft('folder-path',response.browser.path);}if(response.database_scan){const scan=response.database_scan,t=scan.tool,state=dbState(t);state.scan=scan;for(const r of S.databases[t].rows){const key=dbPath(t,r.id),preferred=scan.candidates[r.id]?.find(c=>c.preferred);if(preferred&&!state.resets[r.id]&&val(key,r.path)===r.path){setDraft(key,preferred.path);setDraft('dbcand-'+t+'-'+r.id,preferred.path);}}}
 if(response.removed_sample){
  const key='run-sample-'+response.removed_sample;delete U.drafts[key];
  // render() captures the outgoing form once more before replacing the dialog.

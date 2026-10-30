@@ -199,10 +199,11 @@ def run_defaults(store, tool):
 
 
 def panel(store):
+    from .run_config import defaults
     info = inventory(store)
     return {**info, 'presets': presets(info),
             'defaults': {t: run_defaults(store, t) for t in PIPELINES},
-            'revisions': {t: revision(store.get('configs', t, template(t))) for t in PIPELINES}}
+            'revisions': {t: revision(defaults(store, t)) for t in PIPELINES}}
 
 
 def apply_preset(store, name, tools, expected, hardware_id):
@@ -221,7 +222,8 @@ def apply_preset(store, name, tools, expected, hardware_id):
         db.execute('BEGIN IMMEDIATE')
         for tool in dict.fromkeys(tools):
             row = db.execute("SELECT body FROM items WHERE kind='configs' AND id=?", (tool,)).fetchone()
-            text = json.loads(row[0]) if row else template(tool)
+            from .run_config import defaults
+            text = json.loads(row[0]) if row else defaults(store, tool)
             if revision(text) != expected.get(tool):
                 raise ValueError('Saved defaults changed. Refresh and review them before applying a preset.')
             cfg = parse_config(text)

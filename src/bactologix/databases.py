@@ -98,7 +98,8 @@ def revision(text):
 
 
 def _text(store, tool):
-    return store.get("configs", tool, template(tool))
+    from .run_config import defaults
+    return defaults(store, tool)
 
 
 def _file(path):
@@ -561,7 +562,8 @@ def save(store, tool, changes, expected_revision):
     with store.connect() as db:
         db.execute("BEGIN IMMEDIATE")
         row = db.execute("SELECT body FROM items WHERE kind='configs' AND id=?", (tool,)).fetchone()
-        actual = json.loads(row[0]) if row else template(tool)
+        from .run_config import defaults
+        actual = json.loads(row[0]) if row else defaults(store, tool)
         if revision(actual) != expected_revision:
             raise ValueError("Defaults changed while checking locations. Reload locations before saving.")
         for kind, value in (("configs", text), ("database_locations", locations)):

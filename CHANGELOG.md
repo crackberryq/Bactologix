@@ -1,5 +1,13 @@
 # Changelog
 
+## Bactologix 0.1.0a55 — Alpha (unreleased)
+
+- Import reviewed HybAs input manifests with platform, chemistry, library preparation, orientation and read-group identity. Check file availability and reject changes between preview and registration.
+- Freeze the selected sample's manifest in each run; retain original declarations and input size/mtime identity. Verify frozen bytes and inputs before resume. Do not modify source reads or existing runs.
+- Require a reviewed `hybas-v2` exact-commit contract for manifest inputs and Auto settings. Old application adapters reject this schema. New v2 workspaces default supported controls to Auto; saved explicit defaults remain unchanged.
+- Discover pinned Flye, SPAdes and NxTrim environments for setup and show the integrated HybAs research report in results. Controller requirements remain derived from the approved source.
+- Add a separate Snakemake 9.27.1 native DAG check for frozen HiFi, CLR/Illumina and ONT/Illumina inputs. No new HybAs release is activated by this application change.
+
 ## 0.1.0a54 — Windows desktop setup and owned-session shutdown
 
 - Add a downloadable Windows setup bundle with visible stage progress, setup logs, prerequisite guidance and a branded desktop shortcut. Reuse the existing Linux installer and Conda environment rather than introducing a separate installation layout.
