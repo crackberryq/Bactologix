@@ -133,6 +133,7 @@ function Browser-State([string]$Profile) {
     if (-not $endpoint) { return @{ reachable=$false; pages=0 } }
     try {
         $request = [Net.HttpWebRequest]::Create("http://127.0.0.1:$($endpoint.port)/json/list")
+        $request.CachePolicy = [Net.Cache.RequestCachePolicy]::new([Net.Cache.RequestCacheLevel]::NoCacheNoStore)
         $request.Proxy = $null; $request.Timeout = 1000
         $response = $request.GetResponse()
         try {
