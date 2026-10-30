@@ -171,6 +171,9 @@ def dispatch(store, kind, p):
         if updates.status(store)["active_job"]:
             raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
     if kind == 'restart_as_browser':
+        from .desktop import request_browser
+        if request_browser(store):
+            return {'message': 'Opening a browser window owned by this desktop session. Closing its last window stops this session.'}
         from .launcher import open_browser
         item = updates.restart_control.current_launcher(store)
         if not item:

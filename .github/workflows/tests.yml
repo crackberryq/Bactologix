@@ -44,6 +44,7 @@ jobs:
       - name: Build and check installed package
         run: |
           python -m build
+          python scripts/build_windows_bundle.py
           python -m pip install --force-reinstall --no-deps dist/*.whl
           python -m pip check
           python -m bactologix.cli --version
@@ -98,9 +99,25 @@ jobs:
         env:
           BACTOLOGIX_ENVIRONMENT_TESTS: '1'
         run: python -m pytest -q tests/test_environment_deployment.py
+  windows-desktop:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Windows launcher, installer rendering and browser ownership
+        shell: powershell
+        run: ./tests/windows_desktop.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-installer-preview
+          path: windows-setup-preview.png
   publish:
     name: Publish checked application release
-    needs: [tests, browser, environment-deployment]
+    needs: [tests, browser, environment-deployment, windows-desktop]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:

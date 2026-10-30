@@ -1,3 +1,9 @@
+# Validation update: 0.1.0a54 (2026-10-31)
+
+- Test desktop job ownership, racing-submission rejection, confirmation/reopen, supervisor loss, application-update protection, real server shutdown and descendant-process cancellation while unrelated processes stay alive. Tests use only software fixtures.
+- Add Windows CI for PowerShell syntax, exact argument transport, atomic control files, shortcut icon binding, installer rendering and two independent real headless browser profiles. Check deterministic packaging and shared icon bytes.
+- Python 3.11/3.12, browser, environment and Windows desktop CI gate publication. Native physical Windows/WSL installation, UAC/reboot/user creation, actual app-mode close dialogs and scientific-tool interruption/resume remain unverified workstation acceptance work. No existing user analyses are launched.
+
 # Validation update: 0.1.0a53 (2026-10-30)
 
 - Reproduced the missing-variant-manifest failure when a reviewed follow-up inherits screening variant metadata. Four new regression cases cover both native-cache and completed-result wrappers, correct follow-up entry-point selection, unchanged parent files/records and content changes that preserve file size and timestamps.
