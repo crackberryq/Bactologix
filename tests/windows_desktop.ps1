@@ -7,7 +7,7 @@ New-Item -ItemType Directory $temporary | Out-Null
 python (Join-Path $repo 'scripts/build_windows_bundle.py')
 Expand-Archive -LiteralPath (Join-Path $repo 'dist/Bactologix-Windows.zip') -DestinationPath $temporary
 . (Join-Path $temporary 'Bactologix/Bactologix.ps1') -TestMode
-$views = @(); $profiles = @()
+$views = @(); $profiles = @(); $browserProcesses = @()
 try {
     $scriptPath = Join-Path $repo 'scripts/windows/Bactologix.ps1'
     $tokens=$null; $errors=$null
@@ -41,16 +41,16 @@ try {
     foreach ($name in @('owned','independent')) {
         $profile = Join-Path $temporary $name; $profiles += $profile
         $task = Start-Owned $browser @('--headless=new',"--user-data-dir=$profile",'--remote-debugging-port=0','--remote-debugging-address=127.0.0.1','--no-first-run','--disable-background-mode','about:blank')
+        $browserProcesses += $task.Process
         $deadline = [Diagnostics.Stopwatch]::StartNew()
         while ($deadline.Elapsed.TotalSeconds -lt 45 -and -not (Browser-State $profile).reachable) { Start-Sleep -Milliseconds 200 }
         Assert ((Browser-State $profile).pages -ge 1) 'Dedicated browser was not observable'
     }
     Close-OwnedBrowser $profiles[0]
-    Write-Output ('Immediately after close: ' + ((Browser-State $profiles[0]) | ConvertTo-Json -Compress))
-    $deadline = [Diagnostics.Stopwatch]::StartNew()
-    while ($deadline.Elapsed.TotalSeconds -lt 15 -and (Browser-State $profiles[0]).reachable) { Start-Sleep -Milliseconds 200 }
-    Write-Output ('After wait: ' + ((Browser-State $profiles[0]) | ConvertTo-Json -Compress))
-    Assert (-not (Browser-State $profiles[0]).reachable) 'Owned browser did not close'
+    # Headless Edge runs in this foreground process. Check actual termination:
+    # its HTTP endpoint can briefly accept empty responses during teardown.
+    Assert ($browserProcesses[0].WaitForExit(30000)) 'Owned browser process did not exit'
+    Assert (-not $browserProcesses[1].HasExited) 'Independent browser process exited'
     Assert ((Browser-State $profiles[1]).reachable) 'Independent browser was affected'
     Write-Output 'Windows desktop checks passed: syntax, exact argument transport, atomic control, shortcut icon, installer render and isolated browser shutdown.'
 } finally {
