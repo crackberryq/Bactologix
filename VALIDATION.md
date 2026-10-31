@@ -1,3 +1,8 @@
+# Validation update: 0.1.0a58 (2026-11-01)
+
+- Exercise real Windows file-handle contention: transient lock recovery, shared readers, persistent failure diagnostics, retained last-valid JSON and temporary cleanup. Regress browser probe grace/recovery and sustained close detection.
+- Keep native WSL option, argument, encoding, installer, browser isolation and all application release gates. Physical Windows/WSL maximize/minimize acceptance remains unverified. No existing sample analyses are launched.
+
 # Validation update: 0.1.0a57 (2026-10-31)
 
 - Regress the reported quoted-option failure with exact WSL discovery/execution command lines. Exercise the actual Windows WSL executable using --help without installing or launching a distro, and retain argument round-trip, encoding and ownership tests.

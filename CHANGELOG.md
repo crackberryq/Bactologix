@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0a58 — Tolerate desktop control-file contention
+
+- Retry brief Windows sharing/access conflicts when atomically replacing desktop control files. Use unique temporary names, preserve the last complete JSON on failure, clean temporary files and include the path/Windows error in persistent failures.
+- Read control files with delete sharing so the Windows supervisor does not block WSL status-file replacement.
+- Require ten seconds of sustained browser absence before requesting session shutdown; a single missed or empty browser response no longer closes the session. Heartbeats continue during this grace period.
+- Add Windows tests with real conflicting file handles, bounded failure/preservation checks and transient browser-response recovery. Physical maximize/minimize interaction and full WSL workstation acceptance remain outstanding. No user analyses are run.
+
 ## 0.1.0a57 — Pass WSL options correctly
 
 - Leave simple command-line options and distribution names unquoted. WSL can treat a quoted `--list` as a Linux command, causing `/bin/bash: --list: command not found` despite Ubuntu being installed. Keep escaping for spaces, quotes and other complex values.

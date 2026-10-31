@@ -67,10 +67,21 @@ function Capture([string[]]$Arguments, [switch]$Unicode) {
     return $task.Out.Result.Trim().Replace([string][char]0, '')
 }
 function Write-Json([string]$Path, $Value) {
-    $temporary = $Path + '.writing'
-    [IO.File]::WriteAllText($temporary, ($Value | ConvertTo-Json -Depth 8 -Compress), $script:Utf8)
-    # MoveFileEx replaces the prior file atomically on this local volume.
-    if (-not [BactoFiles]::MoveFileEx($temporary, $Path, 1)) { throw 'Could not update desktop control file.' }
+    $temporary = $Path + '.' + [Guid]::NewGuid().ToString('N') + '.writing'
+    try {
+        [IO.File]::WriteAllText($temporary, ($Value | ConvertTo-Json -Depth 8 -Compress), $script:Utf8)
+        $deadline = [Diagnostics.Stopwatch]::StartNew()
+        while (-not [BactoFiles]::MoveFileEx($temporary, $Path, 1)) {
+            $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            # WSL readers and scanners can briefly deny replacement on NTFS.
+            # Keep the old complete JSON while retrying only sharing/access errors.
+            if ($code -notin @(5,32,33) -or $deadline.Elapsed.TotalSeconds -ge 2) {
+                throw "Could not update desktop control file '$Path' (Windows error $code)."
+            }
+            # No DoEvents here: a heartbeat callback must not reenter this write.
+            Start-Sleep -Milliseconds 25
+        }
+    } finally { if ([IO.File]::Exists($temporary)) { Remove-Item -LiteralPath $temporary -ErrorAction SilentlyContinue } }
 }
 Add-Type -TypeDefinition @'
 using System;
@@ -80,8 +91,15 @@ public static class BactoFiles {
  public static extern bool MoveFileEx(string from, string to, int flags);
 }
 '@
+function Read-SharedText([string]$Path) {
+    $stream = [IO.FileStream]::new($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+    try {
+        $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8, $true)
+        try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
+    } finally { $stream.Dispose() }
+}
 function Read-Json([string]$Path) {
-    try { return ([IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8) | ConvertFrom-Json) }
+    try { return ((Read-SharedText $Path) | ConvertFrom-Json) }
     catch { return $null }
 }
 function New-Progress([string]$Title) {
@@ -147,7 +165,7 @@ function Find-Browser {
 function Browser-Endpoint([string]$Profile) {
     $file = Join-Path $Profile 'DevToolsActivePort'
     if (-not (Test-Path -LiteralPath $file)) { return $null }
-    $lines = [IO.File]::ReadAllLines($file)
+    try { $lines = (Read-SharedText $file) -split "`r?`n" } catch { return $null }
     if ($lines.Length -lt 2 -or $lines[0] -notmatch '^\d{1,5}$' -or [int]$lines[0] -gt 65535 -or $lines[1] -notmatch '^/devtools/browser/[a-zA-Z0-9-]+$') { return $null }
     return @{ port=$lines[0]; socket=$lines[1] }
 }
@@ -165,6 +183,17 @@ function Browser-State([string]$Profile) {
         } finally { $response.Dispose() }
         return @{ reachable=$true; pages=@($rows | Where-Object { $_.type -eq 'page' }).Count }
     } catch { return @{ reachable=$false; pages=0 } }
+}
+function Update-BrowserPresence($Presence, $Observed, [double]$Seconds) {
+    if ($Observed.reachable -and $Observed.pages -gt 0) {
+        $Presence.ready = $true; $Presence.missing_since = $null
+        return $false
+    }
+    if (-not $Presence.ready) { return $false }
+    if ($null -eq $Presence.missing_since) { $Presence.missing_since = $Seconds }
+    # A resize, minimization or busy browser is not a close event. Require a
+    # sustained absence; the heartbeat continues during this grace period.
+    return ($Seconds - $Presence.missing_since -ge 10)
 }
 function Close-OwnedBrowser([string]$Profile) {
     $endpoint = Browser-Endpoint $Profile
@@ -273,6 +302,7 @@ function Run-Desktop($View) {
                 if ($uri.Scheme -ne 'http' -or $uri.AbsolutePath -ne '/' -or $uri.Query -or $uri.Fragment -or $uri.UserInfo) { throw 'Invalid local application address.' }
                 $window = Start-Owned $browser @("--user-data-dir=$profile",'--no-first-run','--no-default-browser-check','--disable-background-mode','--remote-debugging-port=0','--remote-debugging-address=127.0.0.1',"--app=$($status.url)",'--window-size=1440,1000')
                 $opened = $true; $closing = $false; $browserReady = $false
+                $presence = @{ ready=$false; missing_since=$null }
                 $browserClock = [Diagnostics.Stopwatch]::StartNew(); $View.Form.Hide()
             }
             if ($status.browser_request -and $status.browser_request -ne $browserRequest) {
@@ -281,8 +311,9 @@ function Run-Desktop($View) {
             }
             if ($opened -and -not $closing) {
                 $browserState = Browser-State $profile
-                if ($browserState.reachable -and $browserState.pages -gt 0) { $browserReady = $true }
-                if (($browserReady -and (-not $browserState.reachable -or $browserState.pages -eq 0))) {
+                $browserClosed = Update-BrowserPresence $presence $browserState $browserClock.Elapsed.TotalSeconds
+                $browserReady = $presence.ready
+                if ($browserClosed) {
                     Close-OwnedBrowser $profile
                     & $request 'close'; $closing = $true
                 } elseif (-not $browserReady -and $browserClock.Elapsed.TotalSeconds -gt 30) {
