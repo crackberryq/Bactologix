@@ -1,3 +1,8 @@
+# Validation update: 0.1.0a57 (2026-10-31)
+
+- Regress the reported quoted-option failure with exact WSL discovery/execution command lines. Exercise the actual Windows WSL executable using --help without installing or launching a distro, and retain argument round-trip, encoding and ownership tests.
+- All Python, Windows, browser and sample-free environment release gates remain required. Full physical Windows/Ubuntu setup remains unverified; no user analyses are launched.
+
 # Validation update: 0.1.0a56 (2026-10-31)
 
 - Windows regression checks exercise UTF-8, UTF-8 BOM, UTF-16 BOM, UTF-16LE and UTF-16BE subprocess output, installed distribution parsing, and failed discovery. All existing release gates remain required.

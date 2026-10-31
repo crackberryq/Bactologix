@@ -8,7 +8,9 @@ $script:Root = Join-Path $env:LOCALAPPDATA 'Bactologix'
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)
 
 function Quote-Argument([string]$Value) {
-    # Windows CRT quoting; never concatenate values into a shell command.
+    # WSL's option parser does not treat quoted switches like CRT argv.
+    # Keep simple options/names bare; quote values that need escaping.
+    if ($Value -match '\A[A-Za-z0-9_./:\\=-]+\z') { return $Value }
     $result = '"'; $slashes = 0
     foreach ($character in $Value.ToCharArray()) {
         if ($character -eq '\') { $slashes++; continue }
