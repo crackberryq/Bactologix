@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0a59 — Reviewed BaSIS follow-up versions
+
+- Select a compatible installed workflow for follow-up while retaining the original screening source and evidence. Record both commits, workflow checksums, scope and reviewed compatibility contract. Validate source, input and transition integrity before execution or resume.
+- Expose AMRFinder reported review cues as an explicit scope with a default ceiling of five unique candidates per isolate. Clarify that AWARE presets do not change native AMRFinder thresholds. Unassessed and deferred evidence retains review obligations.
+- Extend release contracts with tested follow-up entry points, parent versions and scopes so future compatible releases can be registered without another hard-coded client allowlist. Existing runs remain frozen.
+- Add source-transition, unchanged-screening, native workflow/report and browser coverage. Real AFB01/isolate1 follow-up and scientific validation remain beta acceptance work.
+
 ## 0.1.0a58 — Tolerate desktop control-file contention
 
 - Retry brief Windows sharing/access conflicts when atomically replacing desktop control files. Use unique temporary names, preserve the last complete JSON on failure, clean temporary files and include the path/Windows error in persistent failures.

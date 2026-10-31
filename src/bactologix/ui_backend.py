@@ -100,7 +100,9 @@ def snapshot(store):
         runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant")} | {
             "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if cfg.get("kraken_decision_mode") == "off" else "aware",
             "kraken_mode": "off" if cfg.get("run_kraken") is False else cfg.get("kraken_decision_mode"),
-            "can_followup": followup.available(run) and status == "completed",
+            "can_followup": followup.available(run, store) and status == "completed",
+            "followup_sources": followup.source_options(store, run) if status == "completed" else [],
+            "followup_transition": run.get('followup_transition'),
             "strategy": cfg.get("polish_mode", "—"), "can_handoff": run["tool"] == "hybas" and status == "completed" and all(
                 Path(run["output"], "annotation", run["sample"]["id"] + ext).is_file() for ext in (".fna", ".faa", ".gff"))})
     configs = {t: store.get("configs", t, template(t)) for t in PIPELINES}
@@ -498,7 +500,8 @@ def dispatch(store, kind, p):
     if kind == "clone":
         raise ValueError("Independent polishing clones have been replaced. Open a completed run and choose Create variant to reuse results.")
     if kind == "create_followup":
-        followup.create_followup(store, p.get("id"), p["text"], p.get("reviewed") is True)
+        followup.create_followup(store, p.get("id"), p["text"], p.get("reviewed") is True,
+                                 p.get('source_id', 'screening'), p.get('scope'))
         return {"message": "Created a reviewed follow-up draft. Check its native dry-run before execution.", "navigate": "runs"}
     if kind == "revise_run":
         child = run_revisions.apply(store, p)

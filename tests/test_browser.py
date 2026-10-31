@@ -15,6 +15,7 @@ from bactologix.catalog import PIPELINES
 from bactologix.runs import create_run
 from test_databases import busco
 from test_maintenance import installed
+from test_followup_adapter import screening, reviewed_installation
 
 pytestmark = pytest.mark.skipif(os.environ.get('BACTOLOGIX_BROWSER_TESTS') != '1',
                                 reason='Enable the browser acceptance job to run Chromium')
@@ -809,6 +810,58 @@ def render_component(page, store):
         window.acceptanceRender(null);
     }''', {'html': (ui / 'shell.html').read_text(), 'css': (ui / 'styles.css').read_text(),
            'js': (ui / 'workspace.js').read_text(), 'workspace': snapshot(store)})
+
+
+def test_followup_version_scope_and_draft_roundtrip(screening, tmp_path):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import dispatch, snapshot
+    store, parent = screening
+    installed, _ = reviewed_installation(store, parent, tmp_path / 'new reviewed source')
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(page, store)
+        def respond(kind):
+            request = page.evaluate('window.acceptanceEvents.at(-1).value')
+            assert request['kind'] == kind
+            result = dispatch(store, kind, request['payload'])
+            page.evaluate('({response,workspace}) => {Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                          {'response': {'id': request['id'], 'ok': True, **result}, 'workspace': snapshot(store)})
+            return request
+        page.get_by_role('link', name='Runs', exact=True).click()
+        page.locator('[data-action="run-detail"][data-id="' + parent['id'] + '"]').first.click()
+        respond('inspect_run')
+        page.get_by_role('button', name='Review follow-up', exact=True).click()
+        dialog = page.get_by_role('dialog', name='Review saved screening for follow-up', exact=True)
+        source = dialog.get_by_label('Workflow version for this follow-up', exact=True)
+        scope = dialog.get_by_label('AWARE scope', exact=True)
+        expect(source).to_have_value('screening')
+        expect(scope.locator('option')).to_have_count(1)
+        source.select_option(installed['id'])
+        expect(scope).to_have_value('amrfinder-review')
+        expect(dialog).to_contain_text('unreported alignments')
+        reviewed = dialog.locator('#followup-reviewed')
+        reviewed.check()
+        scope.select_option('all-supported')
+        expect(reviewed).not_to_be_checked()
+        scope.select_option('amrfinder-review')
+        dialog.get_by_label('Reviewed follow-up configuration').fill('deep: {enabled: true, maximum_candidates: 5}\n')
+        reviewed.check()
+        page.set_viewport_size({'width': 390, 'height': 900})
+        expect(source).to_be_visible()
+        assert dialog.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
+        dialog.get_by_role('button', name='Create follow-up draft', exact=True).click()
+        request = respond('create_followup')
+        assert request['payload']['scope'] == 'amrfinder-review'
+        assert request['payload']['source_id'] == installed['id']
+        child = next(r for r in store.all('runs') if r['id'] != parent['id'])
+        assert child['commit'] == installed['version']['commit']
+        assert child['followup_transition']['screening_commit'] == parent['commit']
+        assert not store.jobs() and not child['dry_run_ok']
+        assert errors == []
+        browser.close()
 
 
 def test_reviewed_support_snapshot_and_zip(tmp_path):

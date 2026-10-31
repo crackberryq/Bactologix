@@ -164,7 +164,11 @@ def test_pinned_source_accepts_generated_draft(tmp_path, monkeypatch, tool):
     assert not list(Path(run['output']).glob('safety/evidence/*.json'))
 
 
-def test_saved_followup_native_parse_and_empty_execution(tmp_path, monkeypatch):
+@pytest.mark.parametrize('new_source', [False, True], ids=['original-source', 'reviewed-source-transition'])
+def test_saved_followup_native_parse_and_empty_execution(tmp_path, monkeypatch, new_source):
+    target = os.environ.get('BACTOLOGIX_BASIS_FOLLOWUP_SOURCE') if new_source else None
+    if new_source and not target:
+        pytest.skip('Reviewed follow-up checkout not supplied')
     store, parent = setup_run(tmp_path, 'basis')
     source = native_source('basis')
     # Exercise upstream input validation/reporting with zero findings. This
@@ -191,11 +195,17 @@ def test_saved_followup_native_parse_and_empty_execution(tmp_path, monkeypatch):
           'inputs': hashes, 'resources': [], 'environments': []})
     deep = default_config()['deep']
     deep.update(enabled=False, domain_scan=False, motifs=False, phylogeny=False,
-                auto_phylogeny=False, family_placement=False, prosite_profiles=False)
+                auto_phylogeny=False, family_placement=False, prosite_profiles=False, prosite_patterns=False)
+    module = 'amrfinder' if new_source else 'minced'
     config = write('metadata/config.json', {'version': '0.4.0a2', 'engine': 'snakemake',
-                   'options': {'deep': False}, 'modules': {'minced': {'enabled': True}}, 'deep': deep})
-    evidence = write('evidence/minced.json', {'schema_version': 1, 'sample_id': 'synthetic', 'module': 'minced',
-                     'execution_status': 'completed', 'input_hashes': hashes, 'findings': [], 'metrics': {}, 'artifacts': []})
+                   'options': {'deep': False}, 'modules': {module: {'enabled': True}}, 'deep': deep})
+    findings = [{'finding_id': 'synthetic-hmm', 'tool': 'amrfinder', 'category': 'amr',
+                 'gene': 'synthetic_family', 'protein_id': 'synthetic_cds', 'contig': 'contig1',
+                 'start': 1, 'end': 12, 'strand': '+', 'identity': 85.67, 'coverage': 100.,
+                 'evidence_level': 'curated_model', 'attributes': {'native_method': 'HMM',
+                 'flags': ['family_hmm_only'], 'raw': {'Method': 'HMM'}}}] if new_source else []
+    evidence = write('evidence/' + module + '.json', {'schema_version': 1, 'sample_id': 'synthetic', 'module': module,
+                     'execution_status': 'completed', 'input_hashes': hashes, 'findings': findings, 'metrics': {}, 'artifacts': []})
     render(safety / 'metadata/sample.json', config, [evidence], safety, view='screening', evidence_root=safety)
     page = (safety / 'report.html').read_text()
     assert 'Results by tool' in page and 'Tools finished' in page
@@ -204,13 +214,40 @@ def test_saved_followup_native_parse_and_empty_execution(tmp_path, monkeypatch):
               for p in safety.rglob('*') if p.is_file()}
     parent.update(completed='software fixture', dry_run_ok=True)
     store.put('runs', parent['id'], parent)
-    child = create_followup(store, parent['id'], 'deep: {enabled: true}\n', True)
+    if new_source:
+        from test_release_contract import review
+        target = Path(target).resolve()
+        commit = subprocess.check_output(['git', '-C', str(target), 'rev-parse', 'HEAD'], text=True).strip()
+        contract = review()
+        contract.update(commit=commit, files_sha256={name: hashlib.sha256((target / name).read_bytes()).hexdigest()
+                        for name in ('BaSIS.smk', 'Followup.smk', 'environment.yml')},
+                        followup={'interface': 1, 'entry_point': 'Followup.smk',
+                                  'screening_schema': 'basis-snakemake-run-v1',
+                                  'parent_commits': [parent['commit']], 'scopes': ['amrfinder-review', 'all-supported']})
+        store.put('release_approvals', 'basis:' + commit, contract)
+        store.put('installs', 'new-source', {'id': 'new-source', 'tool': 'basis', 'source': str(target),
+                  'controller': sys.prefix, 'ready': True, 'version': {'commit': commit, 'ref': 'reviewed candidate'}})
+        child = create_followup(store, parent['id'], 'deep: {enabled: true, maximum_candidates: 5}\n',
+                                True, 'new-source', 'amrfinder-review')
+        assert child['commit'] == commit and child['commit'] != parent['commit']
+    else:
+        child = create_followup(store, parent['id'], 'deep: {enabled: true}\n', True)
     output = snake(store, child, monkeypatch=monkeypatch)
     assert 'capture_followup_review' in output
     snake(store, child, 'run', monkeypatch)
     assert (safety / 'deepsafe-report/report.html').is_file()
     result = json.loads((safety / 'evidence/deepsafe.json').read_text())
-    assert result['commands'] == [] and result['metrics']['selected_candidates'] == 0
+    assert result['commands'] == [] and result['metrics']['selected_candidates'] == (1 if new_source else 0)
+    if new_source:
+        report = safety / 'deepsafe-report'
+        bundle = json.loads((report / 'evidence.json').read_text())
+        assert bundle['run']['version'] == '0.4.0a3'
+        assert bundle['run']['screening_version'] == '0.4.0a2'
+        assert bundle['amr_review']['counts']['investigation_findings'] == 1
+        assert 'AMR evidence review outstanding' in (report / 'report.html').read_text()
+        assert (report / 'tables/amr-review.tsv').is_file()
+        selected = next(c for c in result['candidates'] if c['selected'])
+        assert selected['execution'] == 'not_assessed' and not selected['assessment']['function_established']
     assert 'Nothing to be done' in snake(store, child, monkeypatch=monkeypatch)
     for name, expected in before.items():
         path = Path(name)

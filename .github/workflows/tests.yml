@@ -30,6 +30,11 @@ jobs:
           path: upstream-basis
       - uses: actions/checkout@v4
         with:
+          repository: crackberryq/Bactomics_BaSIS
+          ref: 584f5c2b47d564ee0f373c99b6d777f6f092acf2
+          path: upstream-basis-followup
+      - uses: actions/checkout@v4
+        with:
           repository: crackberryq/Bactomics_MICPscope
           ref: 60f248ac94597563157e8506047669b9aac23fd6
           path: upstream-micpscope
@@ -40,6 +45,7 @@ jobs:
           BACTOLOGIX_HYBAS_SOURCE: ${{ github.workspace }}/upstream-hybas
           BACTOLOGIX_MICPSCOPE_SOURCE: ${{ github.workspace }}/upstream-micpscope
           BACTOLOGIX_BASIS_SOURCE: ${{ github.workspace }}/upstream-basis
+          BACTOLOGIX_BASIS_FOLLOWUP_SOURCE: ${{ github.workspace }}/upstream-basis-followup
         run: python -m pytest -q
       - name: Build and check installed package
         run: |

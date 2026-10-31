@@ -15,6 +15,8 @@ from bactologix.store import Store
 from bactologix.ui_backend import dispatch, snapshot
 from test_run_integrity import perform
 from bactologix import variants
+from bactologix.followup import source_options
+from test_release_contract import review
 
 
 @pytest.fixture
@@ -180,3 +182,93 @@ def test_bundled_screening_default_does_not_override_saved_preferences(tmp_path)
     assert yaml.safe_load(template('basis'))['deep']['enabled'] is False
     store.put('configs', 'basis', 'deep: {enabled: true}\n')
     assert yaml.safe_load(snapshot(store)['configs']['basis'])['deep']['enabled'] is True
+
+
+def reviewed_installation(store, parent, source):
+    """An independently reviewed future source; never add it to the app allowlist."""
+    source.mkdir()
+    files = {'BaSIS.smk': 'rule all:\n    input: []\n',
+             'Followup.smk': '# New reviewed follow-up\nrule all:\n    input: []\n',
+             'environment.yml': 'dependencies: [python=3.11, snakemake=9.6.2]\n'}
+    contract = review()
+    for name, value in files.items():
+        (source / name).write_text(value)
+        contract['files_sha256'][name] = hashlib.sha256(value.encode()).hexdigest()
+    subprocess.run(['git', 'init', '-q', str(source)], check=True)
+    subprocess.run(['git', '-C', str(source), 'add', '.'], check=True)
+    subprocess.run(['git', '-C', str(source), '-c', 'user.name=Test', '-c', 'user.email=test@localhost',
+                    'commit', '-qm', 'reviewed future source'], check=True)
+    commit = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
+    contract.update(commit=commit, followup={'interface': 1, 'entry_point': 'Followup.smk',
+        'screening_schema': 'basis-snakemake-run-v1', 'parent_commits': [parent['commit']],
+        'scopes': ['amrfinder-review', 'all-supported']})
+    store.put('release_approvals', 'basis:' + commit, contract)
+    installed = {'id': 'reviewed-new', 'tool': 'basis', 'ready': True, 'controller': '/new/controller',
+                 'source': str(source), 'rule_cache': str(store.home / 'envs/new-cache'),
+                 'version': {'commit': commit, 'ref': 'v99.0.0'}}
+    store.put('installs', installed['id'], installed)
+    return installed, contract
+
+
+def test_explicit_new_source_preserves_screening_and_records_transition(screening, tmp_path):
+    from bactologix.methods import build
+    store, parent = screening
+    installed, contract = reviewed_installation(store, parent, tmp_path / 'reviewed source')
+    before = {str(p): (p.read_bytes(), p.stat().st_mtime_ns) for p in Path(parent['folder']).rglob('*')
+              if p.is_file() and not p.is_symlink()}
+    assert [r['id'] for r in source_options(store, parent)] == ['screening', installed['id']]
+    child = create_followup(store, parent['id'], 'deep: {enabled: true, maximum_candidates: 5}',
+                            True, installed['id'], 'amrfinder-review')
+    assert child['commit'] == installed['version']['commit'] != parent['commit']
+    assert child['installation'] == installed['id']
+    assert child['controller'] == installed['controller'] and child['rule_cache'] == installed['rule_cache']
+    transition = child['followup_transition']
+    assert transition['screening_commit'] == parent['commit']
+    assert transition['release_contract'] == contract and transition['scope'] == 'amrfinder-review'
+    assert yaml.safe_load(child['config'])['deep']['aware'] == {'enabled': True, 'scope': 'amrfinder-review'}
+    assert len(store.jobs()) == 0
+    validate_launch(store, child['id'], 'dry-run')
+    assert {str(p): (p.read_bytes(), p.stat().st_mtime_ns) for p in Path(parent['folder']).rglob('*')
+            if p.is_file() and not p.is_symlink()} == before
+    assert store.get('runs', parent['id']) == parent
+    doc = build(store, child)
+    assert doc['followup_transition'] == transition
+    assert all(value in '\n'.join(doc['paragraphs']) for value in (parent['commit'], child['commit'], 'amrfinder-review'))
+    (Path(child['folder']) / 'followup-transition.json').write_text('{}')
+    with pytest.raises(ValueError, match='transition changed'):
+        validate_launch(store, child['id'], 'dry-run')
+
+
+@pytest.mark.parametrize('failure', ['unreviewed', 'wrong-parent', 'incomplete', 'modified', 'wrong-commit'])
+def test_invalid_new_sources_fail_without_drafts(screening, tmp_path, failure):
+    store, parent = screening
+    installed, contract = reviewed_installation(store, parent, tmp_path / 'source new')
+    if failure == 'unreviewed':
+        contract.pop('followup')
+    elif failure == 'wrong-parent':
+        contract['followup']['parent_commits'] = []
+    elif failure == 'incomplete':
+        installed.update(setup_mode='first_install', setup_completed=False)
+    elif failure == 'modified':
+        (Path(installed['source']) / 'Followup.smk').write_text('changed')
+    else:
+        installed['version']['commit'] = 'e' * 40
+    store.put('release_approvals', 'basis:' + contract['commit'], contract)
+    store.put('installs', installed['id'], installed)
+    with pytest.raises(ValueError, match='reviewed|changed'):
+        create_followup(store, parent['id'], 'deep: {enabled: true}', True, installed['id'], 'amrfinder-review')
+    assert len(store.all('runs')) == 1
+
+
+def test_new_scope_cannot_silently_run_on_old_source(screening, tmp_path):
+    store, parent = screening
+    with pytest.raises(ValueError, match='does not support'):
+        create_followup(store, parent['id'], 'deep: {enabled: true}', True, scope='amrfinder-review')
+    installed, _ = reviewed_installation(store, parent, tmp_path / 'new')
+    for text in ('deep: {enabled: true, aware: {enabled: false}}',
+                 'deep: {enabled: true, aware: {scope: all-supported}}'):
+        with pytest.raises(ValueError, match='Enable AWARE|conflicts'):
+            create_followup(store, parent['id'], text, True, installed['id'], 'amrfinder-review')
+    original = create_followup(store, parent['id'], 'deep: {enabled: true}', True)
+    assert original['commit'] == parent['commit']
+    assert original['followup_transition']['selection'] == 'screening'

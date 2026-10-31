@@ -202,6 +202,9 @@ def sample_sheet(sample, tool, output):
 
 
 def check_run_files(run):
+    if run.get('run_type') == 'followup':
+        from .followup import verify_transition
+        verify_transition(run)
     from .variants import verify
     verify(run, full=False)
     folder = Path(run["folder"])
