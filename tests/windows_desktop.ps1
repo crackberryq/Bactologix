@@ -19,7 +19,15 @@ try {
     Assert ($wslHelp.Process.WaitForExit(30000)) 'Native WSL help timed out'
     $null = $wslHelp.Copy.GetAwaiter().GetResult()
     $helpText = Decode-WslOutput ($wslHelp.Bytes.ToArray()); $wslHelp.Bytes.Dispose()
-    Assert ($wslHelp.Process.ExitCode -eq 0 -and $helpText -match '--distribution') ('Native WSL option parsing failed: ' + $helpText + $wslHelp.Err.Result)
+    # Some Windows builds return a nonzero code for valid --help. Compare with
+    # a literal bare-option invocation rather than assuming Unix help semantics.
+    $baselineInfo = [Diagnostics.ProcessStartInfo]::new('wsl.exe','--help')
+    $baselineInfo.UseShellExecute = $false; $baselineInfo.CreateNoWindow = $true
+    $baselineInfo.RedirectStandardOutput = $true; $baselineInfo.RedirectStandardError = $true
+    $baseline = [Diagnostics.Process]::Start($baselineInfo)
+    $baselineOut = $baseline.StandardOutput.ReadToEndAsync(); $baselineErr = $baseline.StandardError.ReadToEndAsync()
+    Assert ($baseline.WaitForExit(30000)) 'Native WSL baseline timed out'
+    Assert ($wslHelp.Process.ExitCode -eq $baseline.ExitCode -and $helpText -match '--distribution' -and $helpText -match '--exec') ('Native WSL option parsing failed: ' + $helpText + $wslHelp.Err.Result)
     Write-Output 'Native wsl.exe option parsing passed.'
     foreach ($encoding in @('utf-8','utf-8-sig','utf-16','utf-16-le','utf-16-be')) {
         $code = 'import sys; sys.stdout.buffer.write(("Ubuntu\\r\\nUbuntu-24.04\\r\\n".replace("\\r",chr(13)).replace("\\n",chr(10))).encode("' + $encoding + '"))'
