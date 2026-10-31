@@ -1,5 +1,8 @@
 # Validation update: 0.1.0a59
 
+- [Corrected-source adapter CI](https://github.com/crackberryq/Bactologix/actions/runs/41251081224) passed: 666 application/adapter tests on each Python matrix member, 19 browser checks, real environment deployment and Windows desktop checks. The tested BaSIS candidate and published-source commit have the same Git tree; the final registry/pinned-source checks also exercise the canonical release commit.
+- Cross-version acceptance caught a missing original screening version in the report run record; BaSIS 0.4.0a4 corrects it. Only v0.4.0a4 is newly approved, with v0.4.0a2 as its tested earlier screening parent. Existing v0.4.0a2 approval remains unchanged.
+
 - Cover reviewed source selection, rejected unknown scopes/versions/parents, modified source and transition records, and unchanged original screening files. Focused local software checks: 70 passed, two platform-specific checks skipped.
 - Add a pinned v0.4.0a2 screening to v0.4.0a4 follow-up test, using synthetic reported evidence through selection, explicit unassessed state, report/export and unchanged rerun. Local native workflow execution is limited by process visibility in this container; CI runs with production Snakemake benchmarks.
 - Browser acceptance covers source/scope selection, review reset, mobile layout and draft creation without jobs. Python 3.11/3.12, browser, environment and Windows release gates remain required. Real AFB01/isolate1 acceptance and scientific review are still outstanding; no user analyses are launched.

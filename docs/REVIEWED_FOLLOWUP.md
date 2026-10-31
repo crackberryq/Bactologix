@@ -15,7 +15,9 @@ not native AMRFinder reporting modes.
 
 ## Source and release compatibility
 
-Refresh the BaSIS release catalogue and install an approved release. A new
+Refresh the BaSIS release catalogue and install `v0.4.0a4`. This release is
+approved for its own screenings and for saved `v0.4.0a2` screening bundles.
+Other historical source versions need their own compatibility checks. A new
 follow-up can use that installation only when the official registry approves its
 follow-up entry point, screening parent version and scope. General release
 approval alone does not authorize a source transition. Existing follow-up drafts

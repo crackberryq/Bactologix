@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-29",
+  "updated_at": "2026-11-01",
   "releases": [
     {
       "tool": "basis",
@@ -23,6 +23,48 @@
       "files_sha256": {
         "BaSIS.smk": "86bc5f9a905d54207a0b4f36b0a6229a47ba5df4fbd3cb10ce0dcb4b98cb988f",
         "environment.yml": "16555d39a4e8070617055d33f0624ef7218d1769cd0b740a46892b3dc76ae8ca"
+      }
+    },
+    {
+      "tool": "basis",
+      "repository": "crackberryq/Bactomics_BaSIS",
+      "commit": "63850df18212c8950b8e5689364b0c7eedb208a0",
+      "tag": "v0.4.0a4",
+      "channel": "prerelease",
+      "adapter_interface": 1,
+      "configuration_schema": "basis-v1",
+      "entry_points": {
+        "workflow": "BaSIS.smk",
+        "environment": "environment.yml"
+      },
+      "runner": {
+        "python": "3.11",
+        "snakemake": "9.6.2"
+      },
+      "tested": true,
+      "test_run": "https://github.com/crackberryq/Bactologix/actions/runs/41251081224",
+      "tested_source_commit": "74638009389035aff4324a0b93957c83c70c6169",
+      "tested_source_tree": "6d90cb4518e057e6d887baa9c2bf4ea2bfabe9e8",
+      "files_sha256": {
+        "BaSIS.smk": "86bc5f9a905d54207a0b4f36b0a6229a47ba5df4fbd3cb10ce0dcb4b98cb988f",
+        "environment.yml": "16555d39a4e8070617055d33f0624ef7218d1769cd0b740a46892b3dc76ae8ca",
+        "Followup.smk": "149702aa01050e20f8603b6223c1df7d4de1b0fa37f8b68df2e4b8b74b77ef0d",
+        "workflow/lib/safety/followup.py": "e9c0ca8036de28e601bdc29d51482d43bf70453f0efd73fcf4b9c68fb5f20815",
+        "workflow/lib/safety/reporting.py": "3d26102a19c2a379747b261e43388c6600b20ecda0c2f77d4cb22158fe93fe8e",
+        "workflow/vendor/basis/aware.py": "249deecba3affbba70d6405ba3b5424f3300ed82b821be7d12df95d90758c2ae",
+        "workflow/vendor/basis/amr_review.py": "923f763f787da08da8f3bba60c3b916b6991c39b18215ade6f83e39aa30f30e7"
+      },
+      "followup": {
+        "interface": 1,
+        "entry_point": "Followup.smk",
+        "screening_schema": "basis-snakemake-run-v1",
+        "parent_commits": [
+          "14f161a1f252a712053892961edf2275469c8dab"
+        ],
+        "scopes": [
+          "amrfinder-review",
+          "all-supported"
+        ]
       }
     }
   ]

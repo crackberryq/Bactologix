@@ -2,6 +2,8 @@
 
 ## 0.1.0a59 — Reviewed BaSIS follow-up versions
 
+- Register BaSIS v0.4.0a4 after cross-version adapter checks. Refresh the BaSIS catalogue to select it for new runs or reviewed follow-up from v0.4.0a2 screening.
+
 - Select a compatible installed workflow for follow-up while retaining the original screening source and evidence. Record both commits, workflow checksums, scope and reviewed compatibility contract. Validate source, input and transition integrity before execution or resume.
 - Expose AMRFinder reported review cues as an explicit scope with a default ceiling of five unique candidates per isolate. Clarify that AWARE presets do not change native AMRFinder thresholds. Unassessed and deferred evidence retains review obligations.
 - Extend release contracts with tested follow-up entry points, parent versions and scopes so future compatible releases can be registered without another hard-coded client allowlist. Existing runs remain frozen.

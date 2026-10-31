@@ -255,6 +255,39 @@ def test_saved_followup_native_report_and_unchanged_rerun(tmp_path, monkeypatch,
     check_run_files(child)
 
 
+def test_registered_release_supports_new_runs_and_saved_followup(tmp_path, monkeypatch):
+    """Exercise the shipped approval, refreshed catalogue and exact source hashes."""
+    import base64
+    from bactologix import catalog, release_contract
+    from bactologix.followup import source_options
+    target = os.environ.get('BACTOLOGIX_BASIS_FOLLOWUP_SOURCE')
+    if not target:
+        pytest.skip('Reviewed follow-up checkout not supplied')
+    target = Path(target).resolve()
+    commit = subprocess.check_output(['git', '-C', str(target), 'rev-parse', 'HEAD'], text=True).strip()
+    registry = json.loads((Path(__file__).parents[1] / 'compatibility/releases-v1.json').read_text())
+    row = next(r for r in registry['releases'] if r['commit'] == commit)
+    store, parent = setup_run(tmp_path, 'basis')
+    monkeypatch.setattr(catalog, 'fetch_versions', lambda tool: {'checkedAt': 'test', 'versions': [
+        {'id': 'release:' + row['tag'], 'kind': 'release', 'ref': row['tag'], 'commit': commit,
+         'prerelease': row['channel'] == 'prerelease', 'publishedAt': '2026-11-01'}]})
+    monkeypatch.setattr(catalog, 'api', lambda path: {'content': base64.b64encode(json.dumps(registry).encode()).decode()})
+    release_contract.refresh(store, 'basis')
+    assert catalog.versions(store, 'basis')['recommended_release'] == row['tag']
+    release_contract.preflight(store, 'basis', commit, target)
+    store.put('installs', 'registered-release', {'id': 'registered-release', 'tool': 'basis',
+        'source': str(target), 'controller': sys.prefix, 'ready': True,
+        'version': {'commit': commit, 'ref': row['tag']}})
+    assert any(r['id'] == 'registered-release' and 'amrfinder-review' in r['scopes']
+               for r in source_options(store, parent))
+    fresh = create_run(store, 'basis', parent['sample'], template('basis'), installation='registered-release')
+    assert fresh['commit'] == commit
+    assert 'safety_report' in snake(store, fresh, monkeypatch=monkeypatch)
+    original = next(r for r in source_options(store, fresh) if r['id'] == 'screening')
+    assert 'amrfinder-review' in original['scopes']
+    assert not store.jobs()
+
+
 def test_native_hybas_accepts_isolated_checkpoint_overlay(tmp_path, monkeypatch):
     """Parse the real pinned DAG against synthetic completion records; no tools run."""
     import base64

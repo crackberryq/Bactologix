@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: crackberryq/Bactomics_BaSIS
-          ref: 74638009389035aff4324a0b93957c83c70c6169
+          ref: 63850df18212c8950b8e5689364b0c7eedb208a0
           path: upstream-basis-followup
       - uses: actions/checkout@v4
         with:
