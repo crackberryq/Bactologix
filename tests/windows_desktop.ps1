@@ -9,6 +9,26 @@ Expand-Archive -LiteralPath (Join-Path $repo 'dist/Bactologix-Windows.zip') -Des
 . (Join-Path $temporary 'Bactologix/Bactologix.ps1') -TestMode
 $views = @(); $profiles = @(); $browserProcesses = @()
 try {
+    $listing = (@('--list','--quiet') | ForEach-Object { Quote-Argument $_ }) -join ' '
+    Assert ($listing -eq '--list --quiet') 'WSL switches must not be quoted into Linux commands'
+    $execution = (@('--distribution','Ubuntu-24.04','--exec','id','-u') | ForEach-Object { Quote-Argument $_ }) -join ' '
+    Assert ($execution -eq '--distribution Ubuntu-24.04 --exec id -u') 'WSL execution options were quoted'
+    # Exercise the Windows WSL executable itself, not just Python's CRT parser.
+    # --help does not need a distro and must never be routed into Bash.
+    $wslHelp = Start-Owned 'wsl.exe' @('--help') -Unicode
+    Assert ($wslHelp.Process.WaitForExit(30000)) 'Native WSL help timed out'
+    $null = $wslHelp.Copy.GetAwaiter().GetResult()
+    $helpText = Decode-WslOutput ($wslHelp.Bytes.ToArray()); $wslHelp.Bytes.Dispose()
+    # Some Windows builds return a nonzero code for valid --help. Compare with
+    # a literal bare-option invocation rather than assuming Unix help semantics.
+    $baselineInfo = [Diagnostics.ProcessStartInfo]::new('wsl.exe','--help')
+    $baselineInfo.UseShellExecute = $false; $baselineInfo.CreateNoWindow = $true
+    $baselineInfo.RedirectStandardOutput = $true; $baselineInfo.RedirectStandardError = $true
+    $baseline = [Diagnostics.Process]::Start($baselineInfo)
+    $baselineOut = $baseline.StandardOutput.ReadToEndAsync(); $baselineErr = $baseline.StandardError.ReadToEndAsync()
+    Assert ($baseline.WaitForExit(30000)) 'Native WSL baseline timed out'
+    Assert ($wslHelp.Process.ExitCode -eq $baseline.ExitCode -and $helpText -match '--distribution' -and $helpText -match '--exec') ('Native WSL option parsing failed: ' + $helpText + $wslHelp.Err.Result)
+    Write-Output 'Native wsl.exe option parsing passed.'
     foreach ($encoding in @('utf-8','utf-8-sig','utf-16','utf-16-le','utf-16-be')) {
         $code = 'import sys; sys.stdout.buffer.write(("Ubuntu\\r\\nUbuntu-24.04\\r\\n".replace("\\r",chr(13)).replace("\\n",chr(10))).encode("' + $encoding + '"))'
         if ($encoding -eq 'utf-16-be') { $code = 'import sys; sys.stdout.buffer.write(bytes([254,255])+"Ubuntu\\r\\nUbuntu-24.04\\r\\n".replace("\\r",chr(13)).replace("\\n",chr(10)).encode("utf-16-be"))' }
@@ -32,7 +52,7 @@ try {
     $tokens=$null; $errors=$null
     $null = [Management.Automation.Language.Parser]::ParseFile($scriptPath,[ref]$tokens,[ref]$errors)
     Assert ($errors.Count -eq 0) ($errors | Out-String)
-    $values = @('space and apostrophe''s','double"quote','C:\ends\','a&b;$x', '')
+    $values = @('--list','--distribution','Ubuntu-24.04','--exec','/home/jimi/miniconda3/bin/python','space and apostrophe''s','double"quote','C:\ends\','a&b;$x', '')
     $task = Start-Owned 'python.exe' (@('-c','import json,sys; print(json.dumps(sys.argv[1:]))') + $values)
     Assert ($task.Process.WaitForExit(15000)) 'Argument echo timed out'
     $actual = $task.Out.Result | ConvertFrom-Json

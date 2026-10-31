@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0a57 — Pass WSL options correctly
+
+- Leave simple command-line options and distribution names unquoted. WSL can treat a quoted `--list` as a Linux command, causing `/bin/bash: --list: command not found` despite Ubuntu being installed. Keep escaping for spaces, quotes and other complex values.
+- Apply the fix to discovery, prerequisite checks, path conversion, setup and desktop startup through their shared process launcher.
+- Add native Windows `wsl.exe --help` coverage, exact WSL option routing assertions and expanded argument round-trip tests. Physical Windows/Ubuntu installation and native pipeline acceptance remain workstation checks.
+
 ## 0.1.0a56 — Recognize existing Ubuntu installations
 
 - Decode WSL distribution listings as UTF-8 or UTF-16, with or without a byte-order mark, instead of assuming one Windows output format. Preserve versioned Ubuntu names.
