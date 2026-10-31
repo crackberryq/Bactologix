@@ -62,6 +62,20 @@ def test_published_registry_valid():
     for row in doc['releases']:assert rc.reason(row['tool'],row) is None
 
 
+@pytest.mark.parametrize('key,value', [('interface', 2), ('entry_point', 'Other.smk'),
+    ('screening_schema', 'future'), ('parent_commits', ['main']), ('scopes', ['anything']),
+    ('scopes', []), ('scopes', 'amrfinder-review')])
+def test_followup_contract_fails_closed(key, value):
+    r = review()
+    r['files_sha256']['Followup.smk'] = 'd' * 64
+    r['followup'] = {'interface': 1, 'entry_point': 'Followup.smk',
+        'screening_schema': 'basis-snakemake-run-v1', 'parent_commits': ['b' * 40],
+        'scopes': ['amrfinder-review', 'all-supported']}
+    assert rc.reason('basis', r) is None
+    r['followup'][key] = value
+    assert rc.reason('basis', r) is not None
+
+
 @pytest.mark.parametrize('changed', [{'prerelease':True}, {'ref':'v99.0.1'}, {'kind':'branch'}])
 def test_discovery_does_not_approve_mismatched_release(tmp_path, monkeypatch, changed):
     store=Store(tmp_path);r=review()

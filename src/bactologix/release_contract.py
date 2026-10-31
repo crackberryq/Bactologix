@@ -40,6 +40,19 @@ def reason(tool, row):
     for path, digest in hashes.items():
         if Path(path).is_absolute() or '..' in Path(path).parts or not re.fullmatch('[0-9a-f]{64}', str(digest)):
             return 'Release contract contains invalid file checksums.'
+    followup = row.get('followup')
+    if followup is not None:
+        if (tool != 'basis' or not isinstance(followup, dict)
+                or followup.get('interface') != 1
+                or followup.get('entry_point') != 'Followup.smk'
+                or followup.get('screening_schema') != 'basis-snakemake-run-v1'
+                or 'Followup.smk' not in hashes):
+            return 'Adapter update required: invalid follow-up contract or checksum.'
+        parents, scopes = followup.get('parent_commits'), followup.get('scopes')
+        if (not isinstance(parents, list) or any(not re.fullmatch('[0-9a-f]{40}', str(c)) for c in parents)
+                or not isinstance(scopes, list) or not scopes
+                or any(s not in ('all-supported', 'amrfinder-review') for s in scopes)):
+            return 'Release contract has invalid follow-up parent versions or scopes.'
     runner = row.get('runner', {})
     if not re.fullmatch(r'\d+\.\d+(\.\d+)?', str(runner.get('python', ''))) or not re.fullmatch(r'\d+\.\d+\.\d+', str(runner.get('snakemake', ''))):
         return 'Release contract must pin Python and Snakemake requirements.'

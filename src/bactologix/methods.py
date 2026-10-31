@@ -278,7 +278,8 @@ def _basis(cfg, run):
             paragraphs.append('Sample-specific exclusions were configured for ' + ', '.join(MODULE_NAMES.get(k, k) for k in excluded) + '.')
     deep = cfg.get('deep', {})
     aware = deep.get('aware', {})
-    paragraphs.append('The BaSIS AWARE policy was ' + ('enabled with preset ' + str(aware.get('preset')) if aware.get('enabled') else 'disabled') +
+    paragraphs.append('The BaSIS AWARE policy was ' + ('enabled with preset ' + str(aware.get('preset')) +
+                      ' and scope ' + str(aware.get('scope', 'all-supported')) if aware.get('enabled') else 'disabled') +
                       '. Its saved overrides are included in the settings supplement.')
     paragraphs.append('DeepSafe follow-up was ' + ('requested; its configured options are included in the supplement and completion must be checked against recorded evidence.'
                       if deep.get('enabled') else 'disabled for this run.'))
@@ -326,6 +327,13 @@ def build(store, run):
         paragraphs, tools = (_hybas if run['tool'] == 'hybas' else _basis)(effective, run)
     else:
         paragraphs, tools = ['The saved configuration is provided in the supplement. Method-specific prose is unavailable for this source version.'], []
+    transition = run.get('followup_transition')
+    if transition:
+        from .followup import verify_transition
+        verify_transition(run)
+        paragraphs.append('The saved screening source was ' + transition['screening_commit'] +
+                              '; the explicitly selected follow-up source was ' + transition['commit'] +
+                              '. The recorded AWARE scope was ' + transition['scope'] + '.')
     versions = dict(evidence.get('versions', {}))
     records = evidence.get('records', [])
     for row in records:
@@ -383,6 +391,7 @@ def build(store, run):
         'created_with_bactologix': run.get('bactologix_version', UNKNOWN),
         'pipeline': PIPELINES[run['tool']]['name'], 'source_commit': run['commit'],
         'config_sha256': run['config_sha256'], 'workflow_sha256': run['workflow_sha256'],
+        'followup_transition': run.get('followup_transition'),
         'sample_id': run['sample']['id'], 'parent': run.get('parent'), 'completed': run.get('completed') if complete else None,
         'paragraphs': [intro, *paragraphs], 'execution': execution, 'software': software,
         'parameters': parameters, 'warnings': list(dict.fromkeys(warnings)), 'evidence_origin': origin,
