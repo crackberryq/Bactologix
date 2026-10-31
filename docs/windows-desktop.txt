@@ -10,7 +10,9 @@ BACTOLOGIX FOR WINDOWS (alpha)
 4. Use the desktop shortcut afterwards. It opens a dedicated Edge/Chrome window
    with Ubuntu running invisibly. Setup and startup failures remain visible.
 
-Close the LAST dedicated session window to stop its server. If it owns active
+Close the LAST dedicated session window to stop its server. Shutdown detection
+allows ten seconds for transient browser response delays; resizing/minimizing
+does not itself request shutdown. If it owns active
 jobs, a Windows dialog asks whether to stop and exit or reopen the app. Cleanup
 is visible until the owned work stops. An in-progress app update finishes first
 so its environment is not left half-installed. Independent Ubuntu terminals,

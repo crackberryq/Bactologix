@@ -60,6 +60,46 @@ try {
     Write-Json (Join-Path $temporary 'state.json') @{session='test'; phase='starting'}
     Write-Json (Join-Path $temporary 'state.json') @{session='test'; phase='ready'}
     Assert ((Read-Json (Join-Path $temporary 'state.json')).phase -eq 'ready') 'Atomic control replacement failed'
+    Add-Type -TypeDefinition @'
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+public static class ControlFileFixture {
+ public static Task Hold(string path, int milliseconds, bool shareDelete) {
+  var sharing = shareDelete ? FileShare.ReadWrite | FileShare.Delete : FileShare.Read;
+  var reader = new FileStream(path, FileMode.Open, FileAccess.Read, sharing);
+  return Task.Run(() => { try { Thread.Sleep(milliseconds); } finally { reader.Dispose(); } });
+ }
+}
+'@
+    $controlPath = Join-Path $temporary 'state.json'
+    $readerLock = [ControlFileFixture]::Hold($controlPath,250,$false)
+    Write-Json $controlPath @{session='test';phase='after-transient-lock'}
+    $readerLock.Wait()
+    Assert ((Read-Json $controlPath).phase -eq 'after-transient-lock') 'Transient reader lock stopped control updates'
+    $readerLock = [ControlFileFixture]::Hold($controlPath,250,$true)
+    Write-Json $controlPath @{session='test';phase='shared-reader'}
+    $readerLock.Wait()
+    Assert ((Read-Json $controlPath).phase -eq 'shared-reader') 'Delete-sharing reader prevented atomic replacement'
+    $readerLock = [ControlFileFixture]::Hold($controlPath,3500,$false)
+    $failure = ''
+    try { Write-Json $controlPath @{session='test';phase='must-not-replace'} } catch { $failure = $_.Exception.Message }
+    finally { $readerLock.Wait() }
+    Assert ($failure -like '*state.json*Windows error*') 'Persistent lock failure lacked actionable diagnostics'
+    Assert ((Read-Json $controlPath).phase -eq 'shared-reader') 'Failed replacement damaged last valid control file'
+    Assert (@(Get-ChildItem $temporary -Filter '*.writing').Count -eq 0) 'Control temporary files leaked'
+    $presence = @{ready=$false;missing_since=$null}
+    $present = @{reachable=$true;pages=1}; $absent = @{reachable=$false;pages=0}
+    Assert (-not (Update-BrowserPresence $presence $absent 0)) 'Startup was treated as a close'
+    Assert (-not (Update-BrowserPresence $presence $present 1)) 'Live browser was treated as a close'
+    Assert (-not (Update-BrowserPresence $presence $absent 2)) 'One missed response triggered shutdown'
+    Assert (-not (Update-BrowserPresence $presence $absent 11.9)) 'Transient absence triggered shutdown'
+    Assert (-not (Update-BrowserPresence $presence $present 12)) 'Restored browser triggered shutdown'
+    Assert (-not (Update-BrowserPresence $presence $absent 13)) 'Recovery did not reset absence timer'
+    Assert (Update-BrowserPresence $presence $absent 23) 'Sustained close was not detected'
+    Assert (-not (Update-BrowserPresence $presence $present 24)) 'Live browser did not recover'
+    Assert (-not (Update-BrowserPresence $presence @{reachable=$true;pages=0} 25)) 'One empty tab response triggered shutdown'
+    Write-Output 'Control-file sharing, bounded retry, preservation and browser grace checks passed.'
     $shortcut = Join-Path $temporary 'Bactologix.lnk'
     New-Shortcut $temporary $shortcut
     $link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)

@@ -1,6 +1,6 @@
 # Bactologix 0.1.0a52 — alpha
 
-**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a57/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
+**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a58/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
