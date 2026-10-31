@@ -2,6 +2,8 @@
 
 ## 0.1.0a59 — Reviewed BaSIS follow-up versions
 
+- Fix stale follow-up reuse across separate drafts: share Snakemake provenance for their shared outputs, bootstrap missing capture metadata once, and preserve normal changed-request and unchanged-resume decisions.
+
 - Register BaSIS v0.4.0a4 after cross-version adapter checks. Refresh the BaSIS catalogue to select it for new runs or reviewed follow-up from v0.4.0a2 screening.
 
 - Select a compatible installed workflow for follow-up while retaining the original screening source and evidence. Record both commits, workflow checksums, scope and reviewed compatibility contract. Validate source, input and transition integrity before execution or resume.

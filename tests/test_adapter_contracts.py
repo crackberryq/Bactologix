@@ -249,6 +249,29 @@ def test_saved_followup_native_report_and_unchanged_rerun(tmp_path, monkeypatch,
         selected = next(c for c in result['candidates'] if c['selected'])
         assert selected['execution'] == 'not_assessed' and not selected['assessment']['function_established']
     assert 'Nothing to be done' in snake(store, child, monkeypatch=monkeypatch)
+    if new_source:
+        # Distinct frozen drafts reuse the SAME output set. Persist scheduler
+        # provenance per screening parent so changed requests cannot become no-ops.
+        second = create_followup(store, parent['id'], 'deep: {enabled: true, maximum_candidates: 4}\n',
+                                 True, 'new-source', 'amrfinder-review')
+        changed = snake(store, second, monkeypatch=monkeypatch)
+        assert 'Nothing to be done' not in changed and 'capture_followup_review' in changed
+        snake(store, second, 'run', monkeypatch)
+        assert json.loads((safety / 'evidence/deepsafe.json').read_text())['effective_config']['maximum_candidates'] == 4
+        assert 'Nothing to be done' in snake(store, second, monkeypatch=monkeypatch)
+        # Returning to an earlier frozen request must restore its own policy.
+        assert 'Nothing to be done' not in snake(store, child, monkeypatch=monkeypatch)
+        snake(store, child, 'run', monkeypatch)
+        assert json.loads((safety / 'evidence/deepsafe.json').read_text())['effective_config']['maximum_candidates'] == 5
+        assert 'Nothing to be done' in snake(store, child, monkeypatch=monkeypatch)
+        # Existing results from an older adapter have no shared scheduler state.
+        from bactologix.followup import execution_directory
+        metadata = execution_directory(store, child) / '.snakemake/metadata'
+        metadata.rename(metadata.with_name('previous-metadata'))
+        migrated = snake(store, child, monkeypatch=monkeypatch)
+        assert 'Nothing to be done' not in migrated
+        snake(store, child, 'run', monkeypatch)
+        assert 'Nothing to be done' in snake(store, child, monkeypatch=monkeypatch)
     for name, expected in before.items():
         path = Path(name)
         assert (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns) == expected

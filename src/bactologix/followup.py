@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -46,6 +47,46 @@ def source_options(store, run):
 
 def available(run, store=None):
     return bool(source_options(store, run))
+
+
+def execution_directory(store, run):
+    """Shared outputs need shared Snakemake provenance, across frozen sources."""
+    parent = store.get('runs', run.get('parent'))
+    if not parent or parent['tool'] != 'basis':
+        raise ValueError('The screening parent is required for follow-up execution')
+    root = Path(parent['folder']) / 'followup-state'
+    if root.is_symlink():
+        raise ValueError('Follow-up execution state must not be a symlink')
+    root.mkdir(exist_ok=True)
+    for path in (root / '.snakemake', root / '.snakemake/metadata'):
+        if path.is_symlink():
+            raise ValueError('Follow-up execution metadata must not be a symlink')
+    return root
+
+
+def needs_provenance_bootstrap(directory, run):
+    """Re-capture once when shared outputs have no trustworthy scheduler record.
+
+    Snakemake 9 records long output names in base64 chunks. After capture finishes,
+    ordinary native input/parameter tracking owns changes, interruption and resume.
+    """
+    root = directory / '.snakemake/metadata'
+    expected = str(Path(run['output']) / 'safety/deepsafe/review/inputs.json')
+    for path in root.rglob('*') if root.is_dir() else []:
+        if not path.is_file() or path.is_symlink():
+            continue
+        try:
+            encoded = ''.join(part.lstrip('@') for part in path.relative_to(root).parts)
+            if base64.urlsafe_b64decode(encoded.encode()).decode() != expected:
+                continue
+            row = json.loads(path.read_text())
+        except (ValueError, UnicodeError):
+            continue
+        if (isinstance(row, dict) and row.get('record_format_version') == 6
+                and row.get('rule') == 'capture_followup_review'
+                and row.get('incomplete') is False and row.get('endtime')):
+            return False
+    return True
 
 
 def verify_transition(run):

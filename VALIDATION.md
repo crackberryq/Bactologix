@@ -1,5 +1,7 @@
 # Validation update: 0.1.0a59
 
+- Reproduced a changed-request no-op when separate follow-up working directories reused the same outputs without scheduler metadata. Shared per-parent state and one-time missing-provenance capture correct it. Native regression coverage checks a second request, return to an earlier request, migration from missing metadata, and unchanged no-op reruns. Focused software checks: 51 passed.
+
 - [Corrected-source adapter CI](https://github.com/crackberryq/Bactologix/actions/runs/41251081224) passed: 666 application/adapter tests on each Python matrix member, 19 browser checks, real environment deployment and Windows desktop checks. The tested BaSIS candidate and published-source commit have the same Git tree; the final registry/pinned-source checks also exercise the canonical release commit.
 - Cross-version acceptance caught a missing original screening version in the report run record; BaSIS 0.4.0a4 corrects it. Only v0.4.0a4 is newly approved, with v0.4.0a2 as its tested earlier screening parent. Existing v0.4.0a2 approval remains unchanged.
 

@@ -44,6 +44,15 @@ records. Installing a new release does not rewrite existing runs. Later follow-u
 attempts share the isolate's follow-up output folder; only the latest executing
 attempt owns that displayed report, and original screening outputs stay separate.
 
+Follow-up drafts share scheduler metadata under the screening run's
+`followup-state` directory, while keeping separate frozen workflow/configuration
+copies. This lets Snakemake see changes between requests, including a return to
+an older request, instead of treating existing outputs as up to date. When these
+scheduler records are absent (including migration from an older adapter), the
+first validation/execution explicitly recaptures the reviewed request. The dry-run
+shows the follow-up work required. After capture finishes, ordinary provenance
+tracking supports interruption/resume and unchanged no-op reruns.
+
 ## Acceptance
 
 Unit checks cover unsupported versions/scopes, incompatible parents, unfinished

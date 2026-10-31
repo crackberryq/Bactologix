@@ -478,9 +478,14 @@ def command(store, run, action):
         raise ValueError("Conda is missing")
     folder = Path(run["folder"])
     entry = run.get("variant_entry") or ("Followup.smk" if run.get("run_type") == "followup" else PIPELINES[run["tool"]]["snakefile"])
+    directory, bootstrap = folder / 'workflow', False
+    if run.get('run_type') == 'followup':
+        from .followup import execution_directory, needs_provenance_bootstrap
+        directory = execution_directory(store, run)
+        bootstrap = needs_provenance_bootstrap(directory, run)
     argv = [conda, "run", "--no-capture-output", "-p", current_controller(store, run), "snakemake",
             "--snakefile", str(folder / "workflow" / entry),
-            "--directory", str(folder / "workflow"), "--configfile", str(folder / "config.yaml"),
+            "--directory", str(directory), "--configfile", str(folder / "config.yaml"),
             "--cores", str(run["cores"]), "--resources", "mem_mb=" + str(run["memory_mb"]), "kraken_jobs=1",
             "--use-conda", "--conda-prefix", run.get("rule_cache") or str(store.home / "envs" / run["tool"]), "--rerun-incomplete"]
     if run.get("variant_entry"):
@@ -494,6 +499,8 @@ def command(store, run, action):
     elif action == "run":
         pos = argv.index('snakemake')
         argv[pos:pos] = ['python', str(DATA / 'run_existing.py')]
+    if bootstrap:
+        argv.extend(['--forcerun', 'capture_followup_review'])
     return argv
 
 
