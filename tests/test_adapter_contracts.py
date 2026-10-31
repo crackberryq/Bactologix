@@ -165,14 +165,14 @@ def test_pinned_source_accepts_generated_draft(tmp_path, monkeypatch, tool):
 
 
 @pytest.mark.parametrize('new_source', [False, True], ids=['original-source', 'reviewed-source-transition'])
-def test_saved_followup_native_parse_and_empty_execution(tmp_path, monkeypatch, new_source):
+def test_saved_followup_native_report_and_unchanged_rerun(tmp_path, monkeypatch, new_source):
     target = os.environ.get('BACTOLOGIX_BASIS_FOLLOWUP_SOURCE') if new_source else None
     if new_source and not target:
         pytest.skip('Reviewed follow-up checkout not supplied')
     store, parent = setup_run(tmp_path, 'basis')
     source = native_source('basis')
-    # Exercise upstream input validation/reporting with zero findings. This
-    # constructs a software fixture, not results from an analysis or safety claim.
+    # Exercise upstream validation/reporting with synthetic saved findings.
+    # This is a software fixture, not results from an analysis or safety claim.
     sys.path[:0] = [str(source / 'workflow/lib'), str(source / 'workflow/vendor')]
     from basis.config import default_config
     from safety.setup import validate
@@ -241,7 +241,7 @@ def test_saved_followup_native_parse_and_empty_execution(tmp_path, monkeypatch, 
     if new_source:
         report = safety / 'deepsafe-report'
         bundle = json.loads((report / 'evidence.json').read_text())
-        assert bundle['run']['version'] == '0.4.0a3'
+        assert bundle['run']['version'] == '0.4.0a4'
         assert bundle['run']['screening_version'] == '0.4.0a2'
         assert bundle['amr_review']['counts']['investigation_findings'] == 1
         assert 'AMR evidence review outstanding' in (report / 'report.html').read_text()

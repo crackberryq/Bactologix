@@ -1,7 +1,7 @@
 # Validation update: 0.1.0a59
 
 - Cover reviewed source selection, rejected unknown scopes/versions/parents, modified source and transition records, and unchanged original screening files. Focused local software checks: 70 passed, two platform-specific checks skipped.
-- Add a pinned v0.4.0a2 screening to v0.4.0a3 follow-up test, using synthetic reported evidence through selection, explicit unassessed state, report/export and unchanged rerun. Local native workflow execution is limited by process visibility in this container; CI runs with production Snakemake benchmarks.
+- Add a pinned v0.4.0a2 screening to v0.4.0a4 follow-up test, using synthetic reported evidence through selection, explicit unassessed state, report/export and unchanged rerun. Local native workflow execution is limited by process visibility in this container; CI runs with production Snakemake benchmarks.
 - Browser acceptance covers source/scope selection, review reset, mobile layout and draft creation without jobs. Python 3.11/3.12, browser, environment and Windows release gates remain required. Real AFB01/isolate1 acceptance and scientific review are still outstanding; no user analyses are launched.
 
 # Validation update: 0.1.0a58 (2026-11-01)
