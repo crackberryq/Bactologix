@@ -1,3 +1,9 @@
+# Validation update: 0.1.0a61 (2026-11-01)
+
+- Reproduced the saved-run Edit action reopening an unrelated MICP Scope draft. The Chromium regression fails on the old routing and passes with the explicit conflict choice.
+- Local browser checks passed for both a current tab and browser-recovered draft: cancel retains the unfinished state, resume retains its edited budget, confirmed discard opens the requested BaSIS settings, the same revision retains edits, and another BaSIS run is identified separately. Check mobile layout and unchanged saved run records/files; no jobs are submitted.
+- Local revision/configuration/UI checks: 46 passed. Local Chromium regression: 2 passed. All existing Python, browser, environment and Windows CI gates remain required for publication. No user analyses were launched.
+
 # Validation update: 0.1.0a60 (2026-11-01)
 
 - Reproduce a stale catalogue whose automatic legacy selection persists after refresh. The Chromium regression confirms the reviewed release becomes the first choice and the default selection, while a newer unreviewed release remains source-only.

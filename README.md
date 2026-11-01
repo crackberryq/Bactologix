@@ -1,6 +1,6 @@
 # Bactologix 0.1.0a52 — alpha
 
-**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a60/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
+**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a61/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
@@ -301,6 +301,8 @@ before clearing the unfinished editor. Browser storage may be unavailable or
 cleared when a tab closes; the editor reports recovery failures. Creating a draft
 stores it durably in the workspace and clears its browser recovery copy. This
 recovery feature applies to the run editor, not unsaved global defaults.
+
+**Edit settings** stays bound to the selected saved run. If another draft or revision is unfinished, a dialog names both pipelines/runs: resume those edits, close the dialog to keep them, or explicitly discard them and open the requested run. Reopening the same revision resumes its unsaved settings directly. The unfinished-draft banner identifies its pipeline.
 
 Saved-run checks now show destination permissions, free space for results and
 working folders, and CPU/RAM budget warnings. Checks read directory permissions

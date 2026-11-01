@@ -37,7 +37,15 @@ function clearWizard(){
  try{sessionStorage.removeItem(wizardKey);}catch{/* No stored recovery data is available. */}
 }
 function openWizard(){U.view='draft';U.modal=null;U.error='';writeRoute();render();$('#main').focus({preventScroll:true});$('.workspace-shell').scrollIntoView({block:'start'});}
-function wizardBanner(){return U.wizard&&U.view!=='draft'?`<section class="draft-recovery" aria-label="Unfinished draft"><div><strong>Unfinished ${U.wizard.kind==='edit-run'?'run revision':'run draft'}</strong><p>${e(wizardSaveStatus())}</p></div><div class="button-row">${btn('resume-wizard','Resume editing',true)}${btn('discard-wizard','Discard edits')}</div></section>`:'';}
+function unfinishedPipeline(){const tool=U.wizard?.kind==='edit-run'?(U.revision||runBy(U.wizard.id))?.tool:val('run-tool','hybas');return S.pipelines[tool]?.name||'pipeline';}
+function wizardBanner(){return U.wizard&&U.view!=='draft'?`<section class="draft-recovery" aria-label="Unfinished draft"><div><strong>Unfinished ${e(unfinishedPipeline())} ${U.wizard.kind==='edit-run'?'revision':'draft'}</strong><p>${e(wizardSaveStatus())}</p></div><div class="button-row">${btn('resume-wizard','Resume editing',true)}${btn('discard-wizard','Discard edits')}</div></section>`:'';}
+function editSavedRun(id,variant=false){
+ if(U.wizard){
+  if(U.wizard.kind==='edit-run'&&U.wizard.id===id&&!!U.wizard.variant===variant){openWizard();return;}
+  draftInputs();persistWizard();modal('editor-conflict',id,{variant});return;
+ }
+ request('edit_run_settings',{id,...(variant?{variant:true}:{})});
+}
 function beforeUnload(event){draftInputs();persistWizard();if(U.wizardStorageError&&U.wizard){event.preventDefault();event.returnValue='';}}
 restoreWizard();
 let pollTimer, toastTimer;
@@ -591,6 +599,12 @@ function supportPanel(){
 function renderModal(){const m=U.modal;if(!m){$('#modal-root').innerHTML='';$('.app-shell').removeAttribute('inert');return;}
 let title='',desc='',body='',foot='',wide=false;
 if(m.kind==='discard-wizard'){title='Discard unfinished edits?';desc='Only the unfinished editor will be cleared.';body='<p>Saved runs, samples, outputs and default settings are kept. Close this dialog to continue editing.</p>';foot=btn('confirm-discard-wizard','Discard unfinished edits',true,'','trash');}
+if(m.kind==='editor-conflict'){
+ const target=runBy(m.id),pipeline=S.pipelines[target?.tool]?.name||'the selected run',current=U.wizard?.kind==='edit-run'?(U.revision||runBy(U.wizard.id)):null;
+ title='Unfinished edits';desc='Choose which editor to continue.';
+ body=`<p>You asked to ${m.variant?'create a variant of':'edit'} <strong>${e(pipeline)} · ${e(target?.label||m.id)}</strong>.</p><p class="path-cell">${e(m.id)}</p><p>An unfinished <strong>${e(unfinishedPipeline())} ${current?'revision of '+e(current.label):'draft'}</strong> is already open in this browser tab. Resume those edits, or discard them to open the selected run.</p>${current?`<p class="path-cell">Unfinished revision: ${e(current.id)}</p>`:''}<p>Closing this dialog keeps your unfinished edits. Discarding clears only the unfinished editor; saved runs and results are kept.</p>`;
+ foot=btn('resume-conflicting-editor','Resume unfinished edits')+btn('replace-conflicting-editor','Discard edits and open '+pipeline,true);
+}
 
 if(m.kind==='app-update'){
  wide=true;title='Update Bactologix';desc='Choose an application release from GitHub.';
@@ -783,6 +797,8 @@ else if(action==='resume-wizard')openWizard();
 else if(action==='leave-wizard'){persistWizard();navigate(U.wizard?.kind==='edit-run'?'runs':'samples');}
 else if(action==='discard-wizard')modal('discard-wizard');
 else if(action==='confirm-discard-wizard'){clearWizard();U.modal=null;navigate('runs');}
+else if(action==='resume-conflicting-editor'){closeModal();openWizard();}
+else if(action==='replace-conflicting-editor'&&U.modal?.kind==='editor-conflict'){const {id,variant}=U.modal;clearWizard();closeModal();editSavedRun(id,!!variant);}
 else if(action==='browse-folder')browse(id,v(id));
 else if(action==='folder-open'){setDraft('folder-query','');request('browse_folders',{path:id,show_hidden:!!val('folder-hidden',false)});}
 else if(action==='folder-go'||action==='folder-filter'||action==='folder-page'){request('browse_folders',{path:v('folder-path'),query:v('folder-query'),offset:action==='folder-page'?Number(id):0,show_hidden:!!val('folder-hidden',false)});}
@@ -921,8 +937,8 @@ else if(action==='saved-run-tab'){U.runDetailTab=id;writeRoute(true);render();if
 else if(action==='open-methods'){U.runDetailTab='methods';writeRoute(true);render();request('inspect_methods',{id});}
 else if(action==='refresh-methods')request('inspect_methods',{id});
 else if(action.startsWith('methods-download-'))request('download_methods',{id,format:action.slice('methods-download-'.length)});
-else if(action==='create-variant'){if(U.wizard){openWizard();toast('Resume or discard your unfinished edits first.');}else request('edit_run_settings',{id,variant:true});}
-else if(action==='edit-run-settings'){if(U.wizard){openWizard();toast('Resume or discard your unfinished edits before editing another run.');}else request('edit_run_settings',{id});}
+else if(action==='create-variant')editSavedRun(id,true);
+else if(action==='edit-run-settings')editSavedRun(id);
 else if(action==='save-run-revision')request('revise_run',{id:U.revision.id,variant:!!U.revision.variant,signature:U.revision.signature,config:runConfigPayload(),cores:Number(v('revision-cores')),memory_mb:Number(v('revision-memory'))});
 else if(action==='handoff')request('handoff',{id});
 else if(action==='followup'){delete U.drafts['followup-reviewed'];delete U.drafts['followup-source-'+id];delete U.drafts['followup-scope-'+id];modal('followup',id);}
