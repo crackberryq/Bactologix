@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0a60 — Put the recommended pipeline release first
+
+- Show the recommended compatible release at the top of the pipeline version picker, followed by other releases and legacy snapshots. Mark the installed source separately and remove the misleading recommendation text from legacy snapshot names.
+- After a successful catalogue refresh, update the automatic default selection to the newly recommended release. Preserve explicit user choices, failed-refresh selections and release/source filters. Refreshing does not install a pipeline or change any saved run.
+- Add browser regression coverage for the stale-catalogue refresh, manual legacy selection, unavailable releases, stable-only filtering and the exact selected installation request.
+
 ## 0.1.0a59 — Reviewed BaSIS follow-up versions
 
 - Fix stale follow-up reuse across separate drafts: share Snakemake provenance for their shared outputs, bootstrap missing capture metadata once, and preserve normal changed-request and unchanged-resume decisions.

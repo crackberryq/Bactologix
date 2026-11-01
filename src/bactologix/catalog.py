@@ -78,7 +78,7 @@ def versions(store, tool):
     pinned = []
     for commit in [spec["commit"], *spec.get("previous_commits", [])]:
         ref = spec.get("release_names", {}).get(commit) or (spec["preferred"] if commit == spec["commit"] else spec.get("previous_ref", spec["preferred"]))
-        display_name = (ref + (" — recommended" if commit == spec["commit"] else " — earlier compatible snapshot")) if "release_names" in spec else ("Recommended compatible snapshot" if commit == spec["commit"] else "Earlier compatible snapshot")
+        display_name = (ref + " — compatible snapshot") if "release_names" in spec else "Compatible legacy snapshot"
         pinned.append(dict(id="commit:" + commit, kind="pinned", ref=ref + " @ " + commit[:8],
                            name=display_name,
                            commit=commit, url=f'https://github.com/{spec["repo"]}/tree/{commit}',

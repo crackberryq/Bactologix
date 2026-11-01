@@ -1,6 +1,6 @@
 # Bactologix 0.1.0a52 — alpha
 
-**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a59/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
+**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a60/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
@@ -641,5 +641,7 @@ See [MICP Scope setup](docs/micpscope.md). New pipeline installations prepare th
 ### Reviewed pipeline releases
 
 The version picker separates stable releases from prereleases, displays installed/latest/recommended versions and dates its cached catalogue. Refresh checks GitHub releases and the official [compatibility registry](compatibility/README.md). Newly reviewed compatible releases can be enabled without an app rebuild. Unreviewed commits remain source-only; changed interfaces require an adapter update. Existing saved runs keep their source/configuration and retained approval.
+
+The recommended compatible release appears first. **Refresh from GitHub** updates the default selection when a newer reviewed release is found; a version you explicitly select stays selected. Installed snapshots are labelled separately. Select the desired release and click **Download and set up** to install it; refreshing alone does not update the installed pipeline. Use **Source type → Releases** to hide legacy snapshots and branches.
 
 Reviewed BaSIS follow-up can use an explicitly selected compatible installed version. See [the source and scope workflow](docs/REVIEWED_FOLLOWUP.md).

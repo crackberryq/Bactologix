@@ -1,3 +1,9 @@
+# Validation update: 0.1.0a60 (2026-11-01)
+
+- Reproduce a stale catalogue whose automatic legacy selection persists after refresh. The Chromium regression confirms the reviewed release becomes the first choice and the default selection, while a newer unreviewed release remains source-only.
+- Verify explicit legacy choices, failed-refresh cache/date/selection preservation, stable-only and source-type filters, mobile layout and the exact installation request. Refreshing and choosing versions do not enqueue work or change the active installation.
+- Local focused software checks: 45 passed. Local Chromium regression: 1 passed. Python 3.11/3.12, browser, environment and Windows release gates remain required before publication. No user analyses were launched.
+
 # Validation update: 0.1.0a59
 
 - Reproduced a changed-request no-op when separate follow-up working directories reused the same outputs without scheduler metadata. Shared per-parent state and one-time missing-provenance capture correct it. Native regression coverage checks a second request, return to an earlier request, migration from missing metadata, and unchanged no-op reruns. Focused software checks: 51 passed.
