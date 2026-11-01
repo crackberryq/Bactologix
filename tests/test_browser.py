@@ -812,6 +812,114 @@ def render_component(page, store):
            'js': (ui / 'workspace.js').read_text(), 'workspace': snapshot(store)})
 
 
+def test_pipeline_release_picker_refresh_and_explicit_choice(tmp_path, monkeypatch):
+    """A successful refresh must not leave the old automatic snapshot selected."""
+    import base64
+    import copy
+    import json
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix import catalog
+    from bactologix.ui_backend import dispatch, snapshot
+
+    store = Store(tmp_path / 'workspace')
+    store.put('catalog', 'basis', {'live': True, 'checkedAt': 'old check', 'versions': []})
+    source = tmp_path / 'installed source'
+    source.mkdir()
+    old = {'id': 'old-basis', 'tool': 'basis', 'source': str(source), 'controller': None, 'ready': False,
+           'version': {'ref': 'basis-aware @ 14f161a1', 'commit': PIPELINES['basis']['commit']}}
+    store.put('installs', old['id'], old)
+    store.put('settings', 'active-basis', old['id'])
+    registry = json.loads((Path(__file__).parents[1] / 'compatibility/releases-v1.json').read_text())
+    review = next(r for r in registry['releases'] if r['tool'] == 'basis' and r['tag'] == 'v0.4.0a4')
+    release = {'id': 'release:' + review['tag'], 'kind': 'release', 'ref': review['tag'],
+               'name': 'BaSIS reviewed release', 'commit': review['commit'], 'prerelease': True,
+               'url': 'https://github.com/crackberryq/Bactomics_BaSIS/releases/tag/' + review['tag'],
+               'publishedAt': '2026-10-31'}
+    unreviewed = {**release, 'id': 'release:v99.0.0', 'ref': 'v99.0.0', 'name': 'Unreviewed release',
+                  'commit': '9' * 40, 'prerelease': False, 'publishedAt': '2099-01-01'}
+    listing = {'live': True, 'checkedAt': 'new check', 'versions': [unreviewed, release]}
+    monkeypatch.setattr(catalog, 'fetch_versions', lambda tool: copy.deepcopy(listing))
+    monkeypatch.setattr(catalog, 'api', lambda path: {
+        'content': base64.b64encode(json.dumps(registry).encode()).decode()})
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 900})
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(page, store)
+        page.get_by_role('link', name='Install & update', exact=True).click()
+        page.get_by_role('button', name='Pipelines & environments', exact=True).click()
+        page.locator('[data-action="versions"][data-id="basis"]').click()
+        dialog = page.get_by_role('dialog', name='Choose BaSIS AWARE version', exact=True)
+        legacy = dialog.locator('input[name="version"][value="commit:' + old['version']['commit'] + '"]')
+        newest = dialog.locator('input[name="version"][value="' + release['id'] + '"]')
+        expect(legacy).to_be_checked()
+        expect(dialog.locator('.version-choice').first).to_contain_text('Installed')
+
+        def refresh():
+            dialog.get_by_role('button', name='Refresh from GitHub', exact=True).click()
+            request = page.evaluate('window.acceptanceEvents.at(-1).value')
+            assert request['kind'] == 'refresh_versions'
+            result = dispatch(store, request['kind'], request['payload'])
+            page.evaluate('({response,workspace}) => {Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                          {'response': {'id': request['id'], 'ok': True, **result}, 'workspace': snapshot(store)})
+            return result
+
+        assert refresh()['refreshed_catalog'] == 'basis'
+        expect(newest).to_be_checked()
+        expect(dialog.locator('.version-choice').first).to_contain_text('v0.4.0a4')
+        expect(dialog.locator('.version-choice').first).to_contain_text('Recommended')
+        expect(dialog).not_to_contain_text('Recommended compatible snapshot')
+        expect(dialog).to_contain_text('Latest release: v99.0.0')
+        expect(dialog).to_contain_text('Recommended compatible release: v0.4.0a4')
+        expect(dialog.locator('input[value="release:v99.0.0"]')).not_to_be_checked()
+
+        # Deliberate legacy choices survive even a successful refresh.
+        legacy.check()
+        refresh()
+        expect(legacy).to_be_checked()
+        dialog.get_by_role('button', name='Close dialog', exact=True).click()
+        page.locator('[data-action="versions"][data-id="basis"]').click()
+        expect(newest).to_be_checked()
+
+        # A failed refresh retains the cache, successful-check date and selection.
+        cached = store.get('catalog', 'basis')
+        monkeypatch.setattr(catalog, 'api', lambda path: (_ for _ in ()).throw(OSError('offline fixture')))
+        assert 'refreshed_catalog' not in refresh()
+        expect(newest).to_be_checked()
+        assert store.get('catalog', 'basis') == cached
+
+        # The stable-only view has no supported release and must not select a hidden prerelease/snapshot.
+        dialog.get_by_label('Release channel', exact=True).select_option('stable')
+        expect(dialog.locator('input[name="version"]:checked')).to_have_count(0)
+        expect(dialog.locator('[data-action="install-version"]')).to_be_disabled()
+        expect(dialog).to_contain_text('No tested stable release')
+        dialog.get_by_label('Release channel', exact=True).select_option('prerelease')
+        expect(newest).to_be_checked()
+        dialog.get_by_label('Source type', exact=True).select_option('pinned')
+        expect(dialog.locator('input[name="version"]:checked')).to_have_count(0)
+        expect(dialog.locator('[data-action="install-version"]')).to_be_disabled()
+        dialog.get_by_label('Source type', exact=True).select_option('release')
+        newest.check()
+
+        page.set_viewport_size({'width': 390, 'height': 844})
+        expect(dialog.locator('.version-choice:not([hidden])').first).to_contain_text('v0.4.0a4')
+        assert dialog.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
+        destination = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+        if destination:
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(Path(destination) / 'pipeline-release-picker-mobile.png'), full_page=True)
+        dialog.locator('[data-action="install-version"]').click()
+        request = page.evaluate('window.acceptanceEvents.at(-1).value')
+        assert request['kind'] == 'install'
+        assert request['payload'] == {'tool': 'basis', 'version_id': release['id'], 'commit': release['commit']}
+        assert store.get('installs', old['id']) == old
+        assert store.get('settings', 'active-basis') == old['id']
+        assert not store.jobs() and not store.all('runs') and errors == []
+        browser.close()
+
+
 def test_followup_version_scope_and_draft_roundtrip(screening, tmp_path):
     from playwright.sync_api import sync_playwright, expect
     from bactologix.ui_backend import dispatch, snapshot

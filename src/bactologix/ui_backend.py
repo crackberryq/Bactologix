@@ -307,7 +307,7 @@ def dispatch(store, kind, p):
             refresh(store, tool)
         except (OSError, ValueError, KeyError) as exc:
             return {"message": "Refresh failed; showing the dated cached catalogue. " + str(exc), "keep_modal": True}
-        return {"message": "GitHub version list refreshed.", "keep_modal": True}
+        return {"message": "GitHub version list refreshed.", "keep_modal": True, "refreshed_catalog": tool}
     if kind == "install":
         tool = _tool(p)
         version = next((v for v in versions(store, tool)["versions"] if v["id"] == p.get("version_id") and v["commit"] == p.get("commit")), None)

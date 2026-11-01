@@ -19,18 +19,22 @@ def review():
 
 
 def test_refresh_approval_and_offline_preservation(tmp_path, monkeypatch):
+    from bactologix.ui_backend import dispatch
     store=Store(tmp_path); r=review()
     listing={'live':True,'checkedAt':'2026-10-29','versions':[{'id':'release:v99.0.0','kind':'release',
         'ref':r['tag'],'commit':r['commit'],'prerelease':False,'publishedAt':'2026-10-29'}]}
     monkeypatch.setattr(catalog,'fetch_versions',lambda tool:copy.deepcopy(listing))
     monkeypatch.setattr(catalog,'api',lambda path:{'content':base64.b64encode(json.dumps({'schema_version':1,'releases':[r]}).encode()).decode()})
     assert not catalog.supported('basis',r['commit'],store)
-    rc.refresh(store,'basis')
+    result = dispatch(store, 'refresh_versions', {'tool': 'basis'})
+    assert result['refreshed_catalog'] == 'basis' and result['keep_modal']
     assert catalog.supported('basis',r['commit'],Store(tmp_path))
     assert catalog.versions(store,'basis')['recommended_release']=='v99.0.0'
     old=store.get('catalog','basis')
     monkeypatch.setattr(catalog,'api',lambda path: (_ for _ in ()).throw(OSError('offline')))
     with pytest.raises(OSError):rc.refresh(store,'basis')
+    failure = dispatch(store, 'refresh_versions', {'tool': 'basis'})
+    assert 'refreshed_catalog' not in failure and 'Refresh failed' in failure['message']
     assert store.get('catalog','basis')==old
     assert catalog.supported('basis',r['commit'],store)
     assert catalog.supported('basis',catalog.PIPELINES['basis']['previous_commits'][0],store)
