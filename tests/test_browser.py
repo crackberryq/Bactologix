@@ -920,6 +920,109 @@ def test_pipeline_release_picker_refresh_and_explicit_choice(tmp_path, monkeypat
         browser.close()
 
 
+@pytest.mark.parametrize('restore', [False, True], ids=['current-tab', 'recovered-tab'])
+def test_saved_basis_edit_does_not_resume_an_unrelated_draft(screening, restore):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import dispatch, snapshot
+    store, parent = screening
+    other = create_run(store, 'basis', parent['sample'], parent['config'], label='Another saved BaSIS run')
+    original = {str(p): p.read_bytes() for p in Path(parent['folder']).rglob('*') if p.is_file()}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1000})
+        page.route('http://workspace.test/**', lambda route: route.fulfill(body='<html><body></body></html>', content_type='text/html'))
+        page.goto('http://workspace.test/')
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(page, store)
+
+        def respond(kind):
+            request = page.evaluate('window.acceptanceEvents.at(-1).value')
+            assert request['kind'] == kind
+            result = dispatch(store, kind, request['payload'])
+            page.evaluate('({response,workspace}) => {Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                          {'response': {'id': request['id'], 'ok': True, **result}, 'workspace': snapshot(store)})
+            return request
+
+        page.get_by_role('link', name='Runs', exact=True).click()
+        page.get_by_role('button', name='Create run drafts', exact=True).first.click()
+        respond('run_config_editor')
+        page.get_by_label('Pipeline', exact=True).select_option('micpscope')
+        respond('run_config_editor')
+        page.get_by_label('CPU cores per run', exact=True).fill('3')
+        page.get_by_role('button', name='Save & exit', exact=True).click()
+        saved = page.evaluate('sessionStorage.getItem("bactologix:run-editor:v1:" + window.acceptanceWorkspace.workspace)')
+        assert saved and 'micpscope' in saved
+        if restore:
+            page.reload()
+            render_component(page, store)
+        page.get_by_role('link', name='Runs', exact=True).click()
+        page.locator('[data-action="run-detail"][data-id="' + parent['id'] + '"]').first.click()
+        respond('inspect_run')
+        count = page.evaluate('window.acceptanceEvents.length')
+        page.get_by_role('button', name='Edit settings', exact=True).click()
+        dialog = page.get_by_role('dialog', name='Unfinished edits', exact=True)
+        expect(dialog).to_contain_text('MICP Scope')
+        expect(dialog).to_contain_text('BaSIS AWARE')
+        expect(dialog).to_contain_text(parent['id'])
+        assert page.evaluate('window.acceptanceEvents.length') == count
+        assert '#runs/' in page.url
+        page.set_viewport_size({'width': 390, 'height': 844})
+        assert dialog.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
+        destination = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+        if destination:
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(Path(destination) / ('editor-conflict-' + str(restore) + '.png')), full_page=True)
+        page.set_viewport_size({'width': 1440, 'height': 1000})
+        dialog.get_by_role('button', name='Close dialog', exact=True).click()
+        expect(page.get_by_role('region', name='Unfinished draft')).to_contain_text('MICP Scope')
+        assert page.evaluate('sessionStorage.getItem("bactologix:run-editor:v1:" + window.acceptanceWorkspace.workspace)') == saved
+
+        # Resuming is explicit and keeps the MICP Scope draft's unsaved budget.
+        page.get_by_role('button', name='Edit settings', exact=True).click()
+        dialog.get_by_role('button', name='Resume unfinished edits', exact=True).click()
+        expect(page.get_by_label('Pipeline', exact=True)).to_have_value('micpscope')
+        expect(page.get_by_label('CPU cores per run', exact=True)).to_have_value('3')
+        page.get_by_role('button', name='Save & exit', exact=True).click()
+        page.get_by_role('link', name='Runs', exact=True).click()
+        page.locator('[data-action="run-detail"][data-id="' + parent['id'] + '"]').first.click()
+        respond('inspect_run')
+        page.get_by_role('button', name='Edit settings', exact=True).click()
+        dialog.get_by_role('button', name='Discard edits and open BaSIS AWARE', exact=True).click()
+        request = respond('edit_run_settings')
+        assert request['payload'] == {'id': parent['id']}
+        expect(page.get_by_role('heading', name='Edit run settings', exact=True)).to_be_visible()
+        expect(page.locator('.revision-source')).to_contain_text('BaSIS AWARE')
+        assert page.locator('.run-wizard .settings-tabs button').all_text_contents() == ['Modules', 'AWARE', 'DeepSafe', 'Resources', 'Advanced']
+        expect(page.get_by_label('Pipeline', exact=True)).to_have_count(0)
+        page.locator('[data-run-name="modules.rgi.enabled"]').uncheck()
+
+        # Reopening this same revision resumes it without a conflict or a lost edit.
+        page.get_by_role('button', name='Save & exit', exact=True).click()
+        page.locator('[data-action="run-detail"][data-id="' + parent['id'] + '"]').first.click()
+        respond('inspect_run')
+        count = page.evaluate('window.acceptanceEvents.length')
+        page.get_by_role('button', name='Edit settings', exact=True).click()
+        expect(page.get_by_role('dialog')).to_have_count(0)
+        expect(page.locator('[data-run-name="modules.rgi.enabled"]')).not_to_be_checked()
+        assert page.evaluate('window.acceptanceEvents.length') == count
+
+        # Another run of the same pipeline must also be distinguished by identity.
+        page.get_by_role('button', name='Save & exit', exact=True).click()
+        page.locator('[data-action="run-detail"][data-id="' + other['id'] + '"]').first.click()
+        respond('inspect_run')
+        page.get_by_role('button', name='Edit settings', exact=True).click()
+        expect(dialog).to_contain_text(parent['id'])
+        expect(dialog).to_contain_text(other['id'])
+        expect(dialog).to_contain_text('Another saved BaSIS run')
+        assert '#runs/' in page.url
+        assert store.get('runs', parent['id']) == parent
+        assert store.get('runs', other['id']) == other
+        assert all(Path(path).read_bytes() == content for path, content in original.items())
+        assert len(store.all('runs')) == 2 and not store.jobs() and errors == []
+        browser.close()
+
+
 def test_followup_version_scope_and_draft_roundtrip(screening, tmp_path):
     from playwright.sync_api import sync_playwright, expect
     from bactologix.ui_backend import dispatch, snapshot

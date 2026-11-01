@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0a61 — Keep saved-run editing on the requested run
+
+- Fix Edit settings unexpectedly resuming an unrelated unfinished draft, such as MICP Scope when a saved BaSIS run was selected. Show a choice naming the requested run and unfinished pipeline before switching editors.
+- Preserve unfinished edits when cancelling or explicitly resuming them. Discard only with the named action to open the requested run. Reopening the same revision resumes its unsaved settings directly; different runs and revision/variant modes remain distinct.
+- Name the pipeline in the unfinished-draft banner. Add real browser checks for current/recovered tabs, cross-pipeline drafts, different saved runs, retained edits, mobile layout and unchanged original run records/files.
+
 ## 0.1.0a60 — Put the recommended pipeline release first
 
 - Show the recommended compatible release at the top of the pipeline version picker, followed by other releases and legacy snapshots. Mark the installed source separately and remove the misleading recommendation text from legacy snapshot names.
