@@ -1,3 +1,9 @@
+## 0.1.0a62 — Recover jobs after workstation restarts
+
+- Workspace refresh and Stop now reconcile abandoned running attempts under the existing worker OS lock, including protection for surviving child processes.
+- Mark abandoned attempts interrupted and pause the queue for review without starting jobs, removing scheduler locks or changing outputs, configuration, source or telemetry.
+- Keep stop-request history while removing the misleading pending-stop label from finished attempts.
+
 # Changelog
 
 ## 0.1.0a61 — Keep saved-run editing on the requested run

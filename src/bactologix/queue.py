@@ -83,3 +83,19 @@ def recover_interrupted(store):
             state.update(paused=True, pause_reason='interruption', recovered=ids, recovered_at=stamp)
             save_control(db, state)
         return ids
+
+
+def reconcile_interrupted(store):
+    """Recover abandoned records without starting work or disturbing live children.
+
+    The OS releases this lock after a reboot, but native subprocesses inherit it
+    while still alive. Never use PID existence or telemetry age as proof of exit.
+    Keep the lock through the database transaction to exclude a new worker claim.
+    """
+    import fcntl
+    with (store.home / 'worker.lock').open('a+') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return []
+        return recover_interrupted(store)

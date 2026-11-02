@@ -1,3 +1,10 @@
+## a62 restart recovery
+
+- Local regression suite: 617 passed, 78 skipped (browser and upstream fixture-dependent checks).
+- New software-only cases: abandoned records after reopen, Stop without a worker, live lock ownership, inherited child lock after parent descriptor closes, queue pause and preservation of outputs/logs/payloads/telemetry.
+- Browser queue fixture now drops a real OS lease and uses Refresh to verify automatic interruption recovery. Synthetic live jobs hold real leases.
+- Physical Windows/WSL power-loss acceptance remains outstanding. No user analyses were launched or repeated.
+
 # Validation update: 0.1.0a61 (2026-11-01)
 
 - Reproduced the saved-run Edit action reopening an unrelated MICP Scope draft. The Chromium regression fails on the old routing and passes with the explicit conflict choice.
