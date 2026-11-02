@@ -21,7 +21,22 @@ pytestmark = pytest.mark.skipif(os.environ.get('BACTOLOGIX_BROWSER_TESTS') != '1
                                 reason='Enable the browser acceptance job to run Chromium')
 
 
-def test_sample_picker_configuration_and_report(tmp_path):
+@pytest.fixture
+def worker_lease():
+    """Give synthetic running jobs the same ownership proof as a real worker."""
+    import fcntl
+    locks = []
+    def acquire(store):
+        lock = (store.home / 'worker.lock').open('a+')
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        locks.append(lock)
+        return lock
+    yield acquire
+    for lock in locks:
+        lock.close()
+
+
+def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
     from playwright.sync_api import sync_playwright, expect
     workspace = tmp_path / 'workspace'
     store = Store(workspace)
@@ -666,6 +681,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             store.put('runs', created['id'], created)
             # Active-job polling works outside Jobs and does not interrupt focused edits.
             jid = store.submit('workflow', {'run_id': created['id'], 'action': 'run'})
+            live_lock = worker_lease(store)
             store.update_job(jid, status='running')
             page.get_by_role('button', name='Refresh workspace', exact=True).click()
             expect(page.locator('#queue-status')).to_contain_text('1 running')
@@ -681,6 +697,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(page.locator('#queue-status')).to_contain_text('1 running')
             store.log_path(jid).write_text('BUSCO lineage database missing at /software-fixture')
             store.update_job(jid, status='failed', error='Command exited with code 1; see the job log')
+            live_lock.close()
             expect(page.locator('#queue-status')).to_have_text('No active jobs', timeout=12000)
             # A later successful validation does not erase an earlier failed execution.
             validation_job = store.submit('workflow', {'run_id': created['id'], 'action': 'dry-run'})
@@ -722,6 +739,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             live, = [x for x in store.all('launchers') if x['status'] == 'ready']
             before = {kind: store.all(kind) for kind in ('samples', 'runs', 'configs', 'installs')}
             jid = store.submit('app_update', {'release': {'version': __version__}, 'launcher_id': live['id']})
+            live_lock = worker_lease(store)
             store.update_job(jid, status='running')
             store.put('settings', 'app-update', {'job': jid, 'status': 'installed', 'version': __version__,
                       'launcher_id': live['id'], 'environment': sys.prefix, 'pip_started_at': time.time()})
@@ -731,6 +749,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             assert store.get('launchers', live['id'])['status'] == 'ready'
             capture('automatic-update-waiting')
             store.update_job(jid, status='succeeded')
+            live_lock.close()
             page.wait_for_function('!window.__acceptanceBeforeRestart', timeout=45000)
             expect(page.get_by_role('link', name='Runs', exact=True)).to_be_visible(timeout=30000)
             page.wait_for_function('!window.__bactologixRestart')
@@ -1172,7 +1191,7 @@ def test_reviewed_support_snapshot_and_zip(tmp_path):
         browser.close()
 
 
-def test_job_progress_resource_history_and_downloads(tmp_path):
+def test_job_progress_resource_history_and_downloads(tmp_path, worker_lease):
     import json
     import zipfile
     from playwright.sync_api import sync_playwright, expect
@@ -1181,6 +1200,7 @@ def test_job_progress_resource_history_and_downloads(tmp_path):
     from bactologix.store import now
     store = Store(tmp_path / 'usage-component')
     jid = store.submit('workflow', {'run_id': 'run-software-fixture', 'action': 'run'})
+    worker_lease(store)
     store.update_job(jid, status='running')
     store.log_path(jid).write_text('localrule software_check:\n    jobid: 2\n1 of 4 steps (25%) done\n')
     recorder = telemetry.Recorder(store, store.job(jid))
@@ -1269,11 +1289,12 @@ def test_job_progress_resource_history_and_downloads(tmp_path):
         browser.close()
 
 
-def test_background_poll_preserves_and_queues_a_foreground_action(tmp_path):
+def test_background_poll_preserves_and_queues_a_foreground_action(tmp_path, worker_lease):
     """Exercise the real component with a controlled response boundary, without a worker."""
     from playwright.sync_api import sync_playwright, expect
     store = Store(tmp_path / 'component-workspace')
     jid = store.submit('smoke', {})
+    worker_lease(store)
     store.update_job(jid, status='running')
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -1434,13 +1455,14 @@ def test_workstation_check_and_failure_recovery_in_streamlit(tmp_path):
         proc.wait(timeout=15)
 
 
-def test_queue_controls_persist_and_recover_in_real_browser(tmp_path):
+def test_queue_controls_persist_and_recover_in_real_browser(tmp_path, worker_lease):
     """UI controls use real transactions and a worker; no sample workflow is run."""
     from playwright.sync_api import sync_playwright, expect
     from bactologix.workstation import request as workstation_request
     store = Store(tmp_path / 'queue workspace')
     interrupted = store.submit('smoke', {})
-    store.update_job(interrupted, status='running')  # Abandoned worker fixture for recovery.
+    live_lock = worker_lease(store)
+    store.update_job(interrupted, status='running')  # Becomes abandoned when the lease closes below.
     workstation = store.submit('workstation', workstation_request(store))
     held = store.submit('smoke', {})
     with socket.socket() as sock:
@@ -1484,7 +1506,8 @@ def test_queue_controls_persist_and_recover_in_real_browser(tmp_path):
             page.get_by_role('link', name='Overview', exact=True).click()
             expect(page.locator('.queue-banner')).to_contain_text('Waiting and newly submitted jobs will not start')
             page.get_by_role('button', name='Review queue', exact=True).click()
-            page.get_by_role('button', name='Start / recover queue', exact=True).click()
+            live_lock.close()  # Simulate the OS releasing ownership after a restart.
+            page.get_by_role('button', name='Refresh', exact=True).click()
             expect(controls).to_contain_text('Review interrupted work before resuming', timeout=15000)
             assert store.job(interrupted)['status'] == 'interrupted'
             assert store.job(workstation)['status'] == store.job(held)['status'] == 'queued'
@@ -1837,7 +1860,7 @@ def test_version_compatibility_overview_preserves_saved_bindings(tmp_path, insta
         proc.terminate(); proc.wait(timeout=15)
 
 
-def test_job_history_filters_pages_export_and_active_visibility(tmp_path, installed):
+def test_job_history_filters_pages_export_and_active_visibility(tmp_path, installed, worker_lease):
     """Real Chromium component uses stored attempts without submitting or editing work."""
     import json
     from playwright.sync_api import sync_playwright, expect
@@ -1863,6 +1886,7 @@ def test_job_history_filters_pages_export_and_active_visibility(tmp_path, instal
     store.update_job(missing, status='failed')
     waiting = store.submit('smoke', {})
     running = store.submit('smoke', {})
+    worker_lease(store)
     store.update_job(running, status='running')
     store.put('run_visibility', run['id'], {'id': run['id'], 'archived': True})
     original = store.jobs()

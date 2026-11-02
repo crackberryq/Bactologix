@@ -80,6 +80,8 @@ def configuration_fields(tool, text):
 
 
 def snapshot(store):
+    from .queue import reconcile_interrupted
+    reconcile_interrupted(store)
     records = {r['id']: r for r in store.all('job_telemetry') if isinstance(r, dict) and 'id' in r}
     jobs = [{**j, "guidance": readiness.job_guidance(store, j),
              "telemetry": telemetry.view(records.get(j['id']), j)} for j in store.jobs()]
@@ -536,6 +538,10 @@ def dispatch(store, kind, p):
         launch_worker(store)
         return {"message": "Worker requested; active jobs retain their lock. Pauses and holds remain in effect. Recovered interruptions pause the queue for review."}
     if kind == "cancel_job":
+        from .queue import reconcile_interrupted
+        recovered = reconcile_interrupted(store)
+        if p["id"] in recovered:
+            return {"message": "No worker remains. The attempt is marked interrupted and the queue is paused for review. Existing outputs and logs are retained."}
         job = store.job(p["id"])
         if not job or job["status"] not in {"queued", "running"}:
             raise ValueError("This job is no longer active")
