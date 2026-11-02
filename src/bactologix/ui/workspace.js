@@ -187,7 +187,7 @@ function runPage(){
 }
 function runActivity(r){
  const jobs=S.jobs.filter(j=>j.payload.run_id===r.id);
- return `<div class="settings-intro"><div><h3>Run activity</h3><p>Validation, environment preparation and execution jobs for this saved run.</p></div></div>`+(jobs.length?`<div class="run-activity">${jobs.map(j=>`<article class="run-job"><div><strong>${e(({'dry-run':'Validate run',prepare:'Install environments',run:'Run / resume','check-environments':'Check environments'}[j.payload.action])||j.kind)}</strong><span class="secondary-line">${e(j.created)} · ${e(j.id)}</span>${guidancePanel(j)}</div>${jobStatus(j)}<div class="button-row">${btn('job-log','View log',false,j.id)}${usageButton(j)}${['queued','running'].includes(j.status)?btn('cancel-job','Stop',false,j.id,'stop'):''}</div>${jobTelemetry(j)}</article>`).join('')}</div>`:empty('No jobs for this run yet.','Open Overview to validate its configuration and check its environments.'));
+ return `<div class="settings-intro"><div><h3>Run activity</h3><p>Validation, environment preparation and execution jobs for this saved run.</p></div></div>`+(jobs.length?`<div class="run-activity">${jobs.map(j=>`<article class="run-job"><div><strong>${e(({'dry-run':'Validate run',prepare:'Install environments',run:'Run / resume','check-environments':'Check environments',unlock:'Unlock workflow'}[j.payload.action])||j.kind)}</strong><span class="secondary-line">${e(j.created)} · ${e(j.id)}</span>${guidancePanel(j)}</div>${jobStatus(j)}<div class="button-row">${btn('job-log','View log',false,j.id)}${usageButton(j)}${['queued','running'].includes(j.status)?btn('cancel-job','Stop',false,j.id,'stop'):''}</div>${jobTelemetry(j)}</article>`).join('')}</div>`:empty('No jobs for this run yet.','Open Overview to validate its configuration and check its environments.'));
 }
 const compatibilitySupport={recommended:'Recommended snapshot',earlier_supported:'Earlier supported snapshot',contract_supported:'Reviewed release contract',unreviewed:'Unreviewed commit',missing_commit:'Commit not recorded',unknown_pipeline:'Unknown pipeline'};
 const compatibilityBinding={recorded_match:'Recorded installation matches',missing_installation:'Installation not registered',source_mismatch:'Installation/source mismatch',setup_needed:'Runner setup needed'};
@@ -239,8 +239,8 @@ function workstationPanel(){
 function guidancePanel(j){
  const g=j.guidance;if(!g)return '';
  const hasRun=!!runBy(g.run_id);
- const action=g.category==='dependencies'?btn('recovery-setup','Open pipeline setup',false,j.id):g.category==='databases'?btn('recovery-databases','Review database locations',false,j.id):hasRun?btn('run-detail','Review run checks',false,g.run_id):btn('go-install','Open setup');
- return `<details class="job-guidance recovery-panel" data-recovery-job="${e(j.id)}" ${U.recoveryOpen?.[j.id]?'open':''}><summary>Why did this fail?</summary><strong>${e(g.title)}</strong><p>${e(g.confidence)}${g.step?' · Reported failed step: '+e(g.step):' · Failed step not identified'}</p><p>${e(g.text)}</p>${g.evidence?`<pre class="code-block recovery-evidence">${e(g.evidence)}</pre>`:'<p>No matching error excerpt is available.</p>'}<p class="inline-info">${e(g.scope)} Log excerpt: ${e(g.log_status)}. This local excerpt is not redacted.</p><div class="button-row">${action}${hasRun&&['databases','dependencies'].includes(g.category)?btn('run-detail','Review saved run',false,g.run_id):''}${btn('job-log','Inspect full log',false,j.id)}</div></details>`;
+ const action=hasRun&&['workflow_lock','interrupted'].includes(g.category)?btn('check-workflow-lock','Check workflow lock',false,g.run_id):g.category==='dependencies'?btn('recovery-setup','Open pipeline setup',false,j.id):g.category==='databases'?btn('recovery-databases','Review database locations',false,j.id):hasRun?btn('run-detail','Review run checks',false,g.run_id):btn('go-install','Open setup');
+ return `<details class="job-guidance recovery-panel" data-recovery-job="${e(j.id)}" ${U.recoveryOpen?.[j.id]?'open':''}><summary>${g.category==='workflow_lock'?'Workflow locked':'Why did this fail?'}</summary><strong>${e(g.title)}</strong><p>${e(g.confidence)}${g.step?' · Reported failed step: '+e(g.step):' · Failed step not identified'}</p><p>${e(g.text)}</p>${g.evidence?`<pre class="code-block recovery-evidence">${e(g.evidence)}</pre>`:'<p>No matching error excerpt is available.</p>'}<p class="inline-info">${e(g.scope)} Log excerpt: ${e(g.log_status)}. This local excerpt is not redacted.</p><div class="button-row">${action}${hasRun&&['databases','dependencies'].includes(g.category)?btn('run-detail','Review saved run',false,g.run_id):''}${btn('job-log','Inspect full log',false,j.id)}</div></details>`;
 }
 function workstationDetail(c){
  if(!c)return '<p>Loading check record…</p>';
@@ -295,7 +295,7 @@ function usageDetail(data){
  return `<div class="usage-detail">${statusBadge(t.job_status)}${jobTelemetry(j)}<p class="inline-info">Recorded for this job attempt only. A resumed run gets its own record.</p><div class="usage-charts">${usageChart(data.points,'cpu','CPU use (%)','%')}${usageChart(data.points,'ram','Sampled RAM (MiB)','MiB')}</div><div class="usage-facts"><div><span>Observed CPU time</span><strong>${usageMeasure(t.samples?t.observed_cpu_s:null,' s')}</strong></div><div><span>Usable / unavailable samples</span><strong>${usageNumber(t.samples,0)} / ${usageNumber(t.unavailable_samples,0)}</strong></div><div><span>Configured run budget</span><strong>${Number.isFinite(t.budget?.cores)?usageNumber(t.budget.cores,0)+' cores · '+usageNumber(t.budget.memory_mb,0)+' MB':'Not a saved run'}</strong></div><div><span>Recorded platform</span><strong>${e(t.system)} · ${e(t.architecture)}</strong></div></div><p class="secondary-line">Summary updated ${e(t.updated_at)}<br>Charts saved ${e(data.history_updated_at||'not yet')} · ${t.history_compacted?'History combined into intervals':'Charts saved at most every 30 seconds and at command completion'}</p>${t.partial_process_tree?notice('Some processes could not be read','CPU and RAM values describe only the observed processes.',true):''}${t.progress?.log_gap?notice('Some log output was skipped','The displayed task counts and steps may be incomplete.',true):''}<details class="config-section"><summary>Measurement scope & provenance</summary><div class="padded"><ul>${(t.notes||[]).map(n=>`<li>${e(n)}</li>`).join('')}</ul><p>Bactologix ${e(t.app_version)} · Python ${e(t.python)}</p>${t.pipeline?`<p>Pipeline: ${e(S.pipelines[t.pipeline]?.name||t.pipeline)}</p><p class="path-cell">Source commit: ${e(t.commit||'Unavailable')}<br>Configuration SHA-256: ${e(t.config_sha256||'Unavailable')}<br>Workflow SHA-256: ${e(t.workflow_sha256||'Unavailable')}</p>`:''}</div></details></div>`;
 }
 
-function jobLabel(j){return j.kind==='workstation'?'Workstation check':j.kind==='environments'?'Environments · '+j.payload.tool+' · '+j.payload.action:j.kind==='database_download'?'Database · '+j.payload.tool+' · '+j.payload.resource:j.kind==='workflow'?({'dry-run':'Validate run',prepare:'Install environments',run:'Run / resume','check-environments':'Check run environments'}[j.payload.action]||j.payload.action)+' · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='install'?S.pipelines[j.payload.tool]?.name+' · '+j.payload.version.ref:j.kind==='app_update'?'Bactologix → v'+j.payload.release.version:j.kind;}
+function jobLabel(j){return j.kind==='workflow_unlock'?'Unlock workflow · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='workstation'?'Workstation check':j.kind==='environments'?'Environments · '+j.payload.tool+' · '+j.payload.action:j.kind==='database_download'?'Database · '+j.payload.tool+' · '+j.payload.resource:j.kind==='workflow'?({'dry-run':'Validate run',prepare:'Install environments',run:'Run / resume','check-environments':'Check run environments'}[j.payload.action]||j.payload.action)+' · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='install'?S.pipelines[j.payload.tool]?.name+' · '+j.payload.version.ref:j.kind==='app_update'?'Bactologix → v'+j.payload.release.version:j.kind;}
 
 function queueNotice(){
  const q=S.queue;if(!q?.paused||U.view==='jobs')return '';
@@ -697,6 +697,11 @@ if(m.kind==='followup'){
  foot=btn('create-followup','Create follow-up draft',true,m.id);
 }
 if(m.kind==='support'){wide=true;title='Get support';desc='Generate → review and edit → download';body=supportPanel();foot=btn('support-download-zip','Download ZIP',false,'','download',!supportValid())+btn('support-download-txt','Download reviewed snapshot',true,'','download',!supportValid());}
+if(m.kind==='workflow-lock'){
+ title='Workflow lock';desc='Review ownership before unlocking';const p=U.unlockPlan;
+ body=notice(p?.allowed?'Leftover workflow lock':'Unlock unavailable',e(p?.message||'Checking…'),!p?.allowed)+(p?.directory?`<p class="path-cell">${e(p.directory)}</p><p class="inline-info">Recorded source: ${e(p.commit)} · ${p.lock_count} lock file(s)</p>`:'');
+ foot=btn('check-workflow-lock','Check again',false,m.id)+btn('unlock-workflow','Unlock workflow',true,m.id,'',!p?.allowed||!!U.pending);
+}
 if(m.kind==='workstation'){
  wide=true;title='Workstation check';desc=m.id;const c=U.workstationCheck?.id===m.id?U.workstationCheck:null;
  body=workstationDetail(c);const available=!!c?.rows?.length&&!['queued','running'].includes(c.job_status);
@@ -880,6 +885,8 @@ else if(['bootstrap','smoke','refresh'].includes(action))request(action);
 else if(action==='history-page'){U.historyPage=Number(id);refreshHistory();$('#history-list').focus({preventScroll:true});$('#history-list').scrollIntoView({block:'start'});}
 else if(action==='clear-history'){for(const key of ['search','status','pipeline','kind','order'])setDraft('history-'+key,key==='search'?'':key==='order'?'newest':'all');refreshHistory(true);}
 else if(action==='download-history')downloadHistory();
+else if(action==='check-workflow-lock'){request('inspect_workflow_lock',{id});}
+else if(action==='unlock-workflow'){request('unlock_workflow',{id,signature:U.unlockPlan?.signature});}
 else if(action==='recover-jobs')request('recover_jobs');
 else if(['pause-queue','resume-queue','hold-job','release-job','queue-up','queue-down'].includes(action)){
  const actions={'pause-queue':'pause','resume-queue':'resume','hold-job':'hold','release-job':'release','queue-up':'up','queue-down':'down'};
@@ -1035,6 +1042,7 @@ if(response.default_config){
  if(ui.runConfigTab==='yaml')ui.runSettingTab[c.tool]='advanced';
  setDraft('config-yaml-'+c.tool,c.text);
 }
+if(response.unlock_plan){U.unlockPlan=response.unlock_plan;U.modal={kind:'workflow-lock',id:response.unlock_plan.id};}
 if(response.workstation_check)U.workstationCheck=response.workstation_check;
 if(response.download&&U.modal?.kind==='workstation')U.workstationCheck=S.workstation_checks?.find(c=>c.id===U.modal.id)||U.workstationCheck;
 if(response.uninstall_plan)U.uninstallPlan=response.uninstall_plan;

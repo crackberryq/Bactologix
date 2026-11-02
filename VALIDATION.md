@@ -1,3 +1,10 @@
+## a63 guarded native unlock
+
+- Local suite: 625 passed, 78 skipped before the additional process-directory and CI browser cases (browser/upstream-dependent cases run in CI).
+- Nine new software-only checks include real Snakemake --unlock on a disposable empty workflow, preserved outputs/run records, paused-queue isolation, live OS lease, external process/unknown ownership, stale review/source rejection and execution-time rechecking.
+- Browser case covers the lock notification, blocked and allowed review, explicit submission and retained failed-run history.
+- Physical Windows/WSL restart and unlock acceptance remains outstanding. External process checks are point-in-time; independently launched external tools do not participate in Bactologix's worker lock. No user sample analyses were started.
+
 ## a62 restart recovery
 
 - Local regression suite: 617 passed, 78 skipped (browser and upstream fixture-dependent checks).
