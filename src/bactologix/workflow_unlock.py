@@ -20,23 +20,46 @@ def ownership(store):
 
 
 def check_processes(directory):
-    # Conservatively block ANY external Snakemake, including other directories.
-    # Inaccessible process identity means ownership cannot be verified.
+    """Inspect user-owned work without requiring access to protected OS services.
+
+    Foreign protected processes are outside this user-workspace check only when
+    the workflow and lock directories are owned by this user and not writable by
+    other users. Known Snakemake processes still block regardless of their UID.
+    Unknown UIDs and inaccessible same-user processes always block.
+    """
+    uid = os.getuid()
+    private = True
+    for path in (Path(directory), Path(directory) / '.snakemake', Path(directory) / '.snakemake/locks'):
+        info = path.stat()
+        private = private and info.st_uid == uid and not (info.st_mode & 0o022)
+        # A named ACL can grant access beyond the traditional permission bits.
+        if hasattr(os, 'listxattr'):
+            private = private and 'system.posix_acl_access' not in os.listxattr(path)
     for proc in psutil.process_iter():
         try:
             if proc.pid == os.getpid():
                 continue
-            args = proc.cmdline()
+            try:
+                owners = proc.uids()
+            except psutil.AccessDenied:
+                raise ValueError('Ownership could not be verified: the user identity of process %s is unavailable. Unlock is blocked.' % proc.pid)
+            same_user = uid in (owners.real, owners.effective, owners.saved)
+            try:
+                args = proc.cmdline()
+            except psutil.AccessDenied:
+                if not same_user and private:
+                    continue  # Protected foreign service, not a user-owned workflow.
+                raise
             if any(Path(arg).name in {'snakemake', 'snakemake.exe'} for arg in args):
                 raise ValueError('Workflow currently in use: Snakemake process %s is active. Wait for it to finish before checking again.' % proc.pid)
-            if args and proc.uids().real == os.getuid():
+            if args and (same_user or not private):
                 cwd = Path(proc.cwd()).resolve()
                 if cwd == Path(directory) or Path(directory) in cwd.parents:
                     raise ValueError('Workflow currently in use: process %s is working in this directory. Wait for it to finish.' % proc.pid)
         except (psutil.NoSuchProcess, psutil.ZombieProcess):
             continue
         except psutil.AccessDenied:
-            raise ValueError('Ownership could not be verified: process %s cannot be inspected. Unlock is blocked.' % proc.pid)
+            raise ValueError('Ownership could not be verified: relevant process %s cannot be inspected. Unlock is blocked.' % proc.pid)
 
 
 def details(store, rid, own_job=None):
@@ -74,7 +97,7 @@ def preview(store, rid):
             plan = details(store, rid)
             check_processes(plan['directory'])
         return {**{k:v for k,v in plan.items() if k != 'command'}, 'allowed': True,
-                'message': 'Leftover lock found; no active Snakemake process was detected. Ownership will be checked again before unlocking. Outputs are preserved and no analysis starts.'}
+                'message': 'Leftover lock found; no relevant active process was detected in the user-workspace check. Ownership will be checked again before unlocking. Outputs are preserved and no analysis starts.'}
     except (ValueError, OSError) as exc:
         return {'id': rid, 'allowed': False, 'message': str(exc)}
 

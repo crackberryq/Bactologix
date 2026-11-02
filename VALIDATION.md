@@ -1,3 +1,9 @@
+## a64 protected-process ownership scope
+
+- Targeted restart/unlock checks: 20 passed. Tests cover protected foreign services, same-user and mixed-UID processes, unavailable UIDs, readable foreign Snakemake, shared directories and ACL uncertainty.
+- Existing native unlock, worker/child lease, execution-time recheck and preservation tests remain in place. Wheel, source distribution and Windows bundle build successfully.
+- Full regression and browser/Windows/environment CI remain release gates. Physical Windows/WSL recovery acceptance remains outstanding; no user sample analyses were run.
+
 ## a63 guarded native unlock
 
 - Local suite: 625 passed, 78 skipped before the additional process-directory and CI browser cases (browser/upstream-dependent cases run in CI).
