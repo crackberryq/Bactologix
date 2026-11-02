@@ -1,3 +1,9 @@
+## 0.1.0a64 — Scope protected-process unlock checks
+
+- Read real/effective/saved process UIDs before inspecting protected process details.
+- Protected foreign services no longer block private user-owned workflow directories merely because their command line is unreadable.
+- Keep blocking unknown UIDs, uninspectable same-user/mixed-UID processes, known Snakemake processes and uncertain shared/ACL-enabled directories. Worker and inherited-child lock checks remain unchanged.
+
 ## 0.1.0a63 — Guarded workflow unlock
 
 - Recognize native workflow lock errors and expose Check workflow lock / Unlock workflow inside run activity and job logs.

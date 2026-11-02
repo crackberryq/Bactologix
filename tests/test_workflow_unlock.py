@@ -1,5 +1,6 @@
 """Lock maintenance uses disposable software fixtures, never sample analyses."""
 import copy
+import os
 import fcntl
 from pathlib import Path
 import subprocess
@@ -74,7 +75,7 @@ def test_external_process_scan_is_conservative(locked,monkeypatch,mode):
         if mode=='denied':raise psutil.AccessDenied(123)
         if mode=='gone':raise psutil.NoSuchProcess(123)
         return ['python','-m','snakemake','--directory','/another/workflow']
-    monkeypatch.setattr(unlock.psutil,'process_iter',lambda:[SimpleNamespace(pid=123,cmdline=args)])
+    monkeypatch.setattr(unlock.psutil,'process_iter',lambda:[SimpleNamespace(pid=123,cmdline=args,uids=lambda:SimpleNamespace(real=os.getuid(),effective=os.getuid(),saved=os.getuid()))])
     assert unlock.preview(store,run['id'])['allowed'] == (mode=='gone')
 
 
@@ -114,8 +115,36 @@ def test_other_same_user_process_in_workflow_directory_blocks_unlock(locked, mon
     import os
     store,run,_,_=locked
     process=SimpleNamespace(pid=123,cmdline=lambda:['python','software-task.py'],
-                            uids=lambda:SimpleNamespace(real=os.getuid()),
+                            uids=lambda:SimpleNamespace(real=os.getuid(),effective=os.getuid(),saved=os.getuid()),
                             cwd=lambda:str(Path(run['folder'])/'workflow'))
     monkeypatch.setattr(unlock.psutil,'process_iter',lambda:[process])
     result=unlock.preview(store,run['id'])
     assert not result['allowed'] and 'working in this directory' in result['message']
+
+
+@pytest.mark.parametrize('mode', ['protected_foreign', 'protected_same_user', 'unknown_uid', 'foreign_snakemake', 'shared_foreign', 'mixed_uid'])
+def test_protected_process_ownership_scope(locked, monkeypatch, mode):
+    store,run,_,_=locked
+    uid=os.getuid()
+    def owners():
+        if mode=='unknown_uid': raise psutil.AccessDenied(343)
+        return SimpleNamespace(real=uid if mode=='protected_same_user' else uid+1,
+                               effective=uid if mode in {'protected_same_user','mixed_uid'} else uid+1,
+                               saved=uid if mode=='protected_same_user' else uid+1)
+    def cmdline():
+        if mode=='foreign_snakemake': return ['python','-m','snakemake']
+        raise psutil.AccessDenied(343)
+    if mode=='shared_foreign': (Path(run['folder'])/'workflow').chmod(0o777)
+    monkeypatch.setattr(unlock.psutil,'process_iter',lambda:[SimpleNamespace(pid=343,uids=owners,cmdline=cmdline)])
+    result=unlock.preview(store,run['id'])
+    assert result['allowed'] == (mode=='protected_foreign')
+    assert store.jobs()==[]
+
+
+def test_foreign_protected_process_with_acl_remains_blocked(locked, monkeypatch):
+    store,run,_,_=locked
+    process=SimpleNamespace(pid=343,uids=lambda:SimpleNamespace(real=os.getuid()+1,effective=os.getuid()+1,saved=os.getuid()+1),
+                            cmdline=lambda:(_ for _ in ()).throw(psutil.AccessDenied(343)))
+    monkeypatch.setattr(unlock.psutil,'process_iter',lambda:[process])
+    monkeypatch.setattr(unlock.os,'listxattr',lambda path:['system.posix_acl_access'])
+    assert not unlock.preview(store,run['id'])['allowed']
