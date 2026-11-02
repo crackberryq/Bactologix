@@ -93,7 +93,7 @@ def test_worker_rechecks_external_owners_and_never_calls_command(locked,monkeypa
     plan=unlock.preview(store,run['id'])
     unlock.request(store,run['id'],plan['signature'])
     job=store.claim()
-    monkeypatch.setattr(unlock,'check_processes',lambda: (_ for _ in ()).throw(ValueError('busy')))
+    monkeypatch.setattr(unlock,'check_processes',lambda *_: (_ for _ in ()).throw(ValueError('busy')))
     with pytest.raises(ValueError,match='busy'):
         unlock.execute(SimpleNamespace(store=store,job=job,command=lambda *a,**k:pytest.fail('must not execute')))
 
@@ -108,3 +108,14 @@ def test_ui_recognizes_lock_error_and_exposes_review(locked):
     result=dispatch(store,'inspect_workflow_lock',{'id':run['id']})
     assert result['unlock_plan']['allowed']
     assert store.jobs()[0]['status']=='failed'
+
+
+def test_other_same_user_process_in_workflow_directory_blocks_unlock(locked, monkeypatch):
+    import os
+    store,run,_,_=locked
+    process=SimpleNamespace(pid=123,cmdline=lambda:['python','software-task.py'],
+                            uids=lambda:SimpleNamespace(real=os.getuid()),
+                            cwd=lambda:str(Path(run['folder'])/'workflow'))
+    monkeypatch.setattr(unlock.psutil,'process_iter',lambda:[process])
+    result=unlock.preview(store,run['id'])
+    assert not result['allowed'] and 'working in this directory' in result['message']

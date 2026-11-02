@@ -4,6 +4,7 @@ from pathlib import Path
 import fcntl
 import hashlib
 import json
+import os
 import psutil
 from .runs import command, validate_launch, tree_digest
 
@@ -18,14 +19,20 @@ def ownership(store):
         yield
 
 
-def check_processes():
+def check_processes(directory):
     # Conservatively block ANY external Snakemake, including other directories.
     # Inaccessible process identity means ownership cannot be verified.
     for proc in psutil.process_iter():
         try:
+            if proc.pid == os.getpid():
+                continue
             args = proc.cmdline()
             if any(Path(arg).name in {'snakemake', 'snakemake.exe'} for arg in args):
                 raise ValueError('Workflow currently in use: Snakemake process %s is active. Wait for it to finish before checking again.' % proc.pid)
+            if args and proc.uids().real == os.getuid():
+                cwd = Path(proc.cwd()).resolve()
+                if cwd == Path(directory) or Path(directory) in cwd.parents:
+                    raise ValueError('Workflow currently in use: process %s is working in this directory. Wait for it to finish.' % proc.pid)
         except (psutil.NoSuchProcess, psutil.ZombieProcess):
             continue
         except psutil.AccessDenied:
@@ -65,7 +72,7 @@ def preview(store, rid):
             from .queue import recover_interrupted
             recover_interrupted(store)
             plan = details(store, rid)
-            check_processes()
+            check_processes(plan['directory'])
         return {**{k:v for k,v in plan.items() if k != 'command'}, 'allowed': True,
                 'message': 'Leftover lock found; no active Snakemake process was detected. Ownership will be checked again before unlocking. Outputs are preserved and no analysis starts.'}
     except (ValueError, OSError) as exc:
@@ -75,7 +82,7 @@ def preview(store, rid):
 def request(store, rid, signature):
     with ownership(store):
         plan = details(store, rid)
-        check_processes()
+        check_processes(plan['directory'])
         if not isinstance(signature, str) or signature != plan['signature']:
             raise ValueError('The run or lock changed. Check the workflow lock again.')
         from .queue import control, save_control
@@ -98,7 +105,7 @@ def request(store, rid, signature):
 def execute(ctx):
     # The worker and native command inherit the workspace lock throughout.
     plan = details(ctx.store, ctx.job['payload']['run_id'], ctx.job['id'])
-    check_processes()
+    check_processes(plan['directory'])
     if plan['signature'] != ctx.job['payload']['signature']:
         raise ValueError('The run or lock changed since review. Check the workflow lock again.')
     ctx.write('Explicit workflow unlock · source ' + plan['commit'])
