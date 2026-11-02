@@ -28,7 +28,16 @@ def worker_lease():
     locks = []
     def acquire(store):
         lock = (store.home / 'worker.lock').open('a+')
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        deadline = time.monotonic() + 15
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    lock.close()
+                    pytest.fail('Previous software worker did not release its lease')
+                time.sleep(.1)
         locks.append(lock)
         return lock
     yield acquire
@@ -680,8 +689,8 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             page.get_by_role('button', name='Back to runs', exact=True).click()
             store.put('runs', created['id'], created)
             # Active-job polling works outside Jobs and does not interrupt focused edits.
-            jid = store.submit('workflow', {'run_id': created['id'], 'action': 'run'})
             live_lock = worker_lease(store)
+            jid = store.submit('workflow', {'run_id': created['id'], 'action': 'run'})
             store.update_job(jid, status='running')
             page.get_by_role('button', name='Refresh workspace', exact=True).click()
             expect(page.locator('#queue-status')).to_contain_text('1 running')
@@ -738,8 +747,8 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             from bactologix import __version__
             live, = [x for x in store.all('launchers') if x['status'] == 'ready']
             before = {kind: store.all(kind) for kind in ('samples', 'runs', 'configs', 'installs')}
-            jid = store.submit('app_update', {'release': {'version': __version__}, 'launcher_id': live['id']})
             live_lock = worker_lease(store)
+            jid = store.submit('app_update', {'release': {'version': __version__}, 'launcher_id': live['id']})
             store.update_job(jid, status='running')
             store.put('settings', 'app-update', {'job': jid, 'status': 'installed', 'version': __version__,
                       'launcher_id': live['id'], 'environment': sys.prefix, 'pip_started_at': time.time()})
@@ -1506,10 +1515,12 @@ def test_queue_controls_persist_and_recover_in_real_browser(tmp_path, worker_lea
             page.get_by_role('link', name='Overview', exact=True).click()
             expect(page.locator('.queue-banner')).to_contain_text('Waiting and newly submitted jobs will not start')
             page.get_by_role('button', name='Review queue', exact=True).click()
+            store.cancel(interrupted)  # A stale Stop request must not remain pending forever.
             live_lock.close()  # Simulate the OS releasing ownership after a restart.
             page.get_by_role('button', name='Refresh', exact=True).click()
             expect(controls).to_contain_text('Review interrupted work before resuming', timeout=15000)
             assert store.job(interrupted)['status'] == 'interrupted'
+            expect(page.locator('[data-job-id="' + interrupted + '"]')).not_to_contain_text('Stop requested')
             assert store.job(workstation)['status'] == store.job(held)['status'] == 'queued'
             assert store.queue_snapshot()['paused']
             def capture(name):
