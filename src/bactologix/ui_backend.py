@@ -485,6 +485,13 @@ def dispatch(store, kind, p):
             response.update(dispatch(store, "inspect_run", {"id": made[0]["id"]}))
             response.update(keep_modal=False, open_run=made[0]["id"])
         return response
+    if kind == 'inspect_workflow_lock':
+        from .workflow_unlock import preview
+        return {'unlock_plan': preview(store, p.get('id')), 'keep_modal': True}
+    if kind == 'unlock_workflow':
+        from .workflow_unlock import request
+        jid = request(store, p.get('id'), p.get('signature'))
+        return {'message': 'Unlock queued. The analysis queue stays paused; no analysis will start.', 'navigate': 'jobs', 'unlock_job': jid}
     if kind == "workflow":
         ids = _ids(p)
         action = p.get("action")

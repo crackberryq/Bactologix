@@ -464,6 +464,9 @@ def execute(ctx):
         execute_check(ctx)
     elif kind == "smoke":
         smoke(ctx)
+    elif kind == "workflow_unlock":
+        from .workflow_unlock import execute as unlock
+        unlock(ctx)
     elif kind == "workflow":
         from .runs import execute_workflow
         execute_workflow(ctx)

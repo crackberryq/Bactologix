@@ -1,3 +1,10 @@
+## 0.1.0a63 — Guarded workflow unlock
+
+- Recognize native workflow lock errors and expose Check workflow lock / Unlock workflow inside run activity and job logs.
+- Block unlock while workers, surviving children, other queued work or external Snakemake processes are present; block when process ownership cannot be inspected.
+- Recheck the reviewed run and lock at execution. Use only the recorded runner's native --unlock operation, retaining an audited maintenance job.
+- Leave the queue paused and preserve run configuration, source, outputs and prior execution status. Resume remains explicit.
+
 ## 0.1.0a62 — Recover jobs after workstation restarts
 
 - Workspace refresh and Stop now reconcile abandoned running attempts under the existing worker OS lock, including protection for surviving child processes.

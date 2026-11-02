@@ -158,11 +158,11 @@ class Store:
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             from .queue import control
-            if control(db)['paused']:
-                return None
+            paused = control(db)['paused']
             row = db.execute("SELECT j.id FROM jobs j LEFT JOIN job_queue q ON q.job_id=j.id "
                              "WHERE j.status='queued' AND j.cancel=0 AND COALESCE(q.held,0)=0 "
-                             "ORDER BY COALESCE(q.position,j.rowid),j.rowid LIMIT 1").fetchone()
+                             "AND (?=0 OR j.kind='workflow_unlock') "
+                             "ORDER BY COALESCE(q.position,j.rowid),j.rowid LIMIT 1", (int(paused),)).fetchone()
             if not row:
                 return None
             db.execute("UPDATE jobs SET status='running',started=? WHERE id=?", (now(), row[0]))

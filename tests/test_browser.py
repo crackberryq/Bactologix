@@ -2353,3 +2353,55 @@ def test_pipeline_order_and_resource_empty_state(tmp_path):
             page.get_by_role('button',name='BaSIS AWARE',exact=True).click()
             expect(page.get_by_role('heading',name='Find installed databases')).to_be_visible()
         browser.close()
+
+
+def test_workflow_lock_review_and_guarded_unlock(tmp_path, installed, monkeypatch, worker_lease):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import dispatch, snapshot
+    from bactologix import workflow_unlock
+    store, item = installed
+    sample = tmp_path/'unlock sample'
+    (sample/'raw/illumina').mkdir(parents=True)
+    for mate in (1,2):
+        (sample/f'raw/illumina/fixture_R{mate}.fastq').write_text('@fixture\nA\n+\nI\n')
+    run = create_run(store,'hybas',{'id':'unlock.fixture','path':str(sample),'mode':'illumina_only'},'custom_note: retained\n',label='Interrupted fixture')
+    locks = Path(run['folder'])/'workflow/.snakemake/locks'
+    locks.mkdir(parents=True)
+    (locks/'0.input.lock').write_text('/software-fixture')
+    jid=store.submit('workflow',{'run_id':run['id'],'action':'run'})
+    store.update_job(jid,status='failed')
+    store.log_path(jid).write_text('LockException:\nError: Directory cannot be locked.\n')
+    monkeypatch.setattr(workflow_unlock.psutil,'process_iter',lambda: [])
+    monkeypatch.setattr('bactologix.engine.find_conda',lambda _: '/fixture/conda')
+    monkeypatch.setattr('bactologix.engine.launch_worker',lambda _: None)
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True)
+        page=browser.new_page(viewport={'width':1440,'height':1000})
+        render_component(page,store)
+        page.get_by_role('link',name='Jobs & progress',exact=True).click()
+        panel=page.locator('[data-recovery-job="'+jid+'"]')
+        panel.locator('summary').click()
+        expect(panel).to_contain_text('Workflow locked')
+        def respond():
+            req=page.evaluate('window.acceptanceEvents.at(-1).value')
+            result=dispatch(store,req['kind'],req['payload'])
+            page.evaluate('''({workspace,response})=>{Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}''',
+                          {'workspace':snapshot(store),'response':{'id':req['id'],'ok':True,**result}})
+            return result
+        lease=worker_lease(store)
+        panel.get_by_role('button',name='Check workflow lock',exact=True).click()
+        respond()
+        expect(page.get_by_role('button',name='Unlock workflow',exact=True)).to_be_disabled()
+        expect(page.get_by_role('dialog')).to_contain_text('currently in use')
+        lease.close()
+        page.get_by_role('button',name='Check again',exact=True).click()
+        respond()
+        expect(page.get_by_role('button',name='Unlock workflow',exact=True)).to_be_enabled()
+        page.get_by_role('button',name='Unlock workflow',exact=True).click()
+        result=respond()
+        assert store.job(result['unlock_job'])['kind']=='workflow_unlock'
+        assert store.queue_snapshot()['paused']
+        assert store.job(jid)['status']=='failed'
+        assert store.get('runs',run['id'])==run
+        assert (locks/'0.input.lock').exists()  # review/queue alone does not unlock
+        browser.close()
