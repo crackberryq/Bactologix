@@ -2339,7 +2339,7 @@ def test_saved_report_section_links_and_print(tmp_path):
 
 
 
-def test_pipeline_order_and_resource_empty_state(tmp_path):
+def test_pipeline_order_and_reference_builder(tmp_path):
     from playwright.sync_api import sync_playwright, expect
     store = Store(tmp_path / 'workspace')
     with sync_playwright() as p:
@@ -2352,11 +2352,12 @@ def test_pipeline_order_and_resource_empty_state(tmp_path):
         for width in (1440,390):
             page.set_viewport_size({'width':width,'height':900})
             page.get_by_role('button',name='MICP Scope',exact=True).click()
-            expect(page.get_by_role('heading',name='Your databases, connected.')).to_be_visible()
-            expect(page.get_by_role('heading',name='MICP Scope resources')).to_be_visible()
+            expect(page.get_by_role('heading',name='Database Builder',exact=True)).to_be_visible()
+            expect(page.get_by_role('heading',name='Built databases',exact=True)).to_be_visible()
+            expect(page.get_by_role('button',name='Build database',exact=True)).to_be_disabled()
             expect(page.get_by_role('button',name='Auto scan',exact=True)).to_have_count(0)
             assert tabs.all_text_contents()==['HybAs AWARE','BaSIS AWARE','MICP Scope']
-            assert page.locator('.database-scan').evaluate('(e)=>e.scrollWidth<=e.clientWidth+1')
+            assert page.locator('#reference-spec').evaluate('(e)=>e.getBoundingClientRect().right<=window.innerWidth')
             page.get_by_role('button',name='BaSIS AWARE',exact=True).click()
             expect(page.get_by_role('heading',name='Find installed databases')).to_be_visible()
         browser.close()
