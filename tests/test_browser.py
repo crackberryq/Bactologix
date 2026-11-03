@@ -2357,9 +2357,37 @@ def test_pipeline_order_and_reference_builder(tmp_path):
             expect(page.get_by_role('button',name='Build database',exact=True)).to_be_disabled()
             expect(page.get_by_role('button',name='Auto scan',exact=True)).to_have_count(0)
             assert tabs.all_text_contents()==['HybAs AWARE','BaSIS AWARE','MICP Scope']
+            page.locator('#reference-editor summary').click()
             assert page.locator('#reference-spec').evaluate('(e)=>e.getBoundingClientRect().right<=window.innerWidth')
             page.get_by_role('button',name='BaSIS AWARE',exact=True).click()
             expect(page.get_by_role('heading',name='Find installed databases')).to_be_visible()
+        browser.close()
+
+
+def test_reference_starter_default_edit_restore_and_build(tmp_path, monkeypatch):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix import database_builder
+    text='schema_version: "1.0"\nname: bundled-starter\nversion: "1"\nproteins: []\n'
+    monkeypatch.setattr(database_builder,'starter',lambda store: {'path':'/installed/micp-starter.yaml','name':'bundled-starter','version':'1','proteins':164,'regulatory':0,'literature_records':207,'text':text})
+    monkeypatch.setattr(database_builder,'available',lambda store: True)
+    store=Store(tmp_path/'workspace')
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True)
+        page=browser.new_page(viewport={'width':390,'height':900})
+        render_component(page,store)
+        page.get_by_role('link',name='Databases & models',exact=True).click()
+        page.get_by_role('button',name='MICP Scope',exact=True).click()
+        expect(page.locator('#reference-spec')).to_have_value(text)
+        page.locator('#reference-editor summary').click()
+        page.locator('#reference-spec').fill(text.replace('bundled-starter','custom-reference'))
+        page.evaluate('window.acceptanceRender(null)')
+        expect(page.locator('#reference-spec')).to_have_value(text.replace('bundled-starter','custom-reference'))
+        page.locator('#reference-editor summary').click()
+        page.get_by_role('button',name='Restore bundled starter',exact=True).click()
+        expect(page.locator('#reference-spec')).to_have_value(text)
+        page.get_by_role('button',name='Build database',exact=True).click()
+        events=page.evaluate('window.acceptanceEvents')
+        assert any(e['value'].get('kind')=='build_reference_database' and e['value'].get('payload',{}).get('spec')==text for e in events)
         browser.close()
 
 

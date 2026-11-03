@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import shutil
 import yaml
+from functools import lru_cache
 from . import maintenance
 from .local import local_path
 from .runs import tree_digest
@@ -13,6 +14,34 @@ from .store import identifier, now
 def available(store):
     item = store.get('installs', store.get('settings','active-micpscope'))
     return bool(item and item.get('ready') and (Path(item['source'])/'DatabaseBuilder.smk').is_file())
+
+
+@lru_cache(maxsize=4)
+def _starter(path, modified, size):
+    source=Path(path)
+    spec=yaml.safe_load(source.read_text())
+    for group in ('proteins','regulatory'):
+        for row in spec.get(group,[]):
+            if 'path' in row:
+                asset=Path(row['path'])
+                row['path']=str((source.parent/asset).resolve()) if not asset.is_absolute() else str(asset)
+    annotations=spec.get('annotations',{})
+    return {'path':str(source),'name':spec['name'],'version':spec['version'],
+            'proteins':len(spec['proteins']),'regulatory':len(spec.get('regulatory',[])),
+            'literature_records':len(annotations.get('literature_records',[])),
+            'text':yaml.safe_dump(spec,sort_keys=False,allow_unicode=True)}
+
+
+def starter(store):
+    item=store.get('installs',store.get('settings','active-micpscope'))
+    if not item: return None
+    path=Path(item['source'])/'database_builder/references/micp-starter.yaml'
+    if not path.is_file(): return None
+    try:
+        stat=path.stat()
+        return _starter(str(path),stat.st_mtime_ns,stat.st_size)
+    except (OSError,ValueError,KeyError,TypeError,yaml.YAMLError):
+        return None
 
 
 def validate(store, text):

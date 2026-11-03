@@ -124,7 +124,7 @@ def snapshot(store):
             "fields": {t: configuration_fields(t, configs[t]) for t in PIPELINES},
             "databases": {t: databases.panel(store, t) for t in PIPELINES},
             "environments": {i["id"]: maintenance.environment_panel(store, i, jobs) for i in store.all("installs")},
-            "database_builder": {"available": database_builder.available(store), "builds": store.all("database_builds")},
+            "database_builder": {"available": database_builder.available(store), "starter": database_builder.starter(store), "builds": store.all("database_builds")},
             "database_downloads": [{**d, "job_status": next((j["status"] for j in jobs if j["id"] == d.get("job")), d.get("status"))}
                                    for d in store.all("database_downloads")],
             "download_options": {t: {"available": maintenance.download_supported(store.get("installs", store.get("settings", "active-" + t))),

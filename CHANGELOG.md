@@ -1,3 +1,10 @@
+## 0.1.0a66 — Ready-to-build MICP literature starter
+
+- Automatically load the reference specification bundled with MICP Scope 0.1.0a7, with 164 reviewed protein sequences and 207 literature-table entries from the processes and regulation reviews.
+- Resolve bundled FASTA locations from the installed pipeline, so users can build as supplied without downloading or choosing a separate input file.
+- Add a collapsible specification editor and Restore bundled starter. Preserve customized input across refreshes; snapshot edits for each build without changing shipped files.
+- Display reference coverage and retain regulatory observations as evidence where absolute coordinates are unresolved.
+
 ## 0.1.0a65 — MICP Scope Database Builder
 
 - Add Database Builder to MICP Scope guided setup and Databases & models, with YAML/JSON input, validation, resource limits, build logs and completed database selection.

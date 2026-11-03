@@ -7,6 +7,22 @@ from bactologix import database_builder as b
 from bactologix.store import Store
 
 class DatabaseBuilderTests(unittest.TestCase):
+    def test_bundled_starter_resolves_installed_paths(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);store=Store(root/'app');source=root/'source'
+            refs=source/'database_builder/references';refs.mkdir(parents=True)
+            (refs/'proteins.faa').write_text('>p\nACDE\n')
+            spec={'schema_version':'1.0','name':'starter','version':'1','proteins':[{'id':'p','path':'proteins.faa','record':'p'}],'annotations':{'literature_records':[{'id':'evidence'}]}}
+            path=refs/'micp-starter.yaml';path.write_text(yaml.safe_dump(spec));original=path.read_text()
+            store.put('installs','micp',{'id':'micp','source':str(source)})
+            store.put('settings','active-micpscope','micp')
+            starter=b.starter(store)
+            loaded,assets=b.validate(store,starter['text'])
+            self.assertEqual(loaded['proteins'][0]['path'],str(refs/'proteins.faa'))
+            self.assertEqual(starter['literature_records'],1)
+            self.assertEqual(path.read_text(),original)
+            self.assertEqual(len(assets),1)
+
     def test_snapshot_preserves_inputs(self):
         with tempfile.TemporaryDirectory() as td:
             root=Path(td);store=Store(root/'app');source=root/'source';source.mkdir();(source/'DatabaseBuilder.smk').write_text('rule all:\n    input: []\n')

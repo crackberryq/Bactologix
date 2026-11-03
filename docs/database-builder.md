@@ -1,7 +1,10 @@
 # Database Builder
 
 Open Bactologix → Install & update → Guided setup → MICP Scope → Databases.
-Load a YAML/JSON reference specification, check its inputs, choose CPU/RAM,
+The bundled literature starter is selected automatically. Build it as supplied,
+or expand **Edit or replace reference specification** to customize or upload YAML/JSON.
+**Restore bundled starter** restores the installed default without modifying its source.
+Check its inputs, choose CPU/RAM,
 and click **Build database**. Bactologix snapshots the specification, local
 FASTA files and workflow source, then queues `DatabaseBuilder.smk`. Build logs
 are available in Jobs and beside the registered database. Failed builds never
