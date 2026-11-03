@@ -54,7 +54,7 @@ def launch_worker(store):
 
 
 def enqueue(store, kind, payload):
-    if kind not in {"install", "connect", "bootstrap", "check", "workflow", "smoke", "workstation", "app_update", "environments", "database_download"}:
+    if kind not in {"install", "connect", "bootstrap", "check", "workflow", "smoke", "workstation", "app_update", "environments", "database_download", "database_build"}:
         raise ValueError("Unknown operation")
     if platform.system() != "Linux":
         raise RuntimeError("Run this app inside Linux or WSL2 to execute jobs.")
@@ -470,10 +470,14 @@ def execute(ctx):
     elif kind == "workflow":
         from .runs import execute_workflow
         execute_workflow(ctx)
+    elif kind == "database_build":
+        from .database_builder import execute as build_database
+        build_database(ctx)
     elif kind in {"environments", "database_download"}:
         from .maintenance import execute_environments, execute_download
         (execute_environments if kind == "environments" else execute_download)(ctx)
     else:
         raise ValueError("Unsupported job")
+
 
 

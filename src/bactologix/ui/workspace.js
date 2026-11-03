@@ -295,7 +295,7 @@ function usageDetail(data){
  return `<div class="usage-detail">${statusBadge(t.job_status)}${jobTelemetry(j)}<p class="inline-info">Recorded for this job attempt only. A resumed run gets its own record.</p><div class="usage-charts">${usageChart(data.points,'cpu','CPU use (%)','%')}${usageChart(data.points,'ram','Sampled RAM (MiB)','MiB')}</div><div class="usage-facts"><div><span>Observed CPU time</span><strong>${usageMeasure(t.samples?t.observed_cpu_s:null,' s')}</strong></div><div><span>Usable / unavailable samples</span><strong>${usageNumber(t.samples,0)} / ${usageNumber(t.unavailable_samples,0)}</strong></div><div><span>Configured run budget</span><strong>${Number.isFinite(t.budget?.cores)?usageNumber(t.budget.cores,0)+' cores · '+usageNumber(t.budget.memory_mb,0)+' MB':'Not a saved run'}</strong></div><div><span>Recorded platform</span><strong>${e(t.system)} · ${e(t.architecture)}</strong></div></div><p class="secondary-line">Summary updated ${e(t.updated_at)}<br>Charts saved ${e(data.history_updated_at||'not yet')} · ${t.history_compacted?'History combined into intervals':'Charts saved at most every 30 seconds and at command completion'}</p>${t.partial_process_tree?notice('Some processes could not be read','CPU and RAM values describe only the observed processes.',true):''}${t.progress?.log_gap?notice('Some log output was skipped','The displayed task counts and steps may be incomplete.',true):''}<details class="config-section"><summary>Measurement scope & provenance</summary><div class="padded"><ul>${(t.notes||[]).map(n=>`<li>${e(n)}</li>`).join('')}</ul><p>Bactologix ${e(t.app_version)} · Python ${e(t.python)}</p>${t.pipeline?`<p>Pipeline: ${e(S.pipelines[t.pipeline]?.name||t.pipeline)}</p><p class="path-cell">Source commit: ${e(t.commit||'Unavailable')}<br>Configuration SHA-256: ${e(t.config_sha256||'Unavailable')}<br>Workflow SHA-256: ${e(t.workflow_sha256||'Unavailable')}</p>`:''}</div></details></div>`;
 }
 
-function jobLabel(j){return j.kind==='workflow_unlock'?'Unlock workflow · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='workstation'?'Workstation check':j.kind==='environments'?'Environments · '+j.payload.tool+' · '+j.payload.action:j.kind==='database_download'?'Database · '+j.payload.tool+' · '+j.payload.resource:j.kind==='workflow'?({'dry-run':'Validate run',prepare:'Install environments',run:'Run / resume','check-environments':'Check run environments'}[j.payload.action]||j.payload.action)+' · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='install'?S.pipelines[j.payload.tool]?.name+' · '+j.payload.version.ref:j.kind==='app_update'?'Bactologix → v'+j.payload.release.version:j.kind;}
+function jobLabel(j){return j.kind==='database_build'?'Database Builder · '+j.payload.name+' · '+j.payload.version:j.kind==='workflow_unlock'?'Unlock workflow · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='workstation'?'Workstation check':j.kind==='environments'?'Environments · '+j.payload.tool+' · '+j.payload.action:j.kind==='database_download'?'Database · '+j.payload.tool+' · '+j.payload.resource:j.kind==='workflow'?({'dry-run':'Validate run',prepare:'Install environments',run:'Run / resume','check-environments':'Check run environments'}[j.payload.action]||j.payload.action)+' · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='install'?S.pipelines[j.payload.tool]?.name+' · '+j.payload.version.ref:j.kind==='app_update'?'Bactologix → v'+j.payload.release.version:j.kind;}
 
 function queueNotice(){
  const q=S.queue;if(!q?.paused||U.view==='jobs')return '';
@@ -542,8 +542,28 @@ function resourceDownloads(tool,key){
  const rows=S.database_downloads.filter(d=>d.tool===tool&&d.resource===key).slice(-3).reverse();
  return rows.map(d=>`<div class="resource-download"><div class="card-head"><strong>Download ${d.id.slice(-6)}</strong>${statusBadge(d.status==='completed'?'completed':d.job_status)}</div><p class="path-cell">${e(d.destination)}</p>${d.error?`<p class="error">${e(d.error)}</p>`:''}<div class="button-row">${d.status==='completed'?btn('use-downloaded','Select downloaded location',false,d.id,'check'):['failed','cancelled','interrupted'].includes(d.job_status)?btn('resume-download','Resume download',false,d.id,'play'):''}${btn('job-log','Download log',false,d.job,'file')}</div></div>`).join('');
 }
+const referenceTemplate = `schema_version: "1.0"
+name: my-micp-reference
+version: "0.1.0"
+proteins:
+  - id: reference_001
+    path: /absolute/path/to/proteins.faa
+    record: exact_fasta_record_id
+    evidence: user_supplied_annotation
+    references: ["publication-or-source-id"]
+    license: "specify-source-license"
+regulatory: []
+annotations: []
+modules: []
+references: []
+`;
+function referenceBuilder(){
+ const b=S.database_builder||{available:false,builds:[]},p=S.databases.micpscope,row=p.rows.find(x=>x.id==='reference');
+ return `<section class="card"><div class="card-head"><h2>Database Builder</h2>${badge('Snakemake')}</div><div class="card-body"><p>Build a versioned reference database from your YAML or JSON specification. Local FASTA paths refer to this Linux/WSL computer. Input files are copied into the build record.</p>${!b.available?notice('Update MICP Scope','Install a release containing Database Builder and finish runner setup.'):''}<div class="field"><label for="reference-upload">Load reference specification</label><input id="reference-upload" type="file" accept=".yaml,.yml,.json"></div>${area('reference-spec','Reference specification',referenceTemplate,'rows="16" spellcheck="false"')}${field('reference-cores','CPU threads',2,'number','min="1"')}${field('reference-memory','Memory (MB)',2048,'number','min="512"')}<div class="button-row">${btn('validate-reference-spec','Validate inputs')}${btn('build-reference','Build database',true,'','play',!b.available)}</div><p>Build checks validate files and identities, not biological claims. Completed packages are registered below. The current protein report does not yet perform searches against this database.</p><details><summary>Input format</summary><p>Each local protein needs id, path, record, evidence, references and license. UniProt records instead require accession, taxon_id, sequence_version, sequence_sha256 and curation_status: approved. Regulatory records additionally require accession_version, feature_type, start, end, strand and sequence_sha256; intervals are 1-based inclusive. The checksum is for the transcription-oriented extracted sequence. Use absolute local paths.</p></details></div></section><section class="card"><div class="card-head"><h2>Built databases</h2></div><div class="card-body"><p>Selected reference: ${e(row?.path||'None')}</p>${b.builds.map(x=>`<article><strong>${e(x.name)} · ${e(x.version)}</strong>${badge(x.status)}${x.error?`<p class="error">${e(x.error)}</p>`:''}${x.result_path?`<p class="path-cell">${e(x.result_path)}</p>${btn('select-built-reference','Select for future drafts',false,x.id)}`:''}${x.job?btn('job-log','View build log',false,x.job):''}</article>`).join('')||'<p>No databases built yet.</p>'}</div></section>`;
+}
 function resources(embedded=false){const t=U.resourceTool||'hybas',p=S.databases[t],state=dbState(t),scan=state.scan;
 const databaseTabs=embedded?'':`<div class="tabs">${Object.keys(S.pipelines).map(x=>`<button class="tab ${x===t?'active':''}" data-action="database-tool" data-id="${x}">${e(S.pipelines[x].name)}</button>`).join('')}</div>`;
+if(t==='micpscope')return databaseTabs+referenceBuilder();
 if(!p.rows.length)return (embedded?'':heading('DATABASES & MODELS','Your databases, connected.','Choose installed resources for each pipeline. Save selected locations for future runs. Existing drafts keep their own paths until you create a revision.'))+databaseTabs+`<section class="card database-scan"><div class="card-head"><div><h2>${e(S.pipelines[t].name)} resources</h2><p>Resource requirements for the selected pipeline.</p></div>${badge('No external databases','green')}</div><div class="card-body"><p>This release uses annotated protein FASTA and optional evidence CSV files. No database download, scan or saved database location is required.</p><p class="inline-info">Tool environments are prepared under Install & update. Input files are selected when creating a run draft.</p>${btn('go-install','Install & update',false,'','install')}</div></section>`;
 const dirty=p.rows.filter(r=>!r.managed&&(state.resets[r.id]||val(dbPath(t,r.id),r.path)!==r.path));
 return (embedded?'':heading('DATABASES & MODELS','Your databases, connected.','Choose installed resources for each pipeline. Save selected locations for future runs. Existing drafts keep their own paths until you create a revision.',btn('save-databases','Save for future runs',true,t,'check',!dirty.length)+btn('use-databases-for-runs','Update saved drafts',false,t,'resources',!!dirty.length||!visibleRuns().some(r=>r.tool===t&&!r.busy&&r.run_type!=='followup'))))+
@@ -780,7 +800,7 @@ if(t.id==='yaml-upload'||t.id==='sample-upload'){
  else {setDraft('sample-table',text);syncSampleImport();}
 }
 }
-function onChange(event){const result=change(event);persistWizard();return result;}
+function onChange(event){if(event.target.id==='reference-upload'){const f=event.target.files[0];if(f){if(f.size>2000000){U.error='Specification exceeds 2 MB';render();return;}f.text().then(text=>{setDraft('reference-spec',text);render();});}return;}const result=change(event);persistWizard();return result;}
 function onInput(event){input(event);persistWizard();}
 function input(event){const t=event.target;
 if(t.id==='support-text'){setDraft('support-reviewed',false);const box=$('#support-reviewed');if(box)box.checked=false;syncSupport();}
@@ -921,6 +941,9 @@ else if(action==='browse-env-cache'){U.modal.advanced=true;browse('environment-c
 else if(action==='save-env-cache')request('set_environment_cache',{id,path:v('environment-cache-'+id)});
 else if(['check-environments','install-environments','repair-environments'].includes(action))request('manage_environments',{id,action:action.split('-')[0],selected:$$('[data-environment]:checked').map(x=>x.dataset.environment)});
 else if(action==='download-database')modal('download-database',id);
+else if(action==='validate-reference-spec')request('validate_reference_spec',{spec:v('reference-spec')});
+else if(action==='build-reference')request('build_reference_database',{spec:v('reference-spec'),cores:Number(v('reference-cores')),memory_mb:Number(v('reference-memory'))});
+else if(action==='select-built-reference'){const b=S.database_builder.builds.find(x=>x.id===id);if(b?.result_path)request('save_databases',{tool:'micpscope',changes:{reference:b.result_path},revision:S.databases.micpscope.revision});}
 else if(action==='start-database-download')request('download_database',{tool:U.resourceTool||'hybas',id,parent:v('download-parent'),cores:Number(v('download-cores')),memory_mb:Number(v('download-memory')),lineage:v('download-lineage')||'bacteria_odb10'});
 else if(action==='use-downloaded')request('use_downloaded_database',{id});
 else if(action==='resume-download')request('resume_database_download',{id});
@@ -1087,4 +1110,5 @@ function reportDocument(base64){
  doc.head.prepend(script);
  return '<!doctype html>'+doc.documentElement.outerHTML;
 }
+
 

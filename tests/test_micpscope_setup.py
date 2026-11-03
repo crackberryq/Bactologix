@@ -21,7 +21,7 @@ class MICPscopeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(directory)
             rows = versions(store, 'micpscope')['versions']
-            self.assertTrue(rows[0]['name'].startswith('micpscope-v0.1.0a5'))
+            self.assertTrue(rows[0]['name'].startswith('micpscope-v0.1.0a6'))
             self.assertNotIn('main', rows[0]['ref'])
             for commit in PIPELINES['micpscope']['previous_commits']:
                 self.assertTrue(supported('micpscope', commit))
@@ -36,7 +36,7 @@ class MICPscopeTests(unittest.TestCase):
                 self.assertTrue(view['setup_overview'][tool]['first_install'])
                 self.assertEqual(setup_state.mode(store, tool, 'a'*40), 'first_install')
                 run_config.editor(tool, template(tool))
-            self.assertEqual(view['databases']['micpscope']['rows'], [])
+            self.assertEqual(view['databases']['micpscope']['rows'][0]['id'], 'reference')
 
     def test_setup_failure_remains_first_install_and_restores_payload(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -161,5 +161,6 @@ class MICPscopeTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
 
 

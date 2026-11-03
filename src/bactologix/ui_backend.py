@@ -20,7 +20,7 @@ from .runs import (absolute_path, clone_runs, command, create_run,
 from .store import identifier
 from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, compatibility, comparisons, sample_imports
 from . import setup_state
-from . import followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
+from . import database_builder, followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
 _SNAPSHOTS = {}
 
@@ -124,6 +124,7 @@ def snapshot(store):
             "fields": {t: configuration_fields(t, configs[t]) for t in PIPELINES},
             "databases": {t: databases.panel(store, t) for t in PIPELINES},
             "environments": {i["id"]: maintenance.environment_panel(store, i, jobs) for i in store.all("installs")},
+            "database_builder": {"available": database_builder.available(store), "builds": store.all("database_builds")},
             "database_downloads": [{**d, "job_status": next((j["status"] for j in jobs if j["id"] == d.get("job")), d.get("status"))}
                                    for d in store.all("database_downloads")],
             "download_options": {t: {"available": maintenance.download_supported(store.get("installs", store.get("settings", "active-" + t))),
@@ -242,6 +243,16 @@ def dispatch(store, kind, p):
         return {'uninstall_plan': installations.uninstall_plan(store, p.get('id')), 'keep_modal': True}
     if kind == 'uninstall_version':
         return {'message': installations.uninstall(store, p.get('id'), p.get('signature')), 'navigate': 'install'}
+    if kind == "validate_reference_spec":
+        spec, assets = database_builder.validate(store, p.get("spec"))
+        return {"message": f"Input structure checked: {len(spec['proteins'])} protein records, {len(assets)} local files. Full sequence checks run in Database Builder."}
+    if kind == "build_reference_database":
+        payload = database_builder.request(store, p.get("spec"), p.get("cores", 2), p.get("memory_mb", 2048))
+        jid = enqueue(store, "database_build", payload)
+        row = store.get("database_builds", payload["id"])
+        row["job"] = jid
+        store.put("database_builds", row["id"], row)
+        return {"message": "Database Builder queued. Progress and logs are in Jobs.", "job": jid}
     if kind == "download_database":
         payload = maintenance.download_request(store, _tool(p), p.get("id"), p.get("parent"),
                                                p.get("cores", 4), p.get("memory_mb", 16000), p.get("lineage", "bacteria_odb10"))
@@ -613,4 +624,5 @@ def handle_request(store, request, session):
         response = {"id": request["id"], "ok": False, "message": str(exc)}
     session["ui-response"] = response
     return response
+
 

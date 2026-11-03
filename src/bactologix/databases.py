@@ -35,7 +35,7 @@ def _module(key, name, description, hint):
 
 
 CATALOG = {
-    "micpscope": [],
+    "micpscope": [dict(id="reference", name="MICP reference database", description="User-built reference package. Sequence matching is a separate analysis capability.", hint="reference-manifest.json", fields=["reference_database"])],
     "hybas": [
         dict(id="kraken", name="Kraken2", description="Choose the folder containing the three Kraken2 index files.", hint="hash.k2d", fields=[]),
         dict(id="busco", name="BUSCO lineage", description="Choose a complete lineage dataset. A matching configured lineage is preferred.", hint="dataset.cfg", fields=[]),
@@ -238,7 +238,18 @@ def inspect(store, tool, key, value, cfg=None):
             updates = current
     database = path
     version = ""
-    if key == "kraken":
+    if tool == "micpscope" and key == "reference":
+        _require(root, ("reference-manifest.json", "completed.json", "checksums.json", "proteins.faa", "proteins.dmnd"))
+        receipt_data = _json(root / "completed.json")
+        if receipt_data.get("status") != "completed" or receipt_data.get("checksums_sha256") != hashlib.sha256((root / "checksums.json").read_bytes()).hexdigest():
+            raise ValueError("Database completion receipt does not match its checksum manifest.")
+        manifest = _json(root / "reference-manifest.json")
+        if manifest.get("schema_version") != "1.0":
+            raise ValueError("Unsupported reference database schema.")
+        version = str(manifest.get("specification", {}).get("version", ""))
+        updates = {"reference_database": str(root.resolve())}
+        database = root
+    elif key == "kraken":
         _require(root, ("hash.k2d", "opts.k2d", "taxo.k2d"))
         database = root
     elif key == "busco":
@@ -567,4 +578,5 @@ def save(store, tool, changes, expected_revision):
         for kind, value in (("configs", text), ("database_locations", locations)):
             db.execute("INSERT INTO items VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body", (kind, tool, json.dumps(value)))
     return text
+
 

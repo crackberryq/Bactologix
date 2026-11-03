@@ -538,6 +538,13 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             expect(page.locator('.setup-guide')).to_be_visible()
             expect(page.locator('.setup-step')).to_have_count(5)
             capture('guided-setup-capacity')
+            page.get_by_label('Pipeline to set up', exact=True).select_option('micpscope')
+            page.locator('.setup-steps [data-id="databases"]').click()
+            expect(page.get_by_role('heading', name='Database Builder', exact=True)).to_be_visible()
+            expect(page.get_by_role('button', name='Build database', exact=True)).to_be_disabled()
+            page.locator('#reference-upload').set_input_files({'name':'reference.yaml','mimeType':'text/yaml','buffer':b'schema_version: "1.0"\nname: uploaded-reference\nversion: "1"\nproteins: []\n'})
+            expect(page.locator('#reference-spec')).to_have_value('schema_version: "1.0"\nname: uploaded-reference\nversion: "1"\nproteins: []\n')
+            capture('micpscope-database-builder')
             page.get_by_label('Pipeline to set up', exact=True).select_option('basis')
             page.locator('.setup-steps [data-id="environments"]').click()
             expect(page.locator('.guide-environments')).to_contain_text('BaSIS AWARE')
@@ -2405,3 +2412,4 @@ def test_workflow_lock_review_and_guarded_unlock(tmp_path, installed, monkeypatc
         assert store.get('runs',run['id'])==run
         assert (locks/'0.input.lock').exists()  # review/queue alone does not unlock
         browser.close()
+
