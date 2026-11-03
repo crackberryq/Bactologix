@@ -1,3 +1,10 @@
+## 0.1.0a65 — MICP Scope Database Builder
+
+- Add Database Builder to MICP Scope guided setup and Databases & models, with YAML/JSON input, validation, resource limits, build logs and completed database selection.
+- Run MICP Scope's native DatabaseBuilder.smk through the managed worker. Snapshot supplied inputs and workflow, build a DIAMOND index, and verify the package before registering it.
+- Prepare the dedicated builder environment during pipeline setup and pin MICP Scope micpscope-v0.1.0a6.
+- Preserve reference evidence and supplied regulatory coordinates. This release builds reference databases; MICP report searches against them are not yet implemented.
+
 ## 0.1.0a64 — Scope protected-process unlock checks
 
 - Read real/effective/saved process UIDs before inspecting protected process details.
