@@ -346,13 +346,23 @@
       "checkedAt": "2026-10-29T00:00:00Z",
       "versions": [
         {
+          "id": "release:genescope-v0.1.0a11",
+          "kind": "release",
+          "ref": "genescope-v0.1.0a11",
+          "name": "GeneScope 0.1.0a11",
+          "commit": "1d787b9659568cc35f9d7169080a1c61458e95ad",
+          "url": "https://github.com/crackberryq/Bactomics_GeneScope/releases/tag/genescope-v0.1.0a11",
+          "preferred": true,
+          "prerelease": true
+        },
+        {
           "id": "release:genescope-v0.1.0a10",
           "kind": "release",
           "ref": "genescope-v0.1.0a10",
           "name": "GeneScope 0.1.0a10",
           "commit": "50b0255c6f7df524dd01d89bcdc214b0e1bbc15e",
           "url": "https://github.com/crackberryq/Bactomics_GeneScope/releases/tag/genescope-v0.1.0a10",
-          "preferred": true,
+          "preferred": false,
           "prerelease": true
         },
         {
@@ -396,7 +406,7 @@
           "prerelease": true
         }
       ],
-      "preferred": "genescope-v0.1.0a10",
+      "preferred": "genescope-v0.1.0a11",
       "repo": "crackberryq/Bactomics_GeneScope"
     }
   }

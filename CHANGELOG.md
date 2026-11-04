@@ -1,3 +1,10 @@
+## 0.1.0a71 — Tree controls and application report coverage
+
+- Expose exploratory phylogeny, automatic routing, reference-panel placement and candidate limits in the DeepSafe settings tab.
+- Integrate BaSIS AWARE 0.4.0a5 with producer-recorded placement checksums and inline verified tree previews; preserve earlier run sources.
+- Recommend GeneScope 0.1.0a11 with explicit descriptor-only status, assessment coverage and application-database selection guidance.
+- Extend follow-up compatibility for the previous BaSIS AWARE release without changing frozen configurations.
+
 ## 0.1.0a70 — Protected PAM helper lock recovery
 
 - Recognize inaccessible systemd PAM helpers only after verifying the user-manager parent, trusted OS executable, user identities and manager control groups.

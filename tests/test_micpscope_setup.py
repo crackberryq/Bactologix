@@ -21,7 +21,7 @@ class MICPscopeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(directory)
             rows = versions(store, 'micpscope')['versions']
-            self.assertTrue(rows[0]['name'].startswith('genescope-v0.1.0a10'))
+            self.assertTrue(rows[0]['name'].startswith('genescope-v0.1.0a11'))
             self.assertNotIn('main', rows[0]['ref'])
             for commit in PIPELINES['micpscope']['previous_commits']:
                 self.assertTrue(supported('micpscope', commit))
