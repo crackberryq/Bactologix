@@ -792,6 +792,16 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             expect(page.locator('#toast')).to_contain_text('Defaults saved for future drafts')
             assert yaml.safe_load(store.get('configs', 'micpscope'))['reference_database'] is None
             page.get_by_role('link', name='Runs', exact=True).click()
+            # A current-app pipeline-only update must not start a restart watcher.
+            live_lock = worker_lease(store)
+            pipeline_only = store.submit('app_update', {'update_all': True, 'release': {'version': __version__}})
+            store.update_job(pipeline_only, status='running')
+            page.get_by_role('button', name='Refresh workspace', exact=True).click()
+            expect(page.get_by_text('Updating Bactologix & all pipelines', exact=True)).to_be_visible()
+            assert page.evaluate('!window.__bactologixRestart')
+            store.update_job(pipeline_only, status='succeeded')
+            live_lock.close()
+            page.get_by_role('button', name='Refresh workspace', exact=True).click()
             page.evaluate('window.__acceptanceBeforeRestart = true')
             # Simulate the verified worker result without replacing CI's own package.
             # The real supervisor must wait for success, exec a new server and refresh this tab.

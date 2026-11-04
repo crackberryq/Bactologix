@@ -225,6 +225,7 @@ function resultRunCards(){return `<section class="card result-run-picker" aria-l
 function filterResults(){const q=val('results-search','').toLowerCase().trim(),tool=val('results-pipeline',''),archived=val('results-archived',false);let shown=0;for(const row of $$('.result-run')){row.hidden=!row.dataset.resultSearch.includes(q)||(tool&&row.dataset.resultTool!==tool)||(!archived&&row.dataset.resultArchived==='yes');if(!row.hidden)shown++;}const empty=$('#results-no-matches');if(empty)empty.hidden=shown>0;}
 
 function appUpdateNotice(){const u=S.app_update;if(!u)return '';
+if(u.active_job&&S.jobs.find(j=>j.id===u.active_job)?.payload?.update_all)return notice('Updating Bactologix & all pipelines','Follow each component in Jobs & progress. The application restarts only if its installed version changes.');
 if(u.active_job)return notice('Updating Bactologix',u.automatic_restart?'Follow installation in Jobs & progress. After verification, the app will restart and this tab will refresh automatically.':'Follow installation in Jobs & progress. This session needs one manual restart after installation.');
 if(u.restart_required&&u.automatic_restart)return notice('Restarting Bactologix','The update is verified. Keep this tab open; it will refresh when the new application is ready.');
 if(u.restart_required)return notice('Restart Bactologix',`Installed package: v${e(u.installed_version)}. In the Bactologix terminal press Ctrl+C, then rerun your launch command with the same port. Refresh this browser after restart.`,true);
@@ -1040,7 +1041,8 @@ function watchAppRestart(){
  const fail=watcher&&((observed?.status==='failed'&&!verifiedPartial)||observed?.status==='cancelled'||(u.last_update?.job===watcher.job&&u.last_update?.restart_status==='failed'));
  if(fail){clearTimeout(watcher.timer);watcher.cancelled=true;window.__bactologixRestart=null;return;}
  const job=u.active_job&&S.jobs.find(j=>j.id===u.active_job);
- const target=job?.payload?.release?.version||(u.restart_required&&u.last_update?.status==='installed'?u.last_update.version:null);
+ if(job?.payload?.update_all&&!u.restart_required)return;
+ const target=job?.payload?.update_all?u.last_update?.version:(job?.payload?.release?.version||(u.restart_required&&u.last_update?.status==='installed'?u.last_update.version:null));
  if(watcher||!u.automatic_restart||!u.launcher||!target)return;
  watcher={id:u.launcher.id,version:target,job:job?.id||u.last_update.job,deadline:Date.now()+1200000,cancelled:false};
  window.__bactologixRestart=watcher;

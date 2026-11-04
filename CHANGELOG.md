@@ -1,3 +1,8 @@
+## 0.1.0a77 — Pipeline-only update completion
+
+- Start restart monitoring only when a coordinated update actually replaces the application package; pipeline-only updates finish without a false restart timeout.
+- Include coordinated updates, the GeneScope database picker, and per-pipeline Low/Moderate/Full power and custom compute defaults.
+
 ## 0.1.0a76 — Compute preset feedback and update restart continuity
 
 - Refresh editable CPU/RAM fields after saving a preset and preserve unfinished configuration edits.
