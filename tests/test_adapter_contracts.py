@@ -241,7 +241,7 @@ def test_saved_followup_native_report_and_unchanged_rerun(tmp_path, monkeypatch,
     if new_source:
         report = safety / 'deepsafe-report'
         bundle = json.loads((report / 'evidence.json').read_text())
-        assert bundle['run']['version'] == '0.4.0a4'
+        assert bundle['run']['version'] == '0.4.0a5'
         assert bundle['run']['screening_version'] == '0.4.0a2'
         assert bundle['amr_review']['counts']['investigation_findings'] == 1
         assert 'AMR evidence review outstanding' in (report / 'report.html').read_text()
