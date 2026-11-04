@@ -1,3 +1,10 @@
+## 0.1.0a73 — GeneScope genome explorer and report sidebar
+
+- Recommend GeneScope 0.1.0a13 through normal pipeline updates while preserving earlier run snapshots.
+- Add an offline genome explorer with contig and interval selection, exact gene lookup, CDS strand arrows and links to protein evidence.
+- Display supplied GFF3 operon annotations separately from gene neighborhoods; this release does not predict operons.
+- Add collapsible annotation-group counts, a protein descriptor scatter plot and responsive report navigation.
+
 ## 0.1.0a72 — Tree controls and application report coverage
 
 - Expose exploratory phylogeny, automatic routing, reference-panel placement and candidate limits in the DeepSafe settings tab.
