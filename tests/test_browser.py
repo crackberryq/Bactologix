@@ -2395,7 +2395,8 @@ def test_reference_starter_default_edit_restore_and_build(tmp_path, monkeypatch)
         browser.close()
 
 
-def test_workflow_lock_review_and_guarded_unlock(tmp_path, installed, monkeypatch, worker_lease):
+@pytest.mark.parametrize('with_pam', [False, True])
+def test_workflow_lock_review_and_guarded_unlock(tmp_path, installed, monkeypatch, worker_lease, with_pam):
     from playwright.sync_api import sync_playwright, expect
     from bactologix.ui_backend import dispatch, snapshot
     from bactologix import workflow_unlock
@@ -2411,7 +2412,12 @@ def test_workflow_lock_review_and_guarded_unlock(tmp_path, installed, monkeypatc
     jid=store.submit('workflow',{'run_id':run['id'],'action':'run'})
     store.update_job(jid,status='failed')
     store.log_path(jid).write_text('LockException:\nError: Directory cannot be locked.\n')
-    monkeypatch.setattr(workflow_unlock.psutil,'process_iter',lambda: [])
+    if with_pam:
+        from test_workflow_unlock import pam_fixture
+        child = pam_fixture(monkeypatch)
+        monkeypatch.setattr(workflow_unlock.psutil,'process_iter',lambda: [child])
+    else:
+        monkeypatch.setattr(workflow_unlock.psutil,'process_iter',lambda: [])
     monkeypatch.setattr('bactologix.engine.find_conda',lambda _: '/fixture/conda')
     monkeypatch.setattr('bactologix.engine.launch_worker',lambda _: None)
     with sync_playwright() as p:

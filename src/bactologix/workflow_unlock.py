@@ -19,13 +19,68 @@ def ownership(store):
         yield
 
 
+def _trusted_systemd_executable(value):
+    """Accept the OS binary only, including root-owned, non-writable ancestors."""
+    path = Path(value).resolve()
+    allowed = {Path('/usr/lib/systemd/systemd').resolve(), Path('/lib/systemd/systemd').resolve()}
+    if path not in allowed or not path.is_file():
+        return False
+    return all(p.stat().st_uid == 0 and not (p.stat().st_mode & 0o022)
+               for p in (path, *path.parents))
+
+
+def _manager_cgroups(pid):
+    paths = []
+    for line in Path('/proc', str(pid), 'cgroup').read_text().splitlines():
+        hierarchy, controllers, path = line.split(':', 2)
+        if (hierarchy == '0' and not controllers) or 'name=systemd' in controllers.split(','):
+            paths.append(path)
+    return paths
+
+
+def protected_session_helper(proc, uid):
+    """Identify systemd's protected PAM helper; a process name alone is insufficient.
+
+    Ubuntu's user-manager PAM child drops to the user's UID, then waits for its
+    parent to terminate. Reading its cwd can be denied despite matching UIDs.
+    Verify the exact name, user-manager parent, OS executable and control groups.
+    Unknown or inaccessible evidence retains the normal unlock block.
+    """
+    try:
+        if proc.name() != '(sd-pam)':
+            return False
+        owners = proc.uids()
+        if (owners.real, owners.effective, owners.saved) != (uid, uid, uid):
+            return False
+        parent = proc.parent()
+        if parent is None or proc.ppid() != parent.pid:
+            return False
+        parent_owners = parent.uids()
+        if (parent_owners.real, parent_owners.effective, parent_owners.saved) != (uid, uid, uid):
+            return False
+        args = parent.cmdline()
+        if len(args) != 2 or args[1] != '--user' or not _trusted_systemd_executable(parent.exe()):
+            return False
+        if Path(args[0]).resolve() != Path(parent.exe()).resolve():
+            return False
+        base = '/user.slice/user-%s.slice/user@%s.service' % (uid, uid)
+        allowed = {base, base + '/init.scope'}
+        child_groups, parent_groups = _manager_cgroups(proc.pid), _manager_cgroups(parent.pid)
+        if not child_groups or not parent_groups or any(g not in allowed for g in child_groups + parent_groups):
+            return False
+        return proc.is_running() and parent.is_running() and proc.ppid() == parent.pid
+    except (OSError, ValueError, psutil.Error):
+        return False
+
+
 def check_processes(directory):
     """Inspect user-owned work without requiring access to protected OS services.
 
     Foreign protected processes are outside this user-workspace check only when
     the workflow and lock directories are owned by this user and not writable by
     other users. Known Snakemake processes still block regardless of their UID.
-    Unknown UIDs and inaccessible same-user processes always block.
+    Unknown UIDs and inaccessible same-user processes block, except verified
+    systemd user-manager PAM helpers in a private workflow directory.
     """
     uid = os.getuid()
     private = True
@@ -35,7 +90,9 @@ def check_processes(directory):
         # A named ACL can grant access beyond the traditional permission bits.
         if hasattr(os, 'listxattr'):
             private = private and 'system.posix_acl_access' not in os.listxattr(path)
+    ignored_helpers = []
     for proc in psutil.process_iter():
+        inspected_field = "user identity"
         try:
             if proc.pid == os.getpid():
                 continue
@@ -44,6 +101,7 @@ def check_processes(directory):
             except psutil.AccessDenied:
                 raise ValueError('Ownership could not be verified: the user identity of process %s is unavailable. Unlock is blocked.' % proc.pid)
             same_user = uid in (owners.real, owners.effective, owners.saved)
+            inspected_field = "command line"
             try:
                 args = proc.cmdline()
             except psutil.AccessDenied:
@@ -53,13 +111,18 @@ def check_processes(directory):
             if any(Path(arg).name in {'snakemake', 'snakemake.exe'} for arg in args):
                 raise ValueError('Workflow currently in use: Snakemake process %s is active. Wait for it to finish before checking again.' % proc.pid)
             if args and (same_user or not private):
+                inspected_field = "working directory"
                 cwd = Path(proc.cwd()).resolve()
                 if cwd == Path(directory) or Path(directory) in cwd.parents:
                     raise ValueError('Workflow currently in use: process %s is working in this directory. Wait for it to finish.' % proc.pid)
         except (psutil.NoSuchProcess, psutil.ZombieProcess):
             continue
         except psutil.AccessDenied:
-            raise ValueError('Ownership could not be verified: relevant process %s cannot be inspected. Unlock is blocked.' % proc.pid)
+            if private and same_user and protected_session_helper(proc, uid):
+                ignored_helpers.append(proc.pid)
+                continue
+            raise ValueError('Ownership could not be verified: process %s cannot be inspected (%s). Unlock is blocked.' % (proc.pid, inspected_field))
+    return ignored_helpers
 
 
 def details(store, rid, own_job=None):
@@ -95,9 +158,9 @@ def preview(store, rid):
             from .queue import recover_interrupted
             recover_interrupted(store)
             plan = details(store, rid)
-            check_processes(plan['directory'])
-        return {**{k:v for k,v in plan.items() if k != 'command'}, 'allowed': True,
-                'message': 'Leftover lock found; no relevant active process was detected in the user-workspace check. Ownership will be checked again before unlocking. Outputs are preserved and no analysis starts.'}
+            ignored_helpers = check_processes(plan['directory']) or []
+        return {**{k:v for k,v in plan.items() if k != 'command'}, 'allowed': True, 'ignored_session_helpers': ignored_helpers,
+                'message': 'Leftover lock found; no relevant active process was detected in the user-workspace check. Ownership will be checked again before unlocking. Outputs are preserved and no analysis starts.' + (' Verified systemd PAM session helpers excluded: ' + ', '.join(map(str, ignored_helpers)) + '.' if ignored_helpers else '')}
     except (ValueError, OSError) as exc:
         return {'id': rid, 'allowed': False, 'message': str(exc)}
 
@@ -128,7 +191,9 @@ def request(store, rid, signature):
 def execute(ctx):
     # The worker and native command inherit the workspace lock throughout.
     plan = details(ctx.store, ctx.job['payload']['run_id'], ctx.job['id'])
-    check_processes(plan['directory'])
+    ignored_helpers = check_processes(plan['directory']) or []
+    if ignored_helpers:
+        ctx.write('Verified systemd PAM session helpers excluded from workflow ownership: ' + ', '.join(map(str, ignored_helpers)))
     if plan['signature'] != ctx.job['payload']['signature']:
         raise ValueError('The run or lock changed since review. Check the workflow lock again.')
     ctx.write('Explicit workflow unlock · source ' + plan['commit'])
@@ -139,3 +204,4 @@ def execute(ctx):
     if locks.exists() and any(locks.iterdir()):
         raise ValueError('Snakemake returned, but lock entries remain. Inspect the unlock log.')
     ctx.write('Workflow unlocked. Queue remains paused. Review the saved run before Run / resume.')
+

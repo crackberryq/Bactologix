@@ -1,3 +1,10 @@
+## 0.1.0a70 — Protected PAM helper lock recovery
+
+- Recognize inaccessible systemd PAM helpers only after verifying the user-manager parent, trusted OS executable, user identities and manager control groups.
+- Retain active-workflow, private-directory, queue, worker-lease and execution-time checks; never terminate helpers or remove analysis outputs.
+- Show verified helper exclusions in lock review and maintenance logs, and identify the inaccessible process field when verification fails.
+- Add regression, native Snakemake unlock and browser coverage for protected helpers and unverified lookalikes.
+
 ## 0.1.0a69 — GeneScope repository rename compatibility
 
 - Use crackberryq/Bactomics_GeneScope for new installations, release discovery, source links and CI checkouts; recommend genescope-v0.1.0a10.

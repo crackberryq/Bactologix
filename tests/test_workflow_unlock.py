@@ -36,8 +36,12 @@ def locked(tmp_path, monkeypatch):
     return store,run,locks,output
 
 
-def test_native_unlock_is_maintenance_only_and_keeps_queue_paused(locked):
+@pytest.mark.parametrize('with_pam', [False, True])
+def test_native_unlock_is_maintenance_only_and_keeps_queue_paused(locked,monkeypatch,with_pam):
     store,run,locks,output=locked
+    if with_pam:
+        child=pam_fixture(monkeypatch)
+        monkeypatch.setattr(unlock.psutil,'process_iter',lambda:[child])
     original=copy.deepcopy(run)
     plan=unlock.preview(store,run['id'])
     assert plan['allowed'] and plan['lock_count']==1
@@ -75,7 +79,7 @@ def test_external_process_scan_is_conservative(locked,monkeypatch,mode):
         if mode=='denied':raise psutil.AccessDenied(123)
         if mode=='gone':raise psutil.NoSuchProcess(123)
         return ['python','-m','snakemake','--directory','/another/workflow']
-    monkeypatch.setattr(unlock.psutil,'process_iter',lambda:[SimpleNamespace(pid=123,cmdline=args,uids=lambda:SimpleNamespace(real=os.getuid(),effective=os.getuid(),saved=os.getuid()))])
+    monkeypatch.setattr(unlock.psutil,'process_iter',lambda:[SimpleNamespace(pid=123,name=lambda:'software-task',cmdline=args,uids=lambda:SimpleNamespace(real=os.getuid(),effective=os.getuid(),saved=os.getuid()))])
     assert unlock.preview(store,run['id'])['allowed'] == (mode=='gone')
 
 
@@ -135,7 +139,7 @@ def test_protected_process_ownership_scope(locked, monkeypatch, mode):
         if mode=='foreign_snakemake': return ['python','-m','snakemake']
         raise psutil.AccessDenied(343)
     if mode=='shared_foreign': (Path(run['folder'])/'workflow').chmod(0o777)
-    monkeypatch.setattr(unlock.psutil,'process_iter',lambda:[SimpleNamespace(pid=343,uids=owners,cmdline=cmdline)])
+    monkeypatch.setattr(unlock.psutil,'process_iter',lambda:[SimpleNamespace(pid=343,name=lambda:'software-task',uids=owners,cmdline=cmdline)])
     result=unlock.preview(store,run['id'])
     assert result['allowed'] == (mode=='protected_foreign')
     assert store.jobs()==[]
@@ -148,3 +152,72 @@ def test_foreign_protected_process_with_acl_remains_blocked(locked, monkeypatch)
     monkeypatch.setattr(unlock.psutil,'process_iter',lambda:[process])
     monkeypatch.setattr(unlock.os,'listxattr',lambda path:['system.posix_acl_access'])
     assert not unlock.preview(store,run['id'])['allowed']
+
+
+
+def pam_fixture(monkeypatch, mode='valid'):
+    uid=os.getuid()
+    identities=lambda:SimpleNamespace(real=uid,effective=uid,saved=uid)
+    parent=SimpleNamespace(pid=342,uids=identities,cmdline=lambda:['/usr/lib/systemd/systemd','--user'],
+        exe=lambda:'/usr/lib/systemd/systemd',is_running=lambda:True)
+    child=SimpleNamespace(pid=344,uids=identities,name=lambda:'(sd-pam)',parent=lambda:parent,
+        ppid=lambda:parent.pid,is_running=lambda:True,
+        cmdline=lambda:['(sd-pam)'],cwd=lambda:(_ for _ in ()).throw(psutil.AccessDenied(344)))
+    base='/user.slice/user-%s.slice/user@%s.service' % (uid,uid)
+    monkeypatch.setattr(unlock,'_manager_cgroups',lambda pid:[base if pid==344 else base+'/init.scope'])
+    monkeypatch.setattr(unlock,'_trusted_systemd_executable',lambda value:value=='/usr/lib/systemd/systemd')
+    if mode=='name_only': parent.exe=lambda:'/tmp/systemd'
+    if mode=='not_user_manager': parent.cmdline=lambda:['/usr/lib/systemd/systemd','--system']
+    if mode=='other_name': child.name=lambda:'my-job'
+    if mode=='app_cgroup': monkeypatch.setattr(unlock,'_manager_cgroups',lambda pid:[base+'/app.slice/my-job.service'])
+    if mode=='missing_cgroup': monkeypatch.setattr(unlock,'_manager_cgroups',lambda pid:[])
+    if mode=='denied_parent': parent.exe=lambda:(_ for _ in ()).throw(psutil.AccessDenied(342))
+    if mode=='changed_parent': child.ppid=lambda:999
+    if mode=='gone_parent': parent.is_running=lambda:False
+    if mode=='mixed_uid': child.uids=lambda:SimpleNamespace(real=uid,effective=uid,saved=uid+1)
+    if mode=='cmdline_denied': child.cmdline=lambda:(_ for _ in ()).throw(psutil.AccessDenied(344))
+    if mode=='known_snakemake': child.cmdline=lambda:['python','-m','snakemake']
+    return child
+
+
+@pytest.mark.parametrize('mode',['valid','cmdline_denied','name_only','not_user_manager','other_name','app_cgroup',
+    'missing_cgroup','denied_parent','changed_parent','gone_parent','mixed_uid','known_snakemake','shared_workflow'])
+def test_pam_helper_requires_verified_manager_and_scope(locked,monkeypatch,mode):
+    store,run,locks,output=locked
+    child=pam_fixture(monkeypatch,mode)
+    if mode=='shared_workflow':Path(run['folder'],'workflow').chmod(0o777)
+    monkeypatch.setattr(unlock.psutil,'process_iter',lambda:[child])
+    plan=unlock.preview(store,run['id'])
+    assert plan['allowed']==(mode in {'valid','cmdline_denied'})
+    if plan['allowed']:
+        assert plan['ignored_session_helpers']==[344]
+        assert 'Verified systemd PAM' in plan['message']
+    assert output.read_text()=='retained output'
+    assert (locks/'0.input.lock').exists() and store.jobs()==[]
+
+
+def test_verified_pam_helper_does_not_hide_active_workflow(locked,monkeypatch):
+    store,run,_,_=locked
+    child=pam_fixture(monkeypatch)
+    active=SimpleNamespace(pid=345,uids=child.uids,cmdline=lambda:['python','-m','snakemake'])
+    monkeypatch.setattr(unlock.psutil,'process_iter',lambda:[child,active])
+    plan=unlock.preview(store,run['id'])
+    assert not plan['allowed'] and 'Snakemake process 345' in plan['message']
+
+
+def test_pam_identity_rechecked_before_native_unlock(locked,monkeypatch):
+    store,run,_,_=locked
+    child=pam_fixture(monkeypatch)
+    monkeypatch.setattr(unlock.psutil,'process_iter',lambda:[child])
+    plan=unlock.preview(store,run['id'])
+    unlock.request(store,run['id'],plan['signature'])
+    job=store.claim()
+    child.parent=lambda:None
+    with pytest.raises(ValueError,match='working directory'):
+        unlock.execute(SimpleNamespace(store=store,job=job,write=lambda _:None,
+            command=lambda *a,**k:pytest.fail('must not unlock after ownership proof changes')))
+
+
+def test_systemd_binary_check_rejects_user_executable(tmp_path):
+    binary=tmp_path/'systemd';binary.write_text('fake')
+    assert not unlock._trusted_systemd_executable(str(binary))
