@@ -1,3 +1,11 @@
+## 0.1.0a75 — Database selection and per-pipeline compute defaults
+
+- Replace the raw reference_database YAML box with a named database selector in new drafts, revised drafts and saved defaults.
+- List completed builds and registered/discovered packages with application name, version, description and path; show unavailable packages explicitly and preserve an existing custom path.
+- Provide an explicit descriptor-only choice, refresh control and empty-state guidance. Verify full database checksums when creating the draft.
+- Expose Low, Moderate and Full power presets and custom CPU/RAM defaults directly on each pipeline Configuration page, with CPU-only/native GPU policy frozen into new runs. GeneScope explicitly remains CPU-only.
+- Keep reviewed newer HybAs AWARE snapshots ahead of historical release tags during coordinated updates.
+
 ## 0.1.0a74 — Coordinated application and pipeline updates
 
 - Make Update Bactologix offer Update everything as its primary action: application, HybAs AWARE, BaSIS AWARE and GeneScope, including missing installations and changed environments.

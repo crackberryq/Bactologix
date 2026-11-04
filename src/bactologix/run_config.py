@@ -67,6 +67,8 @@ def _flatten(value, path=()):
 def _group(tool, name):
     if name in MANAGED[tool]:
         return 'Managed by Bactologix'
+    if tool == 'micpscope' and name == 'reference_database':
+        return 'Databases & storage'
     if tool == 'hybas':
         if name in {'db_root', 'kraken_db_name', 'busco_lineage', 'busco_download_lineages'}:
             return 'Databases'
@@ -123,6 +125,8 @@ def editor(tool, text):
                 else 'number' if isinstance(value, float) else 'string' if isinstance(value, str) else 'yaml')
         if name in OPTIONAL[tool]:
             kind = 'optional_integer' if name == 'kraken_mem_mb' else 'optional_string'
+        if tool == 'micpscope' and name == 'reference_database':
+            kind = 'reference_database'
         options = OPTIONS[tool].get(name, [])
         if options and isinstance(value, str):
             kind = 'select'
@@ -184,6 +188,10 @@ def compile_config(tool, text, changes=None):
                     raise ValueError('enter a finite ' + ('number' if kind == 'number' else 'integer'))
                 if kind != 'number':
                     value = int(value)
+            elif kind == 'reference_database':
+                if raw is not None and not isinstance(raw, str):
+                    raise ValueError('choose a database or No database')
+                value = raw.strip() if isinstance(raw, str) and raw.strip() else None
             elif kind == 'yaml':
                 if not isinstance(raw, str):
                     raise ValueError('enter a YAML value')
@@ -204,6 +212,8 @@ def compile_config(tool, text, changes=None):
 
 def validate(tool, text):
     cfg = parse_config(text)
+    from .hardware import workflow_environment
+    workflow_environment(cfg)
     if tool == 'hybas':
         for name, options in OPTIONS[tool].items():
             if name in cfg and cfg[name] not in options:
@@ -239,5 +249,6 @@ def validate(tool, text):
             if row['included'] and row['options'] and row['value'] not in row['options']:
                 raise ValueError(row['name'] + ': choose ' + ', '.join(row['options']))
     return text
+
 
 

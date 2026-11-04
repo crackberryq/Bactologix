@@ -626,14 +626,14 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             expect(page.get_by_role('button', name='Repair selected', exact=True)).to_be_disabled()
             capture('repair-environments')
             page.get_by_role('button', name='Close dialog', exact=True).click()
-            page.get_by_role('button', name='PC capacity', exact=True).click()
+            page.get_by_role('button', name='Compute & CUDA', exact=True).click()
             expect(page.get_by_role('heading', name='GPU & CUDA', exact=True)).to_be_visible()
             expect(page.locator('.power-card')).to_have_count(3)
             page.get_by_role('button', name='Detect again', exact=True).click()
             expect(page.locator('#toast')).to_contain_text('Hardware detection refreshed')
             page.get_by_label('Apply defaults to', exact=True).select_option('hybas')
-            page.get_by_role('button', name='Use Medium', exact=True).click()
-            expect(page.locator('#toast')).to_contain_text('Medium saved for future drafts')
+            page.get_by_role('button', name='Use Moderate', exact=True).click()
+            expect(page.locator('#toast')).to_contain_text('Moderate saved for future drafts')
             budget = store.get('resource_defaults', 'hybas')
             assert budget['preset'] == 'medium' and not store.get('resource_defaults', 'basis')
             saved = yaml.safe_load(store.get('configs', 'hybas'))
@@ -760,6 +760,35 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             expect(page.get_by_role('button', name='Choose an app release', exact=True)).not_to_be_visible()
             capture('coordinated-update-dialog')
             page.get_by_role('button', name='Close dialog', exact=True).click()
+            from test_reference_catalog import package
+            from bactologix.reference_catalog import register
+            db_one = package(tmp_path / 'select-db-one', 'MICP fixture', '1.0')
+            db_two = package(tmp_path / 'select-db-two', 'Other fixture', '2.0')
+            store.put('database_builds', 'completed-fixture', {'id': 'completed-fixture', 'status': 'completed', 'result_path': str(db_one), 'name': 'MICP fixture', 'version': '1.0'})
+            register(store, db_two)
+            page.get_by_role('button', name='Refresh workspace', exact=True).click()
+            page.get_by_role('link', name='Configuration', exact=True).click()
+            page.locator('.configuration-pipelines').get_by_role('button', name='GeneScope', exact=True).click()
+            expect(page.get_by_role('heading', name='Default compute resources', exact=True)).to_be_visible()
+            picker = page.get_by_label('Application database', exact=True)
+            expect(picker).to_be_visible()
+            assert picker.locator('option').count() == 3
+            picker.select_option(str(db_two))
+            expect(picker).to_have_value(str(db_two))
+            page.get_by_role('button', name='Save defaults', exact=True).click()
+            expect(page.locator('#toast')).to_contain_text('Defaults saved for future drafts')
+            assert yaml.safe_load(store.get('configs', 'micpscope'))['reference_database'] == str(db_two)
+            page.locator('.compute-defaults').get_by_role('button', name='Use Low', exact=True).click()
+            expect(page.locator('#toast')).to_contain_text('Low saved for future drafts')
+            expect(page.get_by_label('Application database', exact=True)).to_have_value(str(db_two))
+            expect(page.locator('.compute-defaults').get_by_label('GPU / CUDA policy', exact=True)).to_have_value('cpu')
+            capture('genescope-database-compute-defaults')
+            # Explicit descriptor-only selection stores YAML null, never the string "null".
+            page.get_by_label('Application database', exact=True).select_option('')
+            page.get_by_role('button', name='Save defaults', exact=True).click()
+            expect(page.locator('#toast')).to_contain_text('Defaults saved for future drafts')
+            assert yaml.safe_load(store.get('configs', 'micpscope'))['reference_database'] is None
+            page.get_by_role('link', name='Runs', exact=True).click()
             page.evaluate('window.__acceptanceBeforeRestart = true')
             # Simulate the verified worker result without replacing CI's own package.
             # The real supervisor must wait for success, exec a new server and refresh this tab.
@@ -2219,7 +2248,7 @@ def test_responsive_navigation_and_workspace_tools(tmp_path):
         page.get_by_role('link', name='Install & update', exact=True).click()
         for width in (1440, 1024, 390):
             page.set_viewport_size({'width': width, 'height': 844})
-            for name in ('Guided setup', 'Pipelines & environments', 'PC capacity', 'Workstation check', 'Compatibility'):
+            for name in ('Guided setup', 'Pipelines & environments', 'Compute & CUDA', 'Workstation check', 'Compatibility'):
                 page.get_by_role('button', name=name, exact=True).click()
                 if name == 'Compatibility':
                     req = page.evaluate('window.acceptanceEvents.at(-1)?.value')

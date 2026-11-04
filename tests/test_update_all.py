@@ -141,3 +141,13 @@ def test_dispatch_uses_server_release_not_browser_payload(tmp_path, monkeypatch)
     assert result['navigate']=='jobs'
     assert enqueue.call_args.args[2]['update_all'] is True
     assert enqueue.call_args.args[2]['release']==selected
+
+
+def test_reviewed_newer_snapshot_not_downgraded_to_historical_tag(context, monkeypatch):
+    ctx=context;installed=setup(monkeypatch,ctx)
+    monkeypatch.setattr(update_all,'PIPELINES',{'hybas':{'name':'HybAs','preferred':'HybAs_v9.0.0-AWARE','commit':'a'*40}})
+    monkeypatch.setattr(update_all.release_contract,'refresh',lambda *a:{'versions':[release('b'*40,ref='HybAs-AWARE-V8.8.0')]})
+    monkeypatch.setattr(update_all,'supported',lambda t,c,s:c=='a'*40)
+    update_all.pipeline_updates(ctx)
+    assert installed==['hybas']
+    assert ctx.store.get('settings','all-update')['components']['hybas']['commit']=='a'*40

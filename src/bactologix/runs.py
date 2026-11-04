@@ -351,6 +351,8 @@ def bind_paths(cfg, tool, store, installed):
             manifest = json.loads((Path(cfg["reference_database"]) / "reference-manifest.json").read_text())
             if manifest.get("specification", {}).get("schema_version") == "2.0" and not (Path(installed["source"]) / "src/micpscope/application.py").is_file():
                 raise ValueError("Update GeneScope to use application schema 2.0 databases")
+        else:
+            cfg.pop('reference_database_sha256', None)
         return cfg
     if tool == "hybas":
         raw = cfg.get("db_root", "db")
@@ -550,7 +552,11 @@ def execute_workflow(ctx):
     from . import results
     results.observe(ctx, run, 'before')
     try:
-        ctx.command(command(store, run, payload["action"]), cwd=Path(run["folder"]) / "workflow")
+        from .hardware import workflow_environment
+        extra_env = workflow_environment(parse_config(run['config']))
+        ctx.write('GPU policy: ' + ('CPU only (CUDA devices hidden)' if extra_env else 'Native tool settings; existing CUDA visibility preserved'))
+        kwargs = {"extra_env": extra_env} if extra_env else {}
+        ctx.command(command(store, run, payload["action"]), cwd=Path(run["folder"]) / "workflow", **kwargs)
     finally:
         results.observe(ctx, run, 'after')
     run["last_action"] = payload["action"]
@@ -600,6 +606,7 @@ def reports(store):
         if Path(item["report"]).is_file():
             result.append({"id": item["id"], "name": "Live test report", "path": item["report"], "run": item["id"], "sample": "Software smoke test"})
     return result
+
 
 
 

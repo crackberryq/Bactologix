@@ -20,6 +20,7 @@ from .runs import (absolute_path, clone_runs, command, create_run,
 from .store import identifier
 from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, compatibility, comparisons, sample_imports
 from . import setup_state
+from . import reference_catalog
 from . import database_builder, followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
 _SNAPSHOTS = {}
@@ -124,6 +125,7 @@ def snapshot(store):
             "jobs": jobs, "queue": queue_state, "reports": reports(store), "configs": configs,
             "fields": {t: configuration_fields(t, configs[t]) for t in PIPELINES},
             "databases": {t: databases.panel(store, t) for t in PIPELINES},
+            "reference_databases": reference_catalog.choices(store),
             "environments": {i["id"]: maintenance.environment_panel(store, i, jobs) for i in store.all("installs")},
             "database_builder": {"available": database_builder.available(store), "starter": database_builder.starter(store), "builds": store.all("database_builds")},
             "database_downloads": [{**d, "job_status": next((j["status"] for j in jobs if j["id"] == d.get("job")), d.get("status"))}
@@ -204,6 +206,9 @@ def dispatch(store, kind, p):
     if kind == 'detect_hardware':
         hardware.inventory(store, refresh=True)
         return {'message': 'Hardware detection refreshed.', 'keep_modal': True}
+    if kind == 'save_compute_defaults':
+        return hardware.apply_custom(store, _tool(p), p.get('cores'), p.get('memory_mb'), p.get('gpu_mode'),
+                                     p.get('revisions'), p.get('hardware_id'))
     if kind == 'apply_resource_preset':
         return hardware.apply_preset(store, p.get('preset'), p.get('tools'), p.get('revisions'), p.get('hardware_id'))
     if kind == "refresh_app_releases":
@@ -234,8 +239,15 @@ def dispatch(store, kind, p):
                 path = path.parent
         return {"browser": browse_folders(store, path, p.get("offset", 0),
                                           str(p.get("query", "")), p.get("show_hidden") is True), "keep_modal": True}
+    if kind == 'refresh_reference_databases':
+        return {'message': 'Available GeneScope databases refreshed.', 'keep_modal': True}
     if kind == "scan_databases":
-        return {"database_scan": databases.scan(store, _tool(p), p.get("root", "")), "keep_modal": True}
+        tool = _tool(p)
+        found = databases.scan(store, tool, p.get('root', ''))
+        if tool == 'micpscope':
+            for row in found['candidates'].get('reference', []):
+                reference_catalog.register(store, row['path'])
+        return {"database_scan": found, "keep_modal": True}
     if kind == "manage_environments":
         payload = maintenance.environment_request(store, p.get("id"), p.get("selected"), p.get("action"))
         jid = enqueue(store, "environments", payload)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 import os
+import re
 import subprocess
 import sys
 from packaging.version import Version
@@ -84,6 +85,16 @@ def pipeline_updates(ctx):
             if not releases:
                 raise ValueError('No published pipeline release found; no moving branch was installed.')
             selected = releases[0]
+            # HybAs AWARE 9 is a reviewed immutable snapshot newer than its
+            # historical 8.x release tags. Never downgrade it to that older line.
+            def numbered(label):
+                match = re.search(r'(?i)(?:^|[_-])v?(\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?)', label)
+                return Version(match.group(1)) if match else None
+            pinned_version = numbered(spec.get('preferred', ''))
+            published_version = numbered(selected['ref'])
+            if pinned_version is not None and published_version is not None and pinned_version > published_version:
+                selected = {'kind': 'pinned', 'ref': spec['preferred'] + ' @ ' + spec['commit'][:8], 'commit': spec['commit']}
+                ctx.write('Using the newer reviewed snapshot: ' + selected['ref'])
             row.update(ref=selected['ref'], commit=selected['commit'])
             if not supported(tool, selected['commit'], ctx.store):
                 raise ValueError('Latest release ' + selected['ref'] + ' needs a compatible reviewed runner. Previous installation retained.')
