@@ -431,8 +431,12 @@ def smoke(ctx):
 def execute(ctx):
     kind = ctx.job["kind"]
     if kind == "app_update":
-        from .updates import install_update
-        install_update(ctx)
+        if ctx.job['payload'].get('update_all'):
+            from .update_all import execute as update_everything
+            update_everything(ctx)
+        else:
+            from .updates import install_update
+            install_update(ctx)
     elif kind == "install":
         install(ctx)
     elif kind == "connect":
@@ -478,6 +482,7 @@ def execute(ctx):
         (execute_environments if kind == "environments" else execute_download)(ctx)
     else:
         raise ValueError("Unsupported job")
+
 
 
 

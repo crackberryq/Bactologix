@@ -1,3 +1,10 @@
+## 0.1.0a74 — Coordinated application and pipeline updates
+
+- Make Update Bactologix offer Update everything as its primary action: application, HybAs AWARE, BaSIS AWARE and GeneScope, including missing installations and changed environments.
+- Resolve published releases using fresh application adapters under the existing exclusive update locks. Report incompatible newest releases explicitly; never install moving branches automatically.
+- Preserve previous pipeline sources, active versions on failed setup, saved runs, outputs and databases. Show per-component results and permit pipeline retries when the app is already current.
+- Retain application-only version selection under Advanced; restart a verified application even when a pipeline update reports partial failure.
+
 ## 0.1.0a73 — GeneScope genome explorer and report sidebar
 
 - Recommend GeneScope 0.1.0a13 through normal pipeline updates while preserving earlier run snapshots.
@@ -513,5 +520,6 @@ Created by **Jimi Goldstein · Human Link**.
 - Existing external runs are not adopted for in-place resume. Jobs run sequentially; remote/HPC execution is not implemented.
 - Full biological analyses, analysis environments/databases/GPU tools, target-browser behavior and WSL2/aarch64-specific installation have not been validated in this development session.
 - This release is distributed through GitHub, not PyPI.
+
 
 

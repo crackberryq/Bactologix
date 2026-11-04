@@ -143,3 +143,19 @@ def test_database_scan_browse_and_save_through_real_component(tmp_path, monkeypa
     import yaml
     config = yaml.safe_load(Store(tmp_path / 'workspace').get('configs', 'hybas'))
     assert (Path(config['db_root']) / config['kraken_db_name']).resolve() == db
+
+
+
+def test_coordinated_update_through_component(tmp_path, monkeypatch):
+    from bactologix import __version__
+    monkeypatch.setenv('BACTOLOGIX_HOME', str(tmp_path / 'workspace'))
+    release = {'version': __version__, 'available': True}
+    monkeypatch.setattr('bactologix.update_all.latest_application', lambda store: release)
+    captured = []
+    monkeypatch.setattr('bactologix.ui_backend.enqueue', lambda *args: captured.append(args) or 'job-all')
+    app = AppTest.from_file(str(APP)).run(timeout=20)
+    result = send(app, 'update_all', {}, 'all-components')
+    assert result['ok'] and result['navigate'] == 'jobs'
+    assert captured[0][1:] == ('app_update', {'release': release, 'update_all': True, 'launcher_id': None})
+    send(app, 'update_all', {}, 'all-components')
+    assert len(captured) == 1

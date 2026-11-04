@@ -748,6 +748,18 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             page.goto(url + '#runs/run-not-in-this-workspace/overview')
             expect(page.get_by_role('heading', name='Run not found.', exact=True)).to_be_visible()
             page.get_by_role('button', name='Back to runs', exact=True).click()
+            # The same topbar button now defaults to coordinated updates, including
+            # when the app itself is current. Do not install software in UI fixtures.
+            from bactologix import __version__
+            store.put('app_catalog', 'releases', {'checked_at': 'fixture', 'releases': []})
+            page.get_by_role('button', name='Refresh workspace', exact=True).click()
+            page.locator('.top-actions [data-action="app-updates"]').click()
+            expect(page.get_by_role('heading', name='Update Bactologix & all pipelines', exact=True)).to_be_visible()
+            expect(page.get_by_role('button', name='Update everything to latest', exact=True)).to_be_enabled()
+            expect(page.get_by_text('Advanced: application-only version selection', exact=True)).to_be_visible()
+            expect(page.get_by_role('button', name='Choose an app release', exact=True)).not_to_be_visible()
+            capture('coordinated-update-dialog')
+            page.get_by_role('button', name='Close dialog', exact=True).click()
             page.evaluate('window.__acceptanceBeforeRestart = true')
             # Simulate the verified worker result without replacing CI's own package.
             # The real supervisor must wait for success, exec a new server and refresh this tab.
@@ -2500,3 +2512,4 @@ def test_genescope_custom_database_label(tmp_path):
         expect(page.get_by_text('Selected application: Custom engineering · 2.0',exact=True)).to_be_visible()
         expect(page.get_by_text('A different application',exact=True)).to_be_visible()
         browser.close()
+

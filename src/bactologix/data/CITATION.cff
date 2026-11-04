@@ -3,11 +3,12 @@ message: "Please cite Bactologix and the pipelines, tools and databases used."
 type: software
 license: MIT
 title: Bactologix
-version: 0.1.0a73
+version: 0.1.0a74
 authors:
   - family-names: Goldstein
     given-names: Jimi
     affiliation: Human Link
     orcid: https://orcid.org/0000-0002-7829-0090
+
 
 
