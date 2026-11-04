@@ -748,17 +748,17 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             page.goto(url + '#runs/run-not-in-this-workspace/overview')
             expect(page.get_by_role('heading', name='Run not found.', exact=True)).to_be_visible()
             page.get_by_role('button', name='Back to runs', exact=True).click()
-            # The same topbar button now defaults to coordinated updates, including
-            # when the app itself is current. Do not install software in UI fixtures.
+            # The topbar updates only the application; release selection is visible.
             from bactologix import __version__
             store.put('app_catalog', 'releases', {'checked_at': 'fixture', 'releases': []})
             page.get_by_role('button', name='Refresh workspace', exact=True).click()
             page.locator('.top-actions [data-action="app-updates"]').click()
-            expect(page.get_by_role('heading', name='Update Bactologix & all pipelines', exact=True)).to_be_visible()
-            expect(page.get_by_role('button', name='Update everything to latest', exact=True)).to_be_enabled()
-            expect(page.get_by_text('Advanced: application-only version selection', exact=True)).to_be_visible()
-            expect(page.get_by_role('button', name='Choose an app release', exact=True)).not_to_be_visible()
-            capture('coordinated-update-dialog')
+            expect(page.get_by_role('heading', name='Update Bactologix', exact=True)).to_be_visible()
+            expect(page.get_by_role('button', name='Update everything to latest', exact=True)).to_have_count(0)
+            expect(page.get_by_role('button', name='Refresh releases', exact=True)).to_be_visible()
+            expect(page.get_by_role('button', name='Choose an app release', exact=True)).to_be_visible()
+            expect(page.get_by_role('button', name='Choose an app release', exact=True)).to_be_disabled()
+            capture('application-update-dialog')
             page.get_by_role('button', name='Close dialog', exact=True).click()
             from test_reference_catalog import package
             from bactologix.reference_catalog import register

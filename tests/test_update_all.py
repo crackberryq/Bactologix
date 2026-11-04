@@ -131,16 +131,15 @@ def test_verified_app_restarts_after_partial_pipeline_failure(context):
     assert restart.pending(ctx.store,item) is None
 
 
-def test_dispatch_uses_server_release_not_browser_payload(tmp_path, monkeypatch):
-    store=Store(tmp_path);selected={'version':__version__,'available':True}
-    monkeypatch.setattr(update_all,'latest_application',lambda s:selected)
-    monkeypatch.setattr('bactologix.updates.assert_current',lambda s:None)
-    monkeypatch.setattr('bactologix.updates.status',lambda s:{'active_job':None})
-    enqueue=Mock(return_value='job-test');monkeypatch.setattr('bactologix.ui_backend.enqueue',enqueue)
-    result=dispatch(store,'update_all',{'release':{'version':'malicious'},'tools':[]})
-    assert result['navigate']=='jobs'
-    assert enqueue.call_args.args[2]['update_all'] is True
-    assert enqueue.call_args.args[2]['release']==selected
+def test_global_update_requests_are_rejected_without_queuing(tmp_path, monkeypatch):
+    store = Store(tmp_path)
+    monkeypatch.setattr('bactologix.updates.assert_current', lambda s: None)
+    monkeypatch.setattr('bactologix.updates.status', lambda s: {'active_job': None})
+    enqueue = Mock()
+    monkeypatch.setattr('bactologix.ui_backend.enqueue', enqueue)
+    with pytest.raises(ValueError, match='Global updates have been removed'):
+        dispatch(store, 'update_all', {})
+    enqueue.assert_not_called()
 
 
 def test_reviewed_newer_snapshot_not_downgraded_to_historical_tag(context, monkeypatch):

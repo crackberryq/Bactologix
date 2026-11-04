@@ -642,17 +642,14 @@ if(m.kind==='editor-conflict'){
 }
 
 if(m.kind==='app-update'){
- wide=true;title='Update Bactologix & all pipelines';desc='Update the application, HybAs AWARE, BaSIS AWARE and GeneScope together.';
+ wide=true;title='Update Bactologix';desc='Choose the application version to install. Update each pipeline separately in Install & update.';
  const u=S.app_update,c=u.catalog,rows=c?.releases||[],chosen=rows.find(r=>String(r.id)===val('app-release'));
- body=notice('Update everything','Checks the latest published application and pipeline releases, installs missing pipelines, and prepares changed tool environments. Compatible environments are reused. Includes published prereleases. Releases needing an adapter review are reported as blocked. Saved runs, outputs and databases are preserved; no analysis or database rebuild is started.')+
- (u.all_update?.components?`<section class="card"><h3>Last coordinated update · ${e(u.all_update.status)}</h3>${Object.entries(u.all_update.components).map(([key,r])=>`<p><strong>${e(S.pipelines[key]?.name||'Bactologix')}</strong> · ${e(r.status)} ${e(r.ref||r.version||'')}${r.error?`<br>${e(r.error)}`:''}</p>`).join('')}</section>`:'')+
- `<details><summary>Advanced: application-only version selection</summary><div class="card-head"><div><strong>Running v${e(S.version)}</strong><p class="path-cell">Application environment: ${e(u.environment)}</p></div>${btn('refresh-app-releases','Refresh releases')}</div><p class="inline-info">${c?'Last checked: '+e(c.checked_at):'Checking available releases…'}</p>
+ body=`<div class="card-head"><div><strong>Running v${e(S.version)}</strong><p class="path-cell">Application environment: ${e(u.environment)}</p></div>${btn('refresh-app-releases','Refresh releases')}</div><p class="inline-info">${c?'Last checked: '+e(c.checked_at):'Checking available releases…'}</p>
  <div class="version-list">${rows.map(r=>`<label class="source-card"><input type="radio" name="app-version-choice" value="${r.id}" ${String(r.id)===val('app-release')?'checked':''} ${!r.available||r.version===S.version?'disabled':''}><span><strong>${e(r.tag)}</strong> ${badge(r.prerelease?'Prerelease':'Stable',r.prerelease?'amber':'green')}${r.version===S.version?' '+badge('Running','green'):r.older?' '+badge('Older release','amber'):''}<small>${e(r.name)} · ${e(r.published_at||'')}</small>${!r.available?'<small>Installable wheel with checksum is not available.</small>':''}<a href="${e(safeURL(r.url))}" target="_blank" rel="noopener noreferrer">Release on GitHub ↗</a>${r.notes?`<details><summary>Release notes</summary><pre class="release-notes">${e(r.notes)}</pre></details>`:''}</span></label>`).join('')}</div>
  ${notice('Application update','Installs the selected version in the environment shown above. Finish queued/running jobs first. '+(u.automatic_restart?'After verification, the app restarts on this address and this tab refreshes automatically. Keep the terminal and tab open.':'This session needs a manual restart after installation: press Ctrl+C in its terminal, then run bactologix. Future updates launched with the new command restart automatically.')+' Pipeline runners, databases and run folders stay separate.')}
- <div class="button-row">${btn('install-app-release',chosen?'Install app only: '+chosen.tag:'Choose an app release',false,'','download',!chosen?.available||!u.can_install||chosen.version===S.version)}</div></details>
  ${chosen?.older?notice('Older release selected','Earlier app versions may support fewer pipeline revisions. Choose the intended release before installing.',true):''}
  ${!u.can_install?notice(u.restart_required?'Restart required':u.queue_paused?'Resume queue first':'Finish active jobs first',u.restart_required?u.automatic_restart?'The app is restarting automatically. Keep this tab open.':'Restart the app before installing another version.':u.queue_paused?'Open Jobs & progress and resume the queue before requesting an app update. Held jobs must finish or be cancelled.':'You can browse releases now and install when the job queue is idle.',true):''}`;
- foot=btn('update-everything','Update everything to latest',true,'','download',!u.can_install);
+ foot=btn('install-app-release',chosen?'Install '+chosen.tag:'Choose an app release',true,'','download',!chosen?.available||!u.can_install||chosen.version===S.version);
 }
 if(m.kind==='apply-databases'){
  wide=true;title='Use saved databases';desc='Select saved locations for revised run drafts.';
@@ -865,7 +862,6 @@ else if(action==='connect-local'){if(!U.localInstall?.supported)return;request('
 else if(action==='app-updates'){modal('app-update');if(!S.app_update.catalog)request('refresh_app_releases');}
 else if(action==='refresh-app-releases')request('refresh_app_releases');
 else if(action==='refresh-reference-databases'){request('refresh_reference_databases');}
-else if(action==='update-everything'){request('update_all');}
 else if(action==='install-app-release'){const r=S.app_update.catalog?.releases.find(x=>String(x.id)===val('app-release'));if(r?.available)request('update_app',{release_id:r.id,version:r.version});}
 else if(action==='new-sample')modal('sample');
 else if(action==='import'){U.sampleImport=null;U.importText=null;U.importPage=0;setDraft('sample-import-errors',false);modal('import');}

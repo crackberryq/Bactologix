@@ -1,3 +1,9 @@
+## 0.1.0a79 — Restore separate application and pipeline updates
+
+- Restore Update Bactologix to application-only release selection and installation.
+- Remove the global update button and reject new global-update requests from older browser tabs.
+- Keep individual pipeline updates in Install & update. Preserve compute defaults, database selection, maintenance fixes, and restart recovery for previous update jobs.
+
 ## 0.1.0a78 — Isolate environment workspaces during coordinated updates
 
 - Give every environment-maintenance invocation a unique retained subfolder beneath its update job, avoiding FileExistsError across pipelines and repeated first-install checks.

@@ -215,12 +215,7 @@ def dispatch(store, kind, p):
         store.put("app_catalog", "releases", updates.fetch_releases())
         return {"message": "Bactologix releases refreshed.", "keep_modal": True}
     if kind == 'update_all':
-        from .update_all import latest_application
-        release = latest_application(store)
-        launcher = updates.restart_control.current_launcher(store)
-        jid = enqueue(store, 'app_update', {'release': release, 'update_all': True,
-                      'launcher_id': launcher['id'] if launcher else None})
-        return {'message': 'Bactologix and all pipeline updates queued: ' + jid, 'navigate': 'jobs'}
+        raise ValueError('Global updates have been removed. Use Update Bactologix for the application, or Install & update for each pipeline.')
     if kind == "update_app":
         catalog = store.get("app_catalog", "releases", {})
         release = next((r for r in catalog.get("releases", []) if r["id"] == p.get("release_id") and r["version"] == p.get("version")), None)
