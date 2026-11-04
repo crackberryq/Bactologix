@@ -102,6 +102,7 @@ def snapshot(store):
         runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant")} | {
             "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if cfg.get("kraken_decision_mode") == "off" else "aware",
             "kraken_mode": "off" if cfg.get("run_kraken") is False else cfg.get("kraken_decision_mode"),
+            "can_micp_handoff": run["tool"] == "hybas" and status == "completed",
             "can_followup": followup.available(run, store) and status == "completed",
             "followup_sources": followup.source_options(store, run) if status == "completed" else [],
             "followup_transition": run.get('followup_transition'),
@@ -530,6 +531,10 @@ def dispatch(store, kind, p):
         response.update(dispatch(store, "inspect_run", {"id": child["id"]}))
         response["keep_modal"] = False
         return response
+    if kind == "micp_handoff":
+        from .micp_handoff import create
+        child = create(store, p.get("id"))
+        return {"message": "Created MICP Scope draft with HybAs inputs and a pinned reference database.", "navigate": "runs"}
     if kind == "handoff":
         run = _item(store, "runs", p.get("id"))
         if run["tool"] != "hybas":

@@ -19,9 +19,9 @@ PIPELINES = {
               "previous_commits": ["1d2d96b266e98d956254d1a518ff5b437ab7a10a", "f66dfedd46da05ae79bf769e7e6fada91270d4d1", "d2d2e7806df4d2f586dc4a11d5c1f980deb06857"],
               "previous_ref": "snakemake-standalone",
               "snakefile": "BaSIS.smk", "environment": "environment.yml"},
-    "micpscope": {"name": "MICP Scope", "repo": "crackberryq/Bactomics_MICPscope", "preferred": "micpscope-v0.1.0a7",
-                  "commit": "4fc819d9e9ca12c38c4152f3e791fd596f0ee4ef", "previous_commits": ["036992af74531708b1675101d38941c736c6b41c", "60f248ac94597563157e8506047669b9aac23fd6", "8490e9d1587a7ad40d0e8f687fcf9375637faa2e", "63b2ac9682d3afcd593302a01da4187af739d96f", "4e5cdfad54d6d7d0c198f9458aa27dd1316da0a2"],
-                  "release_names": {"4fc819d9e9ca12c38c4152f3e791fd596f0ee4ef": "micpscope-v0.1.0a7", "036992af74531708b1675101d38941c736c6b41c": "micpscope-v0.1.0a6", "60f248ac94597563157e8506047669b9aac23fd6": "micpscope-v0.1.0a5", "8490e9d1587a7ad40d0e8f687fcf9375637faa2e": "micpscope-v0.1.0a4", "63b2ac9682d3afcd593302a01da4187af739d96f": "micpscope-v0.1.0a3", "4e5cdfad54d6d7d0c198f9458aa27dd1316da0a2": "micpscope-v0.1.0a2"}, "snakefile": "MICPscope.smk", "environment": "environment.yml"},
+    "micpscope": {"name": "MICP Scope", "repo": "crackberryq/Bactomics_MICPscope", "preferred": "micpscope-v0.1.0a8",
+                  "commit": "d44bd5278ab302a0c3d7d4a892db7e8b457e478c", "previous_commits": ["4fc819d9e9ca12c38c4152f3e791fd596f0ee4ef", "036992af74531708b1675101d38941c736c6b41c", "60f248ac94597563157e8506047669b9aac23fd6", "8490e9d1587a7ad40d0e8f687fcf9375637faa2e", "63b2ac9682d3afcd593302a01da4187af739d96f", "4e5cdfad54d6d7d0c198f9458aa27dd1316da0a2"],
+                  "release_names": {"d44bd5278ab302a0c3d7d4a892db7e8b457e478c": "micpscope-v0.1.0a8","4fc819d9e9ca12c38c4152f3e791fd596f0ee4ef": "micpscope-v0.1.0a7", "036992af74531708b1675101d38941c736c6b41c": "micpscope-v0.1.0a6", "60f248ac94597563157e8506047669b9aac23fd6": "micpscope-v0.1.0a5", "8490e9d1587a7ad40d0e8f687fcf9375637faa2e": "micpscope-v0.1.0a4", "63b2ac9682d3afcd593302a01da4187af739d96f": "micpscope-v0.1.0a3", "4e5cdfad54d6d7d0c198f9458aa27dd1316da0a2": "micpscope-v0.1.0a2"}, "snakefile": "MICPscope.smk", "environment": "environment.yml"},
 }
 
 

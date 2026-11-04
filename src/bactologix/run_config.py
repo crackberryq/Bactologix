@@ -12,7 +12,7 @@ from .runs import parse_config
 
 
 MANAGED = {
-    'micpscope': {'samples', 'output_dir', 'threads', 'memory_mb'},
+    'micpscope': {'samples', 'output_dir', 'threads', 'memory_mb', 'reference_database_sha256'},
     'hybas': {'base_dir', 'sample_sheet', 'isolate', 'threads', 'setup_only', 'admin_mode', 'ci_mode'},
     'basis': {'bactomics_root', 'samples', 'isolates', 'isolate', 'threads', 'memory_mb',
               'execution.cores', 'execution.memory_mb'},
@@ -239,4 +239,5 @@ def validate(tool, text):
             if row['included'] and row['options'] and row['value'] not in row['options']:
                 raise ValueError(row['name'] + ': choose ' + ', '.join(row['options']))
     return text
+
 

@@ -172,7 +172,7 @@ def input_layout(output, tool):
         if not root.exists():
             continue
         for path in sorted(root.iterdir()):
-            used = re.search(r"\.(fastq|fq)(\.gz)?$", path.name, re.I) if tool == "hybas" else (path.suffix in {".faa", ".gff"} or path.name.endswith((".evidence.csv", ".interpro.tsv"))) if tool == "micpscope" else path.suffix in {".fna", ".faa", ".gff", ".gbk"}
+            used = re.search(r"\.(fastq|fq)(\.gz)?$", path.name, re.I) if tool == "hybas" else (path.suffix in {".fna", ".faa", ".gff"} or path.name.endswith((".evidence.csv", ".interpro.tsv"))) if tool == "micpscope" else path.suffix in {".fna", ".faa", ".gff", ".gbk"}
             if used:
                 if not path.is_symlink():
                     raise ValueError("Staged input is no longer its original link: " + str(path))
@@ -202,6 +202,14 @@ def sample_sheet(sample, tool, output):
 
 
 def check_run_files(run):
+    if run["tool"] == "micpscope":
+        from .micp_handoff import database_identity, digest
+        cfg = parse_config(run["config"])
+        if cfg.get("reference_database_sha256"):
+            database_identity(cfg["reference_database"], cfg["reference_database_sha256"])
+        for source in run["sample"].get("micp_handoff", {}).get("files", []):
+            if digest(source["path"]) != source["sha256"]:
+                raise ValueError("HybAs source output changed; create a new MICP Scope draft")
     if run.get('run_type') == 'followup':
         from .followup import verify_transition
         verify_transition(run)
@@ -290,13 +298,15 @@ def stage_inputs(sample, tool, destination):
     elif tool == "micpscope":
         output = destination / "annotation"
         output.mkdir()
-        for suffix in (".faa", ".evidence.csv", ".gff", ".interpro.tsv"):
+        for suffix in (".faa", ".evidence.csv", ".gff", ".interpro.tsv", ".fna"):
             source = original / "annotation" / (sid + suffix)
+            if suffix == ".fna" and sample.get("micp_handoff"):
+                source = original / "work/final/assembly.final.fasta"
             if not source.is_file():
                 if suffix != ".faa":
                     continue
                 raise ValueError("Missing protein FASTA: " + str(source))
-            (output / source.name).symlink_to(source.resolve())
+            (output / (sid + suffix)).symlink_to(source.resolve())
             inputs.append(source)
     else:
         output = destination / "annotation"
@@ -332,6 +342,12 @@ def bind_paths(cfg, tool, store, installed):
     # Relative user resource paths would otherwise change when making isolated copies.
     cfg = copy.deepcopy(cfg)
     if tool == "micpscope":
+        if cfg.get("reference_database"):
+            from .micp_handoff import database_identity
+            if not (Path(installed["source"]) / "envs/reference-search.yml").is_file():
+                raise ValueError("Update MICP Scope to enable reference database searches")
+            cfg["reference_database"] = str(absolute_path(cfg["reference_database"]))
+            cfg["reference_database_sha256"] = database_identity(cfg["reference_database"])
         return cfg
     if tool == "hybas":
         raw = cfg.get("db_root", "db")
@@ -581,5 +597,6 @@ def reports(store):
         if Path(item["report"]).is_file():
             result.append({"id": item["id"], "name": "Live test report", "path": item["report"], "run": item["id"], "sample": "Software smoke test"})
     return result
+
 
 

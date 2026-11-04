@@ -2446,3 +2446,33 @@ def test_workflow_lock_review_and_guarded_unlock(tmp_path, installed, monkeypatc
         assert (locks/'0.input.lock').exists()  # review/queue alone does not unlock
         browser.close()
 
+
+
+def test_completed_hybas_offers_micp_draft(tmp_path, installed):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import dispatch
+    store, item = installed
+    sample = tmp_path/'micp handoff sample'
+    (sample/'raw/illumina').mkdir(parents=True)
+    for mate in (1, 2):
+        (sample/f'raw/illumina/fixture_R{mate}.fastq').write_text('@fixture\nA\n+\nI\n')
+    run = create_run(store, 'hybas', {'id':'micp.fixture','path':str(sample),'mode':'illumina_only'}, '{}')
+    run['completed'] = '2026-11-04T00:00:00Z'
+    store.put('runs',run['id'],run)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width':1440,'height':1000})
+        errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
+        render_component(page,store)
+        page.get_by_role('link',name='Runs',exact=True).click()
+        page.locator('[data-action="run-detail"][data-id="'+run['id']+'"]').first.click()
+        request=page.evaluate('window.acceptanceEvents.at(-1).value')
+        response=dispatch(store,request['kind'],request['payload'])
+        page.evaluate('response => { window.acceptanceRender(response); }',{'id':request['id'],'ok':True,**response})
+        button=page.get_by_role('button',name='Create MICP Scope draft',exact=True)
+        expect(button).to_be_visible()
+        button.click()
+        request=page.evaluate('window.acceptanceEvents.at(-1).value')
+        assert request['kind']=='micp_handoff' and request['payload']=={'id':run['id']}
+        assert errors==[]
+        browser.close()

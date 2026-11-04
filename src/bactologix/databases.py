@@ -35,7 +35,7 @@ def _module(key, name, description, hint):
 
 
 CATALOG = {
-    "micpscope": [dict(id="reference", name="MICP reference database", description="User-built reference package. Sequence matching is a separate analysis capability.", hint="reference-manifest.json", fields=["reference_database"])],
+    "micpscope": [dict(id="reference", name="MICP reference database", description="Built reference package for DIAMOND protein similarity searches and linked evidence.", hint="reference-manifest.json", fields=["reference_database"])],
     "hybas": [
         dict(id="kraken", name="Kraken2", description="Choose the folder containing the three Kraken2 index files.", hint="hash.k2d", fields=[]),
         dict(id="busco", name="BUSCO lineage", description="Choose a complete lineage dataset. A matching configured lineage is preferred.", hint="dataset.cfg", fields=[]),
@@ -239,6 +239,8 @@ def inspect(store, tool, key, value, cfg=None):
     database = path
     version = ""
     if tool == "micpscope" and key == "reference":
+        from .micp_handoff import database_identity
+        database_identity(root)
         _require(root, ("reference-manifest.json", "completed.json", "checksums.json", "proteins.faa", "proteins.dmnd"))
         receipt_data = _json(root / "completed.json")
         if receipt_data.get("status") != "completed" or receipt_data.get("checksums_sha256") != hashlib.sha256((root / "checksums.json").read_bytes()).hexdigest():

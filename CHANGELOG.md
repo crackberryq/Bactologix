@@ -1,3 +1,10 @@
+## 0.1.0a67 — HybAs handoff and MICP reference searches
+
+- Add Create MICP Scope draft to completed HybAs runs, carrying Prokka proteins, GFF coordinates and the final assembly into independent analysis outputs.
+- Pin source run/commit, source file hashes and the selected reference database identity; reject changed inputs or databases before execution.
+- Integrate MICP Scope 0.1.0a8 with its dedicated DIAMOND search environment, candidate scores, ambiguity and collapsible literature evidence.
+- Preserve existing frozen runs and completed database packages. Select a completed database in MICP Scope resources before creating a handoff draft.
+
 ## 0.1.0a66 — Ready-to-build MICP literature starter
 
 - Automatically load the reference specification bundled with MICP Scope 0.1.0a7, with 164 reviewed protein sequences and 207 literature-table entries from the processes and regulation reviews.

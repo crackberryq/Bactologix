@@ -22,7 +22,7 @@ from .store import identifier, now
 from . import environment_health
 
 RECIPES = {
-    "micpscope": {"properties": "Protein properties and evidence report", "database-builder": "Database Builder (DIAMOND)"},
+    "micpscope": {"properties": "Protein properties and evidence report", "database-builder": "Database Builder (DIAMOND)", "reference-search": "Reference protein search (DIAMOND)"},
     "hybas": {"assembly": "Assembly and read preparation", "qc": "QC, Kraken2 and BUSCO",
               "polishing": "Racon and Polypolish", "medaka": "Medaka", "annotation": "Prokka",
               "controller": "Lightweight workflow Python"},
