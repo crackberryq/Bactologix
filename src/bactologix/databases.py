@@ -176,6 +176,14 @@ def panel(store, tool):
                 saved = locations.get(spec["id"], {})
                 row["path"] = saved.get("path", "") if saved.get("fields") == values and primary else str(primary or "")
             row["configured"] = bool(row["path"])
+        if tool == 'micpscope' and row.get('path'):
+            from .application_package import application
+            try:
+                row['application'] = application(_json(Path(row['path']) / 'reference-manifest.json')['specification'])
+                row['name'] = row['application']['name'] + ' · ' + row['application']['version']
+                row['description'] = row['application']['description']
+            except (OSError, ValueError, KeyError, TypeError):
+                row['application'] = None
         rows.append(row)
     return {"tool": tool, "revision": revision(text), "rows": rows,
             "policy": _get(cfg, "resources.policy", "auto") if tool == "basis" else "manual",
@@ -248,7 +256,9 @@ def inspect(store, tool, key, value, cfg=None):
         manifest = _json(root / "reference-manifest.json")
         if manifest.get("schema_version") != "1.0":
             raise ValueError("Unsupported reference database schema.")
-        version = str(manifest.get("specification", {}).get("version", ""))
+        from .application_package import application
+        app = application(manifest['specification'])
+        version = app['version']
         updates = {"reference_database": str(root.resolve())}
         database = root
     elif key == "kraken":
@@ -359,6 +369,7 @@ def inspect(store, tool, key, value, cfg=None):
             version = handle.read(120).strip()
     return {"id": key, "path": str(local_path(value)) if key in {"prott5", "deep_catalogue"} else str(database.resolve()),
             "folder": str(root), "updates": updates, "version": version,
+            "application": app if tool == "micpscope" and key == "reference" else None,
             "receipt": receipt, "status": "Layout recognized", "checked_at": now()}
 
 

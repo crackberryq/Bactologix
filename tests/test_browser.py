@@ -335,7 +335,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             expect(page.locator('[data-run-name="resources.directory"]')).to_be_visible()
             page.locator('#run-tool').select_option('micpscope')
             category('advanced')
-            expect(page.get_by_text('MICP Scope inputs', exact=True)).to_be_visible()
+            expect(page.get_by_text('GeneScope inputs', exact=True)).to_be_visible()
             expect(page.locator('.run-wizard')).to_contain_text('annotation/<sample_id>.faa')
             expect(page.locator('.run-managed-value')).not_to_have_count(0)
             capture('micpscope-settings')
@@ -997,7 +997,7 @@ def test_saved_basis_edit_does_not_resume_an_unrelated_draft(screening, restore)
         count = page.evaluate('window.acceptanceEvents.length')
         page.get_by_role('button', name='Edit settings', exact=True).click()
         dialog = page.get_by_role('dialog', name='Unfinished edits', exact=True)
-        expect(dialog).to_contain_text('MICP Scope')
+        expect(dialog).to_contain_text('GeneScope')
         expect(dialog).to_contain_text('BaSIS AWARE')
         expect(dialog).to_contain_text(parent['id'])
         assert page.evaluate('window.acceptanceEvents.length') == count
@@ -1010,10 +1010,10 @@ def test_saved_basis_edit_does_not_resume_an_unrelated_draft(screening, restore)
             page.screenshot(path=str(Path(destination) / ('editor-conflict-' + str(restore) + '.png')), full_page=True)
         page.set_viewport_size({'width': 1440, 'height': 1000})
         dialog.get_by_role('button', name='Close dialog', exact=True).click()
-        expect(page.get_by_role('region', name='Unfinished draft')).to_contain_text('MICP Scope')
+        expect(page.get_by_role('region', name='Unfinished draft')).to_contain_text('GeneScope')
         assert page.evaluate('sessionStorage.getItem("bactologix:run-editor:v1:" + window.acceptanceWorkspace.workspace)') == saved
 
-        # Resuming is explicit and keeps the MICP Scope draft's unsaved budget.
+        # Resuming is explicit and keeps the GeneScope draft's unsaved budget.
         page.get_by_role('button', name='Edit settings', exact=True).click()
         dialog.get_by_role('button', name='Resume unfinished edits', exact=True).click()
         expect(page.get_by_label('Pipeline', exact=True)).to_have_value('micpscope')
@@ -2348,15 +2348,15 @@ def test_pipeline_order_and_reference_builder(tmp_path):
         render_component(page,store)
         page.get_by_role('link',name='Databases & models',exact=True).click()
         tabs=page.locator('[data-action="database-tool"]')
-        assert tabs.all_text_contents()==['HybAs AWARE','BaSIS AWARE','MICP Scope']
+        assert tabs.all_text_contents()==['HybAs AWARE','BaSIS AWARE','GeneScope']
         for width in (1440,390):
             page.set_viewport_size({'width':width,'height':900})
-            page.get_by_role('button',name='MICP Scope',exact=True).click()
+            page.get_by_role('button',name='GeneScope',exact=True).click()
             expect(page.get_by_role('heading',name='Database Builder',exact=True)).to_be_visible()
             expect(page.get_by_role('heading',name='Built databases',exact=True)).to_be_visible()
             expect(page.get_by_role('button',name='Build database',exact=True)).to_be_disabled()
             expect(page.get_by_role('button',name='Auto scan',exact=True)).to_have_count(0)
-            assert tabs.all_text_contents()==['HybAs AWARE','BaSIS AWARE','MICP Scope']
+            assert tabs.all_text_contents()==['HybAs AWARE','BaSIS AWARE','GeneScope']
             page.locator('#reference-editor summary').click()
             assert page.locator('#reference-spec').evaluate('(e)=>e.getBoundingClientRect().right<=window.innerWidth')
             page.get_by_role('button',name='BaSIS AWARE',exact=True).click()
@@ -2378,7 +2378,7 @@ def test_reference_starter_default_edit_restore_and_build(tmp_path, monkeypatch)
         page.on('pageerror',lambda error: page_errors.append(str(error)))
         render_component(page,store)
         page.get_by_role('link',name='Databases & models',exact=True).click()
-        page.get_by_role('button',name='MICP Scope',exact=True).click()
+        page.get_by_role('button',name='GeneScope',exact=True).click()
         page.set_viewport_size({'width':390,'height':900})
         expect(page.locator('#reference-spec')).to_have_value(text)
         page.locator('#reference-editor summary').click()
@@ -2469,10 +2469,28 @@ def test_completed_hybas_offers_micp_draft(tmp_path, installed):
         request=page.evaluate('window.acceptanceEvents.at(-1).value')
         response=dispatch(store,request['kind'],request['payload'])
         page.evaluate('response => { window.acceptanceRender(response); }',{'id':request['id'],'ok':True,**response})
-        button=page.get_by_role('button',name='Create MICP Scope draft',exact=True)
+        button=page.get_by_role('button',name='Create GeneScope draft',exact=True)
         expect(button).to_be_visible()
         button.click()
         request=page.evaluate('window.acceptanceEvents.at(-1).value')
         assert request['kind']=='micp_handoff' and request['payload']=={'id':run['id']}
         assert errors==[]
+        browser.close()
+
+
+def test_genescope_custom_database_label(tmp_path):
+    import json
+    from playwright.sync_api import sync_playwright, expect
+    store=Store(tmp_path/'workspace')
+    app=dict(id='custom',name='Custom engineering',version='2.0',description='A different application')
+    database=tmp_path/'database';database.mkdir()
+    (database/'reference-manifest.json').write_text(json.dumps({'schema_version':'1.0','specification':{'schema_version':'2.0','application':app}}))
+    store.put('configs','micpscope',yaml.safe_dump({'reference_database':str(database)}))
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True);page=browser.new_page(viewport={'width':1440,'height':1000})
+        render_component(page,store)
+        page.get_by_role('link',name='Databases & models',exact=True).click()
+        page.get_by_role('button',name='GeneScope',exact=True).click()
+        expect(page.get_by_text('Selected application: Custom engineering · 2.0',exact=True)).to_be_visible()
+        expect(page.get_by_text('A different application',exact=True)).to_be_visible()
         browser.close()

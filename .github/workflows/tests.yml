@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: crackberryq/Bactomics_MICPscope
-          ref: d44bd5278ab302a0c3d7d4a892db7e8b457e478c
+          ref: 1b1caa0f33a26788baa6f8140b37efaa789d873d
           path: upstream-micpscope
       - name: Install software test dependencies
         run: python -m pip install . pytest build 'snakemake==9.6.2' 'numpy<3' 'biopython==1.86' 'openpyxl==3.1.5'

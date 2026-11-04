@@ -534,7 +534,7 @@ def dispatch(store, kind, p):
     if kind == "micp_handoff":
         from .micp_handoff import create
         child = create(store, p.get("id"))
-        return {"message": "Created MICP Scope draft with HybAs inputs and a pinned reference database.", "navigate": "runs"}
+        return {"message": "Created GeneScope draft with HybAs inputs and a pinned reference database.", "navigate": "runs"}
     if kind == "handoff":
         run = _item(store, "runs", p.get("id"))
         if run["tool"] != "hybas":

@@ -19,7 +19,7 @@ def database_identity(path, expected=None):
     if receipt.get('status') != 'completed' or receipt.get('checksums_sha256') != identity:
         raise ValueError('Reference database completion receipt does not match checksums')
     if expected and expected != identity:
-        raise ValueError('Reference database changed; create a new MICP Scope draft')
+        raise ValueError('Reference database changed; create a new GeneScope draft')
     checksums = json.loads((root / 'checksums.json').read_text())
     if not isinstance(checksums, dict) or not {'proteins.faa', 'proteins.dmnd', 'reference-manifest.json', 'diamond-version.txt'} <= checksums.keys():
         raise ValueError('Reference database is missing required checksums')
@@ -41,7 +41,7 @@ def create(store, source_id):
     check_run_files(source)
     text = store.get('configs', 'micpscope', template('micpscope'))
     if not parse_config(text).get('reference_database'):
-        raise ValueError('Select a completed reference database in MICP Scope resources before creating this draft')
+        raise ValueError('Select a completed reference database in GeneScope resources before creating this draft')
     output, sid = Path(source['output']), source['sample']['id']
     files = [output / 'annotation' / (sid + ext) for ext in ('.faa', '.gff')]
     files.append(output / 'work/final/assembly.final.fasta')
@@ -53,4 +53,4 @@ def create(store, source_id):
     sample = dict(source['sample'], path=source['output'], micp_handoff=handoff)
     # Cross-pipeline provenance is separate from same-pipeline result inheritance.
     return create_run(store, 'micpscope', sample, text, source['cores'], source['memory_mb'],
-                      label=source['label'] + ' · MICP Scope')
+                      label=source['label'] + ' · GeneScope')

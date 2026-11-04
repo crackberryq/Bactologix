@@ -1,10 +1,11 @@
-"""Sample-free MICP Scope reference builds launched from setup."""
+"""Sample-free GeneScope reference builds launched from setup."""
 import hashlib
 import json
 from pathlib import Path
 import shutil
 import yaml
 from functools import lru_cache
+from .application_package import application
 from . import maintenance
 from .local import local_path
 from .runs import tree_digest
@@ -25,8 +26,9 @@ def _starter(path, modified, size):
             if 'path' in row:
                 asset=Path(row['path'])
                 row['path']=str((source.parent/asset).resolve()) if not asset.is_absolute() else str(asset)
+    app=application(spec)
     annotations=spec.get('annotations',{})
-    return {'path':str(source),'name':spec['name'],'version':spec['version'],
+    return {'path':str(source),'name':app['name'],'version':app['version'],'description':app['description'],
             'proteins':len(spec['proteins']),'regulatory':len(spec.get('regulatory',[])),
             'literature_records':len(annotations.get('literature_records',[])),
             'text':yaml.safe_dump(spec,sort_keys=False,allow_unicode=True)}
@@ -48,12 +50,9 @@ def validate(store, text):
     if not isinstance(text,str) or len(text)>2_000_000:
         raise ValueError('Provide a YAML/JSON specification up to 2 MB.')
     spec=yaml.safe_load(text)
-    if not isinstance(spec,dict) or spec.get('schema_version')!='1.0' or not isinstance(spec.get('proteins'),list) or not spec['proteins']:
-        raise ValueError('Provide schema_version: "1.0" and at least one protein record.')
-    import re
-    for key in ('name','version'):
-        if not isinstance(spec.get(key),str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}',spec[key]):
-            raise ValueError(key+' must be a nonempty name using letters, numbers, dots, underscores or hyphens.')
+    if not isinstance(spec,dict) or not isinstance(spec.get('proteins'),list) or not spec['proteins']:
+        raise ValueError('Provide an application specification and at least one protein record.')
+    application(spec)
     if not isinstance(spec.get('regulatory',[]),list): raise ValueError('regulatory must be a list')
     assets={}
     for row in spec['proteins']+spec.get('regulatory',[]):
@@ -68,9 +67,12 @@ def validate(store, text):
 def request(store,text,cores=2,memory_mb=2048):
     item=maintenance.installation(store,store.get('settings','active-micpscope'))
     if item['tool']!='micpscope' or not available(store):
-        raise ValueError('Update MICP Scope to a version with Database Builder and finish runner setup.')
+        raise ValueError('Update GeneScope to a version with Database Builder and finish runner setup.')
     maintenance.check_deployment_path(store,item)
     spec,assets=validate(store,text)
+    app=application(spec)
+    if spec["schema_version"] == "2.0" and not (Path(item["source"])/"src/micpscope/application.py").is_file():
+        raise ValueError("Update GeneScope before building application schema 2.0")
     key=identifier('reference')
     folder=store.home/'maintenance'/key
     folder.mkdir(parents=True)
@@ -84,9 +86,9 @@ def request(store,text,cores=2,memory_mb=2048):
             if row.get('path')==original: row['path']=str(target)
     specpath=folder/'references.yaml'; specpath.write_text(yaml.safe_dump(spec,sort_keys=False))
     shutil.copytree(item['source'],folder/'workflow',ignore=shutil.ignore_patterns('.git','.snakemake','__pycache__','*.pyc'))
-    destination=store.home/'resources/micpscope'/key
+    destination=store.home/'resources/micpscope'/(app['id']+'-'+app['version'])/key
     payload={'id':key,'tool':'micpscope','installation':item['id'],'commit':item['version']['commit'],
-             'folder':str(folder),'destination':str(destination),'name':spec['name'],'version':spec['version'],
+             'folder':str(folder),'destination':str(destination),'name':app['name'],'version':app['version'],'description':app['description'],'application':app,
              'input_sha256':assets,'snapshot_sha256':tree_digest(inputs),'spec_sha256':hashlib.sha256(specpath.read_bytes()).hexdigest(),
              'workflow_sha256':tree_digest(folder/'workflow'),
              'cores':maintenance._number(cores,'Threads',1024),'memory_mb':maintenance._number(memory_mb,'Memory (MB)',10000000)}

@@ -209,7 +209,7 @@ def check_run_files(run):
             database_identity(cfg["reference_database"], cfg["reference_database_sha256"])
         for source in run["sample"].get("micp_handoff", {}).get("files", []):
             if digest(source["path"]) != source["sha256"]:
-                raise ValueError("HybAs source output changed; create a new MICP Scope draft")
+                raise ValueError("HybAs source output changed; create a new GeneScope draft")
     if run.get('run_type') == 'followup':
         from .followup import verify_transition
         verify_transition(run)
@@ -345,9 +345,12 @@ def bind_paths(cfg, tool, store, installed):
         if cfg.get("reference_database"):
             from .micp_handoff import database_identity
             if not (Path(installed["source"]) / "envs/reference-search.yml").is_file():
-                raise ValueError("Update MICP Scope to enable reference database searches")
+                raise ValueError("Update GeneScope to enable reference database searches")
             cfg["reference_database"] = str(absolute_path(cfg["reference_database"]))
             cfg["reference_database_sha256"] = database_identity(cfg["reference_database"])
+            manifest = json.loads((Path(cfg["reference_database"]) / "reference-manifest.json").read_text())
+            if manifest.get("specification", {}).get("schema_version") == "2.0" and not (Path(installed["source"]) / "src/micpscope/application.py").is_file():
+                raise ValueError("Update GeneScope to use application schema 2.0 databases")
         return cfg
     if tool == "hybas":
         raw = cfg.get("db_root", "db")
@@ -568,7 +571,7 @@ def execute_workflow(ctx):
 
 def report_candidates(store, run):
     if run["tool"] == "micpscope":
-        return [("MICP Scope report", "micpscope/report.html")]
+        return [("GeneScope report", "micpscope/report.html")]
     if run.get("run_type") == "followup":
         owned = store.get("followup_output_owner", run["parent"]) == run["id"]
         entries = [("Follow-up report", "safety/deepsafe-report/report.html")] if owned else []

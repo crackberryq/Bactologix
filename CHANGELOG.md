@@ -1,3 +1,10 @@
+## 0.1.0a68 — GeneScope and application databases
+
+- Rename the displayed pipeline to GeneScope and integrate the tested genescope-v0.1.0a9 release.
+- Derive database labels, descriptions, versions and build locations from user-supplied application metadata. Bundle MICP as the initial editable application specification.
+- Support schema 2.0 alongside existing schema 1.0 packages; require the new engine for new-format packages.
+- Preserve existing installation IDs, selected databases, frozen runs and historical filesystem paths. New reports receive application-specific interpretation from the selected package.
+
 ## 0.1.0a67 — HybAs handoff and MICP reference searches
 
 - Add Create MICP Scope draft to completed HybAs runs, carrying Prokka proteins, GFF coordinates and the final assembly into independent analysis outputs.

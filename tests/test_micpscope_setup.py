@@ -1,4 +1,4 @@
-"""Software-only contract checks for MICP Scope and first-install handling."""
+"""Software-only contract checks for GeneScope and first-install handling."""
 import csv
 import io
 from pathlib import Path
@@ -21,7 +21,7 @@ class MICPscopeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(directory)
             rows = versions(store, 'micpscope')['versions']
-            self.assertTrue(rows[0]['name'].startswith('micpscope-v0.1.0a8'))
+            self.assertTrue(rows[0]['name'].startswith('genescope-v0.1.0a9'))
             self.assertNotIn('main', rows[0]['ref'])
             for commit in PIPELINES['micpscope']['previous_commits']:
                 self.assertTrue(supported('micpscope', commit))
@@ -119,7 +119,7 @@ class MICPscopeTests(unittest.TestCase):
                     argv=command(store,run,'prepare')
                     self.assertIn('--conda-create-envs-only',argv)
                     self.assertTrue(any(arg.endswith('MICPscope.smk') for arg in argv))
-                self.assertEqual(report_candidates(store,run),[('MICP Scope report','micpscope/report.html')])
+                self.assertEqual(report_candidates(store,run),[('GeneScope report','micpscope/report.html')])
                 (annotation/'demo.evidence.csv').write_text('changed')
                 with self.assertRaises(ValueError):check_run_files(run)
 
@@ -139,7 +139,7 @@ class MICPscopeTests(unittest.TestCase):
         import shutil
         source_path = os.environ.get('BACTOLOGIX_MICPSCOPE_SOURCE')
         if not source_path:
-            self.skipTest('Pinned MICP Scope checkout not supplied')
+            self.skipTest('Pinned GeneScope checkout not supplied')
         source = Path(source_path).resolve()
         sha = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
         self.assertEqual(sha, PIPELINES['micpscope']['commit'])

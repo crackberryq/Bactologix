@@ -90,7 +90,7 @@ def collect(run):
             result['versions']['biopython'] = data.get('provenance', {}).get('biopython_version', UNKNOWN)
             result['versions']['micpscope'] = data.get('software_version', UNKNOWN)
         else:
-            result['warnings'].append('MICP Scope results are missing or belong to a different sample.')
+            result['warnings'].append('GeneScope results are missing or belong to a different sample.')
         return result
     if run['tool'] == 'hybas':
         summary = read('metadata/run_summary.json') or {}
@@ -456,4 +456,5 @@ def download(store, run, format):
         archive.writestr('citations/Bactologix-CITATION.cff', yaml.safe_dump(app_citation, sort_keys=False, allow_unicode=True))
         archive.writestr('README.txt', 'Review Methods and unresolved items before publication.\nThe YAML and supplement contain local paths and sample identifiers.\nSoftware versions are recorded evidence, not current environment probes.\nCite the pipeline source and tools/databases used; add verified publication references.\nThe workflow configuration and execution behavior were not changed by this export.\n')
     return {'name': name, 'base64': base64.b64encode(buffer.getvalue()).decode(), 'type': 'application/zip'}
+
 
