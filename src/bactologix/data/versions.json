@@ -346,13 +346,23 @@
       "checkedAt": "2026-10-29T00:00:00Z",
       "versions": [
         {
+          "id": "release:genescope-v0.1.0a10",
+          "kind": "release",
+          "ref": "genescope-v0.1.0a10",
+          "name": "GeneScope 0.1.0a10",
+          "commit": "50b0255c6f7df524dd01d89bcdc214b0e1bbc15e",
+          "url": "https://github.com/crackberryq/Bactomics_GeneScope/releases/tag/genescope-v0.1.0a10",
+          "preferred": true,
+          "prerelease": true
+        },
+        {
           "id": "release:genescope-v0.1.0a9",
           "kind": "release",
           "ref": "genescope-v0.1.0a9",
           "name": "GeneScope 0.1.0a9",
           "commit": "1b1caa0f33a26788baa6f8140b37efaa789d873d",
-          "url": "https://github.com/crackberryq/Bactomics_MICPscope/releases/tag/genescope-v0.1.0a9",
-          "preferred": true,
+          "url": "https://github.com/crackberryq/Bactomics_GeneScope/releases/tag/genescope-v0.1.0a9",
+          "preferred": false,
           "prerelease": true
         },
         {
@@ -361,7 +371,7 @@
           "ref": "micpscope-v0.1.0a8",
           "name": "MICP Scope 0.1.0a8",
           "commit": "d44bd5278ab302a0c3d7d4a892db7e8b457e478c",
-          "url": "https://github.com/crackberryq/Bactomics_MICPscope/releases/tag/micpscope-v0.1.0a8",
+          "url": "https://github.com/crackberryq/Bactomics_GeneScope/releases/tag/micpscope-v0.1.0a8",
           "preferred": false,
           "prerelease": true
         },
@@ -371,7 +381,7 @@
           "ref": "micpscope-v0.1.0a5",
           "name": "MICP Scope 0.1.0a5",
           "commit": "60f248ac94597563157e8506047669b9aac23fd6",
-          "url": "https://github.com/crackberryq/Bactomics_MICPscope/releases/tag/micpscope-v0.1.0a5",
+          "url": "https://github.com/crackberryq/Bactomics_GeneScope/releases/tag/micpscope-v0.1.0a5",
           "preferred": false,
           "prerelease": true
         },
@@ -381,12 +391,13 @@
           "ref": "micpscope-v0.1.0a4",
           "name": "MICP Scope 0.1.0a4",
           "commit": "8490e9d1587a7ad40d0e8f687fcf9375637faa2e",
-          "url": "https://github.com/crackberryq/Bactomics_MICPscope/releases/tag/micpscope-v0.1.0a4",
+          "url": "https://github.com/crackberryq/Bactomics_GeneScope/releases/tag/micpscope-v0.1.0a4",
           "preferred": false,
           "prerelease": true
         }
       ],
-      "preferred": "genescope-v0.1.0a9"
+      "preferred": "genescope-v0.1.0a10",
+      "repo": "crackberryq/Bactomics_GeneScope"
     }
   }
 }

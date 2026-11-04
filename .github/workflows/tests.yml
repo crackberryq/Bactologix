@@ -35,8 +35,8 @@ jobs:
           path: upstream-basis-followup
       - uses: actions/checkout@v4
         with:
-          repository: crackberryq/Bactomics_MICPscope
-          ref: 1b1caa0f33a26788baa6f8140b37efaa789d873d
+          repository: crackberryq/Bactomics_GeneScope
+          ref: 50b0255c6f7df524dd01d89bcdc214b0e1bbc15e
           path: upstream-micpscope
       - name: Install software test dependencies
         run: python -m pip install . pytest build 'snakemake==9.6.2' 'numpy<3' 'biopython==1.86' 'openpyxl==3.1.5'

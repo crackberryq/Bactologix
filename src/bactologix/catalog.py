@@ -19,10 +19,36 @@ PIPELINES = {
               "previous_commits": ["1d2d96b266e98d956254d1a518ff5b437ab7a10a", "f66dfedd46da05ae79bf769e7e6fada91270d4d1", "d2d2e7806df4d2f586dc4a11d5c1f980deb06857"],
               "previous_ref": "snakemake-standalone",
               "snakefile": "BaSIS.smk", "environment": "environment.yml"},
-    "micpscope": {"name": "GeneScope", "repo": "crackberryq/Bactomics_MICPscope", "preferred": "genescope-v0.1.0a9",
-                  "commit": "1b1caa0f33a26788baa6f8140b37efaa789d873d", "previous_commits": ["d44bd5278ab302a0c3d7d4a892db7e8b457e478c", "4fc819d9e9ca12c38c4152f3e791fd596f0ee4ef", "036992af74531708b1675101d38941c736c6b41c", "60f248ac94597563157e8506047669b9aac23fd6", "8490e9d1587a7ad40d0e8f687fcf9375637faa2e", "63b2ac9682d3afcd593302a01da4187af739d96f", "4e5cdfad54d6d7d0c198f9458aa27dd1316da0a2"],
-                  "release_names": {"1b1caa0f33a26788baa6f8140b37efaa789d873d": "genescope-v0.1.0a9","d44bd5278ab302a0c3d7d4a892db7e8b457e478c": "micpscope-v0.1.0a8","4fc819d9e9ca12c38c4152f3e791fd596f0ee4ef": "micpscope-v0.1.0a7", "036992af74531708b1675101d38941c736c6b41c": "micpscope-v0.1.0a6", "60f248ac94597563157e8506047669b9aac23fd6": "micpscope-v0.1.0a5", "8490e9d1587a7ad40d0e8f687fcf9375637faa2e": "micpscope-v0.1.0a4", "63b2ac9682d3afcd593302a01da4187af739d96f": "micpscope-v0.1.0a3", "4e5cdfad54d6d7d0c198f9458aa27dd1316da0a2": "micpscope-v0.1.0a2"}, "snakefile": "MICPscope.smk", "environment": "environment.yml"},
+    "micpscope": {"name": "GeneScope", "repo": "crackberryq/Bactomics_GeneScope", "preferred": "genescope-v0.1.0a10",
+                  "commit": "50b0255c6f7df524dd01d89bcdc214b0e1bbc15e", "previous_commits": ["1b1caa0f33a26788baa6f8140b37efaa789d873d", "d44bd5278ab302a0c3d7d4a892db7e8b457e478c", "4fc819d9e9ca12c38c4152f3e791fd596f0ee4ef", "036992af74531708b1675101d38941c736c6b41c", "60f248ac94597563157e8506047669b9aac23fd6", "8490e9d1587a7ad40d0e8f687fcf9375637faa2e", "63b2ac9682d3afcd593302a01da4187af739d96f", "4e5cdfad54d6d7d0c198f9458aa27dd1316da0a2"],
+                  "release_names": {"50b0255c6f7df524dd01d89bcdc214b0e1bbc15e": "genescope-v0.1.0a10","1b1caa0f33a26788baa6f8140b37efaa789d873d": "genescope-v0.1.0a9","d44bd5278ab302a0c3d7d4a892db7e8b457e478c": "micpscope-v0.1.0a8","4fc819d9e9ca12c38c4152f3e791fd596f0ee4ef": "micpscope-v0.1.0a7", "036992af74531708b1675101d38941c736c6b41c": "micpscope-v0.1.0a6", "60f248ac94597563157e8506047669b9aac23fd6": "micpscope-v0.1.0a5", "8490e9d1587a7ad40d0e8f687fcf9375637faa2e": "micpscope-v0.1.0a4", "63b2ac9682d3afcd593302a01da4187af739d96f": "micpscope-v0.1.0a3", "4e5cdfad54d6d7d0c198f9458aa27dd1316da0a2": "micpscope-v0.1.0a2"}, "snakefile": "MICPscope.smk", "environment": "environment.yml"},
 }
+
+
+# The repository was renamed without changing commit identities or persisted tool IDs.
+REPOSITORY_ALIASES = {'crackberryq/Bactomics_MICPscope': 'crackberryq/Bactomics_GeneScope'}
+
+
+def canonical_repository(repository):
+    return REPOSITORY_ALIASES.get(repository, repository) if isinstance(repository, str) else repository
+
+
+def canonical_repository_url(url):
+    if not isinstance(url, str):
+        return url
+    from urllib.parse import urlsplit, urlunsplit
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return url
+    if parts.scheme != 'https' or parts.netloc not in {'github.com', 'api.github.com'}:
+        return url
+    prefix = '/repos/' if parts.netloc == 'api.github.com' else '/'
+    for old, new in REPOSITORY_ALIASES.items():
+        old_path = prefix + old
+        if parts.path == old_path or parts.path.startswith(old_path + '/'):
+            return urlunsplit(parts._replace(path=prefix + new + parts.path[len(old_path):]))
+    return url
 
 
 def api(path):
@@ -85,6 +111,8 @@ def versions(store, tool):
                            preferred=commit == spec["commit"], prerelease=False))
     result["versions"] = pinned + [row for row in result["versions"] if row["kind"] != "pinned"]
     for row in result["versions"]:
+        if "url" in row:
+            row["url"] = canonical_repository_url(row["url"])
         row["preferred"] = bool(row.get("preferred") and row["commit"] == spec["commit"])
     releases = sorted([r for r in result['versions'] if r['kind'] == 'release'],
                       key=lambda r: r.get('publishedAt') or '', reverse=True)

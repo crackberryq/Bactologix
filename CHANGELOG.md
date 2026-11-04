@@ -1,3 +1,10 @@
+## 0.1.0a69 — GeneScope repository rename compatibility
+
+- Use crackberryq/Bactomics_GeneScope for new installations, release discovery, source links and CI checkouts; recommend genescope-v0.1.0a10.
+- Normalize cached release URLs without rewriting saved catalogues or frozen run records.
+- Accept the explicitly known old repository name in historical release approvals. Allow repository-name-only refreshes while retaining immutable checksum and contract checks.
+- Update setup and migration documentation; retain existing pipeline IDs, workflow aliases, databases and historical releases.
+
 ## 0.1.0a68 — GeneScope and application databases
 
 - Rename the displayed pipeline to GeneScope and integrate the tested genescope-v0.1.0a9 release.
