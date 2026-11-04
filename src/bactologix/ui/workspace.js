@@ -953,8 +953,8 @@ else if(action==='setup-tab'){U.setupTab=id;writeRoute();render();}
 else if(action==='setup-step'){U.setupStep=id;U.setupTab='guide';render();$('.setup-guide')?.scrollIntoView({block:'start'});}
 else if(action==='detect-hardware')request('detect_hardware');
 else if(action==='open-compute-hardware'){U.setupTab='hardware';setDraft('hardware-target',id);navigate('install');}
-else if(action==='pipeline-power-preset'){const [tool,preset]=id.split(':');request('apply_resource_preset',{preset,tools:[tool],revisions:S.hardware.revisions,hardware_id:S.hardware.id});}
-else if(action==='save-pipeline-compute')request('save_compute_defaults',{tool:id,cores:v('compute-cores-'+id),memory_mb:v('compute-memory-'+id),gpu_mode:v('compute-gpu-'+id),revisions:S.hardware.revisions,hardware_id:S.hardware.id});
+else if(action==='pipeline-power-preset'){const [tool,preset]=id.split(':');if(defaultsDirty(defaultEditor(tool))){U.error='Save or reload pending settings before changing compute defaults.';render();return;}request('apply_resource_preset',{preset,tools:[tool],revisions:S.hardware.revisions,hardware_id:S.hardware.id});}
+else if(action==='save-pipeline-compute'){if(defaultsDirty(defaultEditor(id))){U.error='Save or reload pending settings before changing compute defaults.';render();return;}request('save_compute_defaults',{tool:id,cores:v('compute-cores-'+id),memory_mb:v('compute-memory-'+id),gpu_mode:v('compute-gpu-'+id),revisions:S.hardware.revisions,hardware_id:S.hardware.id});}
 else if(action==='apply-power-preset')request('apply_resource_preset',{preset:id,tools:v('hardware-target')==='both'?Object.keys(S.pipelines):[v('hardware-target')],revisions:S.hardware.revisions,hardware_id:S.hardware.id});
 else if(action==='select-environments'||action==='clear-environments'){for(const el of $$('[data-environment]')){el.checked=action==='select-environments';U.drafts[el.id]=el.checked;}syncEnvironmentControls();}
 else if(action==='preview-uninstall'){U.uninstallPlan=null;modal('uninstall',id);request('preview_uninstall',{id});}
@@ -1036,7 +1036,8 @@ function keydown(event){if(event.key==='Escape'&&U.navOpen){event.preventDefault
 function watchAppRestart(){
  const u=S.app_update;if(!u)return;
  let watcher=window.__bactologixRestart;
- const fail=watcher&&(S.jobs.find(j=>j.id===watcher.job)?.status==='failed'||S.jobs.find(j=>j.id===watcher.job)?.status==='cancelled'||(u.last_update?.job===watcher.job&&u.last_update?.restart_status==='failed'));
+ const observed=watcher&&S.jobs.find(j=>j.id===watcher.job),verifiedPartial=observed?.payload?.update_all&&u.last_update?.job===watcher?.job&&u.last_update?.status==='installed'&&['partial','failed'].includes(u.all_update?.status);
+ const fail=watcher&&((observed?.status==='failed'&&!verifiedPartial)||observed?.status==='cancelled'||(u.last_update?.job===watcher.job&&u.last_update?.restart_status==='failed'));
  if(fail){clearTimeout(watcher.timer);watcher.cancelled=true;window.__bactologixRestart=null;return;}
  const job=u.active_job&&S.jobs.find(j=>j.id===u.active_job);
  const target=job?.payload?.release?.version||(u.restart_required&&u.last_update?.status==='installed'?u.last_update.version:null);
@@ -1066,7 +1067,7 @@ const newResponse=response&&response.id!==U.handled;
 const backgroundResponse=U.background;
 // Preserve drafts before rendering a new server snapshot.
 draftInputs();
-if(newResponse){if(!response.ok&&U.requestOrigin?.kind==='import_samples'){U.sampleImport=null;U.importText=null;}U.handled=response.id;U.pending=null;U.error=response.ok?'':response.message;if(response.resource_defaults_saved){for(const tool of response.resource_defaults_saved){for(const k of ['cores','memory','gpu'])delete U.drafts['compute-'+k+'-'+tool];delete U.defaultEditors?.[tool];}if(U.view==='config')request('default_config_editor',{tool:U.tool});}if(response.config){const c=response.config;U.drafts['yaml-'+c.tool]=c.text;U.fields[c.tool]=c.fields;const el=$('#yaml-'+c.tool);if(el)el.value=c.text;}if(response.browser){U.browser=response.browser;setDraft('folder-path',response.browser.path);}if(response.database_scan){const scan=response.database_scan,t=scan.tool,state=dbState(t);state.scan=scan;for(const r of S.databases[t].rows){const key=dbPath(t,r.id),preferred=scan.candidates[r.id]?.find(c=>c.preferred);if(preferred&&!state.resets[r.id]&&val(key,r.path)===r.path){setDraft(key,preferred.path);setDraft('dbcand-'+t+'-'+r.id,preferred.path);}}}
+if(newResponse){if(!response.ok&&U.requestOrigin?.kind==='import_samples'){U.sampleImport=null;U.importText=null;}U.handled=response.id;U.pending=null;U.error=response.ok?'':response.message;if(response.resource_defaults_saved){for(const tool of response.resource_defaults_saved){const saved=S.resource_defaults[tool];setDraft('compute-cores-'+tool,saved.cores);setDraft('compute-memory-'+tool,saved.memory_mb);setDraft('compute-gpu-'+tool,saved.gpu_mode||(tool==='micpscope'?'cpu':'native'));if(!defaultsDirty(defaultEditor(tool)))delete U.defaultEditors?.[tool];}}if(response.config){const c=response.config;U.drafts['yaml-'+c.tool]=c.text;U.fields[c.tool]=c.fields;const el=$('#yaml-'+c.tool);if(el)el.value=c.text;}if(response.browser){U.browser=response.browser;setDraft('folder-path',response.browser.path);}if(response.database_scan){const scan=response.database_scan,t=scan.tool,state=dbState(t);state.scan=scan;for(const r of S.databases[t].rows){const key=dbPath(t,r.id),preferred=scan.candidates[r.id]?.find(c=>c.preferred);if(preferred&&!state.resets[r.id]&&val(key,r.path)===r.path){setDraft(key,preferred.path);setDraft('dbcand-'+t+'-'+r.id,preferred.path);}}}
 if(response.ok&&response.refreshed_catalog&&U.modal?.kind==='versions'&&U.modal.id===response.refreshed_catalog&&!U.versionChoiceExplicit){U.drafts['version-'+U.modal.id]=defaultPipelineVersion(U.modal.id);}
 if(response.removed_sample){
  const key='run-sample-'+response.removed_sample;delete U.drafts[key];

@@ -781,6 +781,9 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             page.locator('.compute-defaults').get_by_role('button', name='Use Low', exact=True).click()
             expect(page.locator('#toast')).to_contain_text('Low saved for future drafts')
             expect(page.get_by_label('Application database', exact=True)).to_have_value(str(db_two))
+            saved_compute = store.get('resource_defaults', 'micpscope')
+            expect(page.get_by_label('Default CPU threads', exact=True)).to_have_value(str(saved_compute['cores']))
+            expect(page.get_by_label('Default RAM (MB)', exact=True)).to_have_value(str(saved_compute['memory_mb']))
             expect(page.locator('.compute-defaults').get_by_label('GPU / CUDA policy', exact=True)).to_have_value('cpu')
             capture('genescope-database-compute-defaults')
             # Explicit descriptor-only selection stores YAML null, never the string "null".

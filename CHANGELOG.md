@@ -1,3 +1,9 @@
+## 0.1.0a76 — Compute preset feedback and update restart continuity
+
+- Refresh editable CPU/RAM fields after saving a preset and preserve unfinished configuration edits.
+- Keep browser restart monitoring active after a verified application update when a pipeline reports partial failure.
+- Include the GeneScope database selector and per-pipeline compute defaults introduced in 0.1.0a75.
+
 ## 0.1.0a75 — Database selection and per-pipeline compute defaults
 
 - Replace the raw reference_database YAML box with a named database selector in new drafts, revised drafts and saved defaults.

@@ -1,5 +1,5 @@
 """Bactologix local application."""
-__version__ = "0.1.0a75"
+__version__ = "0.1.0a76"
 
 
 
