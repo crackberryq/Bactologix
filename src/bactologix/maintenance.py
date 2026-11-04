@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import tempfile
 
 import yaml
 
@@ -180,8 +181,12 @@ def execute_environments(ctx):
     if fresh != payload:
         raise ValueError("Environment definitions or cache changed. Submit a new check.")
     rows = [r for r in recipes(item) if r["id"] in payload["definitions"]]
-    folder = store.home / "maintenance" / ctx.job["id"]
-    folder.mkdir(parents=True)
+    job_folder = store.home / "maintenance" / ctx.job["id"]
+    job_folder.mkdir(parents=True, exist_ok=True)
+    # Coordinated updates share a job ID, including first-install deployment
+    # followed by verification. Retain a separate workspace for every invocation.
+    folder = Path(tempfile.mkdtemp(prefix=item['tool'] + '-' + payload['action'] + '-', dir=job_folder))
+    ctx.write('Environment maintenance workspace: ' + str(folder))
     snakefile = environment_snakefile(folder, rows)
     argv = snake_command(store, item, folder, snakefile)
     if payload["action"] == "install":
@@ -378,5 +383,6 @@ def download_log_tail(store, job):
         except OSError:
             continue
     return ''.join(tails)
+
 
 

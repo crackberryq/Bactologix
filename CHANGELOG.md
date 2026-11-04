@@ -1,3 +1,9 @@
+## 0.1.0a78 — Isolate environment workspaces during coordinated updates
+
+- Give every environment-maintenance invocation a unique retained subfolder beneath its update job, avoiding FileExistsError across pipelines and repeated first-install checks.
+- Preserve earlier maintenance files and shared environment caches. Log each invocation’s workspace for troubleshooting.
+- Add regression coverage for repeated environment deployment and three pipelines sharing one coordinated update job.
+
 ## 0.1.0a77 — Pipeline-only update completion
 
 - Start restart monitoring only when a coordinated update actually replaces the application package; pipeline-only updates finish without a false restart timeout.
@@ -539,6 +545,7 @@ Created by **Jimi Goldstein · Human Link**.
 - Existing external runs are not adopted for in-place resume. Jobs run sequentially; remote/HPC execution is not implemented.
 - Full biological analyses, analysis environments/databases/GPU tools, target-browser behavior and WSL2/aarch64-specific installation have not been validated in this development session.
 - This release is distributed through GitHub, not PyPI.
+
 
 
 
