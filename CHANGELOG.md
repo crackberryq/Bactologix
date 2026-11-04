@@ -1,4 +1,4 @@
-## 0.1.0a71 — Tree controls and application report coverage
+## 0.1.0a72 — Tree controls and application report coverage
 
 - Expose exploratory phylogeny, automatic routing, reference-panel placement and candidate limits in the DeepSafe settings tab.
 - Integrate BaSIS AWARE 0.4.0a5 with producer-recorded placement checksums and inline verified tree previews; preserve earlier run sources.
