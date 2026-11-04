@@ -70,7 +70,7 @@
     {
       "tool": "basis",
       "repository": "crackberryq/Bactomics_BaSIS",
-      "commit": "8af32be9796893f1157aecfa6c3b0929faf822ef",
+      "commit": "4fa218db3dfc73733267d36c225ebc0d8df50f27",
       "tag": "v0.4.0a5",
       "channel": "prerelease",
       "adapter_interface": 1,
@@ -84,7 +84,7 @@
         "snakemake": "9.6.2"
       },
       "tested": true,
-      "test_run": "https://github.com/crackberryq/Bactomics_BaSIS/actions/runs/41845730458",
+      "test_run": "https://github.com/crackberryq/Bactomics_BaSIS/actions/runs/41846446774",
       "files_sha256": {
         "BaSIS.smk": "86bc5f9a905d54207a0b4f36b0a6229a47ba5df4fbd3cb10ce0dcb4b98cb988f",
         "environment.yml": "16555d39a4e8070617055d33f0624ef7218d1769cd0b740a46892b3dc76ae8ca",
