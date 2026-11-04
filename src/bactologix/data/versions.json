@@ -84,7 +84,7 @@
           "id": "release:v0.4.0a2",
           "kind": "release",
           "ref": "v0.4.0a2",
-          "name": "BaSIS AWARE 0.4.0a2 \u2014 Alpha",
+          "name": "BaSIS AWARE 0.4.0a2 — Alpha",
           "commit": "14f161a1f252a712053892961edf2275469c8dab",
           "url": "https://github.com/crackberryq/Bactomics_BaSIS/releases/tag/v0.4.0a2",
           "preferred": false,
@@ -94,7 +94,7 @@
           "id": "release:v0.4.0a1",
           "kind": "release",
           "ref": "v0.4.0a1",
-          "name": "BaSIS AWARE 0.4.0a1 \u2014 Alpha",
+          "name": "BaSIS AWARE 0.4.0a1 — Alpha",
           "commit": "1d2d96b266e98d956254d1a518ff5b437ab7a10a",
           "url": "https://github.com/crackberryq/Bactomics_BaSIS/releases/tag/v0.4.0a1",
           "preferred": false,
@@ -125,7 +125,7 @@
           "id": "release:v0.3.0rc8",
           "kind": "release",
           "ref": "v0.3.0rc8",
-          "name": "BaSIS 0.3.0rc8 \u2014 Conda activation recovery",
+          "name": "BaSIS 0.3.0rc8 — Conda activation recovery",
           "commit": "bedf903300e2450b1ced5f5585e8dd6b56db58c9",
           "prerelease": true,
           "publishedAt": "2026-10-16T23:06:44Z",
@@ -137,7 +137,7 @@
           "id": "release:v0.3.0rc7",
           "kind": "release",
           "ref": "v0.3.0rc7",
-          "name": "BaSIS 0.3.0rc7 \u2014 native startup repairs and safe resume",
+          "name": "BaSIS 0.3.0rc7 — native startup repairs and safe resume",
           "commit": "9d4289d33a0fde7dd24c092ed52896426d69cc18",
           "prerelease": true,
           "publishedAt": "2026-10-16T18:32:25Z",
@@ -149,7 +149,7 @@
           "id": "release:v0.3.0rc6",
           "kind": "release",
           "ref": "v0.3.0rc6",
-          "name": "BaSIS 0.3.0rc6 \u2014 persistent Snakemake workflow and redesigned study interface",
+          "name": "BaSIS 0.3.0rc6 — persistent Snakemake workflow and redesigned study interface",
           "commit": "fb9dc7299875a944a2078563902eaaea277b8109",
           "prerelease": true,
           "publishedAt": "2026-10-15T22:17:06Z",
@@ -161,7 +161,7 @@
           "id": "release:v0.3.0rc5",
           "kind": "release",
           "ref": "v0.3.0rc5",
-          "name": "BaSIS 0.3.0rc5 \u2014 portable Linux cancellation and isolate2 recovery",
+          "name": "BaSIS 0.3.0rc5 — portable Linux cancellation and isolate2 recovery",
           "commit": "89ac392a180ab6b73a844c77eb48ce56a48ad440",
           "prerelease": true,
           "publishedAt": "2026-10-15T16:19:54Z",
@@ -173,7 +173,7 @@
           "id": "release:v0.3.0rc4",
           "kind": "release",
           "ref": "v0.3.0rc4",
-          "name": "BaSIS 0.3.0rc4 \u2014 visible Snakemake execution and reliable failure handling",
+          "name": "BaSIS 0.3.0rc4 — visible Snakemake execution and reliable failure handling",
           "commit": "78d319c2e17b55f6d7fe30578ace86132d8cb428",
           "prerelease": true,
           "publishedAt": "2026-10-15T15:54:20Z",
@@ -185,7 +185,7 @@
           "id": "release:v0.3.0rc3",
           "kind": "release",
           "ref": "v0.3.0rc3",
-          "name": "BaSIS 0.3.0rc3 \u2014 native setup repairs and verified retry",
+          "name": "BaSIS 0.3.0rc3 — native setup repairs and verified retry",
           "commit": "30c65ec2c8a857406278db71680cc7d9f086044d",
           "prerelease": true,
           "publishedAt": "2026-10-15T11:09:22Z",
@@ -197,7 +197,7 @@
           "id": "release:v0.3.0rc2",
           "kind": "release",
           "ref": "v0.3.0rc2",
-          "name": "BaSIS 0.3.0rc2 \u2014 automatic first-run setup, MLST and CRISPR/Cas",
+          "name": "BaSIS 0.3.0rc2 — automatic first-run setup, MLST and CRISPR/Cas",
           "commit": "1f2c7070e1f4d84e7d425d7d0c6ef32a26f89a7d",
           "prerelease": true,
           "publishedAt": "2026-10-14T20:43:55Z",
@@ -209,7 +209,7 @@
           "id": "release:v0.3.0rc1",
           "kind": "release",
           "ref": "v0.3.0rc1",
-          "name": "BaSIS 0.3.0rc1 \u2014 Snakemake workflow",
+          "name": "BaSIS 0.3.0rc1 — Snakemake workflow",
           "commit": "97d9452999d9a00c773b80babe61653723364780",
           "prerelease": true,
           "publishedAt": "2026-10-14T19:38:38Z",
@@ -221,7 +221,7 @@
           "id": "release:v0.2.0rc16",
           "kind": "release",
           "ref": "v0.2.0rc16",
-          "name": "BaSIS 0.2.0rc16 \u2014 preserved baseline",
+          "name": "BaSIS 0.2.0rc16 — preserved baseline",
           "commit": "2f696039a18818d9d9c43c93b3596d3de67ce445",
           "prerelease": true,
           "publishedAt": "2026-10-14T19:20:12Z",
@@ -343,8 +343,18 @@
       "checkedAt": "2026-10-29"
     },
     "micpscope": {
-      "checkedAt": "2026-10-29T00:00:00Z",
+      "checkedAt": "2026-11-04T00:00:00Z",
       "versions": [
+        {
+          "id": "release:genescope-v0.1.0a13",
+          "kind": "release",
+          "ref": "genescope-v0.1.0a13",
+          "name": "GeneScope 0.1.0a13",
+          "commit": "b47b16c286051ec841e7cdb593350004eb028475",
+          "url": "https://github.com/crackberryq/Bactomics_GeneScope/releases/tag/genescope-v0.1.0a13",
+          "preferred": true,
+          "prerelease": true
+        },
         {
           "id": "release:genescope-v0.1.0a11",
           "kind": "release",
@@ -352,7 +362,7 @@
           "name": "GeneScope 0.1.0a11",
           "commit": "1d787b9659568cc35f9d7169080a1c61458e95ad",
           "url": "https://github.com/crackberryq/Bactomics_GeneScope/releases/tag/genescope-v0.1.0a11",
-          "preferred": true,
+          "preferred": false,
           "prerelease": true
         },
         {
@@ -406,7 +416,7 @@
           "prerelease": true
         }
       ],
-      "preferred": "genescope-v0.1.0a11",
+      "preferred": "genescope-v0.1.0a13",
       "repo": "crackberryq/Bactomics_GeneScope"
     }
   }
