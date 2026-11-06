@@ -38,10 +38,16 @@ jobs:
           repository: crackberryq/Bactomics_GeneScope
           ref: b47b16c286051ec841e7cdb593350004eb028475
           path: upstream-micpscope
+      - uses: actions/checkout@v4
+        with:
+          repository: crackberryq/Bactomics_HybAs
+          ref: b13bd80efab8429a03b10a6bd2b7dac25b851e4d
+          path: upstream-hybas-report
       - name: Install software test dependencies
         run: python -m pip install . pytest build 'snakemake==9.6.2' 'numpy<3' 'biopython==1.86' 'openpyxl==3.1.5'
       - name: Test application and pinned workflow adapters
         env:
+          BACTOLOGIX_HYBAS_REPORT_SOURCE: ${{ github.workspace }}/upstream-hybas-report
           BACTOLOGIX_HYBAS_SOURCE: ${{ github.workspace }}/upstream-hybas
           BACTOLOGIX_MICPSCOPE_SOURCE: ${{ github.workspace }}/upstream-micpscope
           BACTOLOGIX_BASIS_SOURCE: ${{ github.workspace }}/upstream-basis
@@ -148,6 +154,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python scripts/publish_release.py
+
 
 
 

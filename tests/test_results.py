@@ -216,3 +216,13 @@ def test_real_command_records_report_observation_without_changing_result(workspa
         assert bool(workspace.get('runs', run['id']).get('completed')) is not fails
     finally:
         real.log.close()
+
+
+
+def test_branded_hybas_report_is_primary_when_available(workspace, run):
+    report(run)
+    path=Path(run['output'])/'reports/hybas/report.html'
+    path.parent.mkdir(parents=True);path.write_text('<html>HybAs AWARE</html>')
+    rows=results.inspect(workspace,run['id'])['reports']
+    assert rows[0]['path']==str(path) and rows[0]['state']=='available'
+    assert any(row['path'].endswith('multiqc_report.html') for row in rows)

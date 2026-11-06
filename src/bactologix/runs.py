@@ -583,6 +583,8 @@ def report_candidates(store, run):
         entries = [("Follow-up report", "safety/deepsafe-report/report.html")] if owned else []
     else:
         entries = [("MultiQC", "reports/multiqc/multiqc_report.html"), ("Safety report", "safety/report.html")]
+        if run["tool"] == "hybas" and (Path(run["output"]) / "reports/hybas/report.html").is_file():
+            entries.insert(0, ("HybAs AWARE report", "reports/hybas/report.html"))
         if run["tool"] == "basis" and not store.get("followup_output_owner", run["id"]):
             entries.append(("Follow-up report", "safety/deepsafe-report/report.html"))
     return entries

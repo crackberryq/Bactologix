@@ -82,8 +82,8 @@ def test_missing_invalid_symlink_and_unsupported_inputs_are_explained(fixture):
     assert 'Unsupported GeneScope' in r.inspect(store,run['id'])['reasons'][0]
     actual=evidence.with_suffix('.saved');evidence.rename(actual);evidence.symlink_to(actual)
     assert not r.inspect(store,run['id'])['available']
-    run['tool']='hybas';store.put('runs',run['id'],run)
-    assert 'not yet' in r.inspect(store,run['id'])['reasons'][0]
+    run['tool']='unsupported';store.put('runs',run['id'],run)
+    assert 'does not have' in r.inspect(store,run['id'])['reasons'][0]
 
 
 @pytest.mark.parametrize("layout", ["basis", "workflow/vendor/basis"])
@@ -172,3 +172,29 @@ def test_ui_dispatch_only_queues_server_built_plan(fixture, monkeypatch):
     assert result['navigate']=='jobs'
     assert captured[0][0]=='report_refresh'
     assert captured[0][1]['source']==plan['source']
+
+
+@pytest.mark.parametrize('legacy',[True,False])
+def test_hybas_saved_report_and_legacy_summary(fixture, legacy):
+    import os
+    import shutil
+    store,run,_,source=fixture
+    real=os.environ.get('BACTOLOGIX_HYBAS_REPORT_SOURCE')
+    if not real:
+        pytest.skip('HybAs report source supplied by integration CI')
+    package=source/'workflow/lib';package.mkdir(parents=True)
+    for name in ('hybas_report.py','hybas_report_assets.py'):
+        shutil.copyfile(Path(real)/'workflow/lib'/name,package/name)
+    run['tool']='hybas';store.put('runs',run['id'],run)
+    install=store.get('installs','renderer');install['tool']='hybas';store.put('installs','renderer',install)
+    store.put('settings','active-hybas','renderer')
+    summary={'isolate':'example','workflow_version':'HybAs-old','assembly_bp':'4000000','run_mode':'hybrid'}
+    doc=summary if legacy else {'schema_version':'hybas-report-1','summary':summary}
+    path=Path(run['output'])/('metadata/run_summary.json' if legacy else 'reports/hybas/results.json')
+    path.parent.mkdir(parents=True);path.write_text(json.dumps(doc));before=path.read_bytes()
+    plan=r.inspect(store,run['id']);assert plan['available'],plan
+    assert plan['analysis_version']=='HybAs-old'
+    r.execute(context(store,plan,'hybas-edition'))
+    report=Path(store.get('reports','hybas-edition')['path']).read_text()
+    assert '4,000,000' in report and 'Assembly overview' in report
+    assert 'HybAs-old' in report and path.read_bytes()==before

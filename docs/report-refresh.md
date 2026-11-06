@@ -18,8 +18,11 @@ access this folder and its evidence snapshot; the HTML also shows edition proven
 GeneScope supports saved `micpscope/results.json` schema 1.3. BaSIS supports
 `safety/evidence.json` schema `basis-report-1`, and owned follow-up runs support
 `safety/deepsafe-report/evidence.json`. The selected installation must include the
-corresponding renderer. HybAs/MultiQC refresh is not supported yet and is shown as
-unavailable; existing reports remain accessible.
+corresponding renderer. HybAs supports `reports/hybas/results.json` schema
+`hybas-report-1`, with `metadata/run_summary.json` as a legacy fallback. Select
+HybAs 9.0.1 AWARE or newer to render these saved results. Legacy summaries lack
+some detailed decisions and annotation counts; these are marked unavailable.
+MultiQC remains accessible as a detailed tool report.
 
 A refresh can update layout, charts and reporting summaries based on saved data.
 It does not apply a new reference database or analysis threshold, predict features,

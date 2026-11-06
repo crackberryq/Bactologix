@@ -15,6 +15,10 @@ def render(snapshot, plan_file, outdir):
         sys.path.insert(0, str(source / 'src'))
         from micpscope.report import render_report
         (out / 'report.html').write_text(render_report(data), encoding='utf-8')
+    elif plan['tool'] == 'hybas':
+        sys.path.insert(0, str(source / 'workflow/lib'))
+        from hybas_report import render_report
+        (out / 'report.html').write_text(render_report(data), encoding='utf-8')
     elif plan['tool'] == 'basis':
         package_root = source if (source / 'basis/report.py').is_file() else source / 'workflow/vendor'
         sys.path.insert(0, str(package_root))

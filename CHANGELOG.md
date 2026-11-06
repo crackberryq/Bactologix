@@ -1,3 +1,8 @@
+## 0.1.0a81 — Branded HybAs reports
+
+- Discover the branded HybAs AWARE report before detailed tool reports.
+- Regenerate HybAs reports from a versioned evidence bundle or a legacy run summary, preserving original outputs and showing missing legacy detail explicitly.
+
 ## 0.1.0a80 — Regenerate reports from saved evidence
 
 - Add Regenerate report to run results for GeneScope and BaSIS, using the selected ready installed renderer.
