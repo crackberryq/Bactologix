@@ -1,3 +1,10 @@
+## 0.1.0a80 — Regenerate reports from saved evidence
+
+- Add Regenerate report to run results for GeneScope and BaSIS, using the selected ready installed renderer.
+- Preview saved-data availability, analysis and renderer versions, and known missing inputs before queuing a report-only job. HybAs/MultiQC refresh is explicitly unsupported for now.
+- Save each edition separately with the original evidence snapshot, source and renderer hashes, and provenance displayed in the HTML. Preserve original reports, run settings and analysis outputs.
+- Reject stale previews, shared follow-up evidence owned by another run, unsupported schemas and unsafe file reads. No database search, native analysis, tree construction or environment installation is launched.
+
 ## 0.1.0a79 — Restore separate application and pipeline updates
 
 - Restore Update Bactologix to application-only release selection and installation.

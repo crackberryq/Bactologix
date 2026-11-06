@@ -201,6 +201,14 @@ def dispatch(store, kind, p):
         return {'report': workstation.artifact(store, p.get('id'), 'report'), 'keep_modal': True}
     if kind == 'download_workstation':
         return {'download': workstation.artifact(store, p.get('id'), 'download'), 'keep_modal': True}
+    if kind == 'preview_report_refresh':
+        from . import report_refresh
+        return {'refresh_plan': report_refresh.inspect(store, p.get('id')), 'keep_modal': True}
+    if kind == 'regenerate_report':
+        from . import report_refresh
+        plan = report_refresh.request(store, p.get('id'), p.get('evidence_sha256'), p.get('renderer_sha256'))
+        jid = enqueue(store, 'report_refresh', plan)
+        return {'message': 'Report-only refresh queued: ' + jid, 'navigate': 'jobs'}
     if kind == "refresh":
         return {}
     if kind == 'detect_hardware':
