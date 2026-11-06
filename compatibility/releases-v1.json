@@ -153,6 +153,32 @@
         "MICPscope.smk": "854d95d758686735f4b24bf8a752c1433eba286d7a703ed4cb0e23cb3e2d0f32",
         "environment.yml": "5511d8e96980fd36304699f1b2c456d5a4f71038dd5b8aeca3c9d12712fbe772"
       }
+    },
+    {
+      "tool": "hybas",
+      "repository": "crackberryq/Bactomics_HybAs",
+      "commit": "b13bd80efab8429a03b10a6bd2b7dac25b851e4d",
+      "tag": "hybas-v9.0.1-AWARE",
+      "channel": "prerelease",
+      "adapter_interface": 1,
+      "configuration_schema": "hybas-v1",
+      "entry_points": {
+        "workflow": "Hybas.smk",
+        "environment": "environment.yaml"
+      },
+      "runner": {
+        "python": "3.11",
+        "snakemake": "9.6.2"
+      },
+      "tested": true,
+      "test_run": "https://github.com/crackberryq/Bactomics_HybAs/actions/runs/42215590381",
+      "files_sha256": {
+        "Hybas.smk": "b1447068adda9f253f6651ac330d396997c5d560ed9d5593e39964281621fd16",
+        "workflow/lib/workflow_support.py": "ca3c1f543854a0deae3f2f14a039f8c69fa61b70ff0b5b361f42557be77a1850",
+        "workflow/lib/hybas_report.py": "4747e6903c5285d34894b527ec1bdbe4102d4943fbe512151f44b55181598fcc",
+        "workflow/lib/hybas_report_assets.py": "f56c515f6777b188ab7ed77e0bfa710556d486b66b58ae7baa5dbb34a8588dfc",
+        "environment.yaml": "2cbeada5188a7661ac91eb031551347ea2fba7b5d615c2efbfd4f339f12f950d"
+      }
     }
   ]
 }
