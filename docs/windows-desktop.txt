@@ -50,3 +50,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Bactologix.ps1 -Setup -Dis
 No sample analyses are run by this installer. Native physical Windows/WSL
 acceptance remains necessary; CI checks software, isolated browsers and fixtures.
 
+
+
+Fresh-PC prerequisites (a83): Setup checks both Windows Subsystem for Linux
+and Virtual Machine Platform with administrator approval before installing
+Ubuntu. Feature changes or pending feature servicing pause setup for a Windows
+restart. Continue Bactologix Setup will not proceed on the same boot. After
+restarting, use that shortcut under your original Windows account. Ubuntu must
+start successfully before application installation can proceed. Installation
+errors now include captured WSL diagnostics; setup-windows.log is stored under
+%LOCALAPPDATA%\Bactologix. Replace old extracted installer files with the new
+Windows ZIP; updating only the Linux application does not replace that ZIP.

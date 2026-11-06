@@ -1,3 +1,11 @@
+## 0.1.0a83 — Fresh Windows prerequisites and restart handling
+
+- Check and enable both required Windows features before a new Ubuntu installation, even when wsl.exe exists and distribution listing succeeds.
+- Pause for a restart after feature changes or pending servicing, and prevent continuation on the same Windows boot.
+- Preserve Ubuntu installation diagnostics in the error dialog and capture a WSL probe when the first-launch window fails.
+- Verify Ubuntu can execute a command before proceeding with application installation. Existing distributions are preserved.
+- Download and extract the new Windows ZIP to replace an older failed installer; an application-only update does not replace that ZIP.
+
 ## 0.1.0a82 — First-time Windows and Ubuntu setup
 
 - Treat an unavailable WSL command or first-list failure with no registered distributions as a first-install path. Preserve errors when existing registrations or unreadable registration data are present.
@@ -571,6 +579,7 @@ Created by **Jimi Goldstein · Human Link**.
 - Existing external runs are not adopted for in-place resume. Jobs run sequentially; remote/HPC execution is not implemented.
 - Full biological analyses, analysis environments/databases/GPU tools, target-browser behavior and WSL2/aarch64-specific installation have not been validated in this development session.
 - This release is distributed through GitHub, not PyPI.
+
 
 
 

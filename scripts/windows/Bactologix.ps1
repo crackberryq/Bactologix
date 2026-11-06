@@ -84,11 +84,11 @@ function Write-SetupLog([string]$Message) {
     New-Item -ItemType Directory -Force -Path $script:Root | Out-Null
     [IO.File]::AppendAllText((Join-Path $script:Root 'setup-windows.log'), ([DateTime]::UtcNow.ToString('o') + ' ' + $Message + "`r`n"), $script:Utf8)
 }
-function Get-InstallOutcome([int]$Code, [string]$Stage) {
+function Get-InstallOutcome([int]$Code, [string]$Stage, [string]$Diagnostic = '') {
     if ($Code -eq 0) { return 'ready' }
     if ($Code -in @(3010,1641)) { return 'restart' }
     $hex = [BitConverter]::ToUInt32([BitConverter]::GetBytes($Code),0).ToString('X8')
-    throw "$Stage failed (exit $Code, 0x$hex). Read the Windows installation message and setup-windows.log, then retry Setup. Existing Linux distributions were not removed."
+    throw "$Stage failed (exit $Code, 0x$hex). Details: $Diagnostic See $script:Root\setup-windows.log. Existing Linux distributions were not removed."
 }
 function Invoke-SetupElevation([string]$Executable, [string[]]$Arguments) {
     try {
@@ -101,6 +101,39 @@ function Invoke-SetupElevation([string]$Executable, [string[]]$Arguments) {
         Write-SetupLog ('Windows component installation could not start: ' + $_.Exception.Message)
         throw 'Windows component setup did not finish. If administrator permission was cancelled, rerun Setup and approve the Windows prompt. See setup-windows.log for details.'
     }
+}
+function Get-WindowsBootIdentity {
+    return (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime.ToUniversalTime().ToString('o')
+}
+function Enable-WslFeatures($View) {
+    Show-Stage $View 'Checking required Windows features' 'Windows may request administrator permission to check and enable WSL and Virtual Machine Platform. Setup pauses for a restart if either feature changes.'
+    # Fixed code only: inspect actual feature states, not the presence of wsl.exe
+    # or a successful distribution listing. No user paths or names are elevated.
+    $command = @'
+$ErrorActionPreference = 'Stop'
+try {
+    $restart = $false
+    foreach ($name in @('Microsoft-Windows-Subsystem-Linux','VirtualMachinePlatform')) {
+        $feature = Get-WindowsOptionalFeature -Online -FeatureName $name
+        if ($feature.State -eq 'EnablePending' -or $feature.State -eq 'DisablePending') {
+            $restart = $true
+        } elseif ($feature.State -ne 'Enabled') {
+            $null = Enable-WindowsOptionalFeature -Online -FeatureName $name -All -NoRestart
+            # Cross a reboot even when servicing reports success without 3010.
+            $restart = $true
+        }
+    }
+    if ($restart) { exit 3010 }
+    exit 0
+} catch { Write-Error $_ -ErrorAction Continue; exit 1 }
+'@
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    $code = Invoke-SetupElevation (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') @('-NoProfile','-EncodedCommand',$encoded)
+    return Get-InstallOutcome $code 'Required Windows WSL features'
+}
+function Test-UbuntuReady([string]$Name) {
+    # Registration alone does not prove that the VM can start.
+    $null = Capture @('--distribution',$Name,'--exec','/bin/true')
 }
 function Install-WslRuntime($View, [string]$Executable) {
     Show-Stage $View 'Installing Windows WSL support' 'Windows may ask for administrator permission. Ubuntu itself will be installed under your own Windows account.'
@@ -126,7 +159,7 @@ function Install-UbuntuForCurrentUser($View, [string]$Name) {
     $null = $task.Copy.GetAwaiter().GetResult()
     try { $output = Decode-WslOutput ($task.Bytes.ToArray()) } finally { $task.Bytes.Dispose() }
     Write-SetupLog ("Ubuntu installation exit $($task.Process.ExitCode): " + $output + $task.Err.Result)
-    return Get-InstallOutcome $task.Process.ExitCode 'Ubuntu installation'
+    return Get-InstallOutcome $task.Process.ExitCode 'Ubuntu installation' ($output + ' ' + $task.Err.Result)
 }
 function Save-SetupFiles {
     New-Item -ItemType Directory -Force -Path $script:Root | Out-Null
@@ -136,7 +169,7 @@ function Save-SetupFiles {
     }
 }
 function Save-SetupContinuation([string]$Name, [string]$Phase) {
-    Write-Json (Join-Path $script:Root 'setup-state.json') @{ distro=$Name; phase=$Phase; updated=[DateTime]::UtcNow.ToString('o') }
+    Write-Json (Join-Path $script:Root 'setup-state.json') @{ distro=$Name; phase=$Phase; boot=$(if ($Phase -eq 'restart-required') { Get-WindowsBootIdentity } else { $null }); updated=[DateTime]::UtcNow.ToString('o') }
     $path = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Continue Bactologix Setup.lnk'
     $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($path)
     $shortcut.TargetPath = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -159,9 +192,21 @@ function Initialize-UbuntuUser($View, [string]$Name) {
     $task = Start-Process -FilePath (Get-WslExecutable) -ArgumentList ((@('--distribution',$Name) | ForEach-Object { Quote-Argument $_ }) -join ' ') -PassThru
     while (-not $task.WaitForExit(200)) { [Windows.Forms.Application]::DoEvents() }
     $task.Refresh()
-    if ($task.ExitCode -ne 0) { throw "Ubuntu first launch failed (exit $($task.ExitCode)). Use Continue Bactologix Setup after resolving the message shown by Ubuntu." }
+    if ($task.ExitCode -ne 0) {
+        # The interactive window may have closed. Capture a noninteractive probe
+        # so the actual WSL diagnostic remains available in the dialog and log.
+        $diagnostic = 'Ubuntu first launch did not complete.'
+        try { Test-UbuntuReady $Name } catch { $diagnostic = $_.Exception.Message }
+        Write-SetupLog ("Ubuntu first launch exit $($task.ExitCode): " + $diagnostic)
+        throw "Ubuntu first launch failed (exit $($task.ExitCode)). $diagnostic Use Continue Bactologix Setup after resolving this error."
+    }
 }
 function Prepare-Ubuntu($View, [string]$Name) {
+    $pending = Read-Json (Join-Path $script:Root 'setup-state.json')
+    if ($pending -and $pending.phase -eq 'restart-required' -and $pending.boot -and $pending.boot -eq (Get-WindowsBootIdentity)) {
+        Show-SetupRestart $View $Name
+        return $null
+    }
     $state = Get-WslSetupState
     Write-SetupLog $state.Diagnostic
     $names = @($state.Names)
@@ -182,6 +227,8 @@ function Prepare-Ubuntu($View, [string]$Name) {
         return $null
     }
     Save-SetupContinuation $Name 'windows-prerequisites'
+    $features = Enable-WslFeatures $View
+    if ($features -eq 'restart') { Show-SetupRestart $View $Name; return $null }
     if ($state.NeedsRuntime) {
         $outcome = Install-WslRuntime $View $state.Executable
         if ($outcome -eq 'restart') { Show-SetupRestart $View $Name; return $null }
@@ -376,6 +423,7 @@ function Install-Desktop($View) {
     $prepared = Prepare-Ubuntu $View $Distro
     if (-not $prepared) { return }
     $Distro = $prepared
+    Test-UbuntuReady $Distro
     if ((Capture @('--distribution',$Distro,'--exec','id','-u')) -eq '0') {
         throw 'Ubuntu is using root. Open Ubuntu and finish creating your regular Linux user, then rerun Setup. Bactologix is installed as that user.'
     }
@@ -503,4 +551,5 @@ if (-not $TestMode) {
         [Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Bactologix', 'OK', 'Warning') | Out-Null
     } finally { $script:AllowClose = $true; $view.Form.Close(); $view.Form.Dispose() }
 }
+
 

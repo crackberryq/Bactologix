@@ -49,10 +49,13 @@ try {
         Assert ($message -like '*Could not read installed WSL distributions*fixture WSL detection error*') 'Detection failure was treated as missing Ubuntu'
     } finally { Set-Item Function:Capture $originalCapture }
     # First-install paths are mocked; CI never enables features, installs a distro or reboots.
-    $setupFunctions = @('Get-WslExecutable','Get-RegisteredDistributions','Get-InstalledDistributions','Get-WslSetupState','Confirm-UbuntuInstall','Install-WslRuntime','Install-UbuntuForCurrentUser','Save-SetupContinuation','Show-SetupRestart','Initialize-UbuntuUser','Write-SetupLog','Show-Stage')
+    $setupFunctions = @('Enable-WslFeatures','Get-WindowsBootIdentity','Read-Json','Invoke-SetupElevation','Get-WslExecutable','Get-RegisteredDistributions','Get-InstalledDistributions','Get-WslSetupState','Confirm-UbuntuInstall','Install-WslRuntime','Install-UbuntuForCurrentUser','Save-SetupContinuation','Show-SetupRestart','Initialize-UbuntuUser','Write-SetupLog','Show-Stage')
     $savedSetupFunctions = @{}
     foreach ($name in $setupFunctions) { $savedSetupFunctions[$name] = (Get-Item "Function:$name").ScriptBlock }
     try {
+        function Read-Json { param($Path) return $script:PendingSetup }
+        function Get-WindowsBootIdentity { return 'boot-now' }
+        $script:PendingSetup = $null
         function Get-WslExecutable { return $null }
         function Get-RegisteredDistributions { return @() }
         $state = Get-WslSetupState
@@ -74,8 +77,34 @@ try {
         $message = ''
         try { Get-InstallOutcome 5 'Fixture' } catch { $message = $_.Exception.Message }
         Assert ($message -match 'exit 5, 0x00000005') 'Installation failure lost its exit code'
+        $message = ''
+        try { Get-InstallOutcome -1 'Ubuntu installation' 'WSL_E_VIRTUAL_MACHINE_PLATFORM_REQUIRED' } catch { $message = $_.Exception.Message }
+        Assert ($message -match '0xFFFFFFFF' -and $message -match 'WSL_E_VIRTUAL_MACHINE_PLATFORM_REQUIRED') 'Underlying WSL error was discarded'
         function Write-SetupLog { param($Message) }
         function Show-Stage { param($View,$Title,$Detail) }
+        # Execute the real elevated feature script in a separate PowerShell
+        # process with mocked servicing commands; never modify the CI machine.
+        function Invoke-SetupElevation {
+            param($Executable,$Arguments)
+            $command = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($Arguments[-1]))
+            $fixture = '$fixtureState = ' + ("'" + $script:FeatureState + "'; ") + @'
+function Get-WindowsOptionalFeature { param($Online,$FeatureName) return @{State=$fixtureState} }
+function Enable-WindowsOptionalFeature { param($Online,$FeatureName,$All,$NoRestart) throw 'Unexpected real feature enable' }
+'@
+            # Switch-compatible mocked functions and a marker for disabled state.
+            $fixture = $fixture.Replace('param($Online,$FeatureName)', 'param([switch]$Online,$FeatureName)').Replace('param($Online,$FeatureName,$All,$NoRestart)', 'param([switch]$Online,$FeatureName,[switch]$All,[switch]$NoRestart)')
+            if ($script:FeatureState -eq 'Disabled') { $fixture = $fixture.Replace("throw 'Unexpected real feature enable'", 'return @{RestartNeeded=$false}') }
+            $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($fixture + "`n" + $command))
+            $process = Start-Process $Executable -ArgumentList @('-NoProfile','-EncodedCommand',$encoded) -Wait -PassThru -WindowStyle Hidden
+            return $process.ExitCode
+        }
+        foreach ($featureState in @('Enabled','Disabled','EnablePending','DisablePending')) {
+            $script:FeatureState = $featureState
+            $expected = if ($featureState -eq 'Enabled') { 'ready' } else { 'restart' }
+            Assert ((Enable-WslFeatures $null) -eq $expected) ('Feature servicing state mishandled: ' + $featureState)
+        }
+        function Enable-WslFeatures { param($View) $script:SetupCalls += 'features'; return $script:FeatureOutcome }
+        $script:FeatureOutcome = 'ready'
         function Save-SetupContinuation { param($Name,$Phase) $script:SetupPhases += $Phase }
         function Show-SetupRestart { param($View,$Name) $script:SetupCalls += 'restart' }
         function Confirm-UbuntuInstall { param($Name) return $script:SetupConsent }
@@ -87,16 +116,26 @@ try {
         $script:SetupState = @{Names=@();NeedsRuntime=$true;Executable='wsl.exe';Diagnostic='fresh fixture'}
         $script:SetupConsent=$true; $script:SetupCalls=@(); $script:SetupPhases=@(); $script:RuntimeOutcome='restart'; $script:DistroOutcome='ready'
         $answer = Prepare-Ubuntu $null 'Ubuntu'
-        Assert (-not $answer -and ($script:SetupCalls -join ',') -eq 'runtime,restart') 'Runtime reboot continued into Ubuntu or app installation'
+        Assert (-not $answer -and ($script:SetupCalls -join ',') -eq 'features,runtime,restart') 'Runtime reboot continued into Ubuntu or app installation'
         $script:SetupCalls=@(); $script:RuntimeOutcome='ready'
         $answer = Prepare-Ubuntu $null 'Ubuntu'
-        Assert ($answer -eq 'Ubuntu' -and ($script:SetupCalls -join ',') -eq 'runtime,ubuntu-current-user,initialize') 'Fresh setup did not install and initialize Ubuntu for the current user'
+        Assert ($answer -eq 'Ubuntu' -and ($script:SetupCalls -join ',') -eq 'features,runtime,ubuntu-current-user,initialize') 'Fresh setup did not install and initialize Ubuntu for the current user'
         $script:SetupCalls=@(); $script:SetupConsent=$false
         $answer = Prepare-Ubuntu $null 'Ubuntu'
         Assert (-not $answer -and $script:SetupCalls.Count -eq 0) 'Declining installation still installed components'
         $script:SetupCalls=@(); $script:SetupConsent=$true; $script:SetupState.NeedsRuntime=$false; $script:DistroOutcome='restart'
         $answer = Prepare-Ubuntu $null 'Ubuntu'
-        Assert (-not $answer -and ($script:SetupCalls -join ',') -eq 'ubuntu-current-user,restart') 'Distro reboot was ignored'
+        Assert (-not $answer -and ($script:SetupCalls -join ',') -eq 'features,ubuntu-current-user,restart') 'Distro reboot was ignored'
+        $script:SetupCalls=@(); $script:FeatureOutcome='restart'; $script:DistroOutcome='ready'
+        $answer = Prepare-Ubuntu $null 'Ubuntu'
+        Assert (-not $answer -and ($script:SetupCalls -join ',') -eq 'features,restart') 'Successful WSL listing bypassed disabled Windows features'
+        $script:SetupCalls=@(); $script:PendingSetup=@{phase='restart-required';boot='boot-now'}
+        $answer = Prepare-Ubuntu $null 'Ubuntu'
+        Assert (-not $answer -and ($script:SetupCalls -join ',') -eq 'restart') 'Continuation before reboot ran installation'
+        $script:SetupCalls=@(); $script:PendingSetup=@{phase='restart-required';boot='previous-boot'}; $script:FeatureOutcome='ready'
+        $answer = Prepare-Ubuntu $null 'Ubuntu'
+        Assert ($answer -eq 'Ubuntu' -and ($script:SetupCalls -join ',') -eq 'features,ubuntu-current-user,initialize') 'Continuation after reboot did not resume'
+        $script:PendingSetup=$null
         $script:SetupCalls=@(); $script:SetupState.Names=@('Ubuntu-24.04')
         $answer = Prepare-Ubuntu $null 'Ubuntu'
         Assert ($answer -eq 'Ubuntu-24.04' -and $script:SetupCalls.Count -eq 0) 'Existing Ubuntu was unnecessarily reinstalled'
@@ -193,4 +232,5 @@ public static class ControlFileFixture {
     foreach ($profile in $profiles) { Close-OwnedBrowser $profile }
     foreach ($view in $views) { $view.Form.Close(); $view.Form.Dispose() }
 }
+
 
