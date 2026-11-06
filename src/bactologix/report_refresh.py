@@ -17,6 +17,8 @@ def digest(path):
 
 def renderer_identity(source, tool):
     root = Path(source) / ('src/micpscope' if tool == 'micpscope' else 'basis')
+    if tool == 'basis' and not (root / 'report.py').is_file():
+        root = Path(source) / 'workflow/vendor/basis'
     if not (root / 'report.py').is_file():
         raise ValueError('This installed version has no supported saved-data renderer. Update this pipeline first.')
     hashes = {}

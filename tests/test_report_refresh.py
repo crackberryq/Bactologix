@@ -86,12 +86,13 @@ def test_missing_invalid_symlink_and_unsupported_inputs_are_explained(fixture):
     assert 'not yet' in r.inspect(store,run['id'])['reasons'][0]
 
 
-def test_basis_contract_and_renderer_use_saved_bundle(fixture):
+@pytest.mark.parametrize("layout", ["basis", "workflow/vendor/basis"])
+def test_basis_contract_and_renderer_use_saved_bundle(fixture, layout):
     store,run,_,source=fixture
     run['tool']='basis';store.put('runs',run['id'],run)
     install=store.get('installs','renderer');install['tool']='basis';store.put('installs','renderer',install)
     store.put('settings','active-basis','renderer')
-    package=source/'basis';package.mkdir();(package/'__init__.py').write_text('')
+    package=source/layout;package.mkdir(parents=True);(package/'__init__.py').write_text('')
     (package/'report.py').write_text('def write_report(run,samples,records,deep_records,outdir):\n    (outdir / "report.html").write_text("<html><body><main>Saved BaSIS fixture</main></body></html>")\n')
     path=Path(run['output'])/'safety';path.mkdir()
     evidence=path/'evidence.json';evidence.write_text(json.dumps(dict(schema_version='basis-report-1',run={'version':'basis-old'},samples=[],records=[],deep_records=[])))

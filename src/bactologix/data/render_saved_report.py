@@ -16,7 +16,8 @@ def render(snapshot, plan_file, outdir):
         from micpscope.report import render_report
         (out / 'report.html').write_text(render_report(data), encoding='utf-8')
     elif plan['tool'] == 'basis':
-        sys.path.insert(0, str(source))
+        package_root = source if (source / 'basis/report.py').is_file() else source / 'workflow/vendor'
+        sys.path.insert(0, str(package_root))
         from basis.report import write_report
         write_report(data['run'], data['samples'], data['records'], data['deep_records'], out)
     else:
