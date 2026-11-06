@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-04",
+  "updated_at": "2026-11-06",
   "releases": [
     {
       "tool": "basis",
@@ -126,6 +126,29 @@
       },
       "tested": true,
       "test_run": "https://github.com/crackberryq/Bactomics_GeneScope/actions/runs/41916243617",
+      "files_sha256": {
+        "MICPscope.smk": "854d95d758686735f4b24bf8a752c1433eba286d7a703ed4cb0e23cb3e2d0f32",
+        "environment.yml": "5511d8e96980fd36304699f1b2c456d5a4f71038dd5b8aeca3c9d12712fbe772"
+      }
+    },
+    {
+      "tool": "micpscope",
+      "repository": "crackberryq/Bactomics_GeneScope",
+      "commit": "cffb4212f8466560d0d071c3dea0cbfd11e08d22",
+      "tag": "genescope-v0.1.0a15",
+      "channel": "prerelease",
+      "adapter_interface": 1,
+      "configuration_schema": "micpscope-v1",
+      "entry_points": {
+        "workflow": "MICPscope.smk",
+        "environment": "environment.yml"
+      },
+      "runner": {
+        "python": "3.11",
+        "snakemake": "9.6.2"
+      },
+      "tested": true,
+      "test_run": "https://github.com/crackberryq/Bactomics_GeneScope/actions/runs/42211316875",
       "files_sha256": {
         "MICPscope.smk": "854d95d758686735f4b24bf8a752c1433eba286d7a703ed4cb0e23cb3e2d0f32",
         "environment.yml": "5511d8e96980fd36304699f1b2c456d5a4f71038dd5b8aeca3c9d12712fbe772"
