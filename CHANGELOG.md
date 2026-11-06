@@ -1,3 +1,11 @@
+## 0.1.0a82 — First-time Windows and Ubuntu setup
+
+- Treat an unavailable WSL command or first-list failure with no registered distributions as a first-install path. Preserve errors when existing registrations or unreadable registration data are present.
+- Separate elevated Windows-component setup from Ubuntu registration under the original Windows account.
+- Check installation exit codes, retain Windows diagnostics, and create a Continue Bactologix Setup shortcut before reboot or initialization steps. Never restart Windows automatically.
+- Guide Ubuntu user initialization and verify registration before proceeding to Conda/application setup.
+- Add Windows CI fixtures for virgin PCs, failed detection, consent, reboot, current-user installation and existing Ubuntu reuse. Physical fresh-PC validation remains necessary.
+
 ## 0.1.0a81 — Branded HybAs reports
 
 - Discover the branded HybAs AWARE report before detailed tool reports.

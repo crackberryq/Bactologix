@@ -48,6 +48,63 @@ try {
         try { Get-InstalledDistributions } catch { $message = $_.Exception.Message }
         Assert ($message -like '*Could not read installed WSL distributions*fixture WSL detection error*') 'Detection failure was treated as missing Ubuntu'
     } finally { Set-Item Function:Capture $originalCapture }
+    # First-install paths are mocked; CI never enables features, installs a distro or reboots.
+    $setupFunctions = @('Get-WslExecutable','Get-RegisteredDistributions','Get-InstalledDistributions','Get-WslSetupState','Confirm-UbuntuInstall','Install-WslRuntime','Install-UbuntuForCurrentUser','Save-SetupContinuation','Show-SetupRestart','Initialize-UbuntuUser','Write-SetupLog','Show-Stage')
+    $savedSetupFunctions = @{}
+    foreach ($name in $setupFunctions) { $savedSetupFunctions[$name] = (Get-Item "Function:$name").ScriptBlock }
+    try {
+        function Get-WslExecutable { return $null }
+        function Get-RegisteredDistributions { return @() }
+        $state = Get-WslSetupState
+        Assert ($state.NeedsRuntime -and $state.Names.Count -eq 0 -and -not $state.Executable) 'Virgin Windows PC did not enter runtime installation'
+        function Get-WslExecutable { return 'wsl.exe' }
+        function Get-InstalledDistributions { throw 'WSL is not installed yet' }
+        $state = Get-WslSetupState
+        Assert ($state.NeedsRuntime -and $state.Diagnostic -match 'not installed') 'First-list failure blocked fresh setup'
+        function Get-RegisteredDistributions { return @('Ubuntu') }
+        $message = ''
+        try { Get-WslSetupState } catch { $message = $_.Exception.Message }
+        Assert ($message -match 'not installed') 'Existing registration failure was misclassified as a fresh PC'
+        function Get-RegisteredDistributions { throw 'Registry access denied' }
+        $message = ''
+        try { Get-WslSetupState } catch { $message = $_.Exception.Message }
+        Assert ($message -match 'Registry access denied') 'Unreadable registration was treated as empty'
+        Assert ((Get-InstallOutcome 0 'Fixture') -eq 'ready') 'Success exit code misclassified'
+        Assert ((Get-InstallOutcome 3010 'Fixture') -eq 'restart') 'Restart exit code misclassified'
+        $message = ''
+        try { Get-InstallOutcome 5 'Fixture' } catch { $message = $_.Exception.Message }
+        Assert ($message -match 'exit 5, 0x00000005') 'Installation failure lost its exit code'
+        function Write-SetupLog { param($Message) }
+        function Show-Stage { param($View,$Title,$Detail) }
+        function Save-SetupContinuation { param($Name,$Phase) $script:SetupPhases += $Phase }
+        function Show-SetupRestart { param($View,$Name) $script:SetupCalls += 'restart' }
+        function Confirm-UbuntuInstall { param($Name) return $script:SetupConsent }
+        function Install-WslRuntime { param($View,$Executable) $script:SetupCalls += 'runtime'; return $script:RuntimeOutcome }
+        function Install-UbuntuForCurrentUser { param($View,$Name) $script:SetupCalls += 'ubuntu-current-user'; return $script:DistroOutcome }
+        function Initialize-UbuntuUser { param($View,$Name) $script:SetupCalls += 'initialize' }
+        function Get-InstalledDistributions { return @('Ubuntu') }
+        function Get-WslSetupState { return $script:SetupState }
+        $script:SetupState = @{Names=@();NeedsRuntime=$true;Executable='wsl.exe';Diagnostic='fresh fixture'}
+        $script:SetupConsent=$true; $script:SetupCalls=@(); $script:SetupPhases=@(); $script:RuntimeOutcome='restart'; $script:DistroOutcome='ready'
+        $answer = Prepare-Ubuntu $null 'Ubuntu'
+        Assert (-not $answer -and ($script:SetupCalls -join ',') -eq 'runtime,restart') 'Runtime reboot continued into Ubuntu or app installation'
+        $script:SetupCalls=@(); $script:RuntimeOutcome='ready'
+        $answer = Prepare-Ubuntu $null 'Ubuntu'
+        Assert ($answer -eq 'Ubuntu' -and ($script:SetupCalls -join ',') -eq 'runtime,ubuntu-current-user,initialize') 'Fresh setup did not install and initialize Ubuntu for the current user'
+        $script:SetupCalls=@(); $script:SetupConsent=$false
+        $answer = Prepare-Ubuntu $null 'Ubuntu'
+        Assert (-not $answer -and $script:SetupCalls.Count -eq 0) 'Declining installation still installed components'
+        $script:SetupCalls=@(); $script:SetupConsent=$true; $script:SetupState.NeedsRuntime=$false; $script:DistroOutcome='restart'
+        $answer = Prepare-Ubuntu $null 'Ubuntu'
+        Assert (-not $answer -and ($script:SetupCalls -join ',') -eq 'ubuntu-current-user,restart') 'Distro reboot was ignored'
+        $script:SetupCalls=@(); $script:SetupState.Names=@('Ubuntu-24.04')
+        $answer = Prepare-Ubuntu $null 'Ubuntu'
+        Assert ($answer -eq 'Ubuntu-24.04' -and $script:SetupCalls.Count -eq 0) 'Existing Ubuntu was unnecessarily reinstalled'
+        Write-Output 'Fresh-PC setup state tests passed: missing WSL, first-list failure, existing-registration errors, consent, reboot, current-user installation and Ubuntu reuse.'
+    } finally {
+        foreach ($name in $setupFunctions) { Set-Item "Function:$name" $savedSetupFunctions[$name] }
+    }
+
     $scriptPath = Join-Path $repo 'scripts/windows/Bactologix.ps1'
     $tokens=$null; $errors=$null
     $null = [Management.Automation.Language.Parser]::ParseFile($scriptPath,[ref]$tokens,[ref]$errors)
@@ -136,3 +193,4 @@ public static class ControlFileFixture {
     foreach ($profile in $profiles) { Close-OwnedBrowser $profile }
     foreach ($view in $views) { $view.Form.Close(); $view.Form.Dispose() }
 }
+

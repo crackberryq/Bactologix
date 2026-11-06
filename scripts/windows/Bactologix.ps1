@@ -47,24 +47,175 @@ function Decode-WslOutput([byte[]]$Bytes) {
     else { $encoding = [Text.Encoding]::UTF8 }
     return $encoding.GetString($Bytes).Trim([char]0xFEFF).Trim()
 }
+function Get-WslExecutable {
+    foreach ($directory in @('Sysnative','System32')) {
+        $path = Join-Path $env:WINDIR "$directory\wsl.exe"
+        if (Test-Path -LiteralPath $path) { return $path }
+    }
+    return $null
+}
+function Get-RegisteredDistributions {
+    # Registration is per Windows user. Never inspect another administrator's hive.
+    $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss'
+    if (-not (Test-Path -LiteralPath $key -ErrorAction Stop)) { return @() }
+    return @(Get-ChildItem -LiteralPath $key -ErrorAction Stop | ForEach-Object {
+        $item = Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction Stop
+        if ($item.DistributionName) { [string]$item.DistributionName }
+    })
+}
+function Get-WslSetupState {
+    $registered = @(Get-RegisteredDistributions)
+    $executable = Get-WslExecutable
+    if (-not $executable) {
+        if ($registered.Count) { throw 'Existing Linux distributions are registered, but wsl.exe is missing. Repair Windows WSL first; Setup will not replace existing distributions.' }
+        return @{Names=@(); NeedsRuntime=$true; Executable=$null; Diagnostic='Windows WSL command is not installed.'}
+    }
+    try {
+        $names = @(Get-InstalledDistributions)
+        return @{Names=$names; NeedsRuntime=$false; Executable=$executable; Diagnostic='WSL distribution listing succeeded.'}
+    } catch {
+        if ($registered.Count) { throw }
+        # A fresh PC can return nonzero for --list before WSL or a distro exists.
+        # Preserve the diagnostic, then offer first-time setup instead of aborting.
+        return @{Names=@(); NeedsRuntime=$true; Executable=$executable; Diagnostic=$_.Exception.Message}
+    }
+}
+function Write-SetupLog([string]$Message) {
+    New-Item -ItemType Directory -Force -Path $script:Root | Out-Null
+    [IO.File]::AppendAllText((Join-Path $script:Root 'setup-windows.log'), ([DateTime]::UtcNow.ToString('o') + ' ' + $Message + "`r`n"), $script:Utf8)
+}
+function Get-InstallOutcome([int]$Code, [string]$Stage) {
+    if ($Code -eq 0) { return 'ready' }
+    if ($Code -in @(3010,1641)) { return 'restart' }
+    $hex = [BitConverter]::ToUInt32([BitConverter]::GetBytes($Code),0).ToString('X8')
+    throw "$Stage failed (exit $Code, 0x$hex). Read the Windows installation message and setup-windows.log, then retry Setup. Existing Linux distributions were not removed."
+}
+function Invoke-SetupElevation([string]$Executable, [string[]]$Arguments) {
+    try {
+        $task = Start-Process -FilePath $Executable -ArgumentList (($Arguments | ForEach-Object { Quote-Argument $_ }) -join ' ') -Verb RunAs -PassThru
+        while (-not $task.WaitForExit(200)) { [Windows.Forms.Application]::DoEvents() }
+        $task.Refresh()
+        Write-SetupLog ('Windows component installation exited: ' + $task.ExitCode)
+        return $task.ExitCode
+    } catch {
+        Write-SetupLog ('Windows component installation could not start: ' + $_.Exception.Message)
+        throw 'Windows component setup did not finish. If administrator permission was cancelled, rerun Setup and approve the Windows prompt. See setup-windows.log for details.'
+    }
+}
+function Install-WslRuntime($View, [string]$Executable) {
+    Show-Stage $View 'Installing Windows WSL support' 'Windows may ask for administrator permission. Ubuntu itself will be installed under your own Windows account.'
+    if (-not $Executable) {
+        # Fixed Windows command only; no downloaded or user-controlled elevated script.
+        $command = '$ErrorActionPreference = "Stop"; try { $result = Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux,VirtualMachinePlatform -All -NoRestart; if ($result.RestartNeeded) { exit 3010 }; exit 0 } catch { Write-Error $_; exit 1 }'
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        $code = Invoke-SetupElevation (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') @('-NoProfile','-EncodedCommand',$encoded)
+        $null = Get-InstallOutcome $code 'Windows WSL features'
+        # Even success must cross a reboot before relying on freshly enabled features.
+        return 'restart'
+    }
+    $code = Invoke-SetupElevation $Executable @('--install','--no-distribution')
+    return Get-InstallOutcome $code 'Windows WSL runtime'
+}
+function Install-UbuntuForCurrentUser($View, [string]$Name) {
+    Show-Stage $View 'Installing Ubuntu' "Downloading $Name for your Windows account. This can take several minutes."
+    $executable = Get-WslExecutable
+    if (-not $executable) { throw 'WSL is not available yet. Restart Windows and use Continue Bactologix Setup.' }
+    # Do not elevate distribution registration: a different admin account has a different WSL registry.
+    $task = Start-Owned $executable @('--install','--distribution',$Name,'--no-launch') -Unicode
+    while (-not $task.Process.WaitForExit(200)) { [Windows.Forms.Application]::DoEvents() }
+    $null = $task.Copy.GetAwaiter().GetResult()
+    try { $output = Decode-WslOutput ($task.Bytes.ToArray()) } finally { $task.Bytes.Dispose() }
+    Write-SetupLog ("Ubuntu installation exit $($task.Process.ExitCode): " + $output + $task.Err.Result)
+    return Get-InstallOutcome $task.Process.ExitCode 'Ubuntu installation'
+}
+function Save-SetupFiles {
+    New-Item -ItemType Directory -Force -Path $script:Root | Out-Null
+    foreach ($name in @('Bactologix.ps1','Bactologix.vbs','Bactologix.cmd','Bactologix-Setup.cmd','install_bactologix.py','brand.ico','brand.png')) {
+        $source = Join-Path $PSScriptRoot $name; $target = Join-Path $script:Root $name
+        if ([IO.Path]::GetFullPath($source) -ne [IO.Path]::GetFullPath($target)) { Copy-Item -LiteralPath $source -Destination $target -Force }
+    }
+}
+function Save-SetupContinuation([string]$Name, [string]$Phase) {
+    Write-Json (Join-Path $script:Root 'setup-state.json') @{ distro=$Name; phase=$Phase; updated=[DateTime]::UtcNow.ToString('o') }
+    $path = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Continue Bactologix Setup.lnk'
+    $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($path)
+    $shortcut.TargetPath = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $shortcut.Arguments = (@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $script:Root 'Bactologix.ps1'),'-Setup','-Distro',$Name) | ForEach-Object { Quote-Argument $_ }) -join ' '
+    $shortcut.WorkingDirectory = $script:Root
+    $shortcut.IconLocation = (Join-Path $script:Root 'brand.ico') + ',0'
+    $shortcut.Save()
+}
+function Show-SetupRestart($View, [string]$Name) {
+    Save-SetupContinuation $Name 'restart-required'
+    Show-Stage $View 'Restart Windows to continue' 'Save your work and restart Windows. Then double-click Continue Bactologix Setup on your desktop. Your progress is saved.'
+    [Windows.Forms.MessageBox]::Show('Windows needs a restart before setup can continue. Save your work, restart, then use the Continue Bactologix Setup desktop shortcut. Bactologix will not restart your PC automatically.', 'Bactologix setup', 'OK','Information') | Out-Null
+}
+function Confirm-UbuntuInstall([string]$Name) {
+    return ([Windows.Forms.MessageBox]::Show("Set up Windows WSL and install $Name now? Windows may request administrator permission and a restart. Existing Linux distributions will be kept.", 'Bactologix setup', 'YesNo','Question') -eq 'Yes')
+}
+function Initialize-UbuntuUser($View, [string]$Name) {
+    Show-Stage $View 'Create your Ubuntu account' 'In the Ubuntu window, finish creating your Linux username and password. Then type exit to return here. Your password is not collected by Bactologix.'
+    [Windows.Forms.MessageBox]::Show('Ubuntu will open in a separate window. Complete its first-launch instructions to create a regular Linux user. When you reach the Linux prompt, type exit. Setup will then continue.', 'Ubuntu first launch', 'OK','Information') | Out-Null
+    $task = Start-Process -FilePath (Get-WslExecutable) -ArgumentList ((@('--distribution',$Name) | ForEach-Object { Quote-Argument $_ }) -join ' ') -PassThru
+    while (-not $task.WaitForExit(200)) { [Windows.Forms.Application]::DoEvents() }
+    $task.Refresh()
+    if ($task.ExitCode -ne 0) { throw "Ubuntu first launch failed (exit $($task.ExitCode)). Use Continue Bactologix Setup after resolving the message shown by Ubuntu." }
+}
+function Prepare-Ubuntu($View, [string]$Name) {
+    $state = Get-WslSetupState
+    Write-SetupLog $state.Diagnostic
+    $names = @($state.Names)
+    if ($Name -eq 'Ubuntu' -and $Name -notin $names) {
+        $existing = @($names | Where-Object { $_ -like 'Ubuntu*' })
+        if ($existing.Count) { $Name = $existing[0] }
+    }
+    if ($Name -in $names) {
+        $pending = Read-Json (Join-Path $script:Root 'setup-state.json')
+        if ($pending -and $pending.distro -eq $Name -and $pending.phase -eq 'ubuntu-user-initialization') { Initialize-UbuntuUser $View $Name }
+        return $Name
+    }
+    if (-not [Environment]::Is64BitOperatingSystem -or [Environment]::OSVersion.Version.Build -lt 19041) {
+        throw 'First-time setup requires 64-bit Windows 10 build 19041 or newer, or Windows 11. Update Windows, then rerun Setup.'
+    }
+    if (-not (Confirm-UbuntuInstall $Name)) {
+        Show-Stage $View 'Setup paused' 'Nothing was installed. Run Bactologix Setup again when you are ready.'
+        return $null
+    }
+    Save-SetupContinuation $Name 'windows-prerequisites'
+    if ($state.NeedsRuntime) {
+        $outcome = Install-WslRuntime $View $state.Executable
+        if ($outcome -eq 'restart') { Show-SetupRestart $View $Name; return $null }
+    }
+    Save-SetupContinuation $Name 'ubuntu-installation'
+    $outcome = Install-UbuntuForCurrentUser $View $Name
+    if ($outcome -eq 'restart') { Show-SetupRestart $View $Name; return $null }
+    Save-SetupContinuation $Name 'ubuntu-user-initialization'
+    Initialize-UbuntuUser $View $Name
+    $names = @(Get-InstalledDistributions)
+    if ($Name -notin $names) { throw "Ubuntu installation did not register $Name for this Windows account. See setup-windows.log; setup has not been marked complete." }
+    return $Name
+}
+
 function Get-InstalledDistributions {
     try { $output = Capture @('--list','--quiet') -Unicode }
-    catch { throw ('Could not read installed WSL distributions. No Ubuntu installation was requested. Run wsl --list --verbose in Windows to check WSL, then retry Setup. Details: ' + $_.Exception.Message) }
+    catch { throw ('Could not read installed WSL distributions. Details: ' + $_.Exception.Message) }
     return @($output -split "`r?`n" | ForEach-Object { $_.Trim().Trim([char]0xFEFF) } | Where-Object { $_ })
 }
 function Capture([string[]]$Arguments, [switch]$Unicode) {
-    $task = Start-Owned 'wsl.exe' $Arguments -Unicode:$Unicode
+    $executable = Get-WslExecutable
+    if (-not $executable) { throw 'Windows WSL command is not installed.' }
+    $task = Start-Owned $executable $Arguments -Unicode:$Unicode
     $deadline = [Diagnostics.Stopwatch]::StartNew()
     while (-not $task.Process.WaitForExit(100)) {
         [Windows.Forms.Application]::DoEvents()
         if ($deadline.Elapsed.TotalSeconds -gt 45) { $task.Process.Kill(); throw 'Ubuntu did not respond. Open Ubuntu to finish initialization, then retry.' }
     }
-    if ($task.Process.ExitCode -ne 0) { throw $task.Err.Result }
     if ($Unicode) {
         $null = $task.Copy.GetAwaiter().GetResult()
-        try { return Decode-WslOutput $task.Bytes.ToArray() } finally { $task.Bytes.Dispose() }
-    }
-    return $task.Out.Result.Trim().Replace([string][char]0, '')
+        try { $output = Decode-WslOutput ($task.Bytes.ToArray()) } finally { $task.Bytes.Dispose() }
+    } else { $output = $task.Out.Result.Trim().Replace([string][char]0, '') }
+    if ($task.Process.ExitCode -ne 0) { throw ("WSL exit $($task.Process.ExitCode): " + $output + ' ' + $task.Err.Result) }
+    return $output
 }
 function Write-Json([string]$Path, $Value) {
     $temporary = $Path + '.' + [Guid]::NewGuid().ToString('N') + '.writing'
@@ -221,31 +372,18 @@ function Save-Log($Task, [string]$Path) {
 }
 function Install-Desktop($View) {
     Show-Stage $View 'Checking Windows and Ubuntu' 'Checking the installed WSL distributions. Administrator prompts appear only when Windows needs them.'
-    $names = @(Get-InstalledDistributions)
-    if ($Distro -eq 'Ubuntu' -and $Distro -notin $names) {
-        $existing = @($names | Where-Object { $_ -like 'Ubuntu*' })
-        if ($existing.Count -gt 0) { $Distro = $existing[0] }
-    }
-    if ($Distro -notin $names) {
-        $answer = [Windows.Forms.MessageBox]::Show("Ubuntu ($Distro) is not installed. Install it now? Windows may request administrator permission and a restart.", 'Bactologix setup', 'YesNo','Question')
-        if ($answer -eq 'Yes') {
-            $install = Start-Process wsl.exe -ArgumentList ('--install --distribution ' + (Quote-Argument $Distro) + ' --no-launch') -Verb RunAs -PassThru
-            while (-not $install.WaitForExit(200)) { [Windows.Forms.Application]::DoEvents() }
-        }
-        throw "Finish Windows' WSL installation, restart Windows if requested, then open Ubuntu once to create your Linux username and password. Run Bactologix Setup again afterwards."
-    }
+    Save-SetupFiles
+    $prepared = Prepare-Ubuntu $View $Distro
+    if (-not $prepared) { return }
+    $Distro = $prepared
     if ((Capture @('--distribution',$Distro,'--exec','id','-u')) -eq '0') {
         throw 'Ubuntu is using root. Open Ubuntu and finish creating your regular Linux user, then rerun Setup. Bactologix is installed as that user.'
     }
+    Save-SetupContinuation $Distro 'application-installation'
     Show-Stage $View 'Ubuntu is ready' "Using $Distro as your regular Linux user. Checking prerequisites."
     $null = Find-Browser
     try { $null = Capture @('--distribution',$Distro,'--exec','python3','--version') }
     catch { throw 'Ubuntu needs Python 3. Open Ubuntu and run: sudo apt update && sudo apt install -y python3 git ca-certificates . Then rerun Setup.' }
-    New-Item -ItemType Directory -Force -Path $script:Root | Out-Null
-    foreach ($name in @('Bactologix.ps1','Bactologix.vbs','Bactologix.cmd','Bactologix-Setup.cmd','install_bactologix.py','brand.ico','brand.png')) {
-        $source = Join-Path $PSScriptRoot $name; $target = Join-Path $script:Root $name
-        if ([IO.Path]::GetFullPath($source) -ne [IO.Path]::GetFullPath($target)) { Copy-Item -LiteralPath $source -Destination $target -Force }
-    }
     $linuxRoot = Capture @('--distribution',$Distro,'--exec','wslpath','-u',$script:Root)
     $result = Join-Path $script:Root 'setup-result.json'
     Remove-Item -LiteralPath $result -ErrorAction SilentlyContinue
@@ -267,6 +405,8 @@ function Install-Desktop($View) {
     $null = Capture @('--distribution',$Distro,'--exec',$installed.python,'-c','import bactologix.desktop')
     Write-Json (Join-Path $script:Root 'installation.json') @{ distro=$Distro; python=$installed.python }
     New-Shortcut $script:Root (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Bactologix.lnk')
+    Write-Json (Join-Path $script:Root 'setup-state.json') @{ distro=$Distro; phase='complete' }
+    Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Continue Bactologix Setup.lnk') -ErrorAction SilentlyContinue
     Show-Stage $View 'Ready for your next discovery' 'Bactologix is installed. Use the desktop shortcut for a silent Ubuntu launch and controlled shutdown.'
     $View.Bar.Style = 'Continuous'; $View.Bar.Value = 100
     $View.Steps.Text = 'Ubuntu checked   |   Environment ready   |   Shortcut created'
@@ -363,3 +503,4 @@ if (-not $TestMode) {
         [Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Bactologix', 'OK', 'Warning') | Out-Null
     } finally { $script:AllowClose = $true; $view.Form.Close(); $view.Form.Dispose() }
 }
+
