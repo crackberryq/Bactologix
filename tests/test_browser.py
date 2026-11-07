@@ -2560,3 +2560,55 @@ def test_genescope_custom_database_label(tmp_path):
         expect(page.get_by_text('A different application',exact=True)).to_be_visible()
         browser.close()
 
+
+
+# Reuse the software-only paused-run fixture; no biological jobs are executed.
+from test_identification import paused
+from test_native import workspace, installation, sample
+
+
+def test_identification_review_target_preview_and_saved_choice(paused, monkeypatch):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import dispatch, snapshot
+    from bactologix import identification
+    store, run = paused
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1000})
+        errors=[];page.on('pageerror',lambda error: errors.append(str(error)))
+        render_component(page,store)
+        page.get_by_role('link',name='Runs',exact=True).click()
+        page.locator('[data-action="review-identification"]').click()
+        def respond():
+            req=page.evaluate('window.acceptanceEvents.at(-1).value')
+            result=dispatch(store,req['kind'],req['payload'])
+            page.evaluate('({workspace,response})=>{Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                {'workspace':snapshot(store),'response':{'id':req['id'],'ok':True,**result}})
+            return result
+        respond()
+        dialog=page.get_by_role('dialog',name='Review identification',exact=True)
+        expect(dialog).to_contain_text('Example one')
+        dialog.locator('#identification-mode').select_option('manual')
+        dialog.locator('#identification-candidate').select_option('22')
+        expect(dialog.locator('#identification-taxid')).to_have_value('22')
+        expect(dialog.get_by_role('button',name='Confirm target & continue',exact=True)).to_be_disabled()
+        dialog.get_by_role('button',name='Preview filtering',exact=True).click();respond()
+        expect(dialog.get_by_role('button',name='Confirm target & continue',exact=True)).to_be_enabled()
+        expect(dialog).to_contain_text('filter to selected target')
+        dialog.locator('#identification-taxid').fill('999')
+        expect(dialog.get_by_role('button',name='Confirm target & continue',exact=True)).to_be_disabled()
+        dialog.locator('#identification-taxid').fill('22')
+        dialog.get_by_role('button',name='Save for later',exact=True).click();respond()
+        assert identification.inspect(Store(store.home),run['id'])['taxid']=='22'
+        assert not store.jobs()
+        for width in (390,1440):
+            page.set_viewport_size({'width':width,'height':1000})
+            assert dialog.evaluate('(e)=>e.scrollWidth <= e.clientWidth + 1')
+        # Only queue after the explicit continue action. Avoid starting a worker in this UI test.
+        monkeypatch.setattr('bactologix.ui_backend.enqueue',lambda s,k,p:s.submit(k,p))
+        dialog.get_by_role('button',name='Confirm target & continue',exact=True).click();respond()
+        assert len(store.jobs())==1 and store.jobs()[0]['payload']['action']=='continue'
+        assert store.get('runs',run['id'])['identification']['selection']['taxid']=='22'
+        assert Path(run['folder'],'config.yaml').read_text()==run['config']
+        assert not errors,errors
+        browser.close()

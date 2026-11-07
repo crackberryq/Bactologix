@@ -143,7 +143,7 @@ def capture(store, run, job_id):
     """Keep execution metadata before shared follow-up output can be replaced."""
     receipt = {'schema': 1, 'run_id': run['id'], 'job_id': job_id, 'completed': run['completed'],
                'config_sha256': run['config_sha256'], 'workflow_sha256': run['workflow_sha256'],
-               'commit': run['commit'], 'captured_at': now(),
+               'commit': run['commit'], 'identification': run.get('identification'), 'captured_at': now(),
                'evidence': collect(run)}
     store.put('methods_evidence', run['id'], receipt)
     return receipt
@@ -160,6 +160,15 @@ def _configuration(run, warnings):
     if disk is None:
         warnings.append('Frozen YAML is unavailable on disk; the verified saved configuration record is used.')
     cfg = parse_config(text)
+    reviewed = {}
+    if run.get('identification', {}).get('decision_path'):
+        from .identification import sha
+        decision = run['identification']
+        if sha(decision['decision_path']) != decision['decision_sha256']:
+            raise ValueError('Reviewed identification decision changed; Methods export is blocked.')
+        selected = json.loads(Path(decision['decision_path']).read_text())
+        reviewed = {'kraken_decision_mode': selected['mode'], 'target_taxid': selected['taxid'] if selected['mode'] == 'manual' else ''}
+        warnings.append('Target selection was finalized after identification. The original YAML is retained; effective settings include the recorded decision '+decision['decision_sha256']+'.')
     known = run['commit'] in [DEFAULTS['sources'].get(run['tool']),
         *DEFAULTS.get('equivalent_sources', {}).get(run['tool'], [])]
     source = Path(run['folder']) / 'workflow'
@@ -174,7 +183,7 @@ def _configuration(run, warnings):
         known = False
     if not known:
         warnings.append('No verified Methods template is available for this source. Only explicit saved settings and recorded execution are exported.')
-        return cfg, cfg, False
+        return cfg, dict(cfg, **reviewed), False
     effective = copy.deepcopy(DEFAULTS['defaults'][run['tool']])
     raw = _read(source, 'config.yaml')
     configured = _merge(parse_config(raw.decode('utf-8')) if raw else {}, cfg)
@@ -213,6 +222,7 @@ def _configuration(run, warnings):
             original = json.loads(raw)
             effective = _merge({'deep': original['deep']}, cfg)
             effective['deep'].update(threads=threads, memory_mb=run['memory_mb'])
+    effective.update(reviewed)
     return cfg, effective, True
 
 
@@ -300,7 +310,7 @@ def _flatten(value, prefix=''):
 def build(store, run):
     warnings = []
     explicit, effective, known = _configuration(run, warnings)
-    jobs = [j for j in store.jobs() if j['kind'] == 'workflow' and j['payload'].get('run_id') == run['id'] and j['payload'].get('action') == 'run']
+    jobs = [j for j in store.jobs() if j['kind'] == 'workflow' and j['payload'].get('run_id') == run['id'] and j['payload'].get('action') in {'run', 'continue'}]
     latest = jobs[0] if jobs else None
     complete = bool(run.get('completed')) and (not latest or latest['status'] == 'succeeded')
     state = 'Completed workflow' if complete else 'Incomplete execution' if jobs else 'Planned methods'

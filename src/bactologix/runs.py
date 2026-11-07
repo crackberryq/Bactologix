@@ -215,6 +215,8 @@ def check_run_files(run):
         verify_transition(run)
     from .variants import verify
     verify(run, full=False)
+    from .identification import check_decision
+    check_decision(run)
     folder = Path(run["folder"])
     if hashlib.sha256((folder / "config.yaml").read_bytes()).hexdigest() != run["config_sha256"]:
         raise ValueError("Saved configuration changed. Create a new draft for changed settings.")
@@ -267,12 +269,14 @@ def run_status(run, jobs, checked):
     active = next((j for j in related if j["status"] in {"queued", "running"}), None)
     if active:
         return active["status"]
-    execution = next((j for j in related if j["payload"].get("action") == "run"), None)
+    execution = next((j for j in related if j["payload"].get("action") in {"run", "continue"}), None)
     failures = {"failed", "cancelled", "interrupted"}
     if execution and execution["status"] in failures:
         return execution["status"]
     if related and related[0]["status"] in failures:
         return related[0]["status"]
+    if run.get("identification", {}).get("state") == "awaiting_review":
+        return "awaiting_review"
     return "completed" if run.get("completed") else "checked" if checked else "draft"
 
 
@@ -400,6 +404,14 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
     if cores < 1 or memory_mb < 512:
         raise ValueError("Choose at least one core and 512 MB memory")
     cfg = bind_paths(parse_config(config_text), tool, store, installed)
+    if tool == "hybas":
+        from .identification import OPTION, supports
+        if OPTION in cfg and not isinstance(cfg[OPTION], bool):
+            raise ValueError("Pause after identification must be true or false.")
+        if cfg.get(OPTION) and not supports(installed["source"]):
+            raise ValueError("This HybAs version does not support identification review. Update the pipeline first.")
+        if cfg.get('kraken_review_decision') or cfg.get('kraken_review_decision_sha256'):
+            raise ValueError("Identification decisions are managed through Review identification, not draft YAML.")
     rid = identifier("run")
     folder = store.home / "runs" / rid
     folder.mkdir()
@@ -470,7 +482,7 @@ def clone_runs(store, parent_id, aware_free=False, strategies=None):
 
 
 def validate_launch(store, rid, action, check_busy=True):
-    if action not in {"dry-run", "prepare", "run", "check-environments"}:
+    if action not in {"dry-run", "prepare", "run", "check-environments", "continue"}:
         raise ValueError("Unsupported workflow action")
     run = store.get("runs", rid)
     if not run:
@@ -484,11 +496,15 @@ def validate_launch(store, rid, action, check_busy=True):
     preflight(store, run["tool"], run["commit"], Path(run["folder"]) / "workflow")
     if not supported(run["tool"], run["commit"], store):
         raise ValueError("This source version has no reviewed execution adapter")
-    if action != "dry-run" and not dry_run_current(store, run):
+    if action == "continue" and not run.get("identification", {}).get("decision_path"):
+        raise ValueError("Review and finalize the target before continuing.")
+    if action == "run" and run.get("identification", {}).get("state") == "awaiting_review":
+        raise ValueError("Awaiting researcher review. Open Review identification to choose the target.")
+    if action not in {"dry-run", "continue"} and not dry_run_current(store, run):
         raise ValueError("A successful native dry-run with the current runner is required before preparing tools or running")
     check_run_files(run)
     from .preflight import assert_launch
-    assert_launch(run, action)
+    assert_launch(run, "run" if action == "continue" else action)
     return run
 
 
@@ -520,13 +536,15 @@ def command(store, run, action):
     elif action == "run":
         pos = argv.index('snakemake')
         argv[pos:pos] = ['python', str(DATA / 'run_existing.py')]
+    from .identification import arguments
+    argv.extend(arguments(run))
     if bootstrap:
         argv.extend(['--forcerun', 'capture_followup_review'])
     return argv
 
 
 def execute_workflow(ctx):
-    payload, store = ctx.job["payload"], ctx.store
+    payload, store = dict(ctx.job["payload"]), ctx.store
     run = validate_launch(store, payload["run_id"], payload["action"], check_busy=False)
     from .variants import verify
     verify(run)  # Full hashes at execution, not on every UI readiness refresh.
@@ -536,6 +554,21 @@ def execute_workflow(ctx):
         from .readiness import check_environments
         check_environments(ctx, run)
         return
+    if payload["action"] == "continue":
+        ctx.write("Validating the finalized identification decision and continuation plan")
+        run['dry_run_ok'] = False
+        store.put('runs', run['id'], run)
+        ctx.command(command(store, run, 'dry-run'), cwd=Path(run['folder']) / 'workflow')
+        run.update(dry_run_ok=True, validated=now(), validated_controller=current_controller(store, run))
+        store.put('runs', run['id'], run)
+        from .readiness import check_environments
+        check_environments(ctx, run)
+        from .readiness import environment_state
+        receipt = store.get('run_environment_checks', run['id'], {})
+        missing = [r['name'] for r in receipt.get('rows', []) if environment_state(r) != 'Available']
+        if missing:
+            raise ValueError('Continuation needs tool environments: ' + ', '.join(missing) + '. Use Install environments, then Continue run.')
+        payload['action'] = 'run'
     ctx.write("Run " + run["id"] + " · source " + run["commit"])
     ctx.write("Input identity uses file size/mtime checks. Workflow provenance may add content checksums.")
     if payload['action'] == 'run':
@@ -565,7 +598,15 @@ def execute_workflow(ctx):
         run["validated"] = now()
         run["validated_controller"] = run["last_controller"]
     elif payload["action"] == "run":
+        from . import identification
+        if identification.enabled(run) and not run.get('identification', {}).get('decision_path'):
+            identification.capture(run, ctx.job['id'])
+            store.put('runs', run['id'], run)
+            ctx.write('Identification complete. Awaiting researcher review; no filtering or assembly was started.')
+            return
         run["completed"] = now()
+        if run.get('identification'):
+            run['identification']['state'] = 'completed'
         from . import methods
         try:
             methods.capture(store, run, ctx.job['id'])
@@ -583,6 +624,8 @@ def report_candidates(store, run):
         entries = [("Follow-up report", "safety/deepsafe-report/report.html")] if owned else []
     else:
         entries = [("MultiQC", "reports/multiqc/multiqc_report.html"), ("Safety report", "safety/report.html")]
+        if run["tool"] == "hybas" and parse_config(run["config"]).get("kraken_review_before_filtering"):
+            entries.insert(0, ("Identification review", "reports/identification/report.html"))
         if run["tool"] == "hybas" and (Path(run["output"]) / "reports/hybas/report.html").is_file():
             entries.insert(0, ("HybAs AWARE report", "reports/hybas/report.html"))
         if run["tool"] == "basis" and not store.get("followup_output_owner", run["id"]):

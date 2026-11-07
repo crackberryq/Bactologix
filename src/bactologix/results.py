@@ -75,7 +75,7 @@ def read_file(path, limit):
 
 
 def observe(ctx, run, phase):
-    if ctx.job['payload'].get('action') != 'run':
+    if ctx.job['payload'].get('action') not in {'run', 'continue'}:
         return
     try:
         record = ctx.store.get('result_observations', ctx.job['id'], {
@@ -104,7 +104,7 @@ def _run(store, rid):
 def inspect(store, rid):
     run = _run(store, rid)
     jobs = [j for j in store.jobs() if j['kind'] == 'workflow' and j['payload'].get('run_id') == rid]
-    executions = [j for j in jobs if j['payload'].get('action') == 'run']
+    executions = [j for j in jobs if j['payload'].get('action') in {'run', 'continue'}]
     latest = executions[0] if executions else None
     observations = {j['id']: store.get('result_observations', j['id'], {}) for j in executions}
     rows = []

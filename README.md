@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a52 — alpha
+# Bactologix 0.1.0a84 — Alpha
 
 **Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a64/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
 
@@ -647,3 +647,33 @@ The version picker separates stable releases from prereleases, displays installe
 The recommended compatible release appears first. **Refresh from GitHub** updates the default selection when a newer reviewed release is found; a version you explicitly select stays selected. Installed snapshots are labelled separately. Select the desired release and click **Download and set up** to install it; refreshing alone does not update the installed pipeline. Use **Source type → Releases** to hide legacy snapshots and branches.
 
 Reviewed BaSIS follow-up can use an explicitly selected compatible installed version. See [the source and scope workflow](docs/REVIEWED_FOLLOWUP.md).
+
+
+### HybAs identification review
+
+With a compatible HybAs AWARE 9.0.2 pipeline, open **Run settings → Kraken & AWARE**
+and enable **Pause after identification**. The default remains automatic
+end-to-end execution. The target TaxID can be blank while identifying an unknown
+sample. Start with native validation and environment setup as usual, then choose
+**Start identification**.
+
+When Kraken finishes, the saved run shows **Awaiting researcher review** and
+releases the worker for other jobs. Choose **Review identification**, search the
+reported taxa by name/TaxID, and either accept AWARE or choose a manual target.
+**Preview filtering** shows the name, rank, and independent platform actions.
+Changing the choice invalidates that preview. **Save for later** persists the
+choice without starting work; **Confirm target & continue** freezes a decision
+and queues continuation. The choice survives closing/reopening the app.
+
+Continuation validates the new plan and checks its environments. If more tools
+are needed, use **Install environments**, then **Continue run**; the application
+does not silently install them. Matching merged reads and Kraken results are
+reused with the same native scheduler state. The original YAML, earlier reports,
+immutable decision and each phase's computational job records remain retained.
+
+This is a dedicated continuation, not **Edit settings** (which creates a separate
+draft). Finalized targets cannot be silently replaced. Older saved runs retain
+their original source and behavior; select the updated pipeline for new drafts.
+Manual TaxIDs must be resolvable from this run's Kraken report. Database/input
+identity uses size/mtime checks; saved classification evidence additionally uses
+SHA-256 checksums.

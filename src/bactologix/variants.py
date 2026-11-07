@@ -130,7 +130,7 @@ def eligible(store, parent):
     if parent['commit'] not in COMMITS.get(parent['tool'], set()):
         raise ValueError('This pipeline release has no reviewed result-reuse contract. Keep this run; use a new draft for independent execution.')
     jobs = [j for j in store.jobs() if j['kind'] == 'workflow'
-            and j['payload'].get('run_id') == parent['id'] and j['payload'].get('action') == 'run']
+            and j['payload'].get('run_id') == parent['id'] and j['payload'].get('action') in {'run', 'continue'}]
     if not parent.get('completed') or not jobs or jobs[0]['status'] != 'succeeded':
         raise ValueError('Choose a successfully completed parent run. Drafts and incomplete executions are not reusable checkpoints.')
     incomplete = Path(parent['folder']) / 'workflow/.snakemake/incomplete'

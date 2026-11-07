@@ -103,7 +103,7 @@ def panel(store):
                       'binding_unavailable' if binding != 'recorded_match' else
                       'same_runner_path' if validated_runner == current_runner else 'runner_changed')
         latest = next((j for j in jobs if j['kind'] == 'workflow' and j['payload'].get('run_id') == run['id']
-                       and j['payload'].get('action') == 'run'), None)
+                       and j['payload'].get('action') in {'run', 'continue'}), None)
         runs.append({'id': run['id'], 'label': run.get('label', run['id']), 'tool': tool,
             'commit': commit, 'support': support, 'installation': run.get('installation'),
             'binding': binding, 'archived': run['id'] in archived,
