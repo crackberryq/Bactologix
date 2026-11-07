@@ -110,6 +110,21 @@ def test_preview_is_read_only_and_search_is_bounded(paused):
     assert store.get('runs',run['id'])==run and not store.jobs()
 
 
+def test_finalized_choice_is_shown_and_exported_as_effective_settings(paused):
+    from bactologix.ui_backend import snapshot
+    from bactologix.methods import _configuration
+    store,run=paused
+    view=review.inspect(store,run['id'],'aware')
+    updated=review.save(store,run['id'],'aware','',view['signature'],confirm=True)
+    item=next(r for r in snapshot(store)['runs'] if r['id']==run['id'])
+    assert item['kraken_mode']=='aware'
+    warnings=[]
+    original,effective,known=_configuration(updated,warnings)
+    assert original['kraken_decision_mode']=='manual'
+    assert effective['kraken_decision_mode']=='aware' and effective['target_taxid']==''
+    assert any(updated['identification']['decision_sha256'] in warning for warning in warnings)
+
+
 def test_native_identification_continuation_adapter(tmp_path, monkeypatch):
     """Real Snakemake boundary and command round-trip against the pinned source."""
     import importlib.util

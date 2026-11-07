@@ -96,13 +96,14 @@ def snapshot(store):
     archived = {r["id"] for r in store.all("run_visibility") if r.get("archived")}
     for run in store.all("runs"):
         cfg = parse_config(run["config"])
+        kraken_mode = run.get('identification', {}).get('selection', {}).get('mode', cfg.get('kraken_decision_mode'))
         run_jobs = [j for j in jobs if j["kind"] == "workflow" and j["payload"].get("run_id") == run["id"]]
         active = next((j for j in run_jobs if j["status"] in {"queued", "running"}), None)
         checked = dry_run_current(store, run)
         status = run_status(run, jobs, checked)
         runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant", "identification")} | {
-            "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if cfg.get("kraken_decision_mode") == "off" else "aware",
-            "kraken_mode": "off" if cfg.get("run_kraken") is False else cfg.get("kraken_decision_mode"),
+            "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
+            "kraken_mode": "off" if cfg.get("run_kraken") is False else kraken_mode,
             "can_micp_handoff": run["tool"] == "hybas" and status == "completed",
             "can_followup": followup.available(run, store) and status == "completed",
             "followup_sources": followup.source_options(store, run) if status == "completed" else [],
