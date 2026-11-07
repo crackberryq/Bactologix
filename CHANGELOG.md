@@ -1,11 +1,11 @@
-## 0.1.0a83 — Fresh Windows prerequisites and restart handling
-
-## Bactologix 0.1.0a84 — Alpha
+## 0.1.0a84 — Alpha · HybAs identification review
 
 - Add optional HybAs identification review, with deferred target selection.
 - Show a persistent Awaiting researcher review state, searchable reported TaxIDs and per-platform filtering previews.
 - Save choices without launching work; finalize a checksummed decision and continue the same saved run.
 - Revalidate the continuation and its environments while preserving frozen YAML, existing outputs and phase-specific computational records.
+
+## 0.1.0a83 — Fresh Windows prerequisites and restart handling
 
 - Check and enable both required Windows features before a new Ubuntu installation, even when wsl.exe exists and distribution listing succeeds.
 - Pause for a restart after feature changes or pending servicing, and prevent continuation on the same Windows boot.
