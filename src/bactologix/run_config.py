@@ -13,7 +13,7 @@ from .runs import parse_config
 
 MANAGED = {
     'micpscope': {'samples', 'output_dir', 'threads', 'memory_mb', 'reference_database_sha256'},
-    'hybas': {'base_dir', 'sample_sheet', 'isolate', 'threads', 'setup_only', 'admin_mode', 'ci_mode'},
+    'hybas': {'base_dir', 'sample_sheet', 'isolate', 'threads', 'setup_only', 'admin_mode', 'ci_mode', 'kraken_review_decision', 'kraken_review_decision_sha256'},
     'basis': {'bactomics_root', 'samples', 'isolates', 'isolate', 'threads', 'memory_mb',
               'execution.cores', 'execution.memory_mb'},
 }
@@ -25,6 +25,7 @@ OPTIONS = {
               'deep.aware.preset': ['auto-strict', 'auto-medium', 'auto-loose']},
 }
 LABELS = {
+    'kraken_review_before_filtering': 'Pause after identification',
     'run_kraken': 'Run Kraken2', 'kraken_decision_mode': 'Kraken decision mode',
     'run_busco': 'Run BUSCO', 'run_prokka': 'Run Prokka', 'run_multiqc': 'Run MultiQC',
     'run_polypolish': 'Run Polypolish', 'polish_mode': 'Polishing strategy',
@@ -34,6 +35,7 @@ LABELS = {
     'deep.aware.enabled': 'Enable BaSIS AWARE', 'deep.aware.preset': 'AWARE preset',
 }
 HELP = {
+    'kraken_review_before_filtering': 'Stop after Kraken, review the report, then finalize the target and continue. Requires a compatible HybAs version.',
     'run_kraken': 'Switching off also sets the decision mode to Off. Switching on from Off selects AWARE.',
     'kraken_decision_mode': 'Off skips Kraken. Manual, Auto and AWARE enable it. The pipeline keeps its existing decision rules.',
     'polish_mode': 'Available modes come from HybAs AWARE. The native dry-run checks compatibility with the selected read modes.',
@@ -102,7 +104,7 @@ def editor(tool, text):
     defaults = json.loads((DATA / 'config-catalog.json').read_text())['defaults'][tool]
     defaults = _flatten(defaults)
     supplied = _flatten(cfg)
-    extras = ({'busco_download_lineages': [cfg.get('busco_lineage', 'bacteria_odb10')], 'kraken_mem_mb': None}
+    extras = ({'busco_download_lineages': [cfg.get('busco_lineage', 'bacteria_odb10')], 'kraken_mem_mb': None, 'kraken_review_before_filtering': False}
               if tool == 'hybas' else {} if tool == 'micpscope' else {'storage': {'native_results_directory': None}})
     defaults.update(_flatten(extras))
     # Include companion paths and model identities recognized by the database selector.
@@ -218,11 +220,13 @@ def validate(tool, text):
         for name, options in OPTIONS[tool].items():
             if name in cfg and cfg[name] not in options:
                 raise ValueError(name + ': choose ' + ', '.join(options))
-        for name in ('run_kraken', 'run_busco', 'run_prokka', 'run_multiqc', 'run_polypolish'):
+        for name in ('kraken_review_before_filtering', 'run_kraken', 'run_busco', 'run_prokka', 'run_multiqc', 'run_polypolish'):
             if name in cfg and not isinstance(cfg[name], bool):
                 raise ValueError(name + ' must be true or false.')
         if cfg.get('kraken_decision_mode', 'aware') != 'off' and cfg.get('run_kraken', True) is False:
             raise ValueError('Kraken is off but its decision mode is enabled. Set the mode to Off or enable Run Kraken2.')
+        if cfg.get('kraken_review_before_filtering') and (cfg.get('kraken_decision_mode') == 'off' or cfg.get('run_kraken') is False):
+            raise ValueError('Pause after identification requires Kraken to be enabled.')
         for name, value in cfg.items():
             if name == 'keep_percent' or name.startswith('kraken_') and name.endswith('_percent'):
                 if isinstance(value, bool) or not isinstance(value, (int, float)) or not (1 if name == 'keep_percent' else 0) <= value <= 100:

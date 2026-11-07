@@ -43,10 +43,16 @@ jobs:
           repository: crackberryq/Bactomics_HybAs
           ref: b13bd80efab8429a03b10a6bd2b7dac25b851e4d
           path: upstream-hybas-report
+      - uses: actions/checkout@v4
+        with:
+          repository: crackberryq/Bactomics_HybAs
+          ref: 031ced7121b8ef06c4d97affac90a10699418bae
+          path: upstream-hybas-review
       - name: Install software test dependencies
         run: python -m pip install . pytest build 'snakemake==9.6.2' 'numpy<3' 'biopython==1.86' 'openpyxl==3.1.5'
       - name: Test application and pinned workflow adapters
         env:
+          BACTOLOGIX_HYBAS_REVIEW_SOURCE: ${{ github.workspace }}/upstream-hybas-review
           BACTOLOGIX_HYBAS_REPORT_SOURCE: ${{ github.workspace }}/upstream-hybas-report
           BACTOLOGIX_HYBAS_SOURCE: ${{ github.workspace }}/upstream-hybas
           BACTOLOGIX_MICPSCOPE_SOURCE: ${{ github.workspace }}/upstream-micpscope
@@ -72,14 +78,16 @@ jobs:
       options: --ipc=host --init
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
       - uses: actions/checkout@v4
         with:
           repository: crackberryq/Bactomics_HybAs
           ref: 780ee7086c15c49f2825800ec463327f009f14a6
           path: upstream-hybas
+      - name: Isolate browser test Python and application launcher
+        run: |
+          python -m pip install virtualenv
+          python -m virtualenv /tmp/bactologix-browser-env
+          echo "/tmp/bactologix-browser-env/bin" >> "$GITHUB_PATH"
       - run: python -m pip install . pytest 'playwright==1.64.1'
       - name: Real browser to Streamlit checks
         env:

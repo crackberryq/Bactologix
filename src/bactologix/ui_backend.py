@@ -96,18 +96,19 @@ def snapshot(store):
     archived = {r["id"] for r in store.all("run_visibility") if r.get("archived")}
     for run in store.all("runs"):
         cfg = parse_config(run["config"])
+        kraken_mode = run.get('identification', {}).get('selection', {}).get('mode', cfg.get('kraken_decision_mode'))
         run_jobs = [j for j in jobs if j["kind"] == "workflow" and j["payload"].get("run_id") == run["id"]]
         active = next((j for j in run_jobs if j["status"] in {"queued", "running"}), None)
         checked = dry_run_current(store, run)
         status = run_status(run, jobs, checked)
-        runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant")} | {
-            "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if cfg.get("kraken_decision_mode") == "off" else "aware",
-            "kraken_mode": "off" if cfg.get("run_kraken") is False else cfg.get("kraken_decision_mode"),
+        runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant", "identification")} | {
+            "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
+            "kraken_mode": "off" if cfg.get("run_kraken") is False else kraken_mode,
             "can_micp_handoff": run["tool"] == "hybas" and status == "completed",
             "can_followup": followup.available(run, store) and status == "completed",
             "followup_sources": followup.source_options(store, run) if status == "completed" else [],
             "followup_transition": run.get('followup_transition'),
-            "strategy": cfg.get("polish_mode", "—"), "can_handoff": run["tool"] == "hybas" and status == "completed" and all(
+            "review_enabled": cfg.get("kraken_review_before_filtering", False), "strategy": cfg.get("polish_mode", "—"), "can_handoff": run["tool"] == "hybas" and status == "completed" and all(
                 Path(run["output"], "annotation", run["sample"]["id"] + ext).is_file() for ext in (".fna", ".faa", ".gff"))})
     configs = {t: store.get("configs", t, template(t)) for t in PIPELINES}
     catalogs = {}
@@ -526,10 +527,20 @@ def dispatch(store, kind, p):
         from .workflow_unlock import request
         jid = request(store, p.get('id'), p.get('signature'))
         return {'message': 'Unlock queued. The analysis queue stays paused; no analysis will start.', 'navigate': 'jobs', 'unlock_job': jid}
+    if kind in {"inspect_identification", "save_identification", "continue_identification"}:
+        from . import identification
+        rid = p.get('id')
+        if kind == 'inspect_identification':
+            return {'identification': identification.inspect(store, rid, p.get('mode'), p.get('taxid'), p.get('query', '')), 'keep_modal': True}
+        identification.save(store, rid, p.get('mode'), p.get('taxid'), p.get('signature'), confirm=kind == 'continue_identification')
+        if kind == 'continue_identification':
+            jid = enqueue(store, 'workflow', {'run_id': rid, 'action': 'continue'})
+            return {'message': 'Target recorded. Continuation queued: ' + jid, 'navigate': 'jobs'}
+        return {'identification': identification.inspect(store, rid), 'keep_modal': True, 'message': 'Choice saved. The run is still awaiting review.'}
     if kind == "workflow":
         ids = _ids(p)
         action = p.get("action")
-        if action not in {"dry-run", "prepare", "run", "check-environments"}:
+        if action not in {"dry-run", "prepare", "run", "check-environments", "continue"}:
             raise ValueError("Unknown workflow action")
         for rid in ids:
             validate_launch(store, rid, action)

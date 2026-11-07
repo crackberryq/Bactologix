@@ -155,7 +155,7 @@ class Recorder:
         self.position, self.pending = 0, b''
         self.discard_line = False
         self.history = []
-        self.progress = Progress(job['kind'] == 'workflow' and job['payload'].get('action') == 'run')
+        self.progress = Progress(job['kind'] == 'workflow' and job['payload'].get('action') in {'run', 'continue'})
         run = store.get('runs', job['payload'].get('run_id'), {})
         self.record = {'schema': 1, 'id': job['id'], 'run_id': run.get('id'),
                        'kind': job['kind'], 'action': job['payload'].get('action'),
