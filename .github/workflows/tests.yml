@@ -85,7 +85,8 @@ jobs:
           path: upstream-hybas
       - name: Isolate browser test Python and application launcher
         run: |
-          python -m venv /tmp/bactologix-browser-env
+          python -m pip install virtualenv
+          python -m virtualenv /tmp/bactologix-browser-env
           echo "/tmp/bactologix-browser-env/bin" >> "$GITHUB_PATH"
       - run: python -m pip install . pytest 'playwright==1.64.1'
       - name: Real browser to Streamlit checks

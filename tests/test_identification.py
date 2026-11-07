@@ -125,6 +125,46 @@ def test_finalized_choice_is_shown_and_exported_as_effective_settings(paused):
     assert any(updated['identification']['decision_sha256'] in warning for warning in warnings)
 
 
+@pytest.mark.parametrize('available', [False, True])
+def test_continuation_worker_validates_and_requires_existing_environments(paused, monkeypatch, available):
+    from bactologix.runs import execute_workflow
+    store,run=paused
+    view=review.inspect(store,run['id'])
+    run=review.save(store,run['id'],'aware','',view['signature'],confirm=True)
+    monkeypatch.setattr('bactologix.engine.find_conda',lambda s:'/fixture/conda')
+    prefix=store.home/'envs/hybas'/('a'*32)
+    if available:
+        (prefix/'conda-meta').mkdir(parents=True)
+        (prefix/'conda-meta/history').touch()
+        prefix.with_suffix('.env_setup_done').touch()
+    job=store.submit('workflow',{'run_id':run['id'],'action':'continue'})
+    store.update_job(job,status='running')
+    commands=[]
+    class Context:
+        def __init__(self): self.store,self.job=store,store.job(job)
+        def command(self,argv,*,cwd,stdout=None,**kwargs):
+            commands.append(argv)
+            assert '--conda-create-envs-only' not in argv
+            if stdout is not None:
+                stdout.write('environment\tcontainer\tlocation\n'+str(cwd/'config.yaml')+'\t\t'+str(prefix)+'\n')
+        def write(self,text): pass
+        def check_cancel(self): pass
+    if available:
+        execute_workflow(Context())
+        assert len(commands)==3 and any('run_existing.py' in arg for arg in commands[-1])
+        final=store.get('runs',run['id'])
+        assert final['completed'] and final['identification']['state']=='completed'
+    else:
+        with pytest.raises(ValueError,match='Install environments'):
+            execute_workflow(Context())
+        assert len(commands)==2
+        final=store.get('runs',run['id'])
+        assert not final.get('completed') and final['identification']['state']=='continuation_ready'
+    assert '--dry-run' in commands[0] and '--list-conda-envs' in commands[1]
+    assert store.job(job)['payload']['action']=='continue'
+    assert Path(run['folder'],'config.yaml').read_text()==run['config']
+
+
 def test_native_identification_continuation_adapter(tmp_path, monkeypatch):
     """Real Snakemake boundary and command round-trip against the pinned source."""
     import importlib.util
