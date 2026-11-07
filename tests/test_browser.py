@@ -144,7 +144,8 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
                 page.locator('.defaults-editor [data-action="guided-run-tab"][data-id="' + name + '"]').click()
             def defaults_pipeline(name):
                 page.locator('[data-action="config-tool"][data-id="' + name + '"]').click()
-            expect(page.locator('.defaults-editor .mode-card')).to_have_count(4)
+            expect(page.locator('.defaults-editor .mode-card[data-choice-name="kraken_decision_mode"]')).to_have_count(4)
+            expect(page.locator('.defaults-editor .mode-card[data-choice-name="aware_run_until"]')).to_have_count(2)
             expect(page.get_by_label('Full configuration', exact=True)).to_have_count(0)
             capture('configuration-hybas')
             defaults_tab('quality')
