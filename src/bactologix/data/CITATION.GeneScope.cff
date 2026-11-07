@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "Cite GeneScope (formerly MICP Scope), the exact version/commit used, and its underlying tools and databases."
+type: software
+title: "GeneScope (formerly MICP Scope)"
+authors:
+  - family-names: Goldstein
+    given-names: Jimi
+    affiliation: Human Link
+    orcid: https://orcid.org/0000-0002-7829-0090
+repository-code: "https://github.com/crackberryq/Bactomics_GeneScope"

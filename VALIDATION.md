@@ -1,3 +1,14 @@
+## 0.1.0a85 workspace presentation
+
+- UI bridge, Methods, and package checks: 31 passed, 2 skipped.
+- JavaScript syntax and Git whitespace checks passed.
+- Built the wheel and verified that application and GeneScope CFF files are included;
+  the application citation reports 0.1.0a85.
+- Checked local-account display names and unavailable/generic-account fallbacks.
+- Chromium visual verification was unavailable locally because browser downloads failed;
+  the repository browser CI remains the release gate.
+- No pipeline execution or scientific configuration was changed.
+
 ## a64 protected-process ownership scope
 
 - Targeted restart/unlock checks: 20 passed. Tests cover protected foreign services, same-user and mixed-UID processes, unavailable UIDs, readable foreign Snakemake, shared directories and ACL uncertainty.

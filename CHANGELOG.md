@@ -1,3 +1,11 @@
+## 0.1.0a85 — Workspace branding and citations
+
+- Show Powered by GenoMix Human Link below the Bactologix brand.
+- Move Comparisons after Results & reports.
+- Add a visible Citations button and a GeneScope (formerly MICP Scope) software citation.
+- Name the workspace after the local app account, with a generic fallback when unavailable.
+- Synchronize Bactologix citation downloads with this application version.
+
 ## 0.1.0a84 — Alpha · HybAs identification review
 
 - Add optional HybAs identification review, with deferred target selection.

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import getpass
 import json
 from pathlib import Path
 import shlex
@@ -80,6 +81,19 @@ def configuration_fields(tool, text):
         for name, row in sorted(fields.items())]
 
 
+def workspace_label():
+    """Display the local app account; never change the workspace's location."""
+    try:
+        name = " ".join(getpass.getuser().split())
+    except (OSError, KeyError):
+        return "Local workspace"
+    if not name or name.casefold() in {"root", "system", "administrator"}:
+        return "Local workspace"
+    name = name[:80]
+    name = name[0].upper() + name[1:]
+    return f"{name}'s workspace"
+
+
 def snapshot(store):
     from .queue import reconcile_interrupted
     reconcile_interrupted(store)
@@ -116,7 +130,7 @@ def snapshot(store):
         catalogs[tool] = versions(store, tool)
         for version in catalogs[tool]["versions"]:
             version["supported"] = supported(tool, version["commit"], store)
-    result = {"version": __version__, "workspace": str(store.home), "doctor": doctor(store),
+    result = {"version": __version__, "workspace": str(store.home), "workspace_label": workspace_label(), "doctor": doctor(store),
             "setup_overview": {t: setup_state.overview(store, t) for t in PIPELINES},
             "pipelines": PIPELINES, "installs": [installation_status(i, jobs, store) for i in store.all("installs")],
             "app_update": app_update, "hardware": hardware.panel(store), "workstation_checks": workstation.history(store),
