@@ -28,3 +28,10 @@ The HybAs research report is listed with existing reports. Open its folder to
 use local TSV/JSON exports and links to computational history. Biological
 qualification and the reviewed HybAs release remain separate from these software
 adapter checks. Old runs keep their original settings, runner and cached tools.
+
+
+### Identification review
+
+With a compatible HybAs 10 source, **Pause after identification** is available alongside manifest inputs and Auto settings. The app displays the actual Illumina, ONT or PacBio evidence, saves a target choice for later, and continues only after explicit confirmation. The pause option is boolean; it is not an Auto setting. Source, manifest and evidence identity checks still apply.
+
+This integration is an unreleased development build (`0.1.0a86.dev1`). The older a55 release document records the original development checkpoint, not the current app version.

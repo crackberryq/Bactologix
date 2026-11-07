@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import tempfile
 
 import yaml
 
@@ -22,7 +23,7 @@ from .store import identifier, now
 from . import environment_health
 
 RECIPES = {
-    "micpscope": {"properties": "Protein properties and evidence report"},
+    "micpscope": {"properties": "Protein properties and evidence report", "database-builder": "Database Builder (DIAMOND)", "reference-search": "Reference protein search (DIAMOND)"},
     "hybas": {"library_assembly": "Library-aware SPAdes assembly", "library_preprocess": "Illumina and Nextera preparation", "pacbio_assembly": "PacBio Flye assembly", "assembly": "Assembly and read preparation", "qc": "QC, Kraken2 and BUSCO",
               "polishing": "Racon and Polypolish", "medaka": "Medaka", "annotation": "Prokka",
               "controller": "Lightweight workflow Python"},
@@ -180,8 +181,12 @@ def execute_environments(ctx):
     if fresh != payload:
         raise ValueError("Environment definitions or cache changed. Submit a new check.")
     rows = [r for r in recipes(item) if r["id"] in payload["definitions"]]
-    folder = store.home / "maintenance" / ctx.job["id"]
-    folder.mkdir(parents=True)
+    job_folder = store.home / "maintenance" / ctx.job["id"]
+    job_folder.mkdir(parents=True, exist_ok=True)
+    # Coordinated updates share a job ID, including first-install deployment
+    # followed by verification. Retain a separate workspace for every invocation.
+    folder = Path(tempfile.mkdtemp(prefix=item['tool'] + '-' + payload['action'] + '-', dir=job_folder))
+    ctx.write('Environment maintenance workspace: ' + str(folder))
     snakefile = environment_snakefile(folder, rows)
     argv = snake_command(store, item, folder, snakefile)
     if payload["action"] == "install":
@@ -378,4 +383,3 @@ def download_log_tail(store, job):
         except OSError:
             continue
     return ''.join(tails)
-

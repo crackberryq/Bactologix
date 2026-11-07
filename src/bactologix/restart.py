@@ -44,7 +44,12 @@ def pending(store, item):
             or state.get('restart_status') in {'failed', 'ready'}):
         return None
     job = store.job(state.get('job'))
-    if not job or job['kind'] != 'app_update' or job['status'] != 'succeeded':
+    partial = store.get('settings', 'all-update', {})
+    verified_app_partial_pipelines = bool(job and job['payload'].get('update_all')
+        and job['status'] == 'failed' and partial.get('job') == job['id']
+        and partial.get('status') in {'partial', 'failed'}
+        and partial.get('components', {}).get('application', {}).get('status') == 'updated')
+    if not job or job['kind'] != 'app_update' or (job['status'] != 'succeeded' and not verified_app_partial_pipelines):
         return None
     if any(j['status'] in {'queued', 'running'} for j in store.jobs()):
         return None
@@ -79,3 +84,4 @@ def make_app(folder, item):
     app = root / 'app.py'
     app.write_text("import runpy\nrunpy.run_module('bactologix.app', run_name='__main__')\n")
     return app
+

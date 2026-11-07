@@ -15,12 +15,37 @@ from bactologix.catalog import PIPELINES
 from bactologix.runs import create_run
 from test_databases import busco
 from test_maintenance import installed
+from test_followup_adapter import screening, reviewed_installation
 
 pytestmark = pytest.mark.skipif(os.environ.get('BACTOLOGIX_BROWSER_TESTS') != '1',
                                 reason='Enable the browser acceptance job to run Chromium')
 
 
-def test_sample_picker_configuration_and_report(tmp_path):
+@pytest.fixture
+def worker_lease():
+    """Give synthetic running jobs the same ownership proof as a real worker."""
+    import fcntl
+    locks = []
+    def acquire(store):
+        lock = (store.home / 'worker.lock').open('a+')
+        deadline = time.monotonic() + 15
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    lock.close()
+                    pytest.fail('Previous software worker did not release its lease')
+                time.sleep(.1)
+        locks.append(lock)
+        return lock
+    yield acquire
+    for lock in locks:
+        lock.close()
+
+
+def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
     from playwright.sync_api import sync_playwright, expect
     workspace = tmp_path / 'workspace'
     store = Store(workspace)
@@ -310,7 +335,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(page.locator('[data-run-name="resources.directory"]')).to_be_visible()
             page.locator('#run-tool').select_option('micpscope')
             category('advanced')
-            expect(page.get_by_text('MICP Scope inputs', exact=True)).to_be_visible()
+            expect(page.get_by_text('GeneScope inputs', exact=True)).to_be_visible()
             expect(page.locator('.run-wizard')).to_contain_text('annotation/<sample_id>.faa')
             expect(page.locator('.run-managed-value')).not_to_have_count(0)
             capture('micpscope-settings')
@@ -513,6 +538,13 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(page.locator('.setup-guide')).to_be_visible()
             expect(page.locator('.setup-step')).to_have_count(5)
             capture('guided-setup-capacity')
+            page.get_by_label('Pipeline to set up', exact=True).select_option('micpscope')
+            page.locator('.setup-steps [data-id="databases"]').click()
+            expect(page.get_by_role('heading', name='Database Builder', exact=True)).to_be_visible()
+            expect(page.get_by_role('button', name='Build database', exact=True)).to_be_disabled()
+            page.locator('#reference-upload').set_input_files({'name':'reference.yaml','mimeType':'text/yaml','buffer':b'schema_version: "1.0"\nname: uploaded-reference\nversion: "1"\nproteins: []\n'})
+            expect(page.locator('#reference-spec')).to_have_value('schema_version: "1.0"\nname: uploaded-reference\nversion: "1"\nproteins: []\n')
+            capture('micpscope-database-builder')
             page.get_by_label('Pipeline to set up', exact=True).select_option('basis')
             page.locator('.setup-steps [data-id="environments"]').click()
             expect(page.locator('.guide-environments')).to_contain_text('BaSIS AWARE')
@@ -594,14 +626,14 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(page.get_by_role('button', name='Repair selected', exact=True)).to_be_disabled()
             capture('repair-environments')
             page.get_by_role('button', name='Close dialog', exact=True).click()
-            page.get_by_role('button', name='PC capacity', exact=True).click()
+            page.get_by_role('button', name='Compute & CUDA', exact=True).click()
             expect(page.get_by_role('heading', name='GPU & CUDA', exact=True)).to_be_visible()
             expect(page.locator('.power-card')).to_have_count(3)
             page.get_by_role('button', name='Detect again', exact=True).click()
             expect(page.locator('#toast')).to_contain_text('Hardware detection refreshed')
             page.get_by_label('Apply defaults to', exact=True).select_option('hybas')
-            page.get_by_role('button', name='Use Medium', exact=True).click()
-            expect(page.locator('#toast')).to_contain_text('Medium saved for future drafts')
+            page.get_by_role('button', name='Use Moderate', exact=True).click()
+            expect(page.locator('#toast')).to_contain_text('Moderate saved for future drafts')
             budget = store.get('resource_defaults', 'hybas')
             assert budget['preset'] == 'medium' and not store.get('resource_defaults', 'basis')
             saved = yaml.safe_load(store.get('configs', 'hybas'))
@@ -664,6 +696,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             page.get_by_role('button', name='Back to runs', exact=True).click()
             store.put('runs', created['id'], created)
             # Active-job polling works outside Jobs and does not interrupt focused edits.
+            live_lock = worker_lease(store)
             jid = store.submit('workflow', {'run_id': created['id'], 'action': 'run'})
             store.update_job(jid, status='running')
             page.get_by_role('button', name='Refresh workspace', exact=True).click()
@@ -680,6 +713,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(page.locator('#queue-status')).to_contain_text('1 running')
             store.log_path(jid).write_text('BUSCO lineage database missing at /software-fixture')
             store.update_job(jid, status='failed', error='Command exited with code 1; see the job log')
+            live_lock.close()
             expect(page.locator('#queue-status')).to_have_text('No active jobs', timeout=12000)
             # A later successful validation does not erase an earlier failed execution.
             validation_job = store.submit('workflow', {'run_id': created['id'], 'action': 'dry-run'})
@@ -706,6 +740,11 @@ def test_sample_picker_configuration_and_report(tmp_path):
             expect(page.frame_locator('.html-report-frame').get_by_role('heading', name='Browser software fixture')).to_be_visible()
             page.get_by_role('button', name='Close dialog', exact=True).click()
             assert page.url.endswith('/results')
+            page.get_by_role('button', name='Regenerate report', exact=True).click()
+            expect(page.get_by_role('heading', name='Regenerate report', exact=True)).to_be_visible()
+            expect(page.get_by_role('button', name='Create refreshed report', exact=True)).to_be_disabled()
+            expect(page.get_by_text('Refresh unavailable', exact=True)).to_be_visible()
+            page.get_by_role('button', name='Close dialog', exact=True).click()
             saved_tab('overview')
             page.get_by_role('button', name='Validate run', exact=True).click()
             expect(page.locator('.run-activity')).to_be_visible()
@@ -714,12 +753,67 @@ def test_sample_picker_configuration_and_report(tmp_path):
             page.goto(url + '#runs/run-not-in-this-workspace/overview')
             expect(page.get_by_role('heading', name='Run not found.', exact=True)).to_be_visible()
             page.get_by_role('button', name='Back to runs', exact=True).click()
+            # The topbar updates only the application; release selection is visible.
+            from bactologix import __version__
+            store.put('app_catalog', 'releases', {'checked_at': 'fixture', 'releases': []})
+            page.get_by_role('button', name='Refresh workspace', exact=True).click()
+            page.locator('.top-actions [data-action="app-updates"]').click()
+            expect(page.get_by_role('heading', name='Update Bactologix', exact=True)).to_be_visible()
+            expect(page.get_by_role('button', name='Update everything to latest', exact=True)).to_have_count(0)
+            expect(page.get_by_role('button', name='Refresh releases', exact=True)).to_be_visible()
+            expect(page.get_by_role('button', name='Choose an app release', exact=True)).to_be_visible()
+            expect(page.get_by_role('button', name='Choose an app release', exact=True)).to_be_disabled()
+            capture('application-update-dialog')
+            page.get_by_role('button', name='Close dialog', exact=True).click()
+            from test_reference_catalog import package
+            from bactologix.reference_catalog import register
+            db_one = package(tmp_path / 'select-db-one', 'MICP fixture', '1.0')
+            db_two = package(tmp_path / 'select-db-two', 'Other fixture', '2.0')
+            store.put('database_builds', 'completed-fixture', {'id': 'completed-fixture', 'status': 'completed', 'result_path': str(db_one), 'name': 'MICP fixture', 'version': '1.0'})
+            register(store, db_two)
+            page.get_by_role('button', name='Refresh workspace', exact=True).click()
+            page.get_by_role('link', name='Configuration', exact=True).click()
+            page.locator('.configuration-pipelines').get_by_role('button', name='GeneScope', exact=True).click()
+            expect(page.get_by_role('heading', name='Default compute resources', exact=True)).to_be_visible()
+            picker = page.get_by_label('Application database', exact=True)
+            expect(picker).to_be_visible()
+            assert picker.locator('option').count() == 3
+            picker.select_option(str(db_two))
+            expect(picker).to_have_value(str(db_two))
+            page.get_by_role('button', name='Save defaults', exact=True).click()
+            expect(page.locator('#toast')).to_contain_text('Defaults saved for future drafts')
+            assert yaml.safe_load(store.get('configs', 'micpscope'))['reference_database'] == str(db_two)
+            page.locator('.compute-defaults').get_by_role('button', name='Use Low', exact=True).click()
+            expect(page.locator('#toast')).to_contain_text('Low saved for future drafts')
+            expect(page.get_by_label('Application database', exact=True)).to_have_value(str(db_two))
+            saved_compute = store.get('resource_defaults', 'micpscope')
+            expect(page.get_by_label('Default CPU threads', exact=True)).to_have_value(str(saved_compute['cores']))
+            expect(page.get_by_label('Default RAM (MB)', exact=True)).to_have_value(str(saved_compute['memory_mb']))
+            expect(page.locator('.compute-defaults').get_by_label('GPU / CUDA policy', exact=True)).to_have_value('cpu')
+            capture('genescope-database-compute-defaults')
+            # Explicit descriptor-only selection stores YAML null, never the string "null".
+            page.get_by_label('Application database', exact=True).select_option('')
+            page.get_by_role('button', name='Save defaults', exact=True).click()
+            expect(page.locator('#toast')).to_contain_text('Defaults saved for future drafts')
+            assert yaml.safe_load(store.get('configs', 'micpscope'))['reference_database'] is None
+            page.get_by_role('link', name='Runs', exact=True).click()
+            # A current-app pipeline-only update must not start a restart watcher.
+            live_lock = worker_lease(store)
+            pipeline_only = store.submit('app_update', {'update_all': True, 'release': {'version': __version__}})
+            store.update_job(pipeline_only, status='running')
+            page.get_by_role('button', name='Refresh workspace', exact=True).click()
+            expect(page.get_by_text('Updating Bactologix & all pipelines', exact=True)).to_be_visible()
+            assert page.evaluate('!window.__bactologixRestart')
+            store.update_job(pipeline_only, status='succeeded')
+            live_lock.close()
+            page.get_by_role('button', name='Refresh workspace', exact=True).click()
             page.evaluate('window.__acceptanceBeforeRestart = true')
             # Simulate the verified worker result without replacing CI's own package.
             # The real supervisor must wait for success, exec a new server and refresh this tab.
             from bactologix import __version__
             live, = [x for x in store.all('launchers') if x['status'] == 'ready']
             before = {kind: store.all(kind) for kind in ('samples', 'runs', 'configs', 'installs')}
+            live_lock = worker_lease(store)
             jid = store.submit('app_update', {'release': {'version': __version__}, 'launcher_id': live['id']})
             store.update_job(jid, status='running')
             store.put('settings', 'app-update', {'job': jid, 'status': 'installed', 'version': __version__,
@@ -730,6 +824,7 @@ def test_sample_picker_configuration_and_report(tmp_path):
             assert store.get('launchers', live['id'])['status'] == 'ready'
             capture('automatic-update-waiting')
             store.update_job(jid, status='succeeded')
+            live_lock.close()
             page.wait_for_function('!window.__acceptanceBeforeRestart', timeout=45000)
             expect(page.get_by_role('link', name='Runs', exact=True)).to_be_visible(timeout=30000)
             page.wait_for_function('!window.__bactologixRestart')
@@ -809,6 +904,269 @@ def render_component(page, store):
         window.acceptanceRender(null);
     }''', {'html': (ui / 'shell.html').read_text(), 'css': (ui / 'styles.css').read_text(),
            'js': (ui / 'workspace.js').read_text(), 'workspace': snapshot(store)})
+
+
+def test_pipeline_release_picker_refresh_and_explicit_choice(tmp_path, monkeypatch):
+    """A successful refresh must not leave the old automatic snapshot selected."""
+    import base64
+    import copy
+    import json
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix import catalog
+    from bactologix.ui_backend import dispatch, snapshot
+
+    store = Store(tmp_path / 'workspace')
+    store.put('catalog', 'basis', {'live': True, 'checkedAt': 'old check', 'versions': []})
+    source = tmp_path / 'installed source'
+    source.mkdir()
+    old = {'id': 'old-basis', 'tool': 'basis', 'source': str(source), 'controller': None, 'ready': False,
+           'version': {'ref': 'basis-aware @ 14f161a1', 'commit': PIPELINES['basis']['commit']}}
+    store.put('installs', old['id'], old)
+    store.put('settings', 'active-basis', old['id'])
+    registry = json.loads((Path(__file__).parents[1] / 'compatibility/releases-v1.json').read_text())
+    review = next(r for r in registry['releases'] if r['tool'] == 'basis' and r['tag'] == 'v0.4.0a4')
+    release = {'id': 'release:' + review['tag'], 'kind': 'release', 'ref': review['tag'],
+               'name': 'BaSIS reviewed release', 'commit': review['commit'], 'prerelease': True,
+               'url': 'https://github.com/crackberryq/Bactomics_BaSIS/releases/tag/' + review['tag'],
+               'publishedAt': '2026-10-31'}
+    unreviewed = {**release, 'id': 'release:v99.0.0', 'ref': 'v99.0.0', 'name': 'Unreviewed release',
+                  'commit': '9' * 40, 'prerelease': False, 'publishedAt': '2099-01-01'}
+    listing = {'live': True, 'checkedAt': 'new check', 'versions': [unreviewed, release]}
+    monkeypatch.setattr(catalog, 'fetch_versions', lambda tool: copy.deepcopy(listing))
+    monkeypatch.setattr(catalog, 'api', lambda path: {
+        'content': base64.b64encode(json.dumps(registry).encode()).decode()})
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 900})
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(page, store)
+        page.get_by_role('link', name='Install & update', exact=True).click()
+        page.get_by_role('button', name='Pipelines & environments', exact=True).click()
+        page.locator('[data-action="versions"][data-id="basis"]').click()
+        dialog = page.get_by_role('dialog', name='Choose BaSIS AWARE version', exact=True)
+        legacy = dialog.locator('input[name="version"][value="commit:' + old['version']['commit'] + '"]')
+        newest = dialog.locator('input[name="version"][value="' + release['id'] + '"]')
+        expect(legacy).to_be_checked()
+        expect(dialog.locator('.version-choice').first).to_contain_text('Installed')
+
+        def refresh():
+            dialog.get_by_role('button', name='Refresh from GitHub', exact=True).click()
+            request = page.evaluate('window.acceptanceEvents.at(-1).value')
+            assert request['kind'] == 'refresh_versions'
+            result = dispatch(store, request['kind'], request['payload'])
+            page.evaluate('({response,workspace}) => {Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                          {'response': {'id': request['id'], 'ok': True, **result}, 'workspace': snapshot(store)})
+            return result
+
+        assert refresh()['refreshed_catalog'] == 'basis'
+        expect(newest).to_be_checked()
+        expect(dialog.locator('.version-choice').first).to_contain_text('v0.4.0a4')
+        expect(dialog.locator('.version-choice').first).to_contain_text('Recommended')
+        expect(dialog).not_to_contain_text('Recommended compatible snapshot')
+        expect(dialog).to_contain_text('Latest release: v99.0.0')
+        expect(dialog).to_contain_text('Recommended compatible release: v0.4.0a4')
+        expect(dialog.locator('input[value="release:v99.0.0"]')).not_to_be_checked()
+
+        # Deliberate legacy choices survive even a successful refresh.
+        legacy.check()
+        refresh()
+        expect(legacy).to_be_checked()
+        dialog.get_by_role('button', name='Close dialog', exact=True).click()
+        page.locator('[data-action="versions"][data-id="basis"]').click()
+        expect(newest).to_be_checked()
+
+        # A failed refresh retains the cache, successful-check date and selection.
+        cached = store.get('catalog', 'basis')
+        monkeypatch.setattr(catalog, 'api', lambda path: (_ for _ in ()).throw(OSError('offline fixture')))
+        assert 'refreshed_catalog' not in refresh()
+        expect(newest).to_be_checked()
+        assert store.get('catalog', 'basis') == cached
+
+        # The stable-only view has no supported release and must not select a hidden prerelease/snapshot.
+        dialog.get_by_label('Release channel', exact=True).select_option('stable')
+        expect(dialog.locator('input[name="version"]:checked')).to_have_count(0)
+        expect(dialog.locator('[data-action="install-version"]')).to_be_disabled()
+        expect(dialog).to_contain_text('No tested stable release')
+        dialog.get_by_label('Release channel', exact=True).select_option('prerelease')
+        expect(newest).to_be_checked()
+        dialog.get_by_label('Source type', exact=True).select_option('pinned')
+        expect(dialog.locator('input[name="version"]:checked')).to_have_count(0)
+        expect(dialog.locator('[data-action="install-version"]')).to_be_disabled()
+        dialog.get_by_label('Source type', exact=True).select_option('release')
+        newest.check()
+
+        page.set_viewport_size({'width': 390, 'height': 844})
+        expect(dialog.locator('.version-choice:not([hidden])').first).to_contain_text('v0.4.0a4')
+        assert dialog.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
+        destination = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+        if destination:
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(Path(destination) / 'pipeline-release-picker-mobile.png'), full_page=True)
+        dialog.locator('[data-action="install-version"]').click()
+        request = page.evaluate('window.acceptanceEvents.at(-1).value')
+        assert request['kind'] == 'install'
+        assert request['payload'] == {'tool': 'basis', 'version_id': release['id'], 'commit': release['commit']}
+        assert store.get('installs', old['id']) == old
+        assert store.get('settings', 'active-basis') == old['id']
+        assert not store.jobs() and not store.all('runs') and errors == []
+        browser.close()
+
+
+@pytest.mark.parametrize('restore', [False, True], ids=['current-tab', 'recovered-tab'])
+def test_saved_basis_edit_does_not_resume_an_unrelated_draft(screening, restore):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import dispatch, snapshot
+    store, parent = screening
+    other = create_run(store, 'basis', parent['sample'], parent['config'], label='Another saved BaSIS run')
+    original = {str(p): p.read_bytes() for p in Path(parent['folder']).rglob('*') if p.is_file()}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1000})
+        page.route('http://workspace.test/**', lambda route: route.fulfill(body='<html><body></body></html>', content_type='text/html'))
+        page.goto('http://workspace.test/')
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(page, store)
+
+        def respond(kind):
+            request = page.evaluate('window.acceptanceEvents.at(-1).value')
+            assert request['kind'] == kind
+            result = dispatch(store, kind, request['payload'])
+            page.evaluate('({response,workspace}) => {Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                          {'response': {'id': request['id'], 'ok': True, **result}, 'workspace': snapshot(store)})
+            return request
+
+        page.get_by_role('link', name='Runs', exact=True).click()
+        page.get_by_role('button', name='Create run drafts', exact=True).first.click()
+        respond('run_config_editor')
+        page.get_by_label('Pipeline', exact=True).select_option('micpscope')
+        respond('run_config_editor')
+        page.get_by_label('CPU cores per run', exact=True).fill('3')
+        page.get_by_role('button', name='Save & exit', exact=True).click()
+        saved = page.evaluate('sessionStorage.getItem("bactologix:run-editor:v1:" + window.acceptanceWorkspace.workspace)')
+        assert saved and 'micpscope' in saved
+        if restore:
+            page.reload()
+            render_component(page, store)
+        page.get_by_role('link', name='Runs', exact=True).click()
+        page.locator('[data-action="run-detail"][data-id="' + parent['id'] + '"]').first.click()
+        respond('inspect_run')
+        count = page.evaluate('window.acceptanceEvents.length')
+        page.get_by_role('button', name='Edit settings', exact=True).click()
+        dialog = page.get_by_role('dialog', name='Unfinished edits', exact=True)
+        expect(dialog).to_contain_text('GeneScope')
+        expect(dialog).to_contain_text('BaSIS AWARE')
+        expect(dialog).to_contain_text(parent['id'])
+        assert page.evaluate('window.acceptanceEvents.length') == count
+        assert '#runs/' in page.url
+        page.set_viewport_size({'width': 390, 'height': 844})
+        assert dialog.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
+        destination = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+        if destination:
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(Path(destination) / ('editor-conflict-' + str(restore) + '.png')), full_page=True)
+        page.set_viewport_size({'width': 1440, 'height': 1000})
+        dialog.get_by_role('button', name='Close dialog', exact=True).click()
+        expect(page.get_by_role('region', name='Unfinished draft')).to_contain_text('GeneScope')
+        assert page.evaluate('sessionStorage.getItem("bactologix:run-editor:v1:" + window.acceptanceWorkspace.workspace)') == saved
+
+        # Resuming is explicit and keeps the GeneScope draft's unsaved budget.
+        page.get_by_role('button', name='Edit settings', exact=True).click()
+        dialog.get_by_role('button', name='Resume unfinished edits', exact=True).click()
+        expect(page.get_by_label('Pipeline', exact=True)).to_have_value('micpscope')
+        expect(page.get_by_label('CPU cores per run', exact=True)).to_have_value('3')
+        page.get_by_role('button', name='Save & exit', exact=True).click()
+        page.get_by_role('link', name='Runs', exact=True).click()
+        page.locator('[data-action="run-detail"][data-id="' + parent['id'] + '"]').first.click()
+        respond('inspect_run')
+        page.get_by_role('button', name='Edit settings', exact=True).click()
+        dialog.get_by_role('button', name='Discard edits and open BaSIS AWARE', exact=True).click()
+        request = respond('edit_run_settings')
+        assert request['payload'] == {'id': parent['id']}
+        expect(page.get_by_role('heading', name='Edit run settings', exact=True)).to_be_visible()
+        expect(page.locator('.revision-source')).to_contain_text('BaSIS AWARE')
+        assert page.locator('.run-wizard .settings-tabs button').all_text_contents() == ['Modules', 'AWARE', 'DeepSafe', 'Resources', 'Advanced']
+        expect(page.get_by_label('Pipeline', exact=True)).to_have_count(0)
+        page.locator('[data-run-name="modules.rgi.enabled"]').uncheck()
+
+        # Reopening this same revision resumes it without a conflict or a lost edit.
+        page.get_by_role('button', name='Save & exit', exact=True).click()
+        page.locator('[data-action="run-detail"][data-id="' + parent['id'] + '"]').first.click()
+        respond('inspect_run')
+        count = page.evaluate('window.acceptanceEvents.length')
+        page.get_by_role('button', name='Edit settings', exact=True).click()
+        expect(page.get_by_role('dialog')).to_have_count(0)
+        expect(page.locator('[data-run-name="modules.rgi.enabled"]')).not_to_be_checked()
+        assert page.evaluate('window.acceptanceEvents.length') == count
+
+        # Another run of the same pipeline must also be distinguished by identity.
+        page.get_by_role('button', name='Save & exit', exact=True).click()
+        page.locator('[data-action="run-detail"][data-id="' + other['id'] + '"]').first.click()
+        respond('inspect_run')
+        page.get_by_role('button', name='Edit settings', exact=True).click()
+        expect(dialog).to_contain_text(parent['id'])
+        expect(dialog).to_contain_text(other['id'])
+        expect(dialog).to_contain_text('Another saved BaSIS run')
+        assert '#runs/' in page.url
+        assert store.get('runs', parent['id']) == parent
+        assert store.get('runs', other['id']) == other
+        assert all(Path(path).read_bytes() == content for path, content in original.items())
+        assert len(store.all('runs')) == 2 and not store.jobs() and errors == []
+        browser.close()
+
+
+def test_followup_version_scope_and_draft_roundtrip(screening, tmp_path):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import dispatch, snapshot
+    store, parent = screening
+    installed, _ = reviewed_installation(store, parent, tmp_path / 'new reviewed source')
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(page, store)
+        def respond(kind):
+            request = page.evaluate('window.acceptanceEvents.at(-1).value')
+            assert request['kind'] == kind
+            result = dispatch(store, kind, request['payload'])
+            page.evaluate('({response,workspace}) => {Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                          {'response': {'id': request['id'], 'ok': True, **result}, 'workspace': snapshot(store)})
+            return request
+        page.get_by_role('link', name='Runs', exact=True).click()
+        page.locator('[data-action="run-detail"][data-id="' + parent['id'] + '"]').first.click()
+        respond('inspect_run')
+        page.get_by_role('button', name='Review follow-up', exact=True).click()
+        dialog = page.get_by_role('dialog', name='Review saved screening for follow-up', exact=True)
+        source = dialog.get_by_label('Workflow version for this follow-up', exact=True)
+        scope = dialog.get_by_label('AWARE scope', exact=True)
+        expect(source).to_have_value('screening')
+        expect(scope.locator('option')).to_have_count(1)
+        source.select_option(installed['id'])
+        expect(scope).to_have_value('amrfinder-review')
+        expect(dialog).to_contain_text('unreported alignments')
+        reviewed = dialog.locator('#followup-reviewed')
+        reviewed.check()
+        scope.select_option('all-supported')
+        expect(reviewed).not_to_be_checked()
+        scope.select_option('amrfinder-review')
+        dialog.get_by_label('Reviewed follow-up configuration').fill('deep: {enabled: true, maximum_candidates: 5}\n')
+        reviewed.check()
+        page.set_viewport_size({'width': 390, 'height': 900})
+        expect(source).to_be_visible()
+        assert dialog.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
+        dialog.get_by_role('button', name='Create follow-up draft', exact=True).click()
+        request = respond('create_followup')
+        assert request['payload']['scope'] == 'amrfinder-review'
+        assert request['payload']['source_id'] == installed['id']
+        child = next(r for r in store.all('runs') if r['id'] != parent['id'])
+        assert child['commit'] == installed['version']['commit']
+        assert child['followup_transition']['screening_commit'] == parent['commit']
+        assert not store.jobs() and not child['dry_run_ok']
+        assert errors == []
+        browser.close()
 
 
 def test_reviewed_support_snapshot_and_zip(tmp_path):
@@ -908,7 +1266,7 @@ def test_reviewed_support_snapshot_and_zip(tmp_path):
         browser.close()
 
 
-def test_job_progress_resource_history_and_downloads(tmp_path):
+def test_job_progress_resource_history_and_downloads(tmp_path, worker_lease):
     import json
     import zipfile
     from playwright.sync_api import sync_playwright, expect
@@ -917,6 +1275,7 @@ def test_job_progress_resource_history_and_downloads(tmp_path):
     from bactologix.store import now
     store = Store(tmp_path / 'usage-component')
     jid = store.submit('workflow', {'run_id': 'run-software-fixture', 'action': 'run'})
+    worker_lease(store)
     store.update_job(jid, status='running')
     store.log_path(jid).write_text('localrule software_check:\n    jobid: 2\n1 of 4 steps (25%) done\n')
     recorder = telemetry.Recorder(store, store.job(jid))
@@ -1005,11 +1364,12 @@ def test_job_progress_resource_history_and_downloads(tmp_path):
         browser.close()
 
 
-def test_background_poll_preserves_and_queues_a_foreground_action(tmp_path):
+def test_background_poll_preserves_and_queues_a_foreground_action(tmp_path, worker_lease):
     """Exercise the real component with a controlled response boundary, without a worker."""
     from playwright.sync_api import sync_playwright, expect
     store = Store(tmp_path / 'component-workspace')
     jid = store.submit('smoke', {})
+    worker_lease(store)
     store.update_job(jid, status='running')
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -1170,13 +1530,14 @@ def test_workstation_check_and_failure_recovery_in_streamlit(tmp_path):
         proc.wait(timeout=15)
 
 
-def test_queue_controls_persist_and_recover_in_real_browser(tmp_path):
+def test_queue_controls_persist_and_recover_in_real_browser(tmp_path, worker_lease):
     """UI controls use real transactions and a worker; no sample workflow is run."""
     from playwright.sync_api import sync_playwright, expect
     from bactologix.workstation import request as workstation_request
     store = Store(tmp_path / 'queue workspace')
     interrupted = store.submit('smoke', {})
-    store.update_job(interrupted, status='running')  # Abandoned worker fixture for recovery.
+    live_lock = worker_lease(store)
+    store.update_job(interrupted, status='running')  # Becomes abandoned when the lease closes below.
     workstation = store.submit('workstation', workstation_request(store))
     held = store.submit('smoke', {})
     with socket.socket() as sock:
@@ -1220,9 +1581,12 @@ def test_queue_controls_persist_and_recover_in_real_browser(tmp_path):
             page.get_by_role('link', name='Overview', exact=True).click()
             expect(page.locator('.queue-banner')).to_contain_text('Waiting and newly submitted jobs will not start')
             page.get_by_role('button', name='Review queue', exact=True).click()
-            page.get_by_role('button', name='Start / recover queue', exact=True).click()
+            store.cancel(interrupted)  # A stale Stop request must not remain pending forever.
+            live_lock.close()  # Simulate the OS releasing ownership after a restart.
+            page.get_by_role('button', name='Refresh', exact=True).click()
             expect(controls).to_contain_text('Review interrupted work before resuming', timeout=15000)
             assert store.job(interrupted)['status'] == 'interrupted'
+            expect(page.locator('[data-job-id="' + interrupted + '"]')).not_to_contain_text('Stop requested')
             assert store.job(workstation)['status'] == store.job(held)['status'] == 'queued'
             assert store.queue_snapshot()['paused']
             def capture(name):
@@ -1573,7 +1937,7 @@ def test_version_compatibility_overview_preserves_saved_bindings(tmp_path, insta
         proc.terminate(); proc.wait(timeout=15)
 
 
-def test_job_history_filters_pages_export_and_active_visibility(tmp_path, installed):
+def test_job_history_filters_pages_export_and_active_visibility(tmp_path, installed, worker_lease):
     """Real Chromium component uses stored attempts without submitting or editing work."""
     import json
     from playwright.sync_api import sync_playwright, expect
@@ -1599,6 +1963,7 @@ def test_job_history_filters_pages_export_and_active_visibility(tmp_path, instal
     store.update_job(missing, status='failed')
     waiting = store.submit('smoke', {})
     running = store.submit('smoke', {})
+    worker_lease(store)
     store.update_job(running, status='running')
     store.put('run_visibility', run['id'], {'id': run['id'], 'archived': True})
     original = store.jobs()
@@ -1901,7 +2266,7 @@ def test_responsive_navigation_and_workspace_tools(tmp_path):
         page.get_by_role('link', name='Install & update', exact=True).click()
         for width in (1440, 1024, 390):
             page.set_viewport_size({'width': width, 'height': 844})
-            for name in ('Guided setup', 'Pipelines & environments', 'PC capacity', 'Workstation check', 'Compatibility'):
+            for name in ('Guided setup', 'Pipelines & environments', 'Compute & CUDA', 'Workstation check', 'Compatibility'):
                 page.get_by_role('button', name=name, exact=True).click()
                 if name == 'Compatibility':
                     req = page.evaluate('window.acceptanceEvents.at(-1)?.value')
@@ -2033,7 +2398,7 @@ def test_saved_report_section_links_and_print(tmp_path):
 
 
 
-def test_pipeline_order_and_resource_empty_state(tmp_path):
+def test_pipeline_order_and_reference_builder(tmp_path):
     from playwright.sync_api import sync_playwright, expect
     store = Store(tmp_path / 'workspace')
     with sync_playwright() as p:
@@ -2042,15 +2407,17 @@ def test_pipeline_order_and_resource_empty_state(tmp_path):
         render_component(page,store)
         page.get_by_role('link',name='Databases & models',exact=True).click()
         tabs=page.locator('[data-action="database-tool"]')
-        assert tabs.all_text_contents()==['HybAs AWARE','BaSIS AWARE','MICP Scope']
+        assert tabs.all_text_contents()==['HybAs AWARE','BaSIS AWARE','GeneScope']
         for width in (1440,390):
             page.set_viewport_size({'width':width,'height':900})
-            page.get_by_role('button',name='MICP Scope',exact=True).click()
-            expect(page.get_by_role('heading',name='Your databases, connected.')).to_be_visible()
-            expect(page.get_by_role('heading',name='MICP Scope resources')).to_be_visible()
+            page.get_by_role('button',name='GeneScope',exact=True).click()
+            expect(page.get_by_role('heading',name='Database Builder',exact=True)).to_be_visible()
+            expect(page.get_by_role('heading',name='Built databases',exact=True)).to_be_visible()
+            expect(page.get_by_role('button',name='Build database',exact=True)).to_be_disabled()
             expect(page.get_by_role('button',name='Auto scan',exact=True)).to_have_count(0)
-            assert tabs.all_text_contents()==['HybAs AWARE','BaSIS AWARE','MICP Scope']
-            assert page.locator('.database-scan').evaluate('(e)=>e.scrollWidth<=e.clientWidth+1')
+            assert tabs.all_text_contents()==['HybAs AWARE','BaSIS AWARE','GeneScope']
+            page.locator('#reference-editor summary').click()
+            assert page.locator('#reference-spec').evaluate('(e)=>e.getBoundingClientRect().right<=window.innerWidth')
             page.get_by_role('button',name='BaSIS AWARE',exact=True).click()
             expect(page.get_by_role('heading',name='Find installed databases')).to_be_visible()
         browser.close()
@@ -2093,4 +2460,206 @@ def test_hybas_manifest_preview_and_registration(tmp_path):
         expect(dialog).to_have_count(0)
         assert store.get('samples','sample')['mode']=='pacbio_only'
         assert not store.jobs() and not store.all('runs') and not errors
+
+def test_reference_starter_default_edit_restore_and_build(tmp_path, monkeypatch):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix import database_builder
+    text='schema_version: "1.0"\nname: bundled-starter\nversion: "1"\nproteins: []\n'
+    monkeypatch.setattr(database_builder,'starter',lambda store: {'path':'/installed/micp-starter.yaml','name':'bundled-starter','version':'1','proteins':164,'regulatory':0,'literature_records':207,'text':text})
+    monkeypatch.setattr(database_builder,'available',lambda store: True)
+    store=Store(tmp_path/'workspace')
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True)
+        page=browser.new_page(viewport={'width':1440,'height':900})
+        page_errors=[]
+        page.on('pageerror',lambda error: page_errors.append(str(error)))
+        render_component(page,store)
+        page.get_by_role('link',name='Databases & models',exact=True).click()
+        page.get_by_role('button',name='GeneScope',exact=True).click()
+        page.set_viewport_size({'width':390,'height':900})
+        expect(page.locator('#reference-spec')).to_have_value(text)
+        page.locator('#reference-editor summary').click()
+        page.locator('#reference-spec').fill(text.replace('bundled-starter','custom-reference'))
+        page.evaluate('() => { window.acceptanceRender(null); }')
+        expect(page.locator('#reference-spec')).to_have_value(text.replace('bundled-starter','custom-reference'))
+        page.locator('#reference-editor summary').click()
+        page.get_by_role('button',name='Restore bundled starter',exact=True).click()
+        assert not page_errors, page_errors
+        expect(page.locator('#reference-spec')).to_have_value(text)
+        page.get_by_role('button',name='Build database',exact=True).click()
+        events=page.evaluate('window.acceptanceEvents')
+        assert any(e['value'].get('kind')=='build_reference_database' and e['value'].get('payload',{}).get('spec')==text for e in events)
+        browser.close()
+
+
+@pytest.mark.parametrize('with_pam', [False, True])
+def test_workflow_lock_review_and_guarded_unlock(tmp_path, installed, monkeypatch, worker_lease, with_pam):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import dispatch, snapshot
+    from bactologix import workflow_unlock
+    store, item = installed
+    sample = tmp_path/'unlock sample'
+    (sample/'raw/illumina').mkdir(parents=True)
+    for mate in (1,2):
+        (sample/f'raw/illumina/fixture_R{mate}.fastq').write_text('@fixture\nA\n+\nI\n')
+    run = create_run(store,'hybas',{'id':'unlock.fixture','path':str(sample),'mode':'illumina_only'},'custom_note: retained\n',label='Interrupted fixture')
+    locks = Path(run['folder'])/'workflow/.snakemake/locks'
+    locks.mkdir(parents=True)
+    (locks/'0.input.lock').write_text('/software-fixture')
+    jid=store.submit('workflow',{'run_id':run['id'],'action':'run'})
+    store.update_job(jid,status='failed')
+    store.log_path(jid).write_text('LockException:\nError: Directory cannot be locked.\n')
+    if with_pam:
+        from test_workflow_unlock import pam_fixture
+        child = pam_fixture(monkeypatch)
+        monkeypatch.setattr(workflow_unlock.psutil,'process_iter',lambda: [child])
+    else:
+        monkeypatch.setattr(workflow_unlock.psutil,'process_iter',lambda: [])
+    monkeypatch.setattr('bactologix.engine.find_conda',lambda _: '/fixture/conda')
+    monkeypatch.setattr('bactologix.engine.launch_worker',lambda _: None)
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True)
+        page=browser.new_page(viewport={'width':1440,'height':1000})
+        render_component(page,store)
+        page.get_by_role('link',name='Jobs & progress',exact=True).click()
+        panel=page.locator('[data-recovery-job="'+jid+'"]')
+        panel.locator('summary').click()
+        expect(panel).to_contain_text('Workflow locked')
+        def respond():
+            req=page.evaluate('window.acceptanceEvents.at(-1).value')
+            result=dispatch(store,req['kind'],req['payload'])
+            page.evaluate('''({workspace,response})=>{Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}''',
+                          {'workspace':snapshot(store),'response':{'id':req['id'],'ok':True,**result}})
+            return result
+        lease=worker_lease(store)
+        panel.get_by_role('button',name='Check workflow lock',exact=True).click()
+        respond()
+        expect(page.get_by_role('button',name='Unlock workflow',exact=True)).to_be_disabled()
+        expect(page.get_by_role('dialog')).to_contain_text('currently in use')
+        lease.close()
+        page.get_by_role('button',name='Check again',exact=True).click()
+        respond()
+        expect(page.get_by_role('button',name='Unlock workflow',exact=True)).to_be_enabled()
+        page.get_by_role('button',name='Unlock workflow',exact=True).click()
+        result=respond()
+        assert store.job(result['unlock_job'])['kind']=='workflow_unlock'
+        assert store.queue_snapshot()['paused']
+        assert store.job(jid)['status']=='failed'
+        assert store.get('runs',run['id'])==run
+        assert (locks/'0.input.lock').exists()  # review/queue alone does not unlock
+        browser.close()
+
+
+
+def test_completed_hybas_offers_micp_draft(tmp_path, installed):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import dispatch
+    store, item = installed
+    sample = tmp_path/'micp handoff sample'
+    (sample/'raw/illumina').mkdir(parents=True)
+    for mate in (1, 2):
+        (sample/f'raw/illumina/fixture_R{mate}.fastq').write_text('@fixture\nA\n+\nI\n')
+    run = create_run(store, 'hybas', {'id':'micp.fixture','path':str(sample),'mode':'illumina_only'}, '{}')
+    run['completed'] = '2026-11-04T00:00:00Z'
+    store.put('runs',run['id'],run)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width':1440,'height':1000})
+        errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
+        render_component(page,store)
+        page.get_by_role('link',name='Runs',exact=True).click()
+        page.locator('[data-action="run-detail"][data-id="'+run['id']+'"]').first.click()
+        request=page.evaluate('window.acceptanceEvents.at(-1).value')
+        response=dispatch(store,request['kind'],request['payload'])
+        page.evaluate('response => { window.acceptanceRender(response); }',{'id':request['id'],'ok':True,**response})
+        button=page.get_by_role('button',name='Create GeneScope draft',exact=True)
+        expect(button).to_be_visible()
+        button.click()
+        request=page.evaluate('window.acceptanceEvents.at(-1).value')
+        assert request['kind']=='micp_handoff' and request['payload']=={'id':run['id']}
+        assert errors==[]
+        browser.close()
+
+
+def test_genescope_custom_database_label(tmp_path):
+    import json
+    from playwright.sync_api import sync_playwright, expect
+    store=Store(tmp_path/'workspace')
+    app=dict(id='custom',name='Custom engineering',version='2.0',description='A different application')
+    database=tmp_path/'database';database.mkdir()
+    (database/'reference-manifest.json').write_text(json.dumps({'schema_version':'1.0','specification':{'schema_version':'2.0','application':app}}))
+    store.put('configs','micpscope',yaml.safe_dump({'reference_database':str(database)}))
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True);page=browser.new_page(viewport={'width':1440,'height':1000})
+        render_component(page,store)
+        page.get_by_role('link',name='Databases & models',exact=True).click()
+        page.get_by_role('button',name='GeneScope',exact=True).click()
+        expect(page.get_by_text('Selected application: Custom engineering · 2.0',exact=True)).to_be_visible()
+        expect(page.get_by_text('A different application',exact=True)).to_be_visible()
+        browser.close()
+
+
+
+# Reuse the software-only paused-run fixture; no biological jobs are executed.
+from test_identification import paused
+from test_native import workspace, installation, sample
+
+
+@pytest.mark.parametrize("long_platform", ["ont", "pacbio"])
+def test_identification_review_target_preview_and_saved_choice(paused, monkeypatch, long_platform):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import dispatch, snapshot
+    from bactologix import identification
+    store, run = paused
+    if long_platform == 'pacbio':
+        import json
+        path=identification.report_path(run);doc=json.loads(path.read_text())
+        doc['platforms']={'illumina':True,'pacbio':True}
+        for row in doc['candidates']:
+            row['pacbio_pct']=row.pop('ont_pct')
+            row['manual_actions']['pacbio']='whitelist_filter'
+            del row['manual_actions']['ont']
+        doc['recommendation']['actions']={'illumina':'passthrough','pacbio':'whitelist_filter'}
+        path.write_text(json.dumps(doc));identification.capture(run,'identification-job')
+        store.put('runs',run['id'],run)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1000})
+        errors=[];page.on('pageerror',lambda error: errors.append(str(error)))
+        render_component(page,store)
+        page.get_by_role('link',name='Runs',exact=True).click()
+        page.locator('[data-action="review-identification"]').click()
+        def respond():
+            req=page.evaluate('window.acceptanceEvents.at(-1).value')
+            result=dispatch(store,req['kind'],req['payload'])
+            page.evaluate('({workspace,response})=>{Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                {'workspace':snapshot(store),'response':{'id':req['id'],'ok':True,**result}})
+            return result
+        respond()
+        dialog=page.get_by_role('dialog',name='Review identification',exact=True)
+        expect(dialog).to_contain_text('Example one')
+        expect(dialog).to_contain_text('PacBio %' if long_platform=='pacbio' else 'ONT %')
+        dialog.locator('#identification-mode').select_option('manual')
+        dialog.locator('#identification-candidate').select_option('22')
+        expect(dialog.locator('#identification-taxid')).to_have_value('22')
+        expect(dialog.get_by_role('button',name='Confirm target & continue',exact=True)).to_be_disabled()
+        dialog.get_by_role('button',name='Preview filtering',exact=True).click();respond()
+        expect(dialog.get_by_role('button',name='Confirm target & continue',exact=True)).to_be_enabled()
+        expect(dialog).to_contain_text('filter to selected target')
+        dialog.locator('#identification-taxid').fill('999')
+        expect(dialog.get_by_role('button',name='Confirm target & continue',exact=True)).to_be_disabled()
+        dialog.locator('#identification-taxid').fill('22')
+        dialog.get_by_role('button',name='Save for later',exact=True).click();respond()
+        assert identification.inspect(Store(store.home),run['id'])['taxid']=='22'
+        assert not store.jobs()
+        for width in (390,1440):
+            page.set_viewport_size({'width':width,'height':1000})
+            assert dialog.evaluate('(e)=>e.scrollWidth <= e.clientWidth + 1')
+        # Only queue after the explicit continue action. Avoid starting a worker in this UI test.
+        monkeypatch.setattr('bactologix.ui_backend.enqueue',lambda s,k,p:s.submit(k,p))
+        dialog.get_by_role('button',name='Confirm target & continue',exact=True).click();respond()
+        assert len(store.jobs())==1 and store.jobs()[0]['payload']['action']=='continue'
+        assert store.get('runs',run['id'])['identification']['selection']['taxid']=='22'
+        assert Path(run['folder'],'config.yaml').read_text()==run['config']
+        assert not errors,errors
         browser.close()

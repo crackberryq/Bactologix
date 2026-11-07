@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import getpass
 import json
 from pathlib import Path
 import shlex
@@ -20,7 +21,8 @@ from .runs import (absolute_path, clone_runs, command, create_run,
 from .store import identifier
 from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, compatibility, comparisons, sample_imports
 from . import setup_state
-from . import followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
+from . import reference_catalog
+from . import database_builder, followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
 _SNAPSHOTS = {}
 
@@ -79,7 +81,22 @@ def configuration_fields(tool, text):
         for name, row in sorted(fields.items())]
 
 
+def workspace_label():
+    """Display the local app account; never change the workspace's location."""
+    try:
+        name = " ".join(getpass.getuser().split())
+    except (OSError, KeyError):
+        return "Local workspace"
+    if not name or name.casefold() in {"root", "system", "administrator"}:
+        return "Local workspace"
+    name = name[:80]
+    name = name[0].upper() + name[1:]
+    return f"{name}'s workspace"
+
+
 def snapshot(store):
+    from .queue import reconcile_interrupted
+    reconcile_interrupted(store)
     records = {r['id']: r for r in store.all('job_telemetry') if isinstance(r, dict) and 'id' in r}
     jobs = [{**j, "guidance": readiness.job_guidance(store, j),
              "telemetry": telemetry.view(records.get(j['id']), j)} for j in store.jobs()]
@@ -93,15 +110,19 @@ def snapshot(store):
     archived = {r["id"] for r in store.all("run_visibility") if r.get("archived")}
     for run in store.all("runs"):
         cfg = parse_config(run["config"])
+        kraken_mode = run.get('identification', {}).get('selection', {}).get('mode', cfg.get('kraken_decision_mode'))
         run_jobs = [j for j in jobs if j["kind"] == "workflow" and j["payload"].get("run_id") == run["id"]]
         active = next((j for j in run_jobs if j["status"] in {"queued", "running"}), None)
         checked = dry_run_current(store, run)
         status = run_status(run, jobs, checked)
-        runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant")} | {
-            "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if cfg.get("kraken_decision_mode") == "off" else "aware",
-            "kraken_mode": "off" if cfg.get("run_kraken") is False else cfg.get("kraken_decision_mode"),
-            "can_followup": followup.available(run) and status == "completed",
-            "strategy": cfg.get("polish_mode", "—"), "can_handoff": run["tool"] == "hybas" and status == "completed" and all(
+        runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant", "identification")} | {
+            "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
+            "kraken_mode": "off" if cfg.get("run_kraken") is False else kraken_mode,
+            "can_micp_handoff": run["tool"] == "hybas" and status == "completed",
+            "can_followup": followup.available(run, store) and status == "completed",
+            "followup_sources": followup.source_options(store, run) if status == "completed" else [],
+            "followup_transition": run.get('followup_transition'),
+            "review_enabled": cfg.get("kraken_review_before_filtering", False), "strategy": cfg.get("polish_mode", "—"), "can_handoff": run["tool"] == "hybas" and status == "completed" and all(
                 Path(run["output"], "annotation", run["sample"]["id"] + ext).is_file() for ext in (".fna", ".faa", ".gff"))})
     configs = {t: run_config.defaults(store, t) for t in PIPELINES}
     catalogs = {}
@@ -109,7 +130,7 @@ def snapshot(store):
         catalogs[tool] = versions(store, tool)
         for version in catalogs[tool]["versions"]:
             version["supported"] = supported(tool, version["commit"], store)
-    result = {"version": __version__, "workspace": str(store.home), "doctor": doctor(store),
+    result = {"version": __version__, "workspace": str(store.home), "workspace_label": workspace_label(), "doctor": doctor(store),
             "setup_overview": {t: setup_state.overview(store, t) for t in PIPELINES},
             "pipelines": PIPELINES, "installs": [installation_status(i, jobs, store) for i in store.all("installs")],
             "app_update": app_update, "hardware": hardware.panel(store), "workstation_checks": workstation.history(store),
@@ -119,7 +140,9 @@ def snapshot(store):
             "jobs": jobs, "queue": queue_state, "reports": reports(store), "configs": configs,
             "fields": {t: configuration_fields(t, configs[t]) for t in PIPELINES},
             "databases": {t: databases.panel(store, t) for t in PIPELINES},
+            "reference_databases": reference_catalog.choices(store),
             "environments": {i["id"]: maintenance.environment_panel(store, i, jobs) for i in store.all("installs")},
+            "database_builder": {"available": database_builder.available(store), "starter": database_builder.starter(store), "builds": store.all("database_builds")},
             "database_downloads": [{**d, "job_status": next((j["status"] for j in jobs if j["id"] == d.get("job")), d.get("status"))}
                                    for d in store.all("database_downloads")],
             "download_options": {t: {"available": maintenance.download_supported(store.get("installs", store.get("settings", "active-" + t))),
@@ -193,16 +216,29 @@ def dispatch(store, kind, p):
         return {'report': workstation.artifact(store, p.get('id'), 'report'), 'keep_modal': True}
     if kind == 'download_workstation':
         return {'download': workstation.artifact(store, p.get('id'), 'download'), 'keep_modal': True}
+    if kind == 'preview_report_refresh':
+        from . import report_refresh
+        return {'refresh_plan': report_refresh.inspect(store, p.get('id')), 'keep_modal': True}
+    if kind == 'regenerate_report':
+        from . import report_refresh
+        plan = report_refresh.request(store, p.get('id'), p.get('evidence_sha256'), p.get('renderer_sha256'))
+        jid = enqueue(store, 'report_refresh', plan)
+        return {'message': 'Report-only refresh queued: ' + jid, 'navigate': 'jobs'}
     if kind == "refresh":
         return {}
     if kind == 'detect_hardware':
         hardware.inventory(store, refresh=True)
         return {'message': 'Hardware detection refreshed.', 'keep_modal': True}
+    if kind == 'save_compute_defaults':
+        return hardware.apply_custom(store, _tool(p), p.get('cores'), p.get('memory_mb'), p.get('gpu_mode'),
+                                     p.get('revisions'), p.get('hardware_id'))
     if kind == 'apply_resource_preset':
         return hardware.apply_preset(store, p.get('preset'), p.get('tools'), p.get('revisions'), p.get('hardware_id'))
     if kind == "refresh_app_releases":
         store.put("app_catalog", "releases", updates.fetch_releases())
         return {"message": "Bactologix releases refreshed.", "keep_modal": True}
+    if kind == 'update_all':
+        raise ValueError('Global updates have been removed. Use Update Bactologix for the application, or Install & update for each pipeline.')
     if kind == "update_app":
         catalog = store.get("app_catalog", "releases", {})
         release = next((r for r in catalog.get("releases", []) if r["id"] == p.get("release_id") and r["version"] == p.get("version")), None)
@@ -221,8 +257,15 @@ def dispatch(store, kind, p):
                 path = path.parent
         return {"browser": browse_folders(store, path, p.get("offset", 0),
                                           str(p.get("query", "")), p.get("show_hidden") is True), "keep_modal": True}
+    if kind == 'refresh_reference_databases':
+        return {'message': 'Available GeneScope databases refreshed.', 'keep_modal': True}
     if kind == "scan_databases":
-        return {"database_scan": databases.scan(store, _tool(p), p.get("root", "")), "keep_modal": True}
+        tool = _tool(p)
+        found = databases.scan(store, tool, p.get('root', ''))
+        if tool == 'micpscope':
+            for row in found['candidates'].get('reference', []):
+                reference_catalog.register(store, row['path'])
+        return {"database_scan": found, "keep_modal": True}
     if kind == "manage_environments":
         payload = maintenance.environment_request(store, p.get("id"), p.get("selected"), p.get("action"))
         jid = enqueue(store, "environments", payload)
@@ -238,6 +281,16 @@ def dispatch(store, kind, p):
         return {'uninstall_plan': installations.uninstall_plan(store, p.get('id')), 'keep_modal': True}
     if kind == 'uninstall_version':
         return {'message': installations.uninstall(store, p.get('id'), p.get('signature')), 'navigate': 'install'}
+    if kind == "validate_reference_spec":
+        spec, assets = database_builder.validate(store, p.get("spec"))
+        return {"message": f"Input structure checked: {len(spec['proteins'])} protein records, {len(assets)} local files. Full sequence checks run in Database Builder."}
+    if kind == "build_reference_database":
+        payload = database_builder.request(store, p.get("spec"), p.get("cores", 2), p.get("memory_mb", 2048))
+        jid = enqueue(store, "database_build", payload)
+        row = store.get("database_builds", payload["id"])
+        row["job"] = jid
+        store.put("database_builds", row["id"], row)
+        return {"message": "Database Builder queued. Progress and logs are in Jobs.", "job": jid}
     if kind == "download_database":
         payload = maintenance.download_request(store, _tool(p), p.get("id"), p.get("parent"),
                                                p.get("cores", 4), p.get("memory_mb", 16000), p.get("lineage", "bacteria_odb10"))
@@ -305,7 +358,7 @@ def dispatch(store, kind, p):
             refresh(store, tool)
         except (OSError, ValueError, KeyError) as exc:
             return {"message": "Refresh failed; showing the dated cached catalogue. " + str(exc), "keep_modal": True}
-        return {"message": "GitHub version list refreshed.", "keep_modal": True}
+        return {"message": "GitHub version list refreshed.", "keep_modal": True, "refreshed_catalog": tool}
     if kind == "install":
         tool = _tool(p)
         version = next((v for v in versions(store, tool)["versions"] if v["id"] == p.get("version_id") and v["commit"] == p.get("commit")), None)
@@ -487,10 +540,27 @@ def dispatch(store, kind, p):
             response.update(dispatch(store, "inspect_run", {"id": made[0]["id"]}))
             response.update(keep_modal=False, open_run=made[0]["id"])
         return response
+    if kind == 'inspect_workflow_lock':
+        from .workflow_unlock import preview
+        return {'unlock_plan': preview(store, p.get('id')), 'keep_modal': True}
+    if kind == 'unlock_workflow':
+        from .workflow_unlock import request
+        jid = request(store, p.get('id'), p.get('signature'))
+        return {'message': 'Unlock queued. The analysis queue stays paused; no analysis will start.', 'navigate': 'jobs', 'unlock_job': jid}
+    if kind in {"inspect_identification", "save_identification", "continue_identification"}:
+        from . import identification
+        rid = p.get('id')
+        if kind == 'inspect_identification':
+            return {'identification': identification.inspect(store, rid, p.get('mode'), p.get('taxid'), p.get('query', '')), 'keep_modal': True}
+        identification.save(store, rid, p.get('mode'), p.get('taxid'), p.get('signature'), confirm=kind == 'continue_identification')
+        if kind == 'continue_identification':
+            jid = enqueue(store, 'workflow', {'run_id': rid, 'action': 'continue'})
+            return {'message': 'Target recorded. Continuation queued: ' + jid, 'navigate': 'jobs'}
+        return {'identification': identification.inspect(store, rid), 'keep_modal': True, 'message': 'Choice saved. The run is still awaiting review.'}
     if kind == "workflow":
         ids = _ids(p)
         action = p.get("action")
-        if action not in {"dry-run", "prepare", "run", "check-environments"}:
+        if action not in {"dry-run", "prepare", "run", "check-environments", "continue"}:
             raise ValueError("Unknown workflow action")
         for rid in ids:
             validate_launch(store, rid, action)
@@ -504,7 +574,8 @@ def dispatch(store, kind, p):
     if kind == "clone":
         raise ValueError("Independent polishing clones have been replaced. Open a completed run and choose Create variant to reuse results.")
     if kind == "create_followup":
-        followup.create_followup(store, p.get("id"), p["text"], p.get("reviewed") is True)
+        followup.create_followup(store, p.get("id"), p["text"], p.get("reviewed") is True,
+                                 p.get('source_id', 'screening'), p.get('scope'))
         return {"message": "Created a reviewed follow-up draft. Check its native dry-run before execution.", "navigate": "runs"}
     if kind == "revise_run":
         child = run_revisions.apply(store, p)
@@ -513,6 +584,10 @@ def dispatch(store, kind, p):
         response.update(dispatch(store, "inspect_run", {"id": child["id"]}))
         response["keep_modal"] = False
         return response
+    if kind == "micp_handoff":
+        from .micp_handoff import create
+        child = create(store, p.get("id"))
+        return {"message": "Created GeneScope draft with HybAs inputs and a pinned reference database.", "navigate": "runs"}
     if kind == "handoff":
         run = _item(store, "runs", p.get("id"))
         if run["tool"] != "hybas":
@@ -539,6 +614,10 @@ def dispatch(store, kind, p):
         launch_worker(store)
         return {"message": "Worker requested; active jobs retain their lock. Pauses and holds remain in effect. Recovered interruptions pause the queue for review."}
     if kind == "cancel_job":
+        from .queue import reconcile_interrupted
+        recovered = reconcile_interrupted(store)
+        if p["id"] in recovered:
+            return {"message": "No worker remains. The attempt is marked interrupted and the queue is paused for review. Existing outputs and logs are retained."}
         job = store.job(p["id"])
         if not job or job["status"] not in {"queued", "running"}:
             raise ValueError("This job is no longer active")
@@ -603,4 +682,6 @@ def handle_request(store, request, session):
         response = {"id": request["id"], "ok": False, "message": str(exc)}
     session["ui-response"] = response
     return response
+
+
 

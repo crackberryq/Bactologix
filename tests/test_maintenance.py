@@ -301,3 +301,53 @@ def test_scanner_follows_database_alias_with_bounded_cycles(tmp_path, monkeypatc
     scan = databases.scan(store, 'basis')
     assert scan['candidates']['rgi'][0]['path'] == str(target / 'nested/card/card.json')
     assert scan['visited'] < 10
+
+
+
+def test_repeated_environment_invocations_preserve_previous_workspace(installed):
+    store, item = installed
+    ready_environment(store, item, 0)
+    ctx = FakeContext(store, m.environment_request(store, item['id'], ['assembly'], 'install'))
+    # Also accept a job root left by the earlier application version.
+    root = store.home / 'maintenance' / ctx.job['id']
+    root.mkdir(parents=True)
+    marker = root / 'earlier-log.txt'; marker.write_text('preserve me')
+    m.execute_environments(ctx)
+    first, = root.glob('hybas-install-*')
+    contents = {p.name:p.read_bytes() for p in first.iterdir() if p.is_file()}
+    m.execute_environments(ctx)
+    assert len(list(root.glob('hybas-install-*'))) == 2
+    assert marker.read_text() == 'preserve me'
+    assert all((first/name).read_bytes() == data for name,data in contents.items())
+    assert store.get('environment_checks',item['id'])['assembly']['status'] == 'Verified'
+
+
+def test_coordinated_update_runs_real_maintenance_for_three_pipelines(installed, monkeypatch):
+    from bactologix import update_all
+    store, original = installed
+    source = Path(original['source'])
+    (source/'envs').mkdir()
+    for name in ('core-amr','properties'):
+        (source/'envs'/f'{name}.yml').write_text('channels: [conda-forge]\ndependencies: [python=3.11]\n')
+    subprocess.run(['git','-C',str(source),'add','.'],check=True)
+    subprocess.run(['git','-C',str(source),'-c','user.name=Test','-c','user.email=test@localhost','commit','-qm','more recipes'],check=True)
+    commit=subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'],text=True).strip()
+    for tool in ('hybas','basis','micpscope'):
+        monkeypatch.setitem(PIPELINES[tool],'commit',commit)
+        item={**original,'id':tool+'-'+commit,'tool':tool,'rule_cache':str(Path(original['rule_cache'])/tool),
+              'version':{'commit':commit,'ref':'fixture'}}
+        store.put('installs',item['id'],item)
+        for i,_ in enumerate(m.recipes(item)): ready_environment(store,item,i)
+    monkeypatch.setattr(update_all.release_contract,'refresh',lambda s,t:{'versions':[
+        {'kind':'release','commit':commit,'ref':'fixture','publishedAt':'2026-11-04'}]})
+    monkeypatch.setattr(update_all,'install',lambda ctx:None)
+    ctx=FakeContext(store,{'update_all':True},kind='app_update')
+    store.put('settings','all-update',{'job':ctx.job['id'],'status':'running','components':{'application':{'status':'current'}}})
+    update_all.pipeline_updates(ctx)
+    result=store.get('settings','all-update')
+    assert result['status']=='complete'
+    for tool in ('hybas','basis','micpscope'):
+        assert result['components'][tool]['status']=='ready'
+        assert store.get('settings','active-'+tool)==tool+'-'+commit
+        assert list((store.home/'maintenance'/ctx.job['id']).glob(tool+'-install-*'))
+    assert not store.all('runs')

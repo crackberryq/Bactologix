@@ -1,3 +1,72 @@
+## 0.1.0a85 workspace presentation
+
+- UI bridge, Methods, and package checks: 31 passed, 2 skipped.
+- JavaScript syntax and Git whitespace checks passed.
+- Built the wheel and verified that application and GeneScope CFF files are included;
+  the application citation reports 0.1.0a85.
+- Checked local-account display names and unavailable/generic-account fallbacks.
+- Chromium visual verification was unavailable locally because browser downloads failed;
+  the repository browser CI remains the release gate.
+- No pipeline execution or scientific configuration was changed.
+
+## a64 protected-process ownership scope
+
+- Targeted restart/unlock checks: 20 passed. Tests cover protected foreign services, same-user and mixed-UID processes, unavailable UIDs, readable foreign Snakemake, shared directories and ACL uncertainty.
+- Existing native unlock, worker/child lease, execution-time recheck and preservation tests remain in place. Wheel, source distribution and Windows bundle build successfully.
+- Full regression and browser/Windows/environment CI remain release gates. Physical Windows/WSL recovery acceptance remains outstanding; no user sample analyses were run.
+
+## a63 guarded native unlock
+
+- Local suite: 625 passed, 78 skipped before the additional process-directory and CI browser cases (browser/upstream-dependent cases run in CI).
+- Nine new software-only checks include real Snakemake --unlock on a disposable empty workflow, preserved outputs/run records, paused-queue isolation, live OS lease, external process/unknown ownership, stale review/source rejection and execution-time rechecking.
+- Browser case covers the lock notification, blocked and allowed review, explicit submission and retained failed-run history.
+- Physical Windows/WSL restart and unlock acceptance remains outstanding. External process checks are point-in-time; independently launched external tools do not participate in Bactologix's worker lock. No user sample analyses were started.
+
+## a62 restart recovery
+
+- Local regression suite: 617 passed, 78 skipped (browser and upstream fixture-dependent checks).
+- New software-only cases: abandoned records after reopen, Stop without a worker, live lock ownership, inherited child lock after parent descriptor closes, queue pause and preservation of outputs/logs/payloads/telemetry.
+- Browser queue fixture now drops a real OS lease and uses Refresh to verify automatic interruption recovery. Synthetic live jobs hold real leases.
+- Physical Windows/WSL power-loss acceptance remains outstanding. No user analyses were launched or repeated.
+
+# Validation update: 0.1.0a61 (2026-11-01)
+
+- Reproduced the saved-run Edit action reopening an unrelated MICP Scope draft. The Chromium regression fails on the old routing and passes with the explicit conflict choice.
+- Local browser checks passed for both a current tab and browser-recovered draft: cancel retains the unfinished state, resume retains its edited budget, confirmed discard opens the requested BaSIS settings, the same revision retains edits, and another BaSIS run is identified separately. Check mobile layout and unchanged saved run records/files; no jobs are submitted.
+- Local revision/configuration/UI checks: 46 passed. Local Chromium regression: 2 passed. All existing Python, browser, environment and Windows CI gates remain required for publication. No user analyses were launched.
+
+# Validation update: 0.1.0a60 (2026-11-01)
+
+- Reproduce a stale catalogue whose automatic legacy selection persists after refresh. The Chromium regression confirms the reviewed release becomes the first choice and the default selection, while a newer unreviewed release remains source-only.
+- Verify explicit legacy choices, failed-refresh cache/date/selection preservation, stable-only and source-type filters, mobile layout and the exact installation request. Refreshing and choosing versions do not enqueue work or change the active installation.
+- Local focused software checks: 45 passed. Local Chromium regression: 1 passed. Python 3.11/3.12, browser, environment and Windows release gates remain required before publication. No user analyses were launched.
+
+# Validation update: 0.1.0a59
+
+- Reproduced a changed-request no-op when separate follow-up working directories reused the same outputs without scheduler metadata. Shared per-parent state and one-time missing-provenance capture correct it. Native regression coverage checks a second request, return to an earlier request, migration from missing metadata, and unchanged no-op reruns. Focused software checks: 51 passed.
+
+- [Corrected-source adapter CI](https://github.com/crackberryq/Bactologix/actions/runs/41251081224) passed: 666 application/adapter tests on each Python matrix member, 19 browser checks, real environment deployment and Windows desktop checks. The tested BaSIS candidate and published-source commit have the same Git tree; the final registry/pinned-source checks also exercise the canonical release commit.
+- Cross-version acceptance caught a missing original screening version in the report run record; BaSIS 0.4.0a4 corrects it. Only v0.4.0a4 is newly approved, with v0.4.0a2 as its tested earlier screening parent. Existing v0.4.0a2 approval remains unchanged.
+
+- Cover reviewed source selection, rejected unknown scopes/versions/parents, modified source and transition records, and unchanged original screening files. Focused local software checks: 70 passed, two platform-specific checks skipped.
+- Add a pinned v0.4.0a2 screening to v0.4.0a4 follow-up test, using synthetic reported evidence through selection, explicit unassessed state, report/export and unchanged rerun. Local native workflow execution is limited by process visibility in this container; CI runs with production Snakemake benchmarks.
+- Browser acceptance covers source/scope selection, review reset, mobile layout and draft creation without jobs. Python 3.11/3.12, browser, environment and Windows release gates remain required. Real AFB01/isolate1 acceptance and scientific review are still outstanding; no user analyses are launched.
+
+# Validation update: 0.1.0a58 (2026-11-01)
+
+- Exercise real Windows file-handle contention: transient lock recovery, shared readers, persistent failure diagnostics, retained last-valid JSON and temporary cleanup. Regress browser probe grace/recovery and sustained close detection.
+- Keep native WSL option, argument, encoding, installer, browser isolation and all application release gates. Physical Windows/WSL maximize/minimize acceptance remains unverified. No existing sample analyses are launched.
+
+# Validation update: 0.1.0a57 (2026-10-31)
+
+- Regress the reported quoted-option failure with exact WSL discovery/execution command lines. Exercise the actual Windows WSL executable using --help without installing or launching a distro, and retain argument round-trip, encoding and ownership tests.
+- All Python, Windows, browser and sample-free environment release gates remain required. Full physical Windows/Ubuntu setup remains unverified; no user analyses are launched.
+
+# Validation update: 0.1.0a56 (2026-10-31)
+
+- Windows regression checks exercise UTF-8, UTF-8 BOM, UTF-16 BOM, UTF-16LE and UTF-16BE subprocess output, installed distribution parsing, and failed discovery. All existing release gates remain required.
+- No user sample analyses are launched. Real workstation WSL detection remains an acceptance check; CI uses recorded-format fixtures.
+
 # Validation update: 0.1.0a54 (2026-10-31)
 
 - Test desktop job ownership, racing-submission rejection, confirmation/reopen, supervisor loss, application-update protection, real server shutdown and descendant-process cancellation while unrelated processes stay alive. Tests use only software fixtures.

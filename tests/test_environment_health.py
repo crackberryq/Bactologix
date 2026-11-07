@@ -45,7 +45,9 @@ def test_known_plotting_conflict_is_repaired_and_probed(installed, monkeypatch):
     ctx.command = command
     m.execute_environments(ctx)
     assert store.get('environment_checks', item['id'])['qc']['status'] == 'Verified'
-    receipt = json.loads((store.home / 'maintenance' / ctx.job['id'] / 'qc-repair.json').read_text())
+    receipts = list((store.home / 'maintenance' / ctx.job['id']).glob('hybas-repair-*/qc-repair.json'))
+    assert len(receipts) == 1
+    receipt = json.loads(receipts[0].read_text())
     assert receipt['before']['plotly'] == '7.1.0' and receipt['after']['plotly'] == '6.1.2'
     assert receipt['status'] == 'verified'
     assert not any('--conda-create-envs-only' in argv for argv in ctx.calls)

@@ -1,3 +1,166 @@
+## 0.1.0a86.dev1 — HybAs 10 integration (unreleased)
+
+- Integrate the v10 manifest/Auto controls with the current app, including identification review and recent installer/recovery updates.
+- Preserve boolean pause controls alongside Auto module settings and show PacBio evidence and filtering actions explicitly.
+- Preserve the a85 GenoMix Human Link branding, navigation order, visible citation downloads and personalized workspace labels.
+- Keep exact-commit compatibility gating; no new pipeline release is activated.
+
+## 0.1.0a85 — Workspace branding and citations
+
+- Show Powered by GenoMix Human Link below the Bactologix brand.
+- Move Comparisons after Results & reports.
+- Add a visible Citations button and a GeneScope (formerly MICP Scope) software citation.
+- Name the workspace after the local app account, with a generic fallback when unavailable.
+- Synchronize Bactologix citation downloads with this application version.
+
+## 0.1.0a84 — Alpha · HybAs identification review
+
+- Add optional HybAs identification review, with deferred target selection.
+- Show a persistent Awaiting researcher review state, searchable reported TaxIDs and per-platform filtering previews.
+- Save choices without launching work; finalize a checksummed decision and continue the same saved run.
+- Revalidate the continuation and its environments while preserving frozen YAML, existing outputs and phase-specific computational records.
+
+## 0.1.0a83 — Fresh Windows prerequisites and restart handling
+
+- Check and enable both required Windows features before a new Ubuntu installation, even when wsl.exe exists and distribution listing succeeds.
+- Pause for a restart after feature changes or pending servicing, and prevent continuation on the same Windows boot.
+- Preserve Ubuntu installation diagnostics in the error dialog and capture a WSL probe when the first-launch window fails.
+- Verify Ubuntu can execute a command before proceeding with application installation. Existing distributions are preserved.
+- Download and extract the new Windows ZIP to replace an older failed installer; an application-only update does not replace that ZIP.
+
+## 0.1.0a82 — First-time Windows and Ubuntu setup
+
+- Treat an unavailable WSL command or first-list failure with no registered distributions as a first-install path. Preserve errors when existing registrations or unreadable registration data are present.
+- Separate elevated Windows-component setup from Ubuntu registration under the original Windows account.
+- Check installation exit codes, retain Windows diagnostics, and create a Continue Bactologix Setup shortcut before reboot or initialization steps. Never restart Windows automatically.
+- Guide Ubuntu user initialization and verify registration before proceeding to Conda/application setup.
+- Add Windows CI fixtures for virgin PCs, failed detection, consent, reboot, current-user installation and existing Ubuntu reuse. Physical fresh-PC validation remains necessary.
+
+## 0.1.0a81 — Branded HybAs reports
+
+- Discover the branded HybAs AWARE report before detailed tool reports.
+- Regenerate HybAs reports from a versioned evidence bundle or a legacy run summary, preserving original outputs and showing missing legacy detail explicitly.
+
+## 0.1.0a80 — Regenerate reports from saved evidence
+
+- Add Regenerate report to run results for GeneScope and BaSIS, using the selected ready installed renderer.
+- Preview saved-data availability, analysis and renderer versions, and known missing inputs before queuing a report-only job. HybAs/MultiQC refresh is explicitly unsupported for now.
+- Save each edition separately with the original evidence snapshot, source and renderer hashes, and provenance displayed in the HTML. Preserve original reports, run settings and analysis outputs.
+- Reject stale previews, shared follow-up evidence owned by another run, unsupported schemas and unsafe file reads. No database search, native analysis, tree construction or environment installation is launched.
+
+## 0.1.0a79 — Restore separate application and pipeline updates
+
+- Restore Update Bactologix to application-only release selection and installation.
+- Remove the global update button and reject new global-update requests from older browser tabs.
+- Keep individual pipeline updates in Install & update. Preserve compute defaults, database selection, maintenance fixes, and restart recovery for previous update jobs.
+
+## 0.1.0a78 — Isolate environment workspaces during coordinated updates
+
+- Give every environment-maintenance invocation a unique retained subfolder beneath its update job, avoiding FileExistsError across pipelines and repeated first-install checks.
+- Preserve earlier maintenance files and shared environment caches. Log each invocation’s workspace for troubleshooting.
+- Add regression coverage for repeated environment deployment and three pipelines sharing one coordinated update job.
+
+## 0.1.0a77 — Pipeline-only update completion
+
+- Start restart monitoring only when a coordinated update actually replaces the application package; pipeline-only updates finish without a false restart timeout.
+- Include coordinated updates, the GeneScope database picker, and per-pipeline Low/Moderate/Full power and custom compute defaults.
+
+## 0.1.0a76 — Compute preset feedback and update restart continuity
+
+- Refresh editable CPU/RAM fields after saving a preset and preserve unfinished configuration edits.
+- Keep browser restart monitoring active after a verified application update when a pipeline reports partial failure.
+- Include the GeneScope database selector and per-pipeline compute defaults introduced in 0.1.0a75.
+
+## 0.1.0a75 — Database selection and per-pipeline compute defaults
+
+- Replace the raw reference_database YAML box with a named database selector in new drafts, revised drafts and saved defaults.
+- List completed builds and registered/discovered packages with application name, version, description and path; show unavailable packages explicitly and preserve an existing custom path.
+- Provide an explicit descriptor-only choice, refresh control and empty-state guidance. Verify full database checksums when creating the draft.
+- Expose Low, Moderate and Full power presets and custom CPU/RAM defaults directly on each pipeline Configuration page, with CPU-only/native GPU policy frozen into new runs. GeneScope explicitly remains CPU-only.
+- Keep reviewed newer HybAs AWARE snapshots ahead of historical release tags during coordinated updates.
+
+## 0.1.0a74 — Coordinated application and pipeline updates
+
+- Make Update Bactologix offer Update everything as its primary action: application, HybAs AWARE, BaSIS AWARE and GeneScope, including missing installations and changed environments.
+- Resolve published releases using fresh application adapters under the existing exclusive update locks. Report incompatible newest releases explicitly; never install moving branches automatically.
+- Preserve previous pipeline sources, active versions on failed setup, saved runs, outputs and databases. Show per-component results and permit pipeline retries when the app is already current.
+- Retain application-only version selection under Advanced; restart a verified application even when a pipeline update reports partial failure.
+
+## 0.1.0a73 — GeneScope genome explorer and report sidebar
+
+- Recommend GeneScope 0.1.0a13 through normal pipeline updates while preserving earlier run snapshots.
+- Add an offline genome explorer with contig and interval selection, exact gene lookup, CDS strand arrows and links to protein evidence.
+- Display supplied GFF3 operon annotations separately from gene neighborhoods; this release does not predict operons.
+- Add collapsible annotation-group counts, a protein descriptor scatter plot and responsive report navigation.
+
+## 0.1.0a72 — Tree controls and application report coverage
+
+- Expose exploratory phylogeny, automatic routing, reference-panel placement and candidate limits in the DeepSafe settings tab.
+- Integrate BaSIS AWARE 0.4.0a5 with producer-recorded placement checksums and inline verified tree previews; preserve earlier run sources.
+- Recommend GeneScope 0.1.0a11 with explicit descriptor-only status, assessment coverage and application-database selection guidance.
+- Extend follow-up compatibility for the previous BaSIS AWARE release without changing frozen configurations.
+
+## 0.1.0a70 — Protected PAM helper lock recovery
+
+- Recognize inaccessible systemd PAM helpers only after verifying the user-manager parent, trusted OS executable, user identities and manager control groups.
+- Retain active-workflow, private-directory, queue, worker-lease and execution-time checks; never terminate helpers or remove analysis outputs.
+- Show verified helper exclusions in lock review and maintenance logs, and identify the inaccessible process field when verification fails.
+- Add regression, native Snakemake unlock and browser coverage for protected helpers and unverified lookalikes.
+
+## 0.1.0a69 — GeneScope repository rename compatibility
+
+- Use crackberryq/Bactomics_GeneScope for new installations, release discovery, source links and CI checkouts; recommend genescope-v0.1.0a10.
+- Normalize cached release URLs without rewriting saved catalogues or frozen run records.
+- Accept the explicitly known old repository name in historical release approvals. Allow repository-name-only refreshes while retaining immutable checksum and contract checks.
+- Update setup and migration documentation; retain existing pipeline IDs, workflow aliases, databases and historical releases.
+
+## 0.1.0a68 — GeneScope and application databases
+
+- Rename the displayed pipeline to GeneScope and integrate the tested genescope-v0.1.0a9 release.
+- Derive database labels, descriptions, versions and build locations from user-supplied application metadata. Bundle MICP as the initial editable application specification.
+- Support schema 2.0 alongside existing schema 1.0 packages; require the new engine for new-format packages.
+- Preserve existing installation IDs, selected databases, frozen runs and historical filesystem paths. New reports receive application-specific interpretation from the selected package.
+
+## 0.1.0a67 — HybAs handoff and MICP reference searches
+
+- Add Create MICP Scope draft to completed HybAs runs, carrying Prokka proteins, GFF coordinates and the final assembly into independent analysis outputs.
+- Pin source run/commit, source file hashes and the selected reference database identity; reject changed inputs or databases before execution.
+- Integrate MICP Scope 0.1.0a8 with its dedicated DIAMOND search environment, candidate scores, ambiguity and collapsible literature evidence.
+- Preserve existing frozen runs and completed database packages. Select a completed database in MICP Scope resources before creating a handoff draft.
+
+## 0.1.0a66 — Ready-to-build MICP literature starter
+
+- Automatically load the reference specification bundled with MICP Scope 0.1.0a7, with 164 reviewed protein sequences and 207 literature-table entries from the processes and regulation reviews.
+- Resolve bundled FASTA locations from the installed pipeline, so users can build as supplied without downloading or choosing a separate input file.
+- Add a collapsible specification editor and Restore bundled starter. Preserve customized input across refreshes; snapshot edits for each build without changing shipped files.
+- Display reference coverage and retain regulatory observations as evidence where absolute coordinates are unresolved.
+
+## 0.1.0a65 — MICP Scope Database Builder
+
+- Add Database Builder to MICP Scope guided setup and Databases & models, with YAML/JSON input, validation, resource limits, build logs and completed database selection.
+- Run MICP Scope's native DatabaseBuilder.smk through the managed worker. Snapshot supplied inputs and workflow, build a DIAMOND index, and verify the package before registering it.
+- Prepare the dedicated builder environment during pipeline setup and pin MICP Scope micpscope-v0.1.0a6.
+- Preserve reference evidence and supplied regulatory coordinates. This release builds reference databases; MICP report searches against them are not yet implemented.
+
+## 0.1.0a64 — Scope protected-process unlock checks
+
+- Read real/effective/saved process UIDs before inspecting protected process details.
+- Protected foreign services no longer block private user-owned workflow directories merely because their command line is unreadable.
+- Keep blocking unknown UIDs, uninspectable same-user/mixed-UID processes, known Snakemake processes and uncertain shared/ACL-enabled directories. Worker and inherited-child lock checks remain unchanged.
+
+## 0.1.0a63 — Guarded workflow unlock
+
+- Recognize native workflow lock errors and expose Check workflow lock / Unlock workflow inside run activity and job logs.
+- Block unlock while workers, surviving children, other queued work or external Snakemake processes are present; block when process ownership cannot be inspected.
+- Recheck the reviewed run and lock at execution. Use only the recorded runner's native --unlock operation, retaining an audited maintenance job.
+- Leave the queue paused and preserve run configuration, source, outputs and prior execution status. Resume remains explicit.
+
+## 0.1.0a62 — Recover jobs after workstation restarts
+
+- Workspace refresh and Stop now reconcile abandoned running attempts under the existing worker OS lock, including protection for surviving child processes.
+- Mark abandoned attempts interrupted and pause the queue for review without starting jobs, removing scheduler locks or changing outputs, configuration, source or telemetry.
+- Keep stop-request history while removing the misleading pending-stop label from finished attempts.
+
 # Changelog
 
 ## Bactologix 0.1.0a55 — Alpha (unreleased)
@@ -7,6 +170,48 @@
 - Require a reviewed `hybas-v2` exact-commit contract for manifest inputs and Auto settings. Old application adapters reject this schema. New v2 workspaces default supported controls to Auto; saved explicit defaults remain unchanged.
 - Discover pinned Flye, SPAdes and NxTrim environments for setup and show the integrated HybAs research report in results. Controller requirements remain derived from the approved source.
 - Add a separate Snakemake 9.27.1 native DAG check for frozen HiFi, CLR/Illumina and ONT/Illumina inputs. No new HybAs release is activated by this application change.
+
+## 0.1.0a61 — Keep saved-run editing on the requested run
+
+- Fix Edit settings unexpectedly resuming an unrelated unfinished draft, such as MICP Scope when a saved BaSIS run was selected. Show a choice naming the requested run and unfinished pipeline before switching editors.
+- Preserve unfinished edits when cancelling or explicitly resuming them. Discard only with the named action to open the requested run. Reopening the same revision resumes its unsaved settings directly; different runs and revision/variant modes remain distinct.
+- Name the pipeline in the unfinished-draft banner. Add real browser checks for current/recovered tabs, cross-pipeline drafts, different saved runs, retained edits, mobile layout and unchanged original run records/files.
+
+## 0.1.0a60 — Put the recommended pipeline release first
+
+- Show the recommended compatible release at the top of the pipeline version picker, followed by other releases and legacy snapshots. Mark the installed source separately and remove the misleading recommendation text from legacy snapshot names.
+- After a successful catalogue refresh, update the automatic default selection to the newly recommended release. Preserve explicit user choices, failed-refresh selections and release/source filters. Refreshing does not install a pipeline or change any saved run.
+- Add browser regression coverage for the stale-catalogue refresh, manual legacy selection, unavailable releases, stable-only filtering and the exact selected installation request.
+
+## 0.1.0a59 — Reviewed BaSIS follow-up versions
+
+- Fix stale follow-up reuse across separate drafts: share Snakemake provenance for their shared outputs, bootstrap missing capture metadata once, and preserve normal changed-request and unchanged-resume decisions.
+
+- Register BaSIS v0.4.0a4 after cross-version adapter checks. Refresh the BaSIS catalogue to select it for new runs or reviewed follow-up from v0.4.0a2 screening.
+
+- Select a compatible installed workflow for follow-up while retaining the original screening source and evidence. Record both commits, workflow checksums, scope and reviewed compatibility contract. Validate source, input and transition integrity before execution or resume.
+- Expose AMRFinder reported review cues as an explicit scope with a default ceiling of five unique candidates per isolate. Clarify that AWARE presets do not change native AMRFinder thresholds. Unassessed and deferred evidence retains review obligations.
+- Extend release contracts with tested follow-up entry points, parent versions and scopes so future compatible releases can be registered without another hard-coded client allowlist. Existing runs remain frozen.
+- Add source-transition, unchanged-screening, native workflow/report and browser coverage. Real AFB01/isolate1 follow-up and scientific validation remain beta acceptance work.
+
+## 0.1.0a58 — Tolerate desktop control-file contention
+
+- Retry brief Windows sharing/access conflicts when atomically replacing desktop control files. Use unique temporary names, preserve the last complete JSON on failure, clean temporary files and include the path/Windows error in persistent failures.
+- Read control files with delete sharing so the Windows supervisor does not block WSL status-file replacement.
+- Require ten seconds of sustained browser absence before requesting session shutdown; a single missed or empty browser response no longer closes the session. Heartbeats continue during this grace period.
+- Add Windows tests with real conflicting file handles, bounded failure/preservation checks and transient browser-response recovery. Physical maximize/minimize interaction and full WSL workstation acceptance remain outstanding. No user analyses are run.
+
+## 0.1.0a57 — Pass WSL options correctly
+
+- Leave simple command-line options and distribution names unquoted. WSL can treat a quoted `--list` as a Linux command, causing `/bin/bash: --list: command not found` despite Ubuntu being installed. Keep escaping for spaces, quotes and other complex values.
+- Apply the fix to discovery, prerequisite checks, path conversion, setup and desktop startup through their shared process launcher.
+- Add native Windows `wsl.exe --help` coverage, exact WSL option routing assertions and expanded argument round-trip tests. Physical Windows/Ubuntu installation and native pipeline acceptance remain workstation checks.
+
+## 0.1.0a56 — Recognize existing Ubuntu installations
+
+- Decode WSL distribution listings as UTF-8 or UTF-16, with or without a byte-order mark, instead of assuming one Windows output format. Preserve versioned Ubuntu names.
+- Stop with actionable diagnostics when WSL discovery fails; never interpret a failed command as proof that Ubuntu is absent.
+- Add Windows subprocess encoding fixtures and regression coverage for discovery failures. Existing environments and analyses remain unchanged. Physical workstation acceptance remains required.
 
 ## 0.1.0a54 — Windows desktop setup and owned-session shutdown
 
@@ -404,5 +609,3 @@ Created by **Jimi Goldstein · Human Link**.
 - Existing external runs are not adopted for in-place resume. Jobs run sequentially; remote/HPC execution is not implemented.
 - Full biological analyses, analysis environments/databases/GPU tools, target-browser behavior and WSL2/aarch64-specific installation have not been validated in this development session.
 - This release is distributed through GitHub, not PyPI.
-
-

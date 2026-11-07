@@ -17,7 +17,7 @@ INTERFACE = 1
 
 
 def reason(tool, row):
-    from .catalog import PIPELINES
+    from .catalog import PIPELINES, canonical_repository
     spec = PIPELINES[tool]
     if not isinstance(row, dict):
         return 'No reviewed release contract is available.'
@@ -27,7 +27,7 @@ def reason(tool, row):
         return 'Adapter update required: configuration schema changed.'
     if row.get('entry_points') != {'workflow': spec['snakefile'], 'environment': spec['environment']}:
         return 'Adapter update required: workflow or runner entry point changed.'
-    if row.get('repository') != spec['repo'] or not re.fullmatch('[0-9a-f]{40}', str(row.get('commit', ''))):
+    if canonical_repository(row.get('repository')) != spec['repo'] or not re.fullmatch('[0-9a-f]{40}', str(row.get('commit', ''))):
         return 'Release contract has an invalid repository or immutable commit.'
     if row.get('channel') not in ('stable', 'prerelease') or not row.get('tag'):
         return 'Release contract has no valid release channel/tag.'
@@ -40,6 +40,19 @@ def reason(tool, row):
     for path, digest in hashes.items():
         if Path(path).is_absolute() or '..' in Path(path).parts or not re.fullmatch('[0-9a-f]{64}', str(digest)):
             return 'Release contract contains invalid file checksums.'
+    followup = row.get('followup')
+    if followup is not None:
+        if (tool != 'basis' or not isinstance(followup, dict)
+                or followup.get('interface') != 1
+                or followup.get('entry_point') != 'Followup.smk'
+                or followup.get('screening_schema') != 'basis-snakemake-run-v1'
+                or 'Followup.smk' not in hashes):
+            return 'Adapter update required: invalid follow-up contract or checksum.'
+        parents, scopes = followup.get('parent_commits'), followup.get('scopes')
+        if (not isinstance(parents, list) or any(not re.fullmatch('[0-9a-f]{40}', str(c)) for c in parents)
+                or not isinstance(scopes, list) or not scopes
+                or any(s not in ('all-supported', 'amrfinder-review') for s in scopes)):
+            return 'Release contract has invalid follow-up parent versions or scopes.'
     runner = row.get('runner', {})
     if not re.fullmatch(r'\d+\.\d+(\.\d+)?', str(runner.get('python', ''))) or not re.fullmatch(r'\d+\.\d+\.\d+', str(runner.get('snakemake', ''))):
         return 'Release contract must pin Python and Snakemake requirements.'
@@ -51,6 +64,11 @@ def approval(store, tool, commit):
         return None
     row = store.get('release_approvals', tool + ':' + commit)
     return row if row and not reason(tool, row) else None
+
+
+def equivalent_contract(left, right):
+    from .catalog import canonical_repository
+    return dict(left, repository=canonical_repository(left.get('repository'))) == dict(right, repository=canonical_repository(right.get('repository')))
 
 
 def refresh(store, tool):
@@ -73,9 +91,10 @@ def refresh(store, tool):
             if not issue and row['kind'] == 'release':
                 key = tool + ':' + row['commit']
                 previous = store.get('release_approvals', key)
-                if previous is not None and previous != review:
+                if previous is not None and not equivalent_contract(previous, review):
                     raise ValueError('Reviewed contract changed for an existing immutable commit; previous approval retained.')
-                store.put('release_approvals', key, review)
+                if previous is None:
+                    store.put('release_approvals', key, review)
     catalog['registry_checked_at'] = now()
     store.put('catalog', tool, catalog)
     return catalog
@@ -97,3 +116,4 @@ def preflight(store, tool, commit, source):
     actual = controller_requirements((root / row['entry_points']['environment']).read_bytes())
     if actual != row['runner']:
         raise ValueError('Release runner requirements differ from the reviewed contract.')
+

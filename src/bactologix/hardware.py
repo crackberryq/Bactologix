@@ -184,7 +184,7 @@ def presets(info):
     reserve = max(1024, (total or 0) // 20)
     usable = max(0, min(total or 0, available or 0) - reserve)
     result = []
-    for name, label, cpu_share, ram_share in [('high', 'High power', 1, 1), ('medium', 'Medium', .5, .6), ('low', 'Low', .25, .3)]:
+    for name, label, cpu_share, ram_share in [('high', 'Full power', 1, 1), ('medium', 'Moderate', .5, .6), ('low', 'Low', .25, .3)]:
         budget = min(2000000, int(usable * ram_share) // 1024 * 1024)
         if usable >= 1024:
             budget = max(1024, budget)
@@ -217,6 +217,11 @@ def apply_preset(store, name, tools, expected, hardware_id):
         raise ValueError('A resource preset needs at least 1 GB of usable detected RAM. Detect hardware again.')
     if not isinstance(expected, dict):
         raise ValueError('Refresh the saved defaults before applying a preset.')
+    return _save_budget(store, tools, expected, info, selected)
+
+
+def _save_budget(store, tools, expected, info, selected, gpu_mode=None):
+    name = selected['id']
     cores, memory = selected['cores'], selected['memory_mb']
     with store.connect() as db:
         db.execute('BEGIN IMMEDIATE')
@@ -236,8 +241,40 @@ def apply_preset(store, name, tools, expected, hardware_id):
                     if not isinstance(cfg['execution'], dict):
                         raise ValueError('The execution settings must be a mapping.')
                     cfg['execution'].update(cores=cores, memory_mb=memory)
-            saved = {'cores': cores, 'memory_mb': memory, 'preset': name, 'applied_at': now(), 'hardware_id': info['id']}
+            if gpu_mode is not None:
+                cfg['bactologix_compute'] = {'gpu_mode': 'cpu' if tool == 'micpscope' else gpu_mode}
+            saved = {'cores': cores, 'memory_mb': memory, 'preset': name, 'gpu_mode': cfg.get('bactologix_compute', {}).get('gpu_mode', 'cpu' if tool == 'micpscope' else 'native'), 'applied_at': now(), 'hardware_id': info['id']}
             for kind, value in [('configs', yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)), ('resource_defaults', saved)]:
                 db.execute('INSERT INTO items VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body',
                            (kind, tool, json.dumps(value)))
     return {'message': selected['label'] + ' saved for future drafts.', 'resource_defaults_saved': list(dict.fromkeys(tools))}
+
+
+
+def apply_custom(store, tool, cores, memory_mb, gpu_mode, expected, hardware_id):
+    if tool not in PIPELINES or gpu_mode not in {'cpu', 'native'}:
+        raise ValueError('Choose a pipeline and a supported GPU policy.')
+    if tool == 'micpscope' and gpu_mode != 'cpu':
+        raise ValueError('GeneScope currently uses CPU tools; CUDA acceleration is not available.')
+    info = inventory(store)
+    if hardware_id != info['id'] or not isinstance(expected, dict):
+        raise ValueError('Hardware detection changed. Refresh and review the defaults.')
+    try:
+        if isinstance(cores, bool) or isinstance(memory_mb, bool): raise ValueError()
+        cpu, ram = int(cores), int(memory_mb)
+        if str(cpu) != str(cores) or str(ram) != str(memory_mb): raise ValueError()
+    except (ValueError, TypeError):
+        raise ValueError('CPU threads and RAM MB must be whole numbers.') from None
+    high = presets(info)[0]
+    if not 1 <= cpu <= high['cores'] or not 1024 <= ram <= high['memory_mb']:
+        raise ValueError('Choose CPU and RAM within the detected Full power budget (including the system reserve).')
+    selected = {'id': 'custom', 'label': 'Custom compute defaults', 'cores': cpu, 'memory_mb': ram}
+    return _save_budget(store, [tool], expected, info, selected, gpu_mode)
+
+
+def workflow_environment(config):
+    policy = config.get('bactologix_compute', {})
+    if not isinstance(policy, dict) or policy.get('gpu_mode', 'native') not in {'cpu', 'native'}:
+        raise ValueError('Invalid saved GPU policy. Create a revised draft with CPU only or Native tool settings.')
+    # Never remove a user's CUDA_VISIBLE_DEVICES restriction in native mode.
+    return {'CUDA_VISIBLE_DEVICES': ''} if policy.get('gpu_mode') == 'cpu' else {}

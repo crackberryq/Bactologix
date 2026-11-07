@@ -3,14 +3,24 @@ BACTOLOGIX FOR WINDOWS (alpha)
 1. Extract Bactologix-Windows.zip fully, then double-click Bactologix-Setup.cmd.
 2. Setup checks Ubuntu, installs/reuses Conda and the Bactomics environment,
    updates the application, and creates the branded Bactologix desktop shortcut.
-3. If WSL/Ubuntu needs installation, accept the Windows administrator prompt.
-   Restart Windows if requested, open Ubuntu once to create your regular Linux
-   user, then rerun Setup. If prompted, install Ubuntu prerequisites with:
+3. On a PC without WSL/Ubuntu, Setup offers to install the required Windows
+   components and Ubuntu. Approve Windows administrator prompts for components;
+   Ubuntu registration runs under your original Windows account.
+   If a restart is required, save your work and restart Windows yourself, then
+   use the Continue Bactologix Setup desktop shortcut. Setup never forces a reboot.
+   Finish Ubuntu's first-launch username/password prompts in its own window,
+   then type exit to return to Setup. Passwords are not collected by Bactologix.
+   Supported fresh setup: 64-bit Windows 10 build 19041+ or Windows 11.
+   Hardware virtualization must be enabled; Windows may report a firmware or
+   organization-policy block. Such failures remain failures with their exit code.
+   If prompted, install missing Ubuntu prerequisites with:
    sudo apt update && sudo apt install -y python3 git ca-certificates
 4. Use the desktop shortcut afterwards. It opens a dedicated Edge/Chrome window
    with Ubuntu running invisibly. Setup and startup failures remain visible.
 
-Close the LAST dedicated session window to stop its server. If it owns active
+Close the LAST dedicated session window to stop its server. Shutdown detection
+allows ten seconds for transient browser response delays; resizing/minimizing
+does not itself request shutdown. If it owns active
 jobs, a Windows dialog asks whether to stop and exit or reopen the app. Cleanup
 is visible until the owned work stops. An in-progress app update finishes first
 so its environment is not left half-installed. Independent Ubuntu terminals,
@@ -30,6 +40,8 @@ policy disables it, run Bactologix.ps1 with PowerShell or use the normal Ubuntu
 'bactologix' command. Desktop close behaviour applies only to shortcut launches.
 
 Setup files and logs: %LOCALAPPDATA%\Bactologix
+Windows/Ubuntu bootstrap: setup-windows.log; saved progress: setup-state.json
+Application installation: setup.log
 Session logs: %LOCALAPPDATA%\Bactologix\sessions\<session>\launcher.log
 Pipeline logs remain in the existing Linux Bactologix workspace.
 To select another existing distribution, run from this extracted folder:
@@ -37,3 +49,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Bactologix.ps1 -Setup -Dis
 
 No sample analyses are run by this installer. Native physical Windows/WSL
 acceptance remains necessary; CI checks software, isolated browsers and fixtures.
+
+
+
+Fresh-PC prerequisites (a83): Setup checks both Windows Subsystem for Linux
+and Virtual Machine Platform with administrator approval before installing
+Ubuntu. Feature changes or pending feature servicing pause setup for a Windows
+restart. Continue Bactologix Setup will not proceed on the same boot. After
+restarting, use that shortcut under your original Windows account. Ubuntu must
+start successfully before application installation can proceed. Installation
+errors now include captured WSL diagnostics; setup-windows.log is stored under
+%LOCALAPPDATA%\Bactologix. Replace old extracted installer files with the new
+Windows ZIP; updating only the Linux application does not replace that ZIP.

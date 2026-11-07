@@ -12,7 +12,7 @@ from .store import now
 
 
 def identity(store, run):
-    fields = [run['config_sha256'], run['workflow_sha256'], run.get('rule_cache'), current_controller(store, run)]
+    fields = [run['config_sha256'], run['workflow_sha256'], run.get('rule_cache'), current_controller(store, run), run.get('identification', {}).get('decision_sha256')]
     return hashlib.sha256(json.dumps(fields).encode()).hexdigest()
 
 
@@ -141,6 +141,9 @@ def job_guidance(store, job):
     if error:
         lines.append(error)
     patterns = [
+        ('workflow_lock', r'LockException:|Directory cannot be locked',
+         'Workflow locked',
+         'A previous interruption may have left a Snakemake lock. Check ownership and unlock this workflow inside Bactologix. Unlocking preserves outputs and does not start an analysis.'),
         ('storage', r'No space left on device|Disk quota exceeded|\[Errno (?:28|122)\]',
          'Storage space or quota blocked this job',
          'Review the output, temporary and environment-cache disks and their quotas. Free space deliberately, then review the saved run before resuming.'),

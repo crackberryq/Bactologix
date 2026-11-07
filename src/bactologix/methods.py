@@ -90,7 +90,7 @@ def collect(run):
             result['versions']['biopython'] = data.get('provenance', {}).get('biopython_version', UNKNOWN)
             result['versions']['micpscope'] = data.get('software_version', UNKNOWN)
         else:
-            result['warnings'].append('MICP Scope results are missing or belong to a different sample.')
+            result['warnings'].append('GeneScope results are missing or belong to a different sample.')
         return result
     if run['tool'] == 'hybas':
         summary = read('metadata/run_summary.json') or {}
@@ -143,7 +143,7 @@ def capture(store, run, job_id):
     """Keep execution metadata before shared follow-up output can be replaced."""
     receipt = {'schema': 1, 'run_id': run['id'], 'job_id': job_id, 'completed': run['completed'],
                'config_sha256': run['config_sha256'], 'workflow_sha256': run['workflow_sha256'],
-               'commit': run['commit'], 'captured_at': now(),
+               'commit': run['commit'], 'identification': run.get('identification'), 'captured_at': now(),
                'evidence': collect(run)}
     store.put('methods_evidence', run['id'], receipt)
     return receipt
@@ -160,6 +160,15 @@ def _configuration(run, warnings):
     if disk is None:
         warnings.append('Frozen YAML is unavailable on disk; the verified saved configuration record is used.')
     cfg = parse_config(text)
+    reviewed = {}
+    if run.get('identification', {}).get('decision_path'):
+        from .identification import sha
+        decision = run['identification']
+        if sha(decision['decision_path']) != decision['decision_sha256']:
+            raise ValueError('Reviewed identification decision changed; Methods export is blocked.')
+        selected = json.loads(Path(decision['decision_path']).read_text())
+        reviewed = {'kraken_decision_mode': selected['mode'], 'target_taxid': selected['taxid'] if selected['mode'] == 'manual' else ''}
+        warnings.append('Target selection was finalized after identification. The original YAML is retained; effective settings include the recorded decision '+decision['decision_sha256']+'.')
     known = run['commit'] in [DEFAULTS['sources'].get(run['tool']),
         *DEFAULTS.get('equivalent_sources', {}).get(run['tool'], [])]
     source = Path(run['folder']) / 'workflow'
@@ -174,7 +183,7 @@ def _configuration(run, warnings):
         known = False
     if not known:
         warnings.append('No verified Methods template is available for this source. Only explicit saved settings and recorded execution are exported.')
-        return cfg, cfg, False
+        return cfg, dict(cfg, **reviewed), False
     effective = copy.deepcopy(DEFAULTS['defaults'][run['tool']])
     raw = _read(source, 'config.yaml')
     configured = _merge(parse_config(raw.decode('utf-8')) if raw else {}, cfg)
@@ -213,6 +222,7 @@ def _configuration(run, warnings):
             original = json.loads(raw)
             effective = _merge({'deep': original['deep']}, cfg)
             effective['deep'].update(threads=threads, memory_mb=run['memory_mb'])
+    effective.update(reviewed)
     return cfg, effective, True
 
 
@@ -278,7 +288,8 @@ def _basis(cfg, run):
             paragraphs.append('Sample-specific exclusions were configured for ' + ', '.join(MODULE_NAMES.get(k, k) for k in excluded) + '.')
     deep = cfg.get('deep', {})
     aware = deep.get('aware', {})
-    paragraphs.append('The BaSIS AWARE policy was ' + ('enabled with preset ' + str(aware.get('preset')) if aware.get('enabled') else 'disabled') +
+    paragraphs.append('The BaSIS AWARE policy was ' + ('enabled with preset ' + str(aware.get('preset')) +
+                      ' and scope ' + str(aware.get('scope', 'all-supported')) if aware.get('enabled') else 'disabled') +
                       '. Its saved overrides are included in the settings supplement.')
     paragraphs.append('DeepSafe follow-up was ' + ('requested; its configured options are included in the supplement and completion must be checked against recorded evidence.'
                       if deep.get('enabled') else 'disabled for this run.'))
@@ -299,7 +310,7 @@ def _flatten(value, prefix=''):
 def build(store, run):
     warnings = []
     explicit, effective, known = _configuration(run, warnings)
-    jobs = [j for j in store.jobs() if j['kind'] == 'workflow' and j['payload'].get('run_id') == run['id'] and j['payload'].get('action') == 'run']
+    jobs = [j for j in store.jobs() if j['kind'] == 'workflow' and j['payload'].get('run_id') == run['id'] and j['payload'].get('action') in {'run', 'continue'}]
     latest = jobs[0] if jobs else None
     complete = bool(run.get('completed')) and (not latest or latest['status'] == 'succeeded')
     state = 'Completed workflow' if complete else 'Incomplete execution' if jobs else 'Planned methods'
@@ -326,6 +337,13 @@ def build(store, run):
         paragraphs, tools = (_hybas if run['tool'] == 'hybas' else _basis)(effective, run)
     else:
         paragraphs, tools = ['The saved configuration is provided in the supplement. Method-specific prose is unavailable for this source version.'], []
+    transition = run.get('followup_transition')
+    if transition:
+        from .followup import verify_transition
+        verify_transition(run)
+        paragraphs.append('The saved screening source was ' + transition['screening_commit'] +
+                              '; the explicitly selected follow-up source was ' + transition['commit'] +
+                              '. The recorded AWARE scope was ' + transition['scope'] + '.')
     versions = dict(evidence.get('versions', {}))
     records = evidence.get('records', [])
     for row in records:
@@ -383,6 +401,7 @@ def build(store, run):
         'created_with_bactologix': run.get('bactologix_version', UNKNOWN),
         'pipeline': PIPELINES[run['tool']]['name'], 'source_commit': run['commit'],
         'config_sha256': run['config_sha256'], 'workflow_sha256': run['workflow_sha256'],
+        'followup_transition': run.get('followup_transition'),
         'sample_id': run['sample']['id'], 'parent': run.get('parent'), 'completed': run.get('completed') if complete else None,
         'paragraphs': [intro, *paragraphs], 'execution': execution, 'software': software,
         'parameters': parameters, 'warnings': list(dict.fromkeys(warnings)), 'evidence_origin': origin,
@@ -447,4 +466,5 @@ def download(store, run, format):
         archive.writestr('citations/Bactologix-CITATION.cff', yaml.safe_dump(app_citation, sort_keys=False, allow_unicode=True))
         archive.writestr('README.txt', 'Review Methods and unresolved items before publication.\nThe YAML and supplement contain local paths and sample identifiers.\nSoftware versions are recorded evidence, not current environment probes.\nCite the pipeline source and tools/databases used; add verified publication references.\nThe workflow configuration and execution behavior were not changed by this export.\n')
     return {'name': name, 'base64': base64.b64encode(buffer.getvalue()).decode(), 'type': 'application/zip'}
+
 

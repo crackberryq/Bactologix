@@ -1,11 +1,24 @@
-# Bactologix 0.1.0a55 — Alpha (unreleased)
+# Bactologix 0.1.0a86.dev1 — Alpha (unreleased)
 
-[Release status and verification](docs/RELEASE_0.1.0a55.md) · [HybAs manifest inputs](docs/hybas-manifests.md)
+[HybAs manifest inputs](docs/hybas-manifests.md)
 
-**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a54/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
+**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a85/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
+
+### Workspace identity and citations
+
+The sidebar shows **Powered by GenoMix Human Link** and names the workspace
+after the local account running Bactologix (for example, **Jimi's workspace**).
+Unavailable or generic administrator accounts retain **Local workspace**.
+This is a display label; workspace folders and saved runs are unchanged.
+Under WSL, the detected account is the Linux account running the application.
+
+**Comparisons** follows **Results & reports**. The top-bar **Citations** button
+opens Bactologix citation downloads plus HybAs, BaSIS, and GeneScope (formerly
+MICP Scope) software citations. Record the exact pipeline version and commit used
+in your run when preparing a publication.
 
 ### Reviewed sample-table import
 
@@ -303,6 +316,8 @@ before clearing the unfinished editor. Browser storage may be unavailable or
 cleared when a tab closes; the editor reports recovery failures. Creating a draft
 stores it durably in the workspace and clears its browser recovery copy. This
 recovery feature applies to the run editor, not unsaved global defaults.
+
+**Edit settings** stays bound to the selected saved run. If another draft or revision is unfinished, a dialog names both pipelines/runs: resume those edits, close the dialog to keep them, or explicitly discard them and open the requested run. Reopening the same revision resumes its unsaved settings directly. The unfinished-draft banner identifies its pipeline.
 
 Saved-run checks now show destination permissions, free space for results and
 working folders, and CPU/RAM budget warnings. Checks read directory permissions
@@ -636,10 +651,44 @@ Bactologix is released under the [MIT License](LICENSE), copyright (c) 2026 Jimi
 After a version bump and changelog entry reach `main`, the software workflow publishes the wheel and source archive only after both Python matrices, Chromium and environment deployment succeed. The publication job uses the tested Python 3.11 artifact, uploads to a draft, verifies GitHub asset digests using the application updater’s acceptance rules, and publishes it with alpha/beta/RC versions marked as prereleases. Existing published assets are never replaced; a new update needs a new package version. Workflow dispatch on `main` can retry a failed publication. Development branches do not publish releases.
 
 
-## MICP Scope and first-time setup
+## GeneScope and first-time setup
 
-See [MICP Scope setup](docs/micpscope.md). New pipeline installations prepare their pinned Snakemake runner and tool environments; updates preserve compatible caches.
+See [GeneScope setup](docs/micpscope.md). New pipeline installations prepare their pinned Snakemake runner and tool environments; updates preserve compatible caches.
 
 ### Reviewed pipeline releases
 
 The version picker separates stable releases from prereleases, displays installed/latest/recommended versions and dates its cached catalogue. Refresh checks GitHub releases and the official [compatibility registry](compatibility/README.md). Newly reviewed compatible releases can be enabled without an app rebuild. Unreviewed commits remain source-only; changed interfaces require an adapter update. Existing saved runs keep their source/configuration and retained approval.
+
+The recommended compatible release appears first. **Refresh from GitHub** updates the default selection when a newer reviewed release is found; a version you explicitly select stays selected. Installed snapshots are labelled separately. Select the desired release and click **Download and set up** to install it; refreshing alone does not update the installed pipeline. Use **Source type → Releases** to hide legacy snapshots and branches.
+
+Reviewed BaSIS follow-up can use an explicitly selected compatible installed version. See [the source and scope workflow](docs/REVIEWED_FOLLOWUP.md).
+
+
+### HybAs identification review
+
+With a compatible HybAs AWARE 9.0.2 pipeline, open **Run settings → Kraken & AWARE**
+and enable **Pause after identification**. The default remains automatic
+end-to-end execution. The target TaxID can be blank while identifying an unknown
+sample. Start with native validation and environment setup as usual, then choose
+**Start identification**.
+
+When Kraken finishes, the saved run shows **Awaiting researcher review** and
+releases the worker for other jobs. Choose **Review identification**, search the
+reported taxa by name/TaxID, and either accept AWARE or choose a manual target.
+**Preview filtering** shows the name, rank, and independent platform actions.
+Changing the choice invalidates that preview. **Save for later** persists the
+choice without starting work; **Confirm target & continue** freezes a decision
+and queues continuation. The choice survives closing/reopening the app.
+
+Continuation validates the new plan and checks its environments. If more tools
+are needed, use **Install environments**, then **Continue run**; the application
+does not silently install them. Matching merged reads and Kraken results are
+reused with the same native scheduler state. The original YAML, earlier reports,
+immutable decision and each phase's computational job records remain retained.
+
+This is a dedicated continuation, not **Edit settings** (which creates a separate
+draft). Finalized targets cannot be silently replaced. Older saved runs retain
+their original source and behavior; select the updated pipeline for new drafts.
+Manual TaxIDs must be resolvable from this run's Kraken report. Database/input
+identity uses size/mtime checks; saved classification evidence additionally uses
+SHA-256 checksums.

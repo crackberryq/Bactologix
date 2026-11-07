@@ -132,3 +132,32 @@ def test_draft_creation_uses_saved_budgets_at_backend_boundary(capacity, monkeyp
     budget = h.presets(info)[2]
     assert len(calls) == 2 and calls[0][4:] == (budget['cores'], budget['memory_mb'])
     assert yaml.safe_load(calls[0][3])['threads'] == budget['cores']
+
+
+
+def test_custom_per_pipeline_compute_defaults_and_cuda_policy(capacity):
+    store, info = capacity
+    store.put('runs','old',{'config':'preserved'})
+    panel=h.panel(store)
+    h.apply_custom(store,'hybas','3','4096','cpu',panel['revisions'],info['id'])
+    cfg=yaml.safe_load(store.get('configs','hybas'))
+    assert h.run_defaults(store,'hybas')['cores']==3
+    assert cfg['bactologix_compute']['gpu_mode']=='cpu'
+    assert h.workflow_environment(cfg)=={'CUDA_VISIBLE_DEVICES':''}
+    assert h.workflow_environment({})=={}
+    assert store.get('runs','old')=={'config':'preserved'}
+    assert store.get('configs','basis') is None
+    h.apply_preset(store,'medium',['hybas'],h.panel(store)['revisions'],info['id'])
+    assert yaml.safe_load(store.get('configs','hybas'))['bactologix_compute']['gpu_mode']=='cpu'
+
+
+@pytest.mark.parametrize('cpu,ram,mode,tool', [('17','4096','cpu','hybas'),('2','999999','cpu','hybas'),('1.5','4096','cpu','hybas'),('2','4096','native','micpscope'),('2','4096','force','basis')])
+def test_invalid_custom_budgets_do_not_save(capacity,cpu,ram,mode,tool):
+    store,info=capacity
+    with pytest.raises(ValueError): h.apply_custom(store,tool,cpu,ram,mode,h.panel(store)['revisions'],info['id'])
+    assert not store.all('resource_defaults')
+
+
+def test_native_gpu_mode_never_overrides_existing_visibility():
+    assert h.workflow_environment({'bactologix_compute':{'gpu_mode':'native'}})=={}
+    with pytest.raises(ValueError): h.workflow_environment({'bactologix_compute':{'gpu_mode':'unsupported'}})

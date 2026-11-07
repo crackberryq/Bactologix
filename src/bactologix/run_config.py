@@ -12,8 +12,8 @@ from .runs import parse_config
 
 
 MANAGED = {
-    'micpscope': {'samples', 'output_dir', 'threads', 'memory_mb'},
-    'hybas': {'base_dir', 'sample_sheet', 'input_manifest', 'isolate', 'threads', 'setup_only', 'admin_mode', 'ci_mode'},
+    'micpscope': {'samples', 'output_dir', 'threads', 'memory_mb', 'reference_database_sha256'},
+    'hybas': {'base_dir', 'sample_sheet', 'input_manifest', 'isolate', 'threads', 'setup_only', 'admin_mode', 'ci_mode', 'kraken_review_decision', 'kraken_review_decision_sha256'},
     'basis': {'bactomics_root', 'samples', 'isolates', 'isolate', 'threads', 'memory_mb',
               'execution.cores', 'execution.memory_mb'},
 }
@@ -51,6 +51,7 @@ def defaults(store, tool):
 
 
 LABELS = {
+    'kraken_review_before_filtering': 'Pause after identification',
     'run_kraken': 'Run Kraken2', 'kraken_decision_mode': 'Kraken decision mode',
     'run_busco': 'Run BUSCO', 'run_prokka': 'Run Prokka', 'run_multiqc': 'Run MultiQC',
     'run_polypolish': 'Run Polypolish', 'polish_mode': 'Polishing strategy',
@@ -60,6 +61,7 @@ LABELS = {
     'deep.aware.enabled': 'Enable BaSIS AWARE', 'deep.aware.preset': 'AWARE preset',
 }
 HELP = {
+    'kraken_review_before_filtering': 'Stop after Kraken, review the report, then finalize the target and continue. Requires a compatible HybAs version.',
     'run_kraken': 'Switching off also sets the decision mode to Off. Switching on from Off selects AWARE.',
     'kraken_decision_mode': 'Off skips Kraken. Manual, Auto and AWARE enable it. The pipeline keeps its existing decision rules.',
     'polish_mode': 'Available modes come from HybAs AWARE. The native dry-run checks compatibility with the selected read modes.',
@@ -93,6 +95,8 @@ def _flatten(value, path=()):
 def _group(tool, name):
     if name in MANAGED[tool]:
         return 'Managed by Bactologix'
+    if tool == 'micpscope' and name == 'reference_database':
+        return 'Databases & storage'
     if tool == 'hybas':
         if name in {'db_root', 'kraken_db_name', 'busco_lineage', 'busco_download_lineages'}:
             return 'Databases'
@@ -127,7 +131,7 @@ def editor(tool, text):
     defaults = _flatten(defaults)
     supplied = _flatten(cfg)
     auto = tool == 'hybas' and uses_auto(cfg)
-    extras = ({'busco_download_lineages': [cfg.get('busco_lineage', 'bacteria_odb10')], 'kraken_mem_mb': None}
+    extras = ({'busco_download_lineages': [cfg.get('busco_lineage', 'bacteria_odb10')], 'kraken_mem_mb': None, 'kraken_review_before_filtering': False}
               if tool == 'hybas' else {} if tool == 'micpscope' else {'storage': {'native_results_directory': None}})
     defaults.update(_flatten(extras))
     # Include companion paths and model identities recognized by the database selector.
@@ -150,6 +154,8 @@ def editor(tool, text):
                 else 'number' if isinstance(value, float) else 'string' if isinstance(value, str) else 'yaml')
         if name in OPTIONAL[tool]:
             kind = 'optional_integer' if name == 'kraken_mem_mb' else 'optional_string'
+        if tool == 'micpscope' and name == 'reference_database':
+            kind = 'reference_database'
         options = list(OPTIONS[tool].get(name, []))
         if auto and name in AUTO_MODULES:
             options = ['auto', 'true', 'false']
@@ -218,6 +224,10 @@ def compile_config(tool, text, changes=None):
                     raise ValueError('enter a finite ' + ('number' if kind == 'number' else 'integer'))
                 if kind != 'number':
                     value = int(value)
+            elif kind == 'reference_database':
+                if raw is not None and not isinstance(raw, str):
+                    raise ValueError('choose a database or No database')
+                value = raw.strip() if isinstance(raw, str) and raw.strip() else None
             elif kind == 'yaml':
                 if not isinstance(raw, str):
                     raise ValueError('enter a YAML value')
@@ -244,15 +254,19 @@ def compile_config(tool, text, changes=None):
 
 def validate(tool, text):
     cfg = parse_config(text)
+    from .hardware import workflow_environment
+    workflow_environment(cfg)
     if tool == 'hybas':
         for name, options in OPTIONS[tool].items():
             if name in cfg and cfg[name] not in options and not (name in AUTO_KEYS and cfg[name] == 'auto'):
                 raise ValueError(name + ': choose ' + ', '.join(options))
-        for name in ('run_kraken', 'run_busco', 'run_prokka', 'run_multiqc', 'run_polypolish'):
-            if name in cfg and not isinstance(cfg[name], bool) and cfg[name] != 'auto':
+        for name in ('kraken_review_before_filtering', 'run_kraken', 'run_busco', 'run_prokka', 'run_multiqc', 'run_polypolish'):
+            if name in cfg and not isinstance(cfg[name], bool) and (name == 'kraken_review_before_filtering' or cfg[name] != 'auto'):
                 raise ValueError(name + ' must be true or false.')
         if cfg.get('kraken_decision_mode', 'aware') != 'off' and cfg.get('run_kraken', True) is False:
             raise ValueError('Kraken is off but its decision mode is enabled. Set the mode to Off or enable Run Kraken2.')
+        if cfg.get('kraken_review_before_filtering') and (cfg.get('kraken_decision_mode') == 'off' or cfg.get('run_kraken') is False):
+            raise ValueError('Pause after identification requires Kraken to be enabled.')
         for name, value in cfg.items():
             if name == 'keep_percent' or name.startswith('kraken_') and name.endswith('_percent'):
                 if isinstance(value, bool) or not isinstance(value, (int, float)) or not (1 if name == 'keep_percent' else 0) <= value <= 100:
@@ -279,4 +293,3 @@ def validate(tool, text):
             if row['included'] and row['options'] and row['value'] not in row['options']:
                 raise ValueError(row['name'] + ': choose ' + ', '.join(row['options']))
     return text
-

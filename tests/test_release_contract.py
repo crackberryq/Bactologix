@@ -19,18 +19,22 @@ def review():
 
 
 def test_refresh_approval_and_offline_preservation(tmp_path, monkeypatch):
+    from bactologix.ui_backend import dispatch
     store=Store(tmp_path); r=review()
     listing={'live':True,'checkedAt':'2026-10-29','versions':[{'id':'release:v99.0.0','kind':'release',
         'ref':r['tag'],'commit':r['commit'],'prerelease':False,'publishedAt':'2026-10-29'}]}
     monkeypatch.setattr(catalog,'fetch_versions',lambda tool:copy.deepcopy(listing))
     monkeypatch.setattr(catalog,'api',lambda path:{'content':base64.b64encode(json.dumps({'schema_version':1,'releases':[r]}).encode()).decode()})
     assert not catalog.supported('basis',r['commit'],store)
-    rc.refresh(store,'basis')
+    result = dispatch(store, 'refresh_versions', {'tool': 'basis'})
+    assert result['refreshed_catalog'] == 'basis' and result['keep_modal']
     assert catalog.supported('basis',r['commit'],Store(tmp_path))
     assert catalog.versions(store,'basis')['recommended_release']=='v99.0.0'
     old=store.get('catalog','basis')
     monkeypatch.setattr(catalog,'api',lambda path: (_ for _ in ()).throw(OSError('offline')))
     with pytest.raises(OSError):rc.refresh(store,'basis')
+    failure = dispatch(store, 'refresh_versions', {'tool': 'basis'})
+    assert 'refreshed_catalog' not in failure and 'Refresh failed' in failure['message']
     assert store.get('catalog','basis')==old
     assert catalog.supported('basis',r['commit'],store)
     assert catalog.supported('basis',catalog.PIPELINES['basis']['previous_commits'][0],store)
@@ -60,6 +64,20 @@ def test_published_registry_valid():
     doc=json.loads((Path(__file__).parents[1]/'compatibility/releases-v1.json').read_text())
     assert doc['schema_version']==1
     for row in doc['releases']:assert rc.reason(row['tool'],row) is None
+
+
+@pytest.mark.parametrize('key,value', [('interface', 2), ('entry_point', 'Other.smk'),
+    ('screening_schema', 'future'), ('parent_commits', ['main']), ('scopes', ['anything']),
+    ('scopes', []), ('scopes', 'amrfinder-review')])
+def test_followup_contract_fails_closed(key, value):
+    r = review()
+    r['files_sha256']['Followup.smk'] = 'd' * 64
+    r['followup'] = {'interface': 1, 'entry_point': 'Followup.smk',
+        'screening_schema': 'basis-snakemake-run-v1', 'parent_commits': ['b' * 40],
+        'scopes': ['amrfinder-review', 'all-supported']}
+    assert rc.reason('basis', r) is None
+    r['followup'][key] = value
+    assert rc.reason('basis', r) is not None
 
 
 @pytest.mark.parametrize('changed', [{'prerelease':True}, {'ref':'v99.0.1'}, {'kind':'branch'}])

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bactologix"
-version = "0.1.0a55"
-description = "A local workspace for HybAs, BaSIS and MICP Scope"
+version = "0.1.0a86.dev1"
+description = "A local workspace for HybAs, BaSIS and GeneScope"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{name = "Jimi Goldstein"}]
@@ -32,6 +32,3 @@ namespaces = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-
-
-

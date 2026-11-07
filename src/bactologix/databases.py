@@ -35,7 +35,7 @@ def _module(key, name, description, hint):
 
 
 CATALOG = {
-    "micpscope": [],
+    "micpscope": [dict(id="reference", name="Application reference database", description="Built reference package for DIAMOND protein similarity searches and linked evidence.", hint="reference-manifest.json", fields=["reference_database"])],
     "hybas": [
         dict(id="kraken", name="Kraken2", description="Choose the folder containing the three Kraken2 index files.", hint="hash.k2d", fields=[]),
         dict(id="busco", name="BUSCO lineage", description="Choose a complete lineage dataset. A matching configured lineage is preferred.", hint="dataset.cfg", fields=[]),
@@ -177,6 +177,14 @@ def panel(store, tool):
                 saved = locations.get(spec["id"], {})
                 row["path"] = saved.get("path", "") if saved.get("fields") == values and primary else str(primary or "")
             row["configured"] = bool(row["path"])
+        if tool == 'micpscope' and row.get('path'):
+            from .application_package import application
+            try:
+                row['application'] = application(_json(Path(row['path']) / 'reference-manifest.json')['specification'])
+                row['name'] = row['application']['name'] + ' · ' + row['application']['version']
+                row['description'] = row['application']['description']
+            except (OSError, ValueError, KeyError, TypeError):
+                row['application'] = None
         rows.append(row)
     return {"tool": tool, "revision": revision(text), "rows": rows,
             "policy": _get(cfg, "resources.policy", "auto") if tool == "basis" else "manual",
@@ -239,7 +247,22 @@ def inspect(store, tool, key, value, cfg=None):
             updates = current
     database = path
     version = ""
-    if key == "kraken":
+    if tool == "micpscope" and key == "reference":
+        from .micp_handoff import database_identity
+        database_identity(root)
+        _require(root, ("reference-manifest.json", "completed.json", "checksums.json", "proteins.faa", "proteins.dmnd"))
+        receipt_data = _json(root / "completed.json")
+        if receipt_data.get("status") != "completed" or receipt_data.get("checksums_sha256") != hashlib.sha256((root / "checksums.json").read_bytes()).hexdigest():
+            raise ValueError("Database completion receipt does not match its checksum manifest.")
+        manifest = _json(root / "reference-manifest.json")
+        if manifest.get("schema_version") != "1.0":
+            raise ValueError("Unsupported reference database schema.")
+        from .application_package import application
+        app = application(manifest['specification'])
+        version = app['version']
+        updates = {"reference_database": str(root.resolve())}
+        database = root
+    elif key == "kraken":
         _require(root, ("hash.k2d", "opts.k2d", "taxo.k2d"))
         database = root
     elif key == "busco":
@@ -347,6 +370,7 @@ def inspect(store, tool, key, value, cfg=None):
             version = handle.read(120).strip()
     return {"id": key, "path": str(local_path(value)) if key in {"prott5", "deep_catalogue"} else str(database.resolve()),
             "folder": str(root), "updates": updates, "version": version,
+            "application": app if tool == "micpscope" and key == "reference" else None,
             "receipt": receipt, "status": "Layout recognized", "checked_at": now()}
 
 
@@ -568,5 +592,12 @@ def save(store, tool, changes, expected_revision):
             raise ValueError("Defaults changed while checking locations. Reload locations before saving.")
         for kind, value in (("configs", text), ("database_locations", locations)):
             db.execute("INSERT INTO items VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body", (kind, tool, json.dumps(value)))
+    if tool == 'micpscope':
+        from .reference_catalog import register
+        for item in checked.values():
+            if item:
+                register(store, item['path'])
     return text
+
+
 

@@ -172,7 +172,7 @@ def input_layout(output, tool):
         if not root.exists():
             continue
         for path in sorted(root.iterdir()):
-            used = re.search(r"\.(fastq|fq)(\.gz)?$", path.name, re.I) if tool == "hybas" else (path.suffix in {".faa", ".gff"} or path.name.endswith((".evidence.csv", ".interpro.tsv"))) if tool == "micpscope" else path.suffix in {".fna", ".faa", ".gff", ".gbk"}
+            used = re.search(r"\.(fastq|fq)(\.gz)?$", path.name, re.I) if tool == "hybas" else (path.suffix in {".fna", ".faa", ".gff"} or path.name.endswith((".evidence.csv", ".interpro.tsv"))) if tool == "micpscope" else path.suffix in {".fna", ".faa", ".gff", ".gbk"}
             if used:
                 if not path.is_symlink():
                     raise ValueError("Staged input is no longer its original link: " + str(path))
@@ -202,8 +202,21 @@ def sample_sheet(sample, tool, output):
 
 
 def check_run_files(run):
+    if run["tool"] == "micpscope":
+        from .micp_handoff import database_identity, digest
+        cfg = parse_config(run["config"])
+        if cfg.get("reference_database_sha256"):
+            database_identity(cfg["reference_database"], cfg["reference_database_sha256"])
+        for source in run["sample"].get("micp_handoff", {}).get("files", []):
+            if digest(source["path"]) != source["sha256"]:
+                raise ValueError("HybAs source output changed; create a new GeneScope draft")
+    if run.get('run_type') == 'followup':
+        from .followup import verify_transition
+        verify_transition(run)
     from .variants import verify
     verify(run, full=False)
+    from .identification import check_decision
+    check_decision(run)
     folder = Path(run["folder"])
     if hashlib.sha256((folder / "config.yaml").read_bytes()).hexdigest() != run["config_sha256"]:
         raise ValueError("Saved configuration changed. Create a new draft for changed settings.")
@@ -258,12 +271,14 @@ def run_status(run, jobs, checked):
     active = next((j for j in related if j["status"] in {"queued", "running"}), None)
     if active:
         return active["status"]
-    execution = next((j for j in related if j["payload"].get("action") == "run"), None)
+    execution = next((j for j in related if j["payload"].get("action") in {"run", "continue"}), None)
     failures = {"failed", "cancelled", "interrupted"}
     if execution and execution["status"] in failures:
         return execution["status"]
     if related and related[0]["status"] in failures:
         return related[0]["status"]
+    if run.get("identification", {}).get("state") == "awaiting_review":
+        return "awaiting_review"
     return "completed" if run.get("completed") else "checked" if checked else "draft"
 
 
@@ -294,13 +309,15 @@ def stage_inputs(sample, tool, destination):
     elif tool == "micpscope":
         output = destination / "annotation"
         output.mkdir()
-        for suffix in (".faa", ".evidence.csv", ".gff", ".interpro.tsv"):
+        for suffix in (".faa", ".evidence.csv", ".gff", ".interpro.tsv", ".fna"):
             source = original / "annotation" / (sid + suffix)
+            if suffix == ".fna" and sample.get("micp_handoff"):
+                source = original / "work/final/assembly.final.fasta"
             if not source.is_file():
                 if suffix != ".faa":
                     continue
                 raise ValueError("Missing protein FASTA: " + str(source))
-            (output / source.name).symlink_to(source.resolve())
+            (output / (sid + suffix)).symlink_to(source.resolve())
             inputs.append(source)
     else:
         output = destination / "annotation"
@@ -336,6 +353,17 @@ def bind_paths(cfg, tool, store, installed):
     # Relative user resource paths would otherwise change when making isolated copies.
     cfg = copy.deepcopy(cfg)
     if tool == "micpscope":
+        if cfg.get("reference_database"):
+            from .micp_handoff import database_identity
+            if not (Path(installed["source"]) / "envs/reference-search.yml").is_file():
+                raise ValueError("Update GeneScope to enable reference database searches")
+            cfg["reference_database"] = str(absolute_path(cfg["reference_database"]))
+            cfg["reference_database_sha256"] = database_identity(cfg["reference_database"])
+            manifest = json.loads((Path(cfg["reference_database"]) / "reference-manifest.json").read_text())
+            if manifest.get("specification", {}).get("schema_version") == "2.0" and not (Path(installed["source"]) / "src/micpscope/application.py").is_file():
+                raise ValueError("Update GeneScope to use application schema 2.0 databases")
+        else:
+            cfg.pop('reference_database_sha256', None)
         return cfg
     if tool == "hybas":
         raw = cfg.get("db_root", "db")
@@ -391,6 +419,14 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         from .manifest_inputs import require_adapter
         if uses_auto(cfg):
             require_adapter(store, tool, installed)
+
+        from .identification import OPTION, supports
+        if OPTION in cfg and not isinstance(cfg[OPTION], bool):
+            raise ValueError("Pause after identification must be true or false.")
+        if cfg.get(OPTION) and not supports(installed["source"]):
+            raise ValueError("This HybAs version does not support identification review. Update the pipeline first.")
+        if cfg.get('kraken_review_decision') or cfg.get('kraken_review_decision_sha256'):
+            raise ValueError("Identification decisions are managed through Review identification, not draft YAML.")
     rid = identifier("run")
     folder = store.home / "runs" / rid
     folder.mkdir()
@@ -470,7 +506,7 @@ def clone_runs(store, parent_id, aware_free=False, strategies=None):
 
 
 def validate_launch(store, rid, action, check_busy=True):
-    if action not in {"dry-run", "prepare", "run", "check-environments"}:
+    if action not in {"dry-run", "prepare", "run", "check-environments", "continue"}:
         raise ValueError("Unsupported workflow action")
     run = store.get("runs", rid)
     if not run:
@@ -484,11 +520,15 @@ def validate_launch(store, rid, action, check_busy=True):
     preflight(store, run["tool"], run["commit"], Path(run["folder"]) / "workflow")
     if not supported(run["tool"], run["commit"], store):
         raise ValueError("This source version has no reviewed execution adapter")
-    if action != "dry-run" and not dry_run_current(store, run):
+    if action == "continue" and not run.get("identification", {}).get("decision_path"):
+        raise ValueError("Review and finalize the target before continuing.")
+    if action == "run" and run.get("identification", {}).get("state") == "awaiting_review":
+        raise ValueError("Awaiting researcher review. Open Review identification to choose the target.")
+    if action not in {"dry-run", "continue"} and not dry_run_current(store, run):
         raise ValueError("A successful native dry-run with the current runner is required before preparing tools or running")
     check_run_files(run)
     from .preflight import assert_launch
-    assert_launch(run, action)
+    assert_launch(run, "run" if action == "continue" else action)
     return run
 
 
@@ -499,9 +539,14 @@ def command(store, run, action):
         raise ValueError("Conda is missing")
     folder = Path(run["folder"])
     entry = run.get("variant_entry") or ("Followup.smk" if run.get("run_type") == "followup" else PIPELINES[run["tool"]]["snakefile"])
+    directory, bootstrap = folder / 'workflow', False
+    if run.get('run_type') == 'followup':
+        from .followup import execution_directory, needs_provenance_bootstrap
+        directory = execution_directory(store, run)
+        bootstrap = needs_provenance_bootstrap(directory, run)
     argv = [conda, "run", "--no-capture-output", "-p", current_controller(store, run), "snakemake",
             "--snakefile", str(folder / "workflow" / entry),
-            "--directory", str(folder / "workflow"), "--configfile", str(folder / "config.yaml"),
+            "--directory", str(directory), "--configfile", str(folder / "config.yaml"),
             "--cores", str(run["cores"]), "--resources", "mem_mb=" + str(run["memory_mb"]), "kraken_jobs=1",
             "--use-conda", "--conda-prefix", run.get("rule_cache") or str(store.home / "envs" / run["tool"]), "--rerun-incomplete"]
     if run.get("variant_entry"):
@@ -515,11 +560,15 @@ def command(store, run, action):
     elif action == "run":
         pos = argv.index('snakemake')
         argv[pos:pos] = ['python', str(DATA / 'run_existing.py')]
+    from .identification import arguments
+    argv.extend(arguments(run))
+    if bootstrap:
+        argv.extend(['--forcerun', 'capture_followup_review'])
     return argv
 
 
 def execute_workflow(ctx):
-    payload, store = ctx.job["payload"], ctx.store
+    payload, store = dict(ctx.job["payload"]), ctx.store
     run = validate_launch(store, payload["run_id"], payload["action"], check_busy=False)
     from .variants import verify
     verify(run)  # Full hashes at execution, not on every UI readiness refresh.
@@ -529,6 +578,21 @@ def execute_workflow(ctx):
         from .readiness import check_environments
         check_environments(ctx, run)
         return
+    if payload["action"] == "continue":
+        ctx.write("Validating the finalized identification decision and continuation plan")
+        run['dry_run_ok'] = False
+        store.put('runs', run['id'], run)
+        ctx.command(command(store, run, 'dry-run'), cwd=Path(run['folder']) / 'workflow')
+        run.update(dry_run_ok=True, validated=now(), validated_controller=current_controller(store, run))
+        store.put('runs', run['id'], run)
+        from .readiness import check_environments
+        check_environments(ctx, run)
+        from .readiness import environment_state
+        receipt = store.get('run_environment_checks', run['id'], {})
+        missing = [r['name'] for r in receipt.get('rows', []) if environment_state(r) != 'Available']
+        if missing:
+            raise ValueError('Continuation needs tool environments: ' + ', '.join(missing) + '. Use Install environments, then Continue run.')
+        payload['action'] = 'run'
     ctx.write("Run " + run["id"] + " · source " + run["commit"])
     ctx.write("Input identity uses file size/mtime checks. Workflow provenance may add content checksums.")
     if payload['action'] == 'run':
@@ -545,7 +609,11 @@ def execute_workflow(ctx):
     from . import results
     results.observe(ctx, run, 'before')
     try:
-        ctx.command(command(store, run, payload["action"]), cwd=Path(run["folder"]) / "workflow")
+        from .hardware import workflow_environment
+        extra_env = workflow_environment(parse_config(run['config']))
+        ctx.write('GPU policy: ' + ('CPU only (CUDA devices hidden)' if extra_env else 'Native tool settings; existing CUDA visibility preserved'))
+        kwargs = {"extra_env": extra_env} if extra_env else {}
+        ctx.command(command(store, run, payload["action"]), cwd=Path(run["folder"]) / "workflow", **kwargs)
     finally:
         results.observe(ctx, run, 'after')
     run["last_action"] = payload["action"]
@@ -554,7 +622,15 @@ def execute_workflow(ctx):
         run["validated"] = now()
         run["validated_controller"] = run["last_controller"]
     elif payload["action"] == "run":
+        from . import identification
+        if identification.enabled(run) and not run.get('identification', {}).get('decision_path'):
+            identification.capture(run, ctx.job['id'])
+            store.put('runs', run['id'], run)
+            ctx.write('Identification complete. Awaiting researcher review; no filtering or assembly was started.')
+            return
         run["completed"] = now()
+        if run.get('identification'):
+            run['identification']['state'] = 'completed'
         from . import methods
         try:
             methods.capture(store, run, ctx.job['id'])
@@ -566,12 +642,16 @@ def execute_workflow(ctx):
 
 def report_candidates(store, run):
     if run["tool"] == "micpscope":
-        return [("MICP Scope report", "micpscope/report.html")]
+        return [("GeneScope report", "micpscope/report.html")]
     if run.get("run_type") == "followup":
         owned = store.get("followup_output_owner", run["parent"]) == run["id"]
         entries = [("Follow-up report", "safety/deepsafe-report/report.html")] if owned else []
     else:
         entries = [("MultiQC", "reports/multiqc/multiqc_report.html"), ("Safety report", "safety/report.html")]
+        if run["tool"] == "hybas" and parse_config(run["config"]).get("kraken_review_before_filtering"):
+            entries.insert(0, ("Identification review", "reports/identification/report.html"))
+        if run["tool"] == "hybas" and (Path(run["output"]) / "reports/hybas/report.html").is_file():
+            entries.insert(0, ("HybAs AWARE report", "reports/hybas/report.html"))
         if run["tool"] == "basis" and not store.get("followup_output_owner", run["id"]):
             entries.append(("Follow-up report", "safety/deepsafe-report/report.html"))
     if run["tool"] == "hybas" and run.get("run_type") != "followup":
@@ -597,5 +677,3 @@ def reports(store):
         if Path(item["report"]).is_file():
             result.append({"id": item["id"], "name": "Live test report", "path": item["report"], "run": item["id"], "sample": "Software smoke test"})
     return result
-
-

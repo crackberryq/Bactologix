@@ -54,7 +54,7 @@ def launch_worker(store):
 
 
 def enqueue(store, kind, payload):
-    if kind not in {"install", "connect", "bootstrap", "check", "workflow", "smoke", "workstation", "app_update", "environments", "database_download"}:
+    if kind not in {"install", "connect", "bootstrap", "check", "workflow", "smoke", "workstation", "app_update", "environments", "database_download", "database_build", "report_refresh"}:
         raise ValueError("Unknown operation")
     if platform.system() != "Linux":
         raise RuntimeError("Run this app inside Linux or WSL2 to execute jobs.")
@@ -431,8 +431,12 @@ def smoke(ctx):
 def execute(ctx):
     kind = ctx.job["kind"]
     if kind == "app_update":
-        from .updates import install_update
-        install_update(ctx)
+        if ctx.job['payload'].get('update_all'):
+            from .update_all import execute as update_everything
+            update_everything(ctx)
+        else:
+            from .updates import install_update
+            install_update(ctx)
     elif kind == "install":
         install(ctx)
     elif kind == "connect":
@@ -464,13 +468,24 @@ def execute(ctx):
         execute_check(ctx)
     elif kind == "smoke":
         smoke(ctx)
+    elif kind == "workflow_unlock":
+        from .workflow_unlock import execute as unlock
+        unlock(ctx)
+    elif kind == "report_refresh":
+        from .report_refresh import execute as refresh_report
+        refresh_report(ctx)
     elif kind == "workflow":
         from .runs import execute_workflow
         execute_workflow(ctx)
+    elif kind == "database_build":
+        from .database_builder import execute as build_database
+        build_database(ctx)
     elif kind in {"environments", "database_download"}:
         from .maintenance import execute_environments, execute_download
         (execute_environments if kind == "environments" else execute_download)(ctx)
     else:
         raise ValueError("Unsupported job")
+
+
 
 

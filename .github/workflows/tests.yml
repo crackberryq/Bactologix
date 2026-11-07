@@ -30,16 +30,34 @@ jobs:
           path: upstream-basis
       - uses: actions/checkout@v4
         with:
-          repository: crackberryq/Bactomics_MICPscope
-          ref: 60f248ac94597563157e8506047669b9aac23fd6
+          repository: crackberryq/Bactomics_BaSIS
+          ref: 4fa218db3dfc73733267d36c225ebc0d8df50f27
+          path: upstream-basis-followup
+      - uses: actions/checkout@v4
+        with:
+          repository: crackberryq/Bactomics_GeneScope
+          ref: b47b16c286051ec841e7cdb593350004eb028475
           path: upstream-micpscope
+      - uses: actions/checkout@v4
+        with:
+          repository: crackberryq/Bactomics_HybAs
+          ref: b13bd80efab8429a03b10a6bd2b7dac25b851e4d
+          path: upstream-hybas-report
+      - uses: actions/checkout@v4
+        with:
+          repository: crackberryq/Bactomics_HybAs
+          ref: 031ced7121b8ef06c4d97affac90a10699418bae
+          path: upstream-hybas-review
       - name: Install software test dependencies
         run: python -m pip install . pytest build 'snakemake==9.6.2' 'numpy<3' 'biopython==1.86' 'openpyxl==3.1.5'
       - name: Test application and pinned workflow adapters
         env:
+          BACTOLOGIX_HYBAS_REVIEW_SOURCE: ${{ github.workspace }}/upstream-hybas-review
+          BACTOLOGIX_HYBAS_REPORT_SOURCE: ${{ github.workspace }}/upstream-hybas-report
           BACTOLOGIX_HYBAS_SOURCE: ${{ github.workspace }}/upstream-hybas
           BACTOLOGIX_MICPSCOPE_SOURCE: ${{ github.workspace }}/upstream-micpscope
           BACTOLOGIX_BASIS_SOURCE: ${{ github.workspace }}/upstream-basis
+          BACTOLOGIX_BASIS_FOLLOWUP_SOURCE: ${{ github.workspace }}/upstream-basis-followup
         run: python -m pytest -q
       - name: Build and check installed package
         run: |
@@ -65,7 +83,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: crackberryq/Bactomics_HybAs
-          ref: 8c7bdd792259b5e540727a2283c8300b893b66c3
+          ref: c5cc3dc471665111569834854ef9b60b9a005594
           path: upstream-hybas-v2
       - run: python -m pip install . pytest 'snakemake==9.27.1'
       - name: Validate frozen manifest native DAGs
@@ -81,21 +99,25 @@ jobs:
       options: --ipc=host --init
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
       - uses: actions/checkout@v4
         with:
           repository: crackberryq/Bactomics_HybAs
           ref: 780ee7086c15c49f2825800ec463327f009f14a6
           path: upstream-hybas
+      - name: Isolate browser test Python and application launcher
+        run: |
+          python -m pip install virtualenv
+          python -m virtualenv /tmp/bactologix-browser-env
+          echo "/tmp/bactologix-browser-env/bin" >> "$GITHUB_PATH"
       - run: python -m pip install . pytest 'playwright==1.64.1'
       - name: Real browser to Streamlit checks
         env:
           BACTOLOGIX_BROWSER_TESTS: '1'
           BACTOLOGIX_UI_PREVIEWS: ui-previews
           BACTOLOGIX_HYBAS_SOURCE: ${{ github.workspace }}/upstream-hybas
-        run: python -m pytest -q tests/test_browser.py
+        run: |
+          python -m pytest -q tests/test_browser.py::test_reference_starter_default_edit_restore_and_build
+          python -m pytest -q tests/test_browser.py -k 'not test_reference_starter_default_edit_restore_and_build'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -161,6 +183,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python scripts/publish_release.py
+
+
 
 
 

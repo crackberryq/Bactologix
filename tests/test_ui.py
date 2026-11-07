@@ -143,3 +143,15 @@ def test_database_scan_browse_and_save_through_real_component(tmp_path, monkeypa
     import yaml
     config = yaml.safe_load(Store(tmp_path / 'workspace').get('configs', 'hybas'))
     assert (Path(config['db_root']) / config['kraken_db_name']).resolve() == db
+
+
+
+def test_global_update_is_rejected_through_component(tmp_path, monkeypatch):
+    monkeypatch.setenv('BACTOLOGIX_HOME', str(tmp_path / 'workspace'))
+    captured = []
+    monkeypatch.setattr('bactologix.ui_backend.enqueue', lambda *args: captured.append(args) or 'job-all')
+    app = AppTest.from_file(str(APP)).run(timeout=20)
+    result = send(app, 'update_all', {}, 'all-components')
+    assert not result['ok']
+    assert 'Global updates have been removed' in str(result)
+    assert captured == []

@@ -83,7 +83,7 @@ def status(store):
             "active_job": active["id"] if active else None, "restart_required": restart,
             "automatic_restart": automatic, "queue_paused": queue_paused,
             "launcher": {k: launcher[k] for k in ('id', 'version', 'url')} if launcher else None,
-            "last_update": state, "can_install": platform.system() == "Linux" and not restart and not queue_paused
+            "last_update": state, "all_update": store.get("settings", "all-update", {}), "can_install": platform.system() == "Linux" and not restart and not queue_paused
             and not any(j["status"] in {"queued", "running"} for j in store.jobs())}
 
 
@@ -175,3 +175,4 @@ def install_update(ctx):
         ctx.write('Update verified. The launcher will restart the app on the same address after this job finishes; open browser tabs will refresh automatically.')
     else:
         ctx.write('Update verified. This session has no automatic restart supervisor. Press Ctrl+C, then run bactologix once and refresh the browser.')
+
