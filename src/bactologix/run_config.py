@@ -13,13 +13,13 @@ from .runs import parse_config
 
 MANAGED = {
     'micpscope': {'samples', 'output_dir', 'threads', 'memory_mb', 'reference_database_sha256'},
-    'hybas': {'base_dir', 'sample_sheet', 'input_manifest', 'isolate', 'threads', 'setup_only', 'admin_mode', 'ci_mode', 'kraken_review_decision', 'kraken_review_decision_sha256'},
+    'hybas': {'base_dir', 'sample_sheet', 'input_manifest', 'isolate', 'threads', 'setup_only', 'admin_mode', 'ci_mode', 'kraken_review_decision', 'kraken_review_decision_sha256', 'aware_assembly_continuation', 'aware_assembly_continuation_sha256'},
     'basis': {'bactomics_root', 'samples', 'isolates', 'isolate', 'threads', 'memory_mb',
               'execution.cores', 'execution.memory_mb'},
 }
 OPTIONS = {
     'micpscope': {},
-    'hybas': {'kraken_decision_mode': ['off', 'manual', 'auto', 'aware'],
+    'hybas': {'aware_run_until': ['assembly', 'aware'], 'kraken_decision_mode': ['off', 'manual', 'auto', 'aware'],
               'polish_mode': ['none', 'racon', 'medaka', 'tripolish']},
     'basis': {'resources.policy': ['auto', 'manual'],
               'deep.aware.preset': ['auto-strict', 'auto-medium', 'auto-loose']},
@@ -51,6 +51,10 @@ def defaults(store, tool):
 
 
 LABELS = {
+    'aware_run_until': 'AWARE · Run endpoint',
+    'aware_preserve_groups': 'AWARE · Preserve additional read groups',
+    'aware_statistics': 'AWARE · Statistical evidence',
+    'aware_reclassify_derived': 'AWARE · Reclassify derived inputs',
     'kraken_review_before_filtering': 'Pause after identification',
     'run_kraken': 'Run Kraken2', 'kraken_decision_mode': 'Kraken decision mode',
     'run_busco': 'Run BUSCO', 'run_prokka': 'Run Prokka', 'run_multiqc': 'Run MultiQC',
@@ -61,6 +65,11 @@ LABELS = {
     'deep.aware.enabled': 'Enable BaSIS AWARE', 'deep.aware.preset': 'AWARE preset',
 }
 HELP = {
+    'aware_run_until': 'Assembly runs the complete workflow. Aware stops after identification, filtering and requested reports; continue assembly later from the saved run.',
+    'aware_preserve_groups': 'Retain provisional species groups plus shared and unclassified reads. Supports Illumina, ONT and PacBio. Does not reconstruct strains.',
+    'aware_statistics': 'Report assignment-support intervals and resampling stability, not the probability of correct identification.',
+    'aware_reclassify_derived': 'Derived samples reuse verified retained reads and skip Kraken by default. Enable to apply the selected Kraken settings again.',
+
     'kraken_review_before_filtering': 'Stop after Kraken, review the report, then finalize the target and continue. Requires a compatible HybAs version.',
     'run_kraken': 'Switching off also sets the decision mode to Off. Switching on from Off selects AWARE.',
     'kraken_decision_mode': 'Off skips Kraken. Manual, Auto and AWARE enable it. The pipeline keeps its existing decision rules.',
@@ -100,7 +109,7 @@ def _group(tool, name):
     if tool == 'hybas':
         if name in {'db_root', 'kraken_db_name', 'busco_lineage', 'busco_download_lineages'}:
             return 'Databases'
-        if name == 'run_kraken' or name.startswith('kraken_') or 'taxid' in name:
+        if name == 'run_kraken' or name.startswith(('kraken_', 'aware_')) or 'taxid' in name:
             return 'Kraken & AWARE'
         if any(x in name for x in ('polish', 'racon', 'medaka', 'keep_percent')):
             return 'Assembly & polishing'
@@ -131,7 +140,7 @@ def editor(tool, text):
     defaults = _flatten(defaults)
     supplied = _flatten(cfg)
     auto = tool == 'hybas' and uses_auto(cfg)
-    extras = ({'busco_download_lineages': [cfg.get('busco_lineage', 'bacteria_odb10')], 'kraken_mem_mb': None, 'kraken_review_before_filtering': False}
+    extras = ({'busco_download_lineages': [cfg.get('busco_lineage', 'bacteria_odb10')], 'kraken_mem_mb': None, 'kraken_review_before_filtering': False, 'aware_run_until':'assembly', 'aware_preserve_groups':False, 'aware_statistics':False, 'aware_reclassify_derived':False}
               if tool == 'hybas' else {} if tool == 'micpscope' else {'storage': {'native_results_directory': None}})
     defaults.update(_flatten(extras))
     # Include companion paths and model identities recognized by the database selector.
@@ -260,12 +269,12 @@ def validate(tool, text):
         for name, options in OPTIONS[tool].items():
             if name in cfg and cfg[name] not in options and not (name in AUTO_KEYS and cfg[name] == 'auto'):
                 raise ValueError(name + ': choose ' + ', '.join(options))
-        for name in ('kraken_review_before_filtering', 'run_kraken', 'run_busco', 'run_prokka', 'run_multiqc', 'run_polypolish'):
-            if name in cfg and not isinstance(cfg[name], bool) and (name == 'kraken_review_before_filtering' or cfg[name] != 'auto'):
+        for name in ('aware_preserve_groups', 'aware_statistics', 'aware_reclassify_derived', 'kraken_review_before_filtering', 'run_kraken', 'run_busco', 'run_prokka', 'run_multiqc', 'run_polypolish'):
+            if name in cfg and not isinstance(cfg[name], bool) and (name == 'kraken_review_before_filtering' or name.startswith('aware_') or cfg[name] != 'auto'):
                 raise ValueError(name + ' must be true or false.')
         if cfg.get('kraken_decision_mode', 'aware') != 'off' and cfg.get('run_kraken', True) is False:
             raise ValueError('Kraken is off but its decision mode is enabled. Set the mode to Off or enable Run Kraken2.')
-        if cfg.get('kraken_review_before_filtering') and (cfg.get('kraken_decision_mode') == 'off' or cfg.get('run_kraken') is False):
+        if (cfg.get('kraken_review_before_filtering') or cfg.get('aware_run_until') == 'aware' or cfg.get('aware_preserve_groups') or cfg.get('aware_statistics')) and (cfg.get('kraken_decision_mode') == 'off' or cfg.get('run_kraken') is False):
             raise ValueError('Pause after identification requires Kraken to be enabled.')
         for name, value in cfg.items():
             if name == 'keep_percent' or name.startswith('kraken_') and name.endswith('_percent'):

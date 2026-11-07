@@ -82,6 +82,9 @@ def budget(run, info):
         limits.append(('spades_memory_gb', cfg.get('spades_memory_gb'), 1024))
         if str(cfg.get('polish_mode', '')).lower() not in {'', 'none'}:
             limits.append(('polishing_mem_mb', cfg.get('polishing_mem_mb'), 1))
+        pending = (cfg.get('aware_run_until') == 'aware' and not run.get('aware', {}).get('continuation_path')) or (cfg.get('kraken_review_before_filtering') and not run.get('identification', {}).get('decision_path'))
+        if pending:
+            limits = []
         if cfg.get('run_kraken') is not False and cfg.get('kraken_decision_mode') != 'off':
             limits.append(('kraken_mem_mb', cfg.get('kraken_mem_mb'), 1))
     else:

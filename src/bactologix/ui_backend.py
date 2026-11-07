@@ -116,7 +116,7 @@ def snapshot(store):
         checked = dry_run_current(store, run)
         status = run_status(run, jobs, checked)
         runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant", "identification")} | {
-            "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
+            "aware_state": run.get("aware"), "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
             "kraken_mode": "off" if cfg.get("run_kraken") is False else kraken_mode,
             "can_micp_handoff": run["tool"] == "hybas" and status == "completed",
             "can_followup": followup.available(run, store) and status == "completed",
@@ -547,6 +547,22 @@ def dispatch(store, kind, p):
         from .workflow_unlock import request
         jid = request(store, p.get('id'), p.get('signature'))
         return {'message': 'Unlock queued. The analysis queue stays paused; no analysis will start.', 'navigate': 'jobs', 'unlock_job': jid}
+    if kind in {'preview_aware', 'import_aware', 'continue_aware'}:
+        from . import aware_outputs
+        rid = p.get('id')
+        run = store.get('runs', rid) if rid else None
+        path = aware_outputs.bundle_path(run) if run else local_path(p['path'])
+        if kind == 'preview_aware':
+            return {'aware_outputs': {**aware_outputs.review(path), 'run_id': rid,
+                     'can_continue': bool(run and run.get('aware',{}).get('state') in {'complete','continuation_ready'} and parse_config(run['config']).get('aware_run_until') == 'aware')}, 'keep_modal': True}
+        if kind == 'continue_aware':
+            aware_outputs.continue_assembly(store, rid, p.get('token'))
+            validate_launch(store, rid, 'continue')
+            enqueue(store, 'workflow', {'run_id':rid, 'action':'continue'})
+            return {'message':'Assembly continuation queued.', 'navigate':'jobs'}
+        samples = aware_outputs.commit(store, path, p.get('token'), p.get('selected'))
+        return {'message':f'Imported {len(samples)} derived samples. Select them to create separate run drafts.', 'navigate':'samples'}
+
     if kind in {"inspect_identification", "save_identification", "continue_identification"}:
         from . import identification
         rid = p.get('id')

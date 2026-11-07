@@ -314,6 +314,9 @@ def build(store, run):
     latest = jobs[0] if jobs else None
     complete = bool(run.get('completed')) and (not latest or latest['status'] == 'succeeded')
     state = 'Completed workflow' if complete else 'Incomplete execution' if jobs else 'Planned methods'
+    if not complete and run.get('aware', {}).get('state') == 'complete':
+        state = 'AWARE complete; assembly not performed'
+        warnings.append('This run stopped after AWARE. Assembly and downstream methods below remain planned settings, not completed analyses.')
     receipt = store.get('methods_evidence', run['id'])
     evidence, origin = {}, 'No completed execution record'
     if complete:

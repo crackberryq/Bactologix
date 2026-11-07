@@ -1,3 +1,11 @@
+## 0.1.0a86.dev2 — Unified AWARE outputs (unreleased)
+
+- Add one AWARE configuration group for the run endpoint, optional read preservation, statistical evidence and explicit reclassification of derived inputs.
+- Distinguish AWARE completion from assembly completion. Continue the same frozen run using a checksummed AWARE receipt and a fresh native dry-run/environment check.
+- Inspect and select primary/provisional species groups, or import a portable AWARE bundle from another folder. Keep actual library types, read groups, pairing and PacBio chemistry; derive the child input mode from retained data.
+- Verify bundle content before registration and derived inputs before execution. Prevent repeated filtering by default, retain parent provenance, and keep ambiguous/unclassified groups available for inspection/export.
+- Preserve all a85 branding, citation, workspace and navigation changes. Development integration only; no stable release activation.
+
 ## 0.1.0a86.dev1 — HybAs 10 integration (unreleased)
 
 - Integrate the v10 manifest/Auto controls with the current app, including identification review and recent installer/recovery updates.

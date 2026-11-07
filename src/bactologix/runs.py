@@ -217,6 +217,8 @@ def check_run_files(run):
     verify(run, full=False)
     from .identification import check_decision
     check_decision(run)
+    from .aware_outputs import check_continuation
+    check_continuation(run)
     folder = Path(run["folder"])
     if hashlib.sha256((folder / "config.yaml").read_bytes()).hexdigest() != run["config_sha256"]:
         raise ValueError("Saved configuration changed. Create a new draft for changed settings.")
@@ -279,6 +281,8 @@ def run_status(run, jobs, checked):
         return related[0]["status"]
     if run.get("identification", {}).get("state") == "awaiting_review":
         return "awaiting_review"
+    if run.get("aware", {}).get("state") == "complete" and not run.get("completed"):
+        return "aware_complete"
     return "completed" if run.get("completed") else "checked" if checked else "draft"
 
 
@@ -420,6 +424,14 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         if uses_auto(cfg):
             require_adapter(store, tool, installed)
 
+        from . import aware_outputs
+        if any(cfg.get(k) for k in ('aware_assembly_continuation', 'aware_assembly_continuation_sha256')):
+            raise ValueError('Assembly continuation is managed through AWARE outputs, not draft YAML.')
+        if aware_outputs.enabled(cfg) and not aware_outputs.supports(installed['source']):
+            raise ValueError('This HybAs version does not support unified AWARE outputs. Select a compatible development version.')
+        if sample.get('aware_provenance') and not cfg.get('aware_reclassify_derived', False):
+            cfg.update(run_kraken=False, kraken_decision_mode='off', kraken_review_before_filtering=False,
+                       aware_run_until='assembly', aware_preserve_groups=False, aware_statistics=False)
         from .identification import OPTION, supports
         if OPTION in cfg and not isinstance(cfg[OPTION], bool):
             raise ValueError("Pause after identification must be true or false.")
@@ -520,7 +532,7 @@ def validate_launch(store, rid, action, check_busy=True):
     preflight(store, run["tool"], run["commit"], Path(run["folder"]) / "workflow")
     if not supported(run["tool"], run["commit"], store):
         raise ValueError("This source version has no reviewed execution adapter")
-    if action == "continue" and not run.get("identification", {}).get("decision_path"):
+    if action == "continue" and not (run.get("identification", {}).get("decision_path") or run.get("aware", {}).get("continuation_path")):
         raise ValueError("Review and finalize the target before continuing.")
     if action == "run" and run.get("identification", {}).get("state") == "awaiting_review":
         raise ValueError("Awaiting researcher review. Open Review identification to choose the target.")
@@ -561,7 +573,12 @@ def command(store, run, action):
         pos = argv.index('snakemake')
         argv[pos:pos] = ['python', str(DATA / 'run_existing.py')]
     from .identification import arguments
-    argv.extend(arguments(run))
+    decision_args = arguments(run)
+    from .aware_outputs import arguments as aware_arguments
+    extra = aware_arguments(run)
+    if extra:
+        decision_args = decision_args + extra if decision_args else ['--config', *extra]
+    argv.extend(decision_args)
     if bootstrap:
         argv.extend(['--forcerun', 'capture_followup_review'])
     return argv
@@ -571,6 +588,8 @@ def execute_workflow(ctx):
     payload, store = dict(ctx.job["payload"]), ctx.store
     run = validate_launch(store, payload["run_id"], payload["action"], check_busy=False)
     from .variants import verify
+    from .aware_outputs import verify_sample
+    verify_sample(run["sample"])
     verify(run)  # Full hashes at execution, not on every UI readiness refresh.
     if tree_digest(Path(run["folder"]) / "workflow") != run["workflow_sha256"]:
         raise ValueError("The run's workflow source changed; create a new draft")
@@ -579,7 +598,7 @@ def execute_workflow(ctx):
         check_environments(ctx, run)
         return
     if payload["action"] == "continue":
-        ctx.write("Validating the finalized identification decision and continuation plan")
+        ctx.write("Validating the saved AWARE decisions and continuation plan")
         run['dry_run_ok'] = False
         store.put('runs', run['id'], run)
         ctx.command(command(store, run, 'dry-run'), cwd=Path(run['folder']) / 'workflow')
@@ -628,6 +647,15 @@ def execute_workflow(ctx):
             store.put('runs', run['id'], run)
             ctx.write('Identification complete. Awaiting researcher review; no filtering or assembly was started.')
             return
+        from . import aware_outputs
+        cfg = parse_config(run['config'])
+        if run['tool'] == 'hybas' and aware_outputs.enabled(cfg):
+            aware_outputs.capture(run, ctx.job['id'])
+            if cfg.get('aware_run_until') == 'aware' and not run['aware'].get('continuation_path'):
+                store.put('runs', run['id'], run)
+                ctx.write('AWARE complete. Outputs are ready for inspection, derived samples, or continuation to assembly.')
+                return
+            run['aware']['state'] = 'assembled'
         run["completed"] = now()
         if run.get('identification'):
             run['identification']['state'] = 'completed'
@@ -655,6 +683,7 @@ def report_candidates(store, run):
         if run["tool"] == "basis" and not store.get("followup_output_owner", run["id"]):
             entries.append(("Follow-up report", "safety/deepsafe-report/report.html"))
     if run["tool"] == "hybas" and run.get("run_type") != "followup":
+        entries.append(("AWARE outputs", "reports/aware/report.html"))
         entries.append(("HybAs research report", "reports/hybas_research/hybas_report.html"))
     return entries
 

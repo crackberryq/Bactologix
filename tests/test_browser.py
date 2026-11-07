@@ -2663,3 +2663,33 @@ def test_identification_review_target_preview_and_saved_choice(paused, monkeypat
         assert Path(run['folder'],'config.yaml').read_text()==run['config']
         assert not errors,errors
         browser.close()
+
+
+def test_aware_portable_bundle_selection(tmp_path):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import snapshot, dispatch
+    from test_aware_outputs import bundle
+    store=Store(tmp_path/'aware workspace')
+    path,_=bundle(tmp_path/'bundle')
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True)
+        page=browser.new_page(viewport={'width':1440,'height':1100})
+        errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
+        render_component(page,store)
+        page.get_by_role('link',name='Samples',exact=True).click()
+        page.get_by_role('button',name='Import AWARE bundle',exact=True).click()
+        dialog=page.get_by_role('dialog',name='AWARE outputs',exact=True)
+        dialog.get_by_label('AWARE manifest path',exact=True).fill(str(path))
+        def respond(kind):
+            req=page.evaluate('window.acceptanceEvents.at(-1).value');assert req['kind']==kind
+            result=dispatch(store,kind,req['payload'])
+            page.evaluate('({response,workspace})=>{Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                          {'response':{'id':req['id'],'ok':True,**result},'workspace':snapshot(store)})
+        dialog.get_by_role('button',name='Preview bundle',exact=True).click();respond('preview_aware')
+        expect(dialog.locator('tbody')).to_contain_text('Example species')
+        dialog.get_by_role('checkbox',name='Select Example species',exact=True).check()
+        dialog.get_by_role('button',name='Register selected samples',exact=True).click();respond('import_aware')
+        expect(dialog).to_have_count(0)
+        assert store.get('samples','derived')['mode']=='pacbio_only'
+        assert not errors and not store.jobs()
+        browser.close()

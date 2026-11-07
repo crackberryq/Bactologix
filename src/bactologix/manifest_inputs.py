@@ -73,6 +73,8 @@ def require_adapter(store, tool, installed):
 
 
 def stage(sample, destination):
+    from .aware_outputs import verify_sample
+    verify_sample(sample)
     from .runs import snapshot_files
     document = {'schema_version': 1, 'samples': [sample['input_manifest']]}
     validated = validate_manifest(document, base_dir=Path(sample['path']))
@@ -93,6 +95,8 @@ def freeze(sample, folder):
 
 
 def verify(run):
+    from .aware_outputs import verify_sample
+    verify_sample(run["sample"], full=False)
     record = run.get('frozen_manifest')
     if run['sample'].get('input_manifest') and not record:
         raise ValueError('Saved manifest identity is missing. Create a new draft.')
