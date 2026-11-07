@@ -177,14 +177,16 @@ def test_native_identification_continuation_adapter(tmp_path, monkeypatch):
     if not source_value:
         pytest.skip('Pinned identification-review source not supplied')
     source=Path(source_value).resolve()
-    expected='7ed09af40942569f1d8d7735f5497ecfc9c0585a'
+    expected='031ced7121b8ef06c4d97affac90a10699418bae'
     assert subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'],text=True).strip()==expected
     spec=importlib.util.spec_from_file_location('hybas_review_fixture',source/'tests/test_workflow.py')
     fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
     cfgfile,env=fixture.prepare(tmp_path/'fixture',{'sample':'illumina_only'},polish='none',pp=False,kraken=True)
     monkeypatch.setenv('PATH',env['PATH']);monkeypatch.setenv('HYBAS_TEST_CALLS',env['HYBAS_TEST_CALLS'])
-    monkeypatch.setitem(PIPELINES['hybas'],'commit',expected)
     store=Store(tmp_path/'managed workspace')
+    registry=json.loads((Path(__file__).parents[1]/'compatibility/releases-v1.json').read_text())
+    contract=next(r for r in registry['releases'] if r['commit']==expected)
+    store.put('release_approvals','hybas:'+expected,contract)
     install={'id':'review-native','tool':'hybas','source':str(source),'controller':sys.prefix,'ready':True,'version':{'commit':expected,'ref':'pinned-review'}}
     store.put('installs',install['id'],install);store.put('settings','active-hybas',install['id'])
     cfg=yaml.safe_load(cfgfile.read_text());cfg.update(kraken_review_before_filtering=True,

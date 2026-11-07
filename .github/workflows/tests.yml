@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: crackberryq/Bactomics_HybAs
-          ref: 7ed09af40942569f1d8d7735f5497ecfc9c0585a
+          ref: 031ced7121b8ef06c4d97affac90a10699418bae
           path: upstream-hybas-review
       - name: Install software test dependencies
         run: python -m pip install . pytest build 'snakemake==9.6.2' 'numpy<3' 'biopython==1.86' 'openpyxl==3.1.5'
