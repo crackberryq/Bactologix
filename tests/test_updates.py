@@ -118,6 +118,73 @@ def test_release_selection_uses_cached_server_asset(tmp_path, monkeypatch):
         dispatch(store, "update_app", {"release_id": row["id"], "version": "9.9.9"})
 
 
+@pytest.mark.parametrize('version', ['99.0.0.dev1', '99.0.0a1.dev7', '99.0.0rc1.dev3'])
+@pytest.mark.parametrize('prerelease_flag', [False, True])
+def test_regular_app_rejects_development_tags_even_when_published_as_stable(version, prerelease_flag, monkeypatch):
+    malicious = release(version)
+    malicious['prerelease'] = prerelease_flag
+    assert updates.release_record(malicious) is None
+    monkeypatch.setattr(updates, 'pages', lambda path: [malicious, release()])
+    assert [r['version'] for r in updates.fetch_releases()['releases']] == ['99.0.0a1']
+
+
+def test_cached_development_release_is_hidden_and_cannot_be_queued(tmp_path, monkeypatch):
+    store = Store(tmp_path)
+    regular = updates.release_record(release())
+    development = {**regular, 'id': 100, 'version': '99.0.0a2.dev1', 'tag': 'v99.0.0a2.dev1'}
+    catalog = {'releases': [development, regular]}
+    store.put('app_catalog', 'releases', catalog)
+    assert updates.status(store)['catalog']['releases'] == [{**regular, 'older': False}]
+    assert store.get('app_catalog', 'releases') == catalog
+    monkeypatch.setattr('bactologix.ui_backend.enqueue', lambda *args: pytest.fail('Development update was queued'))
+    with pytest.raises(ValueError, match='Development'):
+        dispatch(store, 'update_app', {'release_id': development['id'], 'version': development['version']})
+
+
+def test_direct_development_update_fails_before_network_or_environment_mutation(tmp_path, monkeypatch):
+    store = Store(tmp_path)
+    selected = {**updates.release_record(release()), 'version': '99.0.0.dev1'}
+    jid = store.submit('app_update', {'release': selected})
+    monkeypatch.setattr(updates, 'api', lambda *args: pytest.fail('Network accessed for a development update'))
+    monkeypatch.setattr(updates, 'download_wheel', lambda *args: pytest.fail('Development wheel downloaded'))
+    monkeypatch.setattr(updates.subprocess, 'run', lambda *args, **kwargs: pytest.fail('Environment modified'))
+    ctx = Context(store, store.job(jid))
+    try:
+        with pytest.raises(ValueError, match='Development'):
+            updates.install_update(ctx)
+    finally:
+        ctx.log.close()
+    assert store.get('settings', 'app-update') is None
+    assert not (store.home / 'updates').exists()
+
+
+def test_release_changed_to_development_is_rejected_on_worker_revalidation(tmp_path, monkeypatch):
+    store = Store(tmp_path)
+    selected = updates.release_record(release())
+    monkeypatch.setattr(updates, 'api', lambda *args: release('99.0.0.dev1'))
+    monkeypatch.setattr(updates, 'download_wheel', lambda *args: pytest.fail('Development wheel downloaded'))
+    jid = store.submit('app_update', {'release': selected})
+    ctx = Context(store, store.job(jid))
+    try:
+        with pytest.raises(ValueError, match='asset changed'):
+            updates.install_update(ctx)
+    finally:
+        ctx.log.close()
+    assert store.get('settings', 'app-update') is None
+
+
+def test_development_wheel_cannot_bypass_regular_update_validation(tmp_path, monkeypatch):
+    path = tmp_path / 'development.whl'
+    path.write_bytes(wheel_bytes('99.0.0.dev1'))
+    with pytest.raises(ValueError, match='Development'):
+        updates.validate_wheel(path, '99.0.0.dev1')
+    with pytest.raises(ValueError, match='identity'):
+        updates.validate_wheel(path, '99.0.0a1')
+    monkeypatch.setattr(updates, 'urlopen', lambda *args, **kwargs: pytest.fail('Development wheel download started'))
+    with pytest.raises(ValueError, match='Development'):
+        updates.download_wheel({'version': '99.0.0.dev1'}, tmp_path)
+
+
 def test_update_queue_and_cancel_guards(tmp_path):
     store = Store(tmp_path)
     normal = store.submit("smoke", {})

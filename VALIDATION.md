@@ -1,3 +1,16 @@
+## 0.1.0a86 evidence-integrity backport
+
+The regular alpha receives the shared pre-beta evidence identity, analysis-state,
+assessment-coverage and input-content fixes from the development review. Regression
+fixtures cover wrong sample/source/configuration, incomplete scope after successful
+execution, failed diagnostic refresh, unchanged legacy files, stale rendering
+previews and same-size input changes with restored timestamps. Installer/updater
+fixtures ensure development versions cannot enter the regular installation.
+
+These software checks do not establish analytical sensitivity, specificity or
+organism safety. Native qualification and a fresh-PC acceptance campaign remain
+separate release gates.
+
 ## 0.1.0a85 workspace presentation
 
 - UI bridge, Methods, and package checks: 31 passed, 2 skipped.

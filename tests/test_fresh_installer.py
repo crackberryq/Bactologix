@@ -7,14 +7,45 @@ spec.loader.exec_module(installer)
 
 
 def release(tag, date, pre=False, draft=False):
-    return {'tag_name':tag,'published_at':date,'prerelease':pre,'draft':draft,'assets':[{'name':'bactologix-1-py3-none-any.whl'}]}
+    return {'tag_name':tag,'published_at':date,'prerelease':pre,'draft':draft,'assets':[{'name':'bactologix-'+tag.removeprefix('v')+'-py3-none-any.whl'}]}
 
 
 def test_channels_and_drafts():
-    rows=[release('stable','2026-01-01'),release('alpha','2026-02-01',True),release('draft','2026-03-01',draft=True)]
-    assert installer.select_release(rows,'stable')['tag_name']=='stable'
-    assert installer.select_release(rows,'prerelease')['tag_name']=='alpha'
+    rows=[release('v1.0.0','2026-01-01'),release('v1.1.0a1','2026-02-01',True),release('v1.2.0a1','2026-03-01',draft=True)]
+    assert installer.select_release(rows,'stable')['tag_name']=='v1.0.0'
+    assert installer.select_release(rows,'prerelease')['tag_name']=='v1.1.0a1'
     with pytest.raises(ValueError):installer.select_release([rows[1]],'stable')
+
+
+@pytest.mark.parametrize('channel', ['stable', 'prerelease'])
+@pytest.mark.parametrize('tag', ['v99.0.0.dev1', 'v99.0.0a1.dev7', 'v99.0.0-dev7', 'v99.0.0DEV7', 'v99.0.0.dev'])
+def test_regular_installer_rejects_development_tags_regardless_of_github_flag(channel, tag):
+    development = release(tag, '2099-01-01', pre=False)
+    regular = release('v1.0.0', '2026-01-01')
+    assert installer.select_release([development, regular], channel) == regular
+    with pytest.raises(ValueError, match='development releases'):
+        installer.select_release([development], channel)
+
+
+def test_regular_tag_cannot_select_development_wheel_or_duplicate_wheels():
+    regular = release('v1.0.0', '2026-01-01')
+    regular['assets'][0]['name'] = 'bactologix-1.0.0.dev1-py3-none-any.whl'
+    with pytest.raises(ValueError):
+        installer.select_release([regular], 'prerelease')
+    regular = release('v1.0.0', '2026-01-01')
+    regular['assets'] *= 2
+    assert installer.application_asset(regular) is None
+
+
+def test_regular_filename_cannot_hide_development_wheel_metadata(tmp_path):
+    from test_updates import wheel_bytes
+    regular = release('v99.0.0a1', '2026-01-01')
+    path = tmp_path / regular['assets'][0]['name']
+    path.write_bytes(wheel_bytes('99.0.0a1.dev1'))
+    with pytest.raises(ValueError, match='identity'):
+        installer.validate_application_wheel(path, regular)
+    path.write_bytes(wheel_bytes())
+    installer.validate_application_wheel(path, regular)
 
 
 def test_unverified_asset_never_downloaded(tmp_path, monkeypatch):
@@ -51,8 +82,12 @@ def test_install_and_reuse(tmp_path, monkeypatch, environment, existing, launch)
         if 'importlib.util' in argv[-1]: return str(existing)
         return ''
     monkeypatch.setattr(installer, 'run', run)
-    monkeypatch.setattr(installer, 'get_json', lambda url: [release('alpha', '2026-01-01', True)])
-    monkeypatch.setattr(installer, 'download', lambda a,p:p.write_bytes(b'fixture'))
+    monkeypatch.setattr(installer, 'get_json', lambda url: [release('v99.0.0a1', '2026-01-01', True)])
+    from test_updates import wheel_bytes
+    monkeypatch.setattr(installer, 'download', lambda a,p:p.write_bytes(wheel_bytes()))
+    existing_data = tmp_path / '.local/share/bactologix/retained-run.json'
+    existing_data.parent.mkdir(parents=True)
+    existing_data.write_text('original workspace')
     def launch_app(argv):
         assert not (tmp_path/'.local/share/bactomics/install.lock').exists()
         assert argv == [str(Path(envs[0])/'bin/bactologix')]
@@ -62,6 +97,9 @@ def test_install_and_reuse(tmp_path, monkeypatch, environment, existing, launch)
     assert any('install' in cmd for cmd in commands) is not existing
     assert any('create' in cmd for cmd in commands) is (environment is None)
     assert not (tmp_path/'.local/share/bactomics/install.lock').exists()
+    assert existing_data.read_text() == 'original workspace'
+    assert not (tmp_path/'.local/share/bactologix-dev').exists()
+    assert not any('bactologix-dev' in arg for cmd in commands for arg in cmd)
 
 
 def test_download_integrity_and_interruption(tmp_path, monkeypatch):

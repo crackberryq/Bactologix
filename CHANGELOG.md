@@ -1,3 +1,11 @@
+## 0.1.0a86 — 2026-11-09 · Alpha · Evidence integrity before beta
+
+- Bind saved report evidence to its sample and available content, source, configuration and execution identities. Keep missing legacy provenance explicitly unverified.
+- Preserve failed, cancelled and interrupted analysis states when rendering diagnostic report editions; show computational execution, report rendering and assessment coverage separately.
+- Capture content fingerprints for new input snapshots and verify them before execution or reuse, including same-size changes with preserved timestamps.
+- Reject development releases in the regular updater and installer so the regular and experimental applications remain separate.
+- Retain the regular HybAs 9 workflow scope. This update does not import experimental HybAs 10 input modes or AWARE+ features and does not declare scientific beta qualification.
+
 ## 0.1.0a85 — Workspace branding and citations
 
 - Show Powered by GenoMix Human Link below the Bactologix brand.

@@ -28,6 +28,19 @@ PROCESS_STARTED = time.time()
 MAX_WHEEL_BYTES = 32 * 1024 * 1024
 
 
+def regular_release(version):
+    """The regular app never installs a development build into its environment."""
+    try:
+        return not Version(str(version)).is_devrelease
+    except InvalidVersion:
+        return False
+
+
+def require_regular_release(version):
+    if not regular_release(version):
+        raise ValueError("Development or invalid releases cannot be installed into regular Bactologix. Use the separate Bactologix Dev installation.")
+
+
 def release_record(release):
     """Accept only the expected wheel from this repository's published release."""
     if release.get("draft"):
@@ -37,7 +50,7 @@ def release_record(release):
         version = Version(tag.removeprefix("v"))
     except InvalidVersion:
         return None
-    if tag != "v" + str(version):
+    if tag != "v" + str(version) or version.is_devrelease:
         return None
     name = f"bactologix-{version}-py3-none-any.whl"
     assets = [a for a in release.get("assets", []) if a.get("name") == name]
@@ -76,6 +89,7 @@ def status(store):
                      and (not restart or (state.get('launcher_id') == launcher['id'] and state.get('restart_status') != 'failed' and state.get('status') != 'failed')))
     catalog = copy.deepcopy(store.get("app_catalog", "releases"))
     if catalog:
+        catalog["releases"] = [r for r in catalog["releases"] if regular_release(r.get("version"))]
         for release in catalog["releases"]:
             release["older"] = Version(release["version"]) < Version(__version__)
     return {"running_version": __version__, "installed_version": installed, "python": sys.executable,
@@ -96,6 +110,7 @@ def assert_current(store):
 
 
 def download_wheel(record, directory):
+    require_regular_release(record["version"])
     path = directory / record["wheel_name"]
     digest = hashlib.sha256()
     request = Request(record["wheel_url"], headers={"User-Agent": "Bactologix/" + __version__})
@@ -120,12 +135,14 @@ def download_wheel(record, directory):
 
 
 def validate_wheel(path, expected_version):
+    require_regular_release(expected_version)
     with ZipFile(path) as wheel:
         files = [n for n in wheel.namelist() if n.endswith(".dist-info/METADATA")]
         if len(files) != 1 or wheel.getinfo(files[0]).file_size > 1024 * 1024:
             raise ValueError("Invalid application wheel metadata")
         metadata = email.message_from_bytes(wheel.read(files[0]))
-    if metadata.get("Name", "").lower() != "bactologix" or metadata.get("Version") != expected_version:
+    if (len(metadata.get_all("Name", [])) != 1 or metadata.get("Name", "").lower() != "bactologix"
+            or metadata.get_all("Version") != [expected_version]):
         raise ValueError("Wheel identity does not match the selected Bactologix version")
     requirement = metadata.get("Requires-Python")
     if not requirement or Version(platform.python_version()) not in SpecifierSet(requirement):
@@ -135,6 +152,7 @@ def validate_wheel(path, expected_version):
 def install_update(ctx):
     """The worker holds exclusive environment and workspace locks throughout."""
     selected = ctx.job["payload"]["release"]
+    require_regular_release(selected.get("version"))
     latest = release_record(api(f"repos/{REPO}/releases/{int(selected['id'])}"))
     identity = ("id", "tag", "version", "asset_id", "wheel_url", "sha256", "size")
     if not latest or not latest["available"] or any(latest[k] != selected[k] for k in identity):

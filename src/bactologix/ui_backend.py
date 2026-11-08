@@ -20,7 +20,7 @@ from .runs import (absolute_path, clone_runs, command, create_run,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
 from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, compatibility, comparisons, sample_imports
-from . import setup_state
+from . import setup_state, assessment
 from . import reference_catalog
 from . import database_builder, followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
@@ -116,7 +116,7 @@ def snapshot(store):
         checked = dry_run_current(store, run)
         status = run_status(run, jobs, checked)
         runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant", "identification")} | {
-            "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
+            "status": status, "assessment": assessment.summary(store, run), "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
             "kraken_mode": "off" if cfg.get("run_kraken") is False else kraken_mode,
             "can_micp_handoff": run["tool"] == "hybas" and status == "completed",
             "can_followup": followup.available(run, store) and status == "completed",
@@ -130,6 +130,14 @@ def snapshot(store):
         catalogs[tool] = versions(store, tool)
         for version in catalogs[tool]["versions"]:
             version["supported"] = supported(tool, version["commit"], store)
+    coverage = {run["id"]: run["assessment"] for run in runs}
+    report_rows = []
+    for report in reports(store):
+        # Refreshed editions retain their own evidence-time coverage, not the
+        # current output directory's possibly newer assessment.
+        if not report.get("refresh") and report.get("run") in coverage:
+            report = {**report, "assessment": coverage[report["run"]]}
+        report_rows.append(report)
     result = {"version": __version__, "workspace": str(store.home), "workspace_label": workspace_label(), "doctor": doctor(store),
             "setup_overview": {t: setup_state.overview(store, t) for t in PIPELINES},
             "pipelines": PIPELINES, "installs": [installation_status(i, jobs, store) for i in store.all("installs")],
@@ -137,7 +145,7 @@ def snapshot(store):
             "resource_defaults": {t: hardware.run_defaults(store, t) for t in PIPELINES},
             "active": {t: store.get("settings", "active-" + t) for t in PIPELINES},
             "catalogs": catalogs, "samples": store.all("samples"), "runs": runs,
-            "jobs": jobs, "queue": queue_state, "reports": reports(store), "configs": configs,
+            "jobs": jobs, "queue": queue_state, "reports": report_rows, "configs": configs,
             "fields": {t: configuration_fields(t, configs[t]) for t in PIPELINES},
             "databases": {t: databases.panel(store, t) for t in PIPELINES},
             "reference_databases": reference_catalog.choices(store),
@@ -244,6 +252,7 @@ def dispatch(store, kind, p):
         release = next((r for r in catalog.get("releases", []) if r["id"] == p.get("release_id") and r["version"] == p.get("version")), None)
         if not release or not release["available"]:
             raise ValueError("Refresh the releases and select an available Bactologix wheel.")
+        updates.require_regular_release(release["version"])
         if release["version"] == __version__:
             raise ValueError("You are already running this Bactologix version.")
         launcher = updates.restart_control.current_launcher(store)

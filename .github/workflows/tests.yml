@@ -70,6 +70,47 @@ jobs:
         with:
           name: packages-python-${{ matrix.python }}
           path: dist/*
+  nearbeta-contracts:
+    name: Near-beta pipeline contract (${{ matrix.tool }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tool: hybas
+            repository: crackberryq/Bactomics_HybAs
+            commit: a99e00b041a184f36cfdf8a2ab5b61f0f255a02d
+          - tool: basis
+            repository: crackberryq/Bactomics_BaSIS
+            commit: 6128b06279fec2f51015a76f798d0364a4b81602
+          - tool: micpscope
+            repository: crackberryq/Bactomics_GeneScope
+            commit: f46cc9feeb30cd89b36876b7d341ed6750e19ce3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.commit }}
+          path: nearbeta-pipeline
+      - name: Install application and contract-test dependencies
+        run: python -m pip install . pytest 'snakemake==9.6.2' 'biopython==1.86'
+      - name: Check the exact pipeline adapter and saved-report renderer
+        env:
+          BACTOLOGIX_NEARBETA_TOOL: ${{ matrix.tool }}
+          BACTOLOGIX_NEARBETA_SOURCE: ${{ github.workspace }}/nearbeta-pipeline
+        run: |
+          case "$BACTOLOGIX_NEARBETA_TOOL" in
+            hybas) export BACTOLOGIX_HYBAS_REPORT_SOURCE="$BACTOLOGIX_NEARBETA_SOURCE" ;;
+            basis) export BACTOLOGIX_BASIS_SOURCE="$BACTOLOGIX_NEARBETA_SOURCE" ;;
+            micpscope) export BACTOLOGIX_MICPSCOPE_SOURCE="$BACTOLOGIX_NEARBETA_SOURCE" ;;
+            *) exit 1 ;;
+          esac
+          python -m pytest -q tests/test_nearbeta_contracts.py tests/test_report_refresh.py
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -139,7 +180,7 @@ jobs:
           path: windows-setup-preview.png
   publish:
     name: Publish checked application release
-    needs: [tests, browser, environment-deployment, windows-desktop]
+    needs: [tests, nearbeta-contracts, browser, environment-deployment, windows-desktop]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:

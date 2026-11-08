@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """Beginner Linux/WSL installer. Does not install pipelines or touch analysis data."""
 import argparse
+import email
 import hashlib
 import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from urllib.request import Request, urlopen
+from zipfile import BadZipFile, ZipFile
 
 STATUS_FILE = None
 
@@ -61,11 +64,43 @@ def find_conda():
     return next((p for p in candidates if p and Path(p).is_file() and os.access(p, os.X_OK)), None)
 
 
+def application_asset(release):
+    """Accept the exact regular-release wheel; the bootstrap uses only stdlib.
+
+    Public releases use canonical numeric versions, with optional a/b/rc or
+    post suffixes. Development/local/arbitrary tags do not belong in this
+    installer, regardless of GitHub's editable prerelease flag.
+    """
+    match = re.fullmatch(r'v([0-9]+(?:\.[0-9]+)*(?:(?:a|b|rc)[0-9]+)?(?:\.post[0-9]+)?)', release.get('tag_name', ''))
+    if not match:
+        return None
+    name = 'bactologix-' + match[1] + '-py3-none-any.whl'
+    assets = [asset for asset in release.get('assets', []) if asset.get('name') == name]
+    return assets[0] if len(assets) == 1 else None
+
+
+def validate_application_wheel(path, release):
+    asset = application_asset(release)
+    if asset is None or path.name != asset['name']:
+        raise ValueError('The selected package is not a regular Bactologix release wheel.')
+    try:
+        with ZipFile(path) as wheel:
+            entries = [name for name in wheel.namelist() if name.endswith('.dist-info/METADATA')]
+            if len(entries) != 1 or wheel.getinfo(entries[0]).file_size > 1024 * 1024:
+                raise ValueError('Invalid application wheel metadata')
+            metadata = email.message_from_bytes(wheel.read(entries[0]))
+    except BadZipFile as exc:
+        raise ValueError('Invalid application wheel archive') from exc
+    if (len(metadata.get_all('Name', [])) != 1 or metadata.get('Name', '').lower() != 'bactologix'
+            or metadata.get_all('Version') != [release['tag_name'][1:]]):
+        raise ValueError('Wheel identity does not match the selected regular Bactologix release.')
+
+
 def select_release(rows, channel):
     eligible = [r for r in rows if not r.get('draft') and (channel == 'prerelease' or not r.get('prerelease'))
-                and any(a['name'].startswith('bactologix-') and a['name'].endswith('-py3-none-any.whl') for a in r.get('assets', []))]
+                and application_asset(r) is not None]
     if not eligible:
-        raise ValueError('No installable release in this channel. Alpha releases require --channel prerelease.')
+        raise ValueError('No installable regular release in this channel. Alpha releases require --channel prerelease; development releases require the separate Bactologix Dev installer.')
     return max(eligible, key=lambda r: r.get('published_at') or '')
 
 
@@ -142,9 +177,10 @@ def main():
                 progress(4, 'Installing Bactologix', 'Discovering a published release and checking its download checksum')
                 rows = get_json('https://api.github.com/repos/crackberryq/Bactologix/releases?per_page=100')
                 release = select_release(rows, args.channel)
-                asset = next(a for a in release['assets'] if a['name'].startswith('bactologix-') and a['name'].endswith('-py3-none-any.whl'))
+                asset = application_asset(release)
                 wheel = temp / asset['name']
                 download(asset, wheel)
+                validate_application_wheel(wheel, release)
                 run([python, '-m', 'pip', 'install', '--upgrade', wheel], log)
                 run([python, '-m', 'pip', 'check'], log)
                 command = Path(prefix) / 'bin/bactologix'

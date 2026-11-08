@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-07",
+  "updated_at": "2026-11-09",
   "releases": [
     {
       "tool": "basis",
@@ -209,6 +209,119 @@
       },
       "tested_source_commit": "5c459084afc61eeea3195d121ed55f189b0935fb",
       "tested_source_tree": "a74090784bcbe4f4c8eec1b8aff9e53f6485dde3"
+    },
+    {
+      "tool": "basis",
+      "repository": "crackberryq/Bactomics_BaSIS",
+      "commit": "6128b06279fec2f51015a76f798d0364a4b81602",
+      "tag": "v0.4.0a6",
+      "channel": "prerelease",
+      "adapter_interface": 1,
+      "configuration_schema": "basis-v1",
+      "entry_points": {
+        "workflow": "BaSIS.smk",
+        "environment": "environment.yml"
+      },
+      "runner": {
+        "python": "3.11",
+        "snakemake": "9.6.2"
+      },
+      "tested": true,
+      "test_run": "https://github.com/crackberryq/Bactomics_BaSIS/actions/runs/42532754230",
+      "files_sha256": {
+        "BaSIS.smk": "86bc5f9a905d54207a0b4f36b0a6229a47ba5df4fbd3cb10ce0dcb4b98cb988f",
+        "environment.yml": "16555d39a4e8070617055d33f0624ef7218d1769cd0b740a46892b3dc76ae8ca",
+        "Followup.smk": "149702aa01050e20f8603b6223c1df7d4de1b0fa37f8b68df2e4b8b74b77ef0d",
+        "workflow/lib/safety/followup.py": "e9c0ca8036de28e601bdc29d51482d43bf70453f0efd73fcf4b9c68fb5f20815",
+        "workflow/lib/safety/reporting.py": "8b338784d9a2a30ed24ff69199afd186d49407d8193ba72d60c6ac62022a0b32",
+        "workflow/vendor/basis/aware.py": "249deecba3affbba70d6405ba3b5424f3300ed82b821be7d12df95d90758c2ae",
+        "workflow/vendor/basis/amr_review.py": "923f763f787da08da8f3bba60c3b916b6991c39b18215ade6f83e39aa30f30e7",
+        "workflow/vendor/basis/inputs.py": "7b9c04e9fcb08916b42f5f61b1a0ae28dd40603a0b29fec4e4b7909d29d549b9",
+        "workflow/vendor/basis/annotation_coverage.py": "2fd6c052e7d236367c1b2461255dd006dbe8d1cbac6f11ae28aa84b8fe29b572",
+        "workflow/vendor/basis/normalize.py": "faef70d82410b9fa91ad74db58902c436ab5d5818f39451e045efe434eda3a47",
+        "workflow/vendor/basis/report_dashboard.py": "c92be5b112741577ecb293d1a0effd4839c16cce8ba8e31efed924bd446e8323",
+        "workflow/rules/setup.smk": "2a90d0568cc8d42a8f3ee3f18a442e3d0321dfea903723378140921f33163422",
+        "workflow/lib/safety/__init__.py": "1dbf1ed573ac772fb16e196de11f62e8a671c343896b84a39dbf5363899f27a7",
+        "workflow/lib/safety/context.py": "7797aa02f3a6118363faf8c86e0a0a7048a40716dfae70f37a5a7a8f5aa6a88c"
+      },
+      "followup": {
+        "interface": 1,
+        "entry_point": "Followup.smk",
+        "screening_schema": "basis-snakemake-run-v1",
+        "parent_commits": [
+          "14f161a1f252a712053892961edf2275469c8dab",
+          "63850df18212c8950b8e5689364b0c7eedb208a0"
+        ],
+        "scopes": [
+          "amrfinder-review",
+          "all-supported"
+        ]
+      },
+      "database_downloads": 1,
+      "validation_scope": "Software regression and adapter contracts; analytical validation remains pending."
+    },
+    {
+      "tool": "micpscope",
+      "repository": "crackberryq/Bactomics_GeneScope",
+      "commit": "f46cc9feeb30cd89b36876b7d341ed6750e19ce3",
+      "tag": "genescope-v0.1.0a16",
+      "channel": "prerelease",
+      "adapter_interface": 1,
+      "configuration_schema": "micpscope-v1",
+      "entry_points": {
+        "workflow": "MICPscope.smk",
+        "environment": "environment.yml"
+      },
+      "runner": {
+        "python": "3.11",
+        "snakemake": "9.6.2"
+      },
+      "tested": true,
+      "test_run": "https://github.com/crackberryq/Bactomics_GeneScope/actions/runs/42532649048",
+      "files_sha256": {
+        "MICPscope.smk": "854d95d758686735f4b24bf8a752c1433eba286d7a703ed4cb0e23cb3e2d0f32",
+        "environment.yml": "5511d8e96980fd36304699f1b2c456d5a4f71038dd5b8aeca3c9d12712fbe772",
+        "GeneScope.smk": "60e58cc7791ab8f4fbf367bca7980cdfa6a66bc14c52ab8faac30deb7cc358fe",
+        "src/micpscope/application.py": "4bd4b01b66b5772aa8f2f8dfdaeff4353df9400e3d33a1502d74e14a9529c081",
+        "src/micpscope/reference.py": "59d863ccc6a45f9642e78246a5f30dc7abeacb1b6bef8d4c17d61f34aef18461",
+        "src/micpscope/context.py": "d77a75bf69ffabb5d1b75203994682fae6e7b243382cf5801a7d28f501d60ba1",
+        "src/micpscope/report.py": "8d4a07c19b387deb85cab21c8dbcb5b0ff7582b34c4f692785c936dabde91dc0",
+        "src/micpscope/explorer.py": "c05ed91dfbf5b5828b12baa71da64cde44da8f85cc51588e3e2000a0f18c932d",
+        "database_builder/references/micp-starter.yaml": "f356229387b4be3831b6870e0e1f3d001a35f27006cb953e9c50d909c6a3c756",
+        "src/micpscope/__init__.py": "3a73affd0b9a5e8455d74c6757ed1f55d5658361e44cdd2440ae192dcc6a936e"
+      },
+      "validation_scope": "Software regression and adapter contracts; analytical validation remains pending."
+    },
+    {
+      "tool": "hybas",
+      "repository": "crackberryq/Bactomics_HybAs",
+      "commit": "a99e00b041a184f36cfdf8a2ab5b61f0f255a02d",
+      "tag": "hybas-v9.0.3-AWARE",
+      "channel": "prerelease",
+      "adapter_interface": 1,
+      "configuration_schema": "hybas-v1",
+      "entry_points": {
+        "workflow": "Hybas.smk",
+        "environment": "environment.yaml"
+      },
+      "runner": {
+        "python": "3.11",
+        "snakemake": "9.6.2"
+      },
+      "tested": true,
+      "test_run": "https://github.com/crackberryq/Bactomics_HybAs/actions/runs/42533148681",
+      "files_sha256": {
+        "Hybas.smk": "a1b9d036c149b7b189f8ade0750bd56dbd186697fd28665658b3fd078fe1e990",
+        "workflow/lib/workflow_support.py": "9c496ba874a5ac46f750b5051d2329d30a301a70dbf3f045f0e7e371cd327519",
+        "workflow/lib/hybas_report.py": "f65af1f9aa2b5a0cfe6686746f16df00740e6b32c8cadec435d22264e82e9700",
+        "workflow/lib/hybas_report_assets.py": "f56c515f6777b188ab7ed77e0bfa710556d486b66b58ae7baa5dbb34a8588dfc",
+        "workflow/lib/identification_review.py": "4ba217ebaf1a427b30d78b6f784a1f56e74d73e78b24f929233530b1a6e27f56",
+        "app/identification-review.json": "be6c01ea49ea9dea400257926372eba923997366d8b49ac9145eae6fab688ff7",
+        "environment.yaml": "2cbeada5188a7661ac91eb031551347ea2fba7b5d615c2efbfd4f339f12f950d",
+        "workflow/lib/medaka_stage.py": "3e8cebd420bca315a249f6803e5d167d528bb705f5933a8fbe2bccf988a69e47",
+        "workflow/lib/resource_identity.py": "0395c027995eb3d7a6c9029d5e078451f0a5c6dac81ff55b1de207760cee8d9b"
+      },
+      "validation_scope": "Software regression and adapter contracts; analytical validation remains pending."
     }
   ]
 }

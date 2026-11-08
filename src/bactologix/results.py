@@ -77,6 +77,8 @@ def read_file(path, limit):
 def observe(ctx, run, phase):
     if ctx.job['payload'].get('action') not in {'run', 'continue'}:
         return
+    from . import report_evidence
+    report_evidence.observe(ctx, run, phase)
     try:
         record = ctx.store.get('result_observations', ctx.job['id'], {
             'id': ctx.job['id'], 'run_id': run['id'], 'schema': 1})
