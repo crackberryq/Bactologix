@@ -198,3 +198,10 @@ def test_dev_default_workspace_ignores_inherited_xdg(tmp_path, monkeypatch):
     monkeypatch.setenv('XDG_DATA_HOME', str(tmp_path/'stable-data'))
     monkeypatch.delenv('BACTOLOGIX_DEV_HOME', raising=False)
     assert workspace() == Path.home()/'.local/share/bactologix-dev'
+
+
+def test_dev_workspace_reopens_after_cache_environment(dev, monkeypatch):
+    for key, value in channels.environment(dev.home).items():
+        monkeypatch.setenv(key, value)
+    reopened = Store(dev.home)
+    assert reopened.home == dev.home and reopened.channel == 'dev'

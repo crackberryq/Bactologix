@@ -45,7 +45,7 @@ def application_guard():
 def claim(home):
     home = Path(home).resolve()
     channel = current()
-    stable = Path(user_data_dir('bactologix')).resolve()
+    stable = (Path.home() / '.local/share/bactologix').resolve() if channel == 'dev' else Path(user_data_dir('bactologix')).resolve()
     if channel == 'dev' and (home == stable or home.is_relative_to(stable) or stable.is_relative_to(home)):
         raise ValueError('Development and stable workspaces must be separate, non-nested folders.')
     for parent in home.parents:
