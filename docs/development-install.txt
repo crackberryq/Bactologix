@@ -26,7 +26,7 @@ Storage
 Inside the application
 Use Install & update to install a designated development snapshot of HybAs, BaSIS or GeneScope. Pipeline versions are pinned to exact source commits with compatibility contracts. Refreshing the catalog does not replace installed versions or existing runs. BaSIS and GeneScope initially use tested baseline commits designated for development; new work proceeds on their separate development branches.
 
-The Dev application only offers .dev application updates. New public development releases may not yet be available; this bundled installer remains usable. Re-running this exact installer installs this exact app version.
+The Dev application only offers .dev application updates. Public Dev releases use dev-v tags and separate Dev download assets. Older Dev builds that cannot discover this format need this setup bundle once. Windows setup updates the separate Dev application environment. On Linux/WSL add --upgrade-app to the installer command above to replace an existing Dev app version; without it the existing installation is preserved. Workspaces and saved runs remain preserved.
 
 Use independent Dev copies of databases and models. Stable environment/cache/database locations are rejected by Dev. Original sequencing/annotation input files may be selected by both apps; generated files belong to their respective workspaces. Never use your stable workspace as the Dev workspace.
 

@@ -91,14 +91,16 @@ def test_dev_catalog_contains_only_exact_designated_builds(dev):
 def test_dev_refresh_rejects_mutation_and_preserves_old_runs(dev, monkeypatch):
     import base64
     doc=dev_catalog.document(dev)
+    original=next(row for row in doc['builds'] if row['tool']=='hybas' and row['preferred'])
     def serve(value):monkeypatch.setattr(catalog,'api',lambda path:{'content':base64.b64encode(json.dumps(value).encode()).decode()})
-    corrupt=copy.deepcopy(doc);corrupt['builds'][0]['files_sha256']['Hybas.smk']='0'*64
+    corrupt=copy.deepcopy(doc)
+    next(row for row in corrupt['builds'] if row['tool']=='hybas' and row['commit']==original['commit'])['files_sha256']['Hybas.smk']='0'*64
     serve(corrupt)
     with pytest.raises(ValueError,match='changed'):dev_catalog.refresh(dev,'hybas')
     assert dev.get('dev_catalog','registry') is None
     empty=dict(doc,builds=[]);serve(empty)
     dev_catalog.refresh(dev,'hybas')
-    assert dev_catalog.approval(dev,'hybas',doc['builds'][0]['commit'])
+    assert dev_catalog.approval(dev,'hybas',original['commit'])
 
 
 def test_updates_do_not_cross_channels(monkeypatch):
@@ -108,6 +110,34 @@ def test_updates_do_not_cross_channels(monkeypatch):
     monkeypatch.setenv('BACTOLOGIX_CHANNEL','dev')
     assert updates.channel_accepts('0.1.0a86.dev5')
     assert not updates.channel_accepts('0.1.0a85')
+
+
+def test_public_dev_release_asset_and_installer_channel_separation(monkeypatch):
+    from test_updates import release
+    installer = script('install_bactologix.py')
+    version = '0.1.0a86.dev7'
+    dev = release(version)
+    dev['id'] = 78
+    dev['tag_name'] = 'dev-v' + version
+    dev['published_at'] = '2099-01-01'
+    dev['assets'][0]['name'] = f'Bactologix-Dev-{version}.whl'
+    dev['assets'][0]['browser_download_url'] = f'https://github.com/{updates.REPO}/releases/download/{dev["tag_name"]}/{dev["assets"][0]["name"]}'
+    regular = release('0.1.0a86')
+    regular['published_at'] = '2026-11-09'
+    rows = [regular, dev]
+    assert installer.select_release(rows, 'prerelease') is regular
+    assert installer.select_release(rows, 'dev') is dev
+    asset, local_name = installer.release_asset(dev)
+    assert asset is dev['assets'][0] and local_name == f'bactologix-{version}-py3-none-any.whl'
+    monkeypatch.setattr(updates, 'pages', lambda path: rows)
+    monkeypatch.setenv('BACTOLOGIX_CHANNEL', 'stable')
+    assert [r['version'] for r in updates.fetch_releases()['releases']] == ['0.1.0a86']
+    monkeypatch.setenv('BACTOLOGIX_CHANNEL', 'dev')
+    assert [r['version'] for r in updates.fetch_releases()['releases']] == [version]
+    duplicate = copy.deepcopy(dev); duplicate['assets'] *= 2
+    assert installer.release_asset(duplicate) is None
+    invalid = copy.deepcopy(dev); invalid['tag_name'] = 'dev-v0.1.0a86'
+    assert installer.release_asset(invalid) is None
 
 
 def script(name):

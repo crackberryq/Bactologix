@@ -62,9 +62,21 @@ def find_conda():
     return next((p for p in candidates if p and Path(p).is_file() and os.access(p, os.X_OK)), None)
 
 
+def release_asset(release):
+    tag = release.get('tag_name', '')
+    if tag.startswith('dev-v'):
+        version = tag.removeprefix('dev-v')
+        if not re.fullmatch(r'[0-9A-Za-z.]+\.dev[0-9]+', version):
+            return None
+        assets = [a for a in release.get('assets', []) if a.get('name') == f'Bactologix-Dev-{version}.whl']
+        return (assets[0], f'bactologix-{version}-py3-none-any.whl') if len(assets) == 1 else None
+    assets = [a for a in release.get('assets', []) if a.get('name', '').startswith('bactologix-') and a['name'].endswith('-py3-none-any.whl')]
+    return (assets[0], assets[0]['name']) if assets else None
+
+
 def select_release(rows, channel):
     eligible = [r for r in rows if not r.get('draft') and (bool(re.search(r'\.dev[0-9]+$', r.get('tag_name',''))) == (channel == 'dev')) and (channel in {'prerelease','dev'} or not r.get('prerelease'))
-                and any(a['name'].startswith('bactologix-') and a['name'].endswith('-py3-none-any.whl') for a in r.get('assets', []))]
+                and release_asset(r)]
     if not eligible:
         raise ValueError('No installable release in this channel. Alpha releases require --channel prerelease.')
     return max(eligible, key=lambda r: r.get('published_at') or '')
@@ -223,8 +235,8 @@ def main():
                 else:
                     rows = get_json('https://api.github.com/repos/crackberryq/Bactologix/releases?per_page=100')
                     release = select_release(rows, args.channel)
-                    asset = next(a for a in release['assets'] if a['name'].startswith('bactologix-') and a['name'].endswith('-py3-none-any.whl'))
-                    wheel = temp / asset['name']
+                    asset, wheel_name = release_asset(release)
+                    wheel = temp / wheel_name
                     download(asset, wheel)
                 run([python, '-m', 'pip', 'install', '--upgrade', wheel], log)
                 run([python, '-m', 'pip', 'check'], log)

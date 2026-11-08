@@ -1,8 +1,8 @@
-# Bactologix 0.1.0a86.dev6 — Experimental development
+# Bactologix 0.1.0a86.dev7 — Experimental development
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
 
-**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a85/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
+**Windows Dev setup:** download [Bactologix-Dev-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a86.dev7/Bactologix-Dev-Windows.zip), extract it into a new folder, and run **Bactologix-Dev-Setup.cmd**. It installs or updates the independent Dev app and keeps its workspace separate. Older Dev builds need this bundle once to recognize the new Dev update channel. See [parallel testing](docs/DEVELOPMENT.md).
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
@@ -648,7 +648,7 @@ Bactologix is released under the [MIT License](LICENSE), copyright (c) 2026 Jimi
 
 ## Publishing application updates
 
-After a version bump and changelog entry reach `main`, the software workflow publishes the wheel and source archive only after both Python matrices, Chromium and environment deployment succeed. The publication job uses the tested Python 3.11 artifact, uploads to a draft, verifies GitHub asset digests using the application updater’s acceptance rules, and publishes it with alpha/beta/RC versions marked as prereleases. Existing published assets are never replaced; a new update needs a new package version. Workflow dispatch on `main` can retry a failed publication. Development branches do not publish releases.
+After a version bump and changelog entry reach `main`, the software workflow publishes the wheel and source archive only after both Python matrices, Chromium and environment deployment succeed. The publication job uses the tested Python 3.11 artifact, uploads to a draft, verifies GitHub asset digests using the application updater’s acceptance rules, and publishes it with alpha/beta/RC versions marked as prereleases. Existing published assets are never replaced; a new update needs a new package version. Workflow dispatch on the matching branch can retry a failed publication. Checked `.devN` versions publish from `development` using `dev-v` tags, separate Dev download assets and the Dev installer bundle; regular versions publish only from `main`. Existing regular installers do not recognize the Dev download assets.
 
 
 ## GeneScope and first-time setup

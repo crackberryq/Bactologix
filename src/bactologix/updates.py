@@ -33,16 +33,18 @@ def release_record(release):
     if release.get("draft"):
         return None
     tag = release.get("tag_name", "")
+    prefix = "dev-v" if tag.startswith("dev-v") else "v"
     try:
-        version = Version(tag.removeprefix("v"))
+        version = Version(tag.removeprefix(prefix))
     except InvalidVersion:
         return None
-    if tag != "v" + str(version):
+    if tag != prefix + str(version) or (prefix == "dev-v" and not version.is_devrelease):
         return None
     name = f"bactologix-{version}-py3-none-any.whl"
-    assets = [a for a in release.get("assets", []) if a.get("name") == name]
+    asset_name = f"Bactologix-Dev-{version}.whl" if prefix == "dev-v" else name
+    assets = [a for a in release.get("assets", []) if a.get("name") == asset_name]
     wheel = assets[0] if len(assets) == 1 else None
-    url = f"https://github.com/{REPO}/releases/download/{tag}/{name}"
+    url = f"https://github.com/{REPO}/releases/download/{tag}/{asset_name}"
     checksum = (wheel or {}).get("digest", "") or ""
     available = bool(wheel and wheel.get("state") == "uploaded" and wheel.get("browser_download_url") == url
                      and re.fullmatch(r"sha256:[0-9a-f]{64}", checksum)

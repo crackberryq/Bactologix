@@ -172,10 +172,10 @@ jobs:
             commit: 08c315479f5493ce0b1f44ba26da3c7f2e0d748b
           - tool: basis
             repo: crackberryq/Bactomics_BaSIS
-            commit: 53c61df005443b2d258664e1da1d3dd9a0a2591e
+            commit: 6128b06279fec2f51015a76f798d0364a4b81602
           - tool: micpscope
             repo: crackberryq/Bactomics_GeneScope
-            commit: 3f799a7d8a19d917cb66840899adbf49c27e82ec
+            commit: f46cc9feeb30cd89b36876b7d341ed6750e19ce3
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -201,7 +201,7 @@ jobs:
   publish:
     name: Publish checked application release
     needs: [tests, browser, environment-deployment, windows-desktop, hybas-v2-adapter, development-contracts]
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
       contents: write

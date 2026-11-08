@@ -1,3 +1,11 @@
+## 0.1.0a86.dev7 — 2026-11-09 · Independent Dev release delivery
+
+Publish checked Dev builds from the development branch with separate Dev release tags, download asset names and the bundled Dev installer. Older regular updaters and installers cannot select these Dev downloads. Dev updates restore the canonical wheel filename locally and retain checksum and package-identity checks.
+
+Includes the evidence-integrity corrections, the reviewed HybAs 10 snapshot, and the shared BaSIS 0.4.0a6 and GeneScope 0.1.0a16 fixes. This remains an experimental HybAs 10 development installation; the near-beta HybAs 9 line is maintained separately. No analytical validation or beta promotion is claimed.
+
+Older Dev builds that cannot discover the new release format need the new Dev setup bundle once. Windows setup updates the separate application environment and preserves its Dev workspace. For Linux/WSL, run the bundled installer with `--dev --install-conda --upgrade-app`.
+
 ## 0.1.0a86.dev6 — Pre-beta evidence integrity fixes
 
 Bind refreshed evidence to sample identity and recorded execution observations; reject conflicting available provenance. Preserve failed/cancelled analysis status, evidence attribution, assessment coverage and report rendering status separately. Legacy evidence and absent native versions remain explicitly unverified.
