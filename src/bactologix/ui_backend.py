@@ -115,7 +115,7 @@ def snapshot(store):
         active = next((j for j in run_jobs if j["status"] in {"queued", "running"}), None)
         checked = dry_run_current(store, run)
         status = run_status(run, jobs, checked)
-        runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant", "identification")} | {
+        runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant", "identification", "experimental")} | {
             "aware_state": run.get("aware"), "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
             "kraken_mode": "off" if cfg.get("run_kraken") is False else kraken_mode,
             "can_micp_handoff": run["tool"] == "hybas" and status == "completed",
@@ -130,7 +130,7 @@ def snapshot(store):
         catalogs[tool] = versions(store, tool)
         for version in catalogs[tool]["versions"]:
             version["supported"] = supported(tool, version["commit"], store)
-    result = {"version": __version__, "workspace": str(store.home), "workspace_label": workspace_label(), "doctor": doctor(store),
+    result = {"channel": store.channel, "application_title": "Bactologix Dev" if store.channel == "dev" else "Bactologix", "version": __version__, "workspace": str(store.home), "workspace_label": workspace_label(), "doctor": doctor(store),
             "setup_overview": {t: setup_state.overview(store, t) for t in PIPELINES},
             "pipelines": PIPELINES, "installs": [installation_status(i, jobs, store) for i in store.all("installs")],
             "app_update": app_update, "hardware": hardware.panel(store), "workstation_checks": workstation.history(store),
@@ -145,7 +145,7 @@ def snapshot(store):
             "database_builder": {"available": database_builder.available(store), "starter": database_builder.starter(store), "builds": store.all("database_builds")},
             "database_downloads": [{**d, "job_status": next((j["status"] for j in jobs if j["id"] == d.get("job")), d.get("status"))}
                                    for d in store.all("database_downloads")],
-            "download_options": {t: {"available": maintenance.download_supported(store.get("installs", store.get("settings", "active-" + t))),
+            "download_options": {t: {"available": maintenance.download_supported(store.get("installs", store.get("settings", "active-" + t)), store),
                                       "parent": str(store.home / "resources")}
                                  for t in PIPELINES},
             "citations": {f.name: f.read_text() for f in DATA.glob("CITATION.*")}}
@@ -244,6 +244,8 @@ def dispatch(store, kind, p):
         release = next((r for r in catalog.get("releases", []) if r["id"] == p.get("release_id") and r["version"] == p.get("version")), None)
         if not release or not release["available"]:
             raise ValueError("Refresh the releases and select an available Bactologix wheel.")
+        if not updates.channel_accepts(release["version"]):
+            raise ValueError("Choose an application release from this installation channel.")
         if release["version"] == __version__:
             raise ValueError("You are already running this Bactologix version.")
         launcher = updates.restart_control.current_launcher(store)

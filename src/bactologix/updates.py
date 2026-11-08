@@ -55,8 +55,13 @@ def release_record(release):
             "size": wheel.get("size") if wheel else None}
 
 
+def channel_accepts(version):
+    from .channels import current
+    return Version(version).is_devrelease == (current() == "dev")
+
+
 def fetch_releases():
-    records = [record for release in pages(f"repos/{REPO}/releases") if (record := release_record(release))]
+    records = [record for release in pages(f"repos/{REPO}/releases") if (record := release_record(release)) and channel_accepts(record["version"])]
     records.sort(key=lambda row: Version(row["version"]), reverse=True)
     return {"checked_at": now(), "releases": records}
 
@@ -76,6 +81,7 @@ def status(store):
                      and (not restart or (state.get('launcher_id') == launcher['id'] and state.get('restart_status') != 'failed' and state.get('status') != 'failed')))
     catalog = copy.deepcopy(store.get("app_catalog", "releases"))
     if catalog:
+        catalog["releases"] = [r for r in catalog["releases"] if channel_accepts(r["version"])]
         for release in catalog["releases"]:
             release["older"] = Version(release["version"]) < Version(__version__)
     return {"running_version": __version__, "installed_version": installed, "python": sys.executable,
@@ -134,7 +140,11 @@ def validate_wheel(path, expected_version):
 
 def install_update(ctx):
     """The worker holds exclusive environment and workspace locks throughout."""
+    from .channels import application_guard
+    application_guard()
     selected = ctx.job["payload"]["release"]
+    if not channel_accepts(selected["version"]):
+        raise ValueError("Application updates cannot cross the stable/development channel boundary.")
     latest = release_record(api(f"repos/{REPO}/releases/{int(selected['id'])}"))
     identity = ("id", "tag", "version", "asset_id", "wheel_url", "sha256", "size")
     if not latest or not latest["available"] or any(latest[k] != selected[k] for k in identity):

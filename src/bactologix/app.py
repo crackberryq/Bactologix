@@ -5,7 +5,9 @@ from streamlit.components.v2 import component
 from bactologix.store import Store
 from bactologix.ui_backend import handle_request, snapshot
 
-st.set_page_config(page_title="Bactologix", page_icon=str(Path(__file__).parent / 'ui/brand.png'), layout="wide", initial_sidebar_state="collapsed")
+from bactologix.channels import title
+
+st.set_page_config(page_title=title(), page_icon=str(Path(__file__).parent / 'ui/brand.png'), layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""<style>
 header[data-testid="stHeader"], [data-testid="stSidebar"], #MainMenu, footer {display:none}
 .stApp {background:#f5f7f6}

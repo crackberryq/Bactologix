@@ -23,6 +23,9 @@ class Cancelled(Exception):
 
 
 def find_conda(store):
+    if store.channel == "dev":
+        p = store.home / "tools/miniforge/bin/conda"
+        return str(p) if p.is_file() and os.access(p, os.X_OK) else None
     configured = store.get("settings", "conda", "")
     candidates = [configured, os.environ.get("CONDA_EXE"), shutil.which("conda"),
                   store.home / "tools/miniforge/bin/conda"]
@@ -36,7 +39,7 @@ def find_conda(store):
 def doctor(store):
     conda = find_conda(store)
     disk = shutil.disk_usage(store.home)
-    return {"system": platform.system(), "architecture": platform.machine(), "python": platform.python_version(),
+    return {"channel": store.channel, "application_environment": sys.prefix, "system": platform.system(), "architecture": platform.machine(), "python": platform.python_version(),
             "git": shutil.which("git"), "conda": conda, "workspace": str(store.home),
             "free_gb": round(disk.free / 2**30, 1), "cpus": os.cpu_count(),
             "pipeline_platform_supported": platform.system() == "Linux"}
@@ -121,6 +124,8 @@ class Context:
         env = os.environ.copy()
         env.update({"PYTHONUNBUFFERED": "1", "PYTHONNOUSERSITE": "1"})
         env.update(extra_env or {})
+        from .channels import environment
+        env.update(environment(self.store.home))
         started_stop = None
         command_started = time.monotonic()
         timed_out = False
@@ -197,6 +202,8 @@ def install(ctx):
     tool, version = payload["tool"], payload["version"]
     spec = PIPELINES[tool]
     commit = version["commit"]
+    if store.channel == "dev" and not supported(tool, commit, store):
+        raise ValueError("Select an exact build in the development catalog.")
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("Installation requires an exact 40-character Git commit")
     if not shutil.which("git"):
@@ -334,6 +341,9 @@ def connect_existing(ctx):
     previous = store.get("installs", key)
     prefix = local_path(payload["controller"]) if payload.get("controller") else None
     cache = local_path(payload["rule_cache"]) if payload.get("rule_cache") else None
+    from .channels import owned
+    if prefix: owned(store, prefix, "Controller")
+    if cache: owned(store, cache, "Environment cache")
     if prefix and (not (prefix / "conda-meta").is_dir() or not (prefix / "bin/python").is_file()):
         raise ValueError("Select an existing Linux Conda environment folder, containing conda-meta and bin/python.")
     if cache and (not cache.is_dir() or not os.access(cache, os.W_OK)):

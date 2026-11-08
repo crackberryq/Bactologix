@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "channel": "dev",
+  "builds": [
+    {
+      "tool": "hybas",
+      "repository": "crackberryq/Bactomics_HybAs",
+      "commit": "7f077556453df058b1dff5826bc7d0536b83e039",
+      "tag": "hybas-10-dev-7f077556",
+      "channel": "prerelease",
+      "development": true,
+      "preferred": true,
+      "name": "HybAs 10 Dev \u2014 AWARE+",
+      "adapter_interface": 1,
+      "configuration_schema": "hybas-v2",
+      "entry_points": {
+        "workflow": "Hybas.smk",
+        "environment": "environment.yaml"
+      },
+      "runner": {
+        "python": "3.11",
+        "snakemake": "9.27.1"
+      },
+      "tested": true,
+      "test_run": "https://github.com/crackberryq/Bactomics_HybAs/actions/runs/42461589299",
+      "files_sha256": {
+        "Hybas.smk": "4cc66b9c9c406acf8a6ad295c95721822621a9f4f30514ef677cb0a7084fa304",
+        "environment.yaml": "ed63888a900d10441146f3652e038f0b19db533f8615c84f02ef43b80ff28b90",
+        "app/aware-outputs.json": "d87e9d3fde8ad0da952b7e2b086ad89d215d6e41e7620c2030aa5b32b4ae12d2",
+        "workflow/lib/aware_modes.py": "f03012ea2983cfba79acd7834bcfb48a3104f55d903b37ec028f8dae2cfcea46"
+      },
+      "database_downloads": 1,
+      "adapter_test_run": "https://github.com/crackberryq/Bactologix/actions/runs/42461612564",
+      "adapter_jobs": [
+        128671899231,
+        128671899250
+      ]
+    },
+    {
+      "tool": "basis",
+      "repository": "crackberryq/Bactomics_BaSIS",
+      "commit": "4fa218db3dfc73733267d36c225ebc0d8df50f27",
+      "tag": "v0.4.0a5",
+      "channel": "prerelease",
+      "adapter_interface": 1,
+      "configuration_schema": "basis-v1",
+      "entry_points": {
+        "workflow": "BaSIS.smk",
+        "environment": "environment.yml"
+      },
+      "runner": {
+        "python": "3.11",
+        "snakemake": "9.6.2"
+      },
+      "tested": true,
+      "test_run": "https://github.com/crackberryq/Bactomics_BaSIS/actions/runs/41846446774",
+      "files_sha256": {
+        "BaSIS.smk": "86bc5f9a905d54207a0b4f36b0a6229a47ba5df4fbd3cb10ce0dcb4b98cb988f",
+        "environment.yml": "16555d39a4e8070617055d33f0624ef7218d1769cd0b740a46892b3dc76ae8ca",
+        "Followup.smk": "149702aa01050e20f8603b6223c1df7d4de1b0fa37f8b68df2e4b8b74b77ef0d",
+        "workflow/lib/safety/followup.py": "e9c0ca8036de28e601bdc29d51482d43bf70453f0efd73fcf4b9c68fb5f20815",
+        "workflow/lib/safety/reporting.py": "03de3ac2873fba66858aecea008c9a8d9989fc9e85413a99789e7d2d50803ad6",
+        "workflow/vendor/basis/aware.py": "249deecba3affbba70d6405ba3b5424f3300ed82b821be7d12df95d90758c2ae",
+        "workflow/vendor/basis/amr_review.py": "923f763f787da08da8f3bba60c3b916b6991c39b18215ade6f83e39aa30f30e7"
+      },
+      "followup": {
+        "interface": 1,
+        "entry_point": "Followup.smk",
+        "screening_schema": "basis-snakemake-run-v1",
+        "parent_commits": [
+          "14f161a1f252a712053892961edf2275469c8dab",
+          "63850df18212c8950b8e5689364b0c7eedb208a0"
+        ],
+        "scopes": [
+          "amrfinder-review",
+          "all-supported"
+        ]
+      },
+      "development": true,
+      "preferred": true,
+      "name": "BaSIS Dev baseline",
+      "database_downloads": 1
+    },
+    {
+      "tool": "micpscope",
+      "repository": "crackberryq/Bactomics_GeneScope",
+      "commit": "cffb4212f8466560d0d071c3dea0cbfd11e08d22",
+      "tag": "genescope-v0.1.0a15",
+      "channel": "prerelease",
+      "adapter_interface": 1,
+      "configuration_schema": "micpscope-v1",
+      "entry_points": {
+        "workflow": "MICPscope.smk",
+        "environment": "environment.yml"
+      },
+      "runner": {
+        "python": "3.11",
+        "snakemake": "9.6.2"
+      },
+      "tested": true,
+      "test_run": "https://github.com/crackberryq/Bactomics_GeneScope/actions/runs/42211316875",
+      "files_sha256": {
+        "MICPscope.smk": "854d95d758686735f4b24bf8a752c1433eba286d7a703ed4cb0e23cb3e2d0f32",
+        "environment.yml": "5511d8e96980fd36304699f1b2c456d5a4f71038dd5b8aeca3c9d12712fbe772"
+      },
+      "development": true,
+      "preferred": true,
+      "name": "GeneScope Dev baseline"
+    }
+  ]
+}

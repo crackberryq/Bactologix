@@ -627,3 +627,7 @@ Created by **Jimi Goldstein · Human Link**.
 ## 0.1.0a86.dev4 — experimental AWARE+ modes
 
 Unified Off / Taxonomy / Auto / Split controls with source capability checks, automatic ambiguity review, unchanged legacy configurations, and experimental status in run details and Methods. Reconstruct remains unavailable. Full analytical validation of HybAs 10 inputs, polishing and AWARE+ is pending.
+
+## 0.1.0a86.dev5 — independent development platform
+
+Adds Bactologix Dev with dedicated installers/launchers, workspace ownership, separate Conda/application/pipeline environments, caches and model/database storage. Development catalog and app updates are isolated from the regular channel. Initial exact builds cover HybAs 10 and reviewed BaSIS/GeneScope baselines. Adds isolation and installer regression checks; fixes the AWARE+ component test's missing backend response. No analytical validation or beta access-control features are claimed.

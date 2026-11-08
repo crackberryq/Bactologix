@@ -1,7 +1,7 @@
 name: Software and adapter checks
 on:
   push:
-    branches: [main]
+    branches: [main, development]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -63,6 +63,7 @@ jobs:
         run: |
           python -m build
           python scripts/build_windows_bundle.py
+          python scripts/build_development_bundle.py
           python -m pip install --force-reinstall --no-deps dist/*.whl
           python -m pip check
           python -m bactologix.cli --version
@@ -152,15 +153,47 @@ jobs:
           python-version: '3.11'
       - name: Windows launcher, installer rendering and browser ownership
         shell: powershell
-        run: ./tests/windows_desktop.ps1
+        run: |
+          ./tests/windows_desktop.ps1
+          ./tests/windows_development.ps1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-installer-preview
           path: windows-setup-preview.png
+  development-contracts:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - tool: hybas
+            repo: crackberryq/Bactomics_HybAs
+            commit: 7f077556453df058b1dff5826bc7d0536b83e039
+          - tool: basis
+            repo: crackberryq/Bactomics_BaSIS
+            commit: 4fa218db3dfc73733267d36c225ebc0d8df50f27
+          - tool: micpscope
+            repo: crackberryq/Bactomics_GeneScope
+            commit: cffb4212f8466560d0d071c3dea0cbfd11e08d22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          ref: ${{ matrix.commit }}
+          path: development-source
+      - run: python -m pip install . pytest
+      - name: Verify exact Dev source and adapter contract
+        env:
+          BACTOLOGIX_DEV_SOURCE: ${{ github.workspace }}/development-source
+          BACTOLOGIX_DEV_TOOL: ${{ matrix.tool }}
+        run: python -m pytest tests/test_development_channel.py -q -k dev_source_contract
   publish:
     name: Publish checked application release
-    needs: [tests, browser, environment-deployment, windows-desktop, hybas-v2-adapter]
+    needs: [tests, browser, environment-deployment, windows-desktop, hybas-v2-adapter, development-contracts]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:

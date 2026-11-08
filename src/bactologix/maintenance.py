@@ -38,7 +38,8 @@ BASIS_MODULES = ("amrfinder", "rgi", "vfdb", "bacmet", "antismash", "genomad", "
 
 
 def cache_path(store, item):
-    return local_path(item.get("rule_cache") or str(store.home / "envs" / item["tool"]))
+    from .channels import owned
+    return owned(store, local_path(item.get("rule_cache") or str(store.home / "envs" / item["tool"])), "Environment cache")
 
 
 def check_deployment_path(store, item):
@@ -248,7 +249,11 @@ def execute_environments(ctx):
         raise RuntimeError("Environment checks failed: " + ", ".join(failures) + ". See the job log.")
 
 
-def download_supported(item):
+def download_supported(item, store=None):
+    if store is not None and store.channel == "dev":
+        from .release_contract import approval
+        row = approval(store, item["tool"], item["version"]["commit"]) if item else None
+        return bool(item and item.get("ready") and row and row.get("database_downloads") == 1)
     return bool(item and item["tool"] != "micpscope" and item.get("ready") and item["version"]["commit"] == PIPELINES[item["tool"]]["commit"])
 
 
@@ -262,10 +267,11 @@ def download_request(store, tool, key, parent, cores=4, memory_mb=16000, lineage
     from .databases import _spec
     _spec(tool, key)
     item = installation(store, store.get("settings", "active-" + tool))
-    if not download_supported(item):
+    if not download_supported(item, store):
         raise ValueError("Select the recommended pipeline snapshot to use database downloads.")
     check_deployment_path(store, item)
-    base = local_path(parent)
+    from .channels import owned
+    base = owned(store, local_path(parent), "Database download folder")
     if not base.is_dir() or not os.access(base, os.W_OK):
         raise ValueError("Choose an existing writable download folder.")
     if any(c in str(base) for c in "{}\n\r\t\"'`$\\"):
@@ -313,10 +319,11 @@ def execute_download(ctx):
     store, payload = ctx.store, ctx.job["payload"]
     item = installation(store, payload["installation"])
     check_deployment_path(store, item)
-    if not download_supported(item) or item["version"]["commit"] != payload["commit"]:
+    if not download_supported(item, store) or item["version"]["commit"] != payload["commit"]:
         raise ValueError("The selected download adapter changed. Submit a new download.")
     folder = store.home / "maintenance" / payload["id"]
-    destination = Path(payload["destination"])
+    from .channels import owned
+    destination = owned(store, payload["destination"], "Database download")
     if destination.parent.resolve() != Path(payload["parent"]):
         raise ValueError("Download parent was replaced by a link. Choose the location again.")
     old = store.get("database_downloads", payload["id"])

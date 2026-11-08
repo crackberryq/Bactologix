@@ -62,6 +62,9 @@ def reason(tool, row):
 def approval(store, tool, commit):
     if store is None:
         return None
+    if store.channel == 'dev':
+        from .dev_catalog import approval as dev_approval
+        return dev_approval(store, tool, commit)
     row = store.get('release_approvals', tool + ':' + commit)
     return row if row and not reason(tool, row) else None
 
@@ -72,6 +75,9 @@ def equivalent_contract(left, right):
 
 
 def refresh(store, tool):
+    if store.channel == "dev":
+        from .dev_catalog import refresh as dev_refresh
+        return dev_refresh(store, tool)
     from .catalog import api, fetch_versions
     # Commit the new catalogue only after both requests and validation succeed.
     catalog = fetch_versions(tool)
@@ -105,7 +111,7 @@ def preflight(store, tool, commit, source):
     if not row:
         from .catalog import PIPELINES
         spec = PIPELINES[tool]
-        if commit in [spec['commit'], *spec.get('previous_commits', [])]:
+        if store.channel != "dev" and commit in [spec['commit'], *spec.get('previous_commits', [])]:
             return  # Existing releases retain their legacy adapter checks.
         raise ValueError('This commit has no compatible reviewed release contract.')
     root = Path(source).resolve()

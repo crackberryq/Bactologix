@@ -2706,6 +2706,10 @@ def test_aware_plus_mode_controls_and_experimental_notice(tmp_path):
         errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
         render_component(page,store)
         page.get_by_role('link',name='Configuration',exact=True).click()
+        from bactologix.ui_backend import dispatch, snapshot
+        req=page.evaluate('window.acceptanceEvents.at(-1).value')
+        response=dispatch(store,req['kind'],req['payload'])
+        page.evaluate('({workspace,response})=>{Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',{'workspace':snapshot(store),'response':{'id':req['id'],'ok':True,**response}})
         panel=page.locator('.defaults-editor')
         expect(panel).to_contain_text('HybAs 10 — Experimental')
         expect(panel).to_contain_text('Reconstruct populations — Not implemented')
@@ -2720,5 +2724,28 @@ def test_aware_plus_mode_controls_and_experimental_notice(tmp_path):
         for width in (390,1440):
             page.set_viewport_size({'width':width,'height':1000})
             assert panel.evaluate('(e)=>e.scrollWidth<=e.clientWidth+1')
+        assert not errors,errors
+        browser.close()
+
+
+def test_development_banner_and_catalog_isolation(tmp_path, monkeypatch):
+    from playwright.sync_api import sync_playwright, expect
+    monkeypatch.setenv('BACTOLOGIX_CHANNEL','dev')
+    store=Store(tmp_path/'dev-workspace')
+    from bactologix.ui_backend import snapshot
+    view=snapshot(store)
+    assert view['channel']=='dev'
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True)
+        page=browser.new_page(viewport={'width':1440,'height':1000})
+        errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
+        render_component(page,store)
+        expect(page.locator('#dev-channel-notice')).to_contain_text('Bactologix Dev')
+        expect(page.locator('#dev-channel-notice')).to_have_count(1)
+        page.get_by_role('link',name='Runs',exact=True).click()
+        expect(page.locator('#dev-channel-notice')).to_have_count(1)
+        for width in (390,1440):
+            page.set_viewport_size({'width':width,'height':1000})
+            assert page.locator('#dev-channel-notice').evaluate('(e)=>e.scrollWidth<=e.clientWidth+1')
         assert not errors,errors
         browser.close()

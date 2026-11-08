@@ -375,6 +375,9 @@ def inspect(store, tool, key, value, cfg=None):
 
 
 def _roots(store, tool, cfg, extra):
+    if store.channel == "dev":
+        from .channels import owned
+        return [owned(store, extra, "Database scan folder")] if extra else [store.home / "resources", store.home / "envs"]
     roots = []
     if extra:
         chosen = local_path(extra)
@@ -551,6 +554,9 @@ def save(store, tool, changes, expected_revision):
         _spec(tool, key)
         if value is not None and (not isinstance(value, str) or not value.strip()):
             raise ValueError("Choose a folder or explicitly reset this resource to pipeline defaults.")
+        if value is not None:
+            from .channels import owned
+            owned(store, value, "Database/model")
         checked[key] = inspect(store, tool, key, value, cfg) if value is not None else None
     if tool == "hybas":
         paths = _hybas_paths(store, cfg)

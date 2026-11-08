@@ -1,0 +1,33 @@
+BACTOLOGIX DEV — INDEPENDENT EXPERIMENTAL INSTALLATION
+
+Windows
+1. Extract this ZIP completely into a new folder.
+2. Double-click Bactologix-Dev-Setup.cmd.
+3. Setup installs its own Conda and application environment inside your Ubuntu/WSL account.
+4. If Windows requests a restart, use Continue Bactologix-Dev Setup afterwards.
+5. Start the new Bactologix-Dev desktop shortcut. Your ordinary Bactologix shortcut is separate.
+
+Keep the bundled wheel, dev-package.json and installer files together. Setup verifies the wheel checksum. The initial app comes from this exact bundle, not a moving branch or stable release. Internet access is needed for Conda, Python dependencies and subsequent pipeline/database downloads.
+
+Linux / existing WSL
+From this extracted folder, run:
+  python3 install_bactologix.py --dev --install-conda
+Subsequent launch:
+  ~/.local/share/bactologix-dev-install/app/bin/bactologix-dev
+
+Storage
+- Windows launcher/control files: %LOCALAPPDATA%\Bactologix-Dev
+- Linux application environment: ~/.local/share/bactologix-dev-install/app
+- Dev workspace: ~/.local/share/bactologix-dev
+- Dev Conda: <Dev workspace>/tools/miniforge
+- Dev pipeline environments/controllers/databases/caches/results: inside the Dev workspace
+- Default Dev ports: 8601–8620 (regular application: 8501–8520)
+
+Inside the application
+Use Install & update to install a designated development snapshot of HybAs, BaSIS or GeneScope. Pipeline versions are pinned to exact source commits with compatibility contracts. Refreshing the catalog does not replace installed versions or existing runs. BaSIS and GeneScope initially use tested baseline commits designated for development; new work proceeds on their separate development branches.
+
+The Dev application only offers .dev application updates. New public development releases may not yet be available; this bundled installer remains usable. Re-running this exact installer installs this exact app version.
+
+Use independent Dev copies of databases and models. Stable environment/cache/database locations are rejected by Dev. Original sequencing/annotation input files may be selected by both apps; generated files belong to their respective workspaces. Never use your stable workspace as the Dev workspace.
+
+All development results are experimental. Software checks are distinct from analytical validation. This separation prevents accidental resource sharing; it is not an OS security sandbox. Both applications still share the computer's operating system and CPU/RAM/disk capacity. No remote access control or user tracking is enabled.

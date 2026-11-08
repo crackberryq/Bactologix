@@ -417,7 +417,10 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
     cores, memory_mb = int(cores), int(memory_mb)
     if cores < 1 or memory_mb < 512:
         raise ValueError("Choose at least one core and 512 MB memory")
+    from .channels import validate_resources
+    validate_resources(store, parse_config(config_text))
     cfg = bind_paths(parse_config(config_text), tool, store, installed)
+    validate_resources(store, cfg)
     if tool == "hybas":
         from .aware_modes import resolve
         cfg = resolve(cfg)
@@ -489,7 +492,7 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
                "config": text, "submitted": config_text, "config_sha256": hashlib.sha256(text.encode()).hexdigest(),
                "workflow_sha256": tree_digest(folder / "workflow"), "inputs": inputs, "input_layout": input_layout(output, tool), "cores": cores, "memory_mb": memory_mb,
                "parent": parent, "label": label or sample["id"], "created": now(), "dry_run_ok": False,
-               "bactologix_version": __version__,
+               "bactologix_version": __version__, "application_channel": store.channel,
                "experimental": tool == "hybas" and (Path(installed["source"]) / "app/aware-outputs.json").is_file(),
                "reuse": "input-files-only; workflow outputs are independent"}
         if frozen_manifest:

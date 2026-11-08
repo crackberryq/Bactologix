@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bactologix"
-version = "0.1.0a86.dev4"
+version = "0.1.0a86.dev5"
 description = "A local workspace for HybAs, BaSIS and GeneScope"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,6 +21,7 @@ Issues = "https://github.com/crackberryq/Bactologix/issues"
 
 [project.scripts]
 bactologix = "bactologix.cli:main"
+bactologix-dev = "bactologix.dev_cli:main"
 
 [tool.setuptools.package-data]
 bactologix = ["data/*.yaml", "data/*.json", "data/*.py", "data/env_guard/*.py", "data/LICENSE.*", "data/CITATION.*", "ui/*.html", "ui/*.css", "ui/*.js", "ui/*.svg", "ui/*.png", "ui/*.ico"]

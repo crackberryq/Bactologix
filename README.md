@@ -692,3 +692,7 @@ their original source and behavior; select the updated pipeline for new drafts.
 Manual TaxIDs must be resolvable from this run's Kraken report. Database/input
 identity uses size/mtime checks; saved classification evidence additionally uses
 SHA-256 checksums.
+
+## Independent development installation
+
+For side-by-side experimental testing of Bactologix, HybAs, BaSIS and GeneScope, see [Bactologix Dev](docs/DEVELOPMENT.md) and the [Dev installation instructions](docs/development-install.txt). Dev owns separate environments, workspaces, caches and resources, and installs only explicitly catalogued development pipeline builds.

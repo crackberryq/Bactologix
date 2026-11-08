@@ -15,7 +15,9 @@ def now():
 
 
 def workspace(path=None):
-    return Path(path or os.environ.get("BACTOLOGIX_HOME") or user_data_dir("bactologix")).expanduser().resolve()
+    from .channels import current, default_workspace
+    key = "BACTOLOGIX_DEV_HOME" if current() == "dev" else "BACTOLOGIX_HOME"
+    return Path(path or os.environ.get(key) or default_workspace()).expanduser().resolve()
 
 
 def identifier(prefix):
@@ -25,8 +27,12 @@ def identifier(prefix):
 class Store:
     def __init__(self, home=None):
         self.home = workspace(home)
+        from .channels import claim
+        self.channel = claim(self.home)
         self.home.mkdir(parents=True, exist_ok=True, mode=0o700)
         for name in ("logs", "runs", "sources", "controllers", "envs", "resources"):
+            from .channels import owned
+            owned(self, self.home / name, name)
             (self.home / name).mkdir(exist_ok=True)
         with self.connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
@@ -54,6 +60,14 @@ class Store:
             db.close()
 
     def put(self, kind, key, value):
+        if self.channel == 'dev':
+            from .channels import owned
+            if kind == 'installs':
+                for field in ('source', 'controller', 'rule_cache'):
+                    if value.get(field): owned(self, value[field], field)
+            if kind == 'settings' and key == 'conda' and value:
+                if Path(value).resolve() != (self.home / 'tools/miniforge/bin/conda').resolve():
+                    raise ValueError('Dev uses only its dedicated Conda installation.')
         with self.connect() as db:
             db.execute("INSERT INTO items VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body",
                        (kind, key, json.dumps(value)))

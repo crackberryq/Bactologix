@@ -1,4 +1,4 @@
-Goldstein, J. (2026). Bactologix (Version 0.1.0a86.dev4; native alpha) [Computer software].
+Goldstein, J. (2026). Bactologix (Version 0.1.0a86.dev5; native alpha) [Computer software].
 
 
 
