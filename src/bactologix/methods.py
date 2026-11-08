@@ -351,6 +351,8 @@ def build(store, run):
         evidence.setdefault('files', []).extend(stage['files'])
         if complete and evidence.get('decisions', {}).get('final_source_stage'):
             paragraphs.append('The retained execution record identifies the final assembly source stage as ' + str(evidence['decisions']['final_source_stage']) + '. Executed polishing stages were ' + (', '.join(evidence['decisions'].get('executed_stages', [])) or 'none recorded') + '.')
+    if run['tool'] == 'hybas' and (run.get('experimental') or effective.get('aware_mode', 'legacy') != 'legacy' or '10.' in str(run.get('version', {})) or '10.' in str(effective.get('workflow_version', ''))):
+        paragraphs.insert(0, 'HybAs 10 is experimental: input modes, polishing paths and AWARE+ features have not completed analytical validation. AWARE+ mode: ' + str(effective.get('aware_mode', 'legacy')) + '.')
     provenance = run['sample'].get('aware_provenance')
     if provenance:
         paragraphs.append('Inputs were derived from AWARE parent sample ' + provenance['parent_sample'] + ', group ' + provenance['group'] + '. The source bundle SHA-256 was ' + provenance['bundle_sha256'] + '.')

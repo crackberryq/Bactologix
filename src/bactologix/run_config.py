@@ -1,5 +1,6 @@
 """Typed, run-local configuration editing without changing saved defaults."""
 from __future__ import annotations
+from pathlib import Path
 
 import json
 import math
@@ -19,7 +20,7 @@ MANAGED = {
 }
 OPTIONS = {
     'micpscope': {},
-    'hybas': {'aware_run_until': ['assembly', 'aware'], 'kraken_decision_mode': ['off', 'manual', 'auto', 'aware'],
+    'hybas': {'aware_mode': ['legacy', 'off', 'taxonomy', 'auto', 'split'], 'aware_run_until': ['assembly', 'aware'], 'kraken_decision_mode': ['off', 'manual', 'auto', 'aware'],
               'polish_mode': ['none', 'racon', 'medaka', 'tripolish']},
     'basis': {'resources.policy': ['auto', 'manual'],
               'deep.aware.preset': ['auto-strict', 'auto-medium', 'auto-loose']},
@@ -46,12 +47,16 @@ def defaults(store, tool):
         if row and row['configuration_schema'] == 'hybas-v2':
             cfg = parse_config(text)
             cfg.update({key: 'auto' for key in AUTO_KEYS})
+            capability = Path(installed['source']) / 'app/aware-outputs.json'
+            if capability.is_file() and json.loads(capability.read_text()).get('modes_interface') == 1:
+                cfg['aware_mode'] = 'auto'
             return yaml.safe_dump(cfg, sort_keys=False)
     return text
 
 
 LABELS = {
-    'aware_run_until': 'AWARE · Run endpoint',
+    'aware_mode': 'AWARE+ · Mode',
+    'aware_run_until': 'AWARE+ · Run endpoint',
     'aware_preserve_groups': 'AWARE · Preserve additional read groups',
     'aware_statistics': 'AWARE · Statistical evidence',
     'aware_reclassify_derived': 'AWARE · Reclassify derived inputs',
@@ -140,7 +145,7 @@ def editor(tool, text):
     defaults = _flatten(defaults)
     supplied = _flatten(cfg)
     auto = tool == 'hybas' and uses_auto(cfg)
-    extras = ({'busco_download_lineages': [cfg.get('busco_lineage', 'bacteria_odb10')], 'kraken_mem_mb': None, 'kraken_review_before_filtering': False, 'aware_run_until':'assembly', 'aware_preserve_groups':False, 'aware_statistics':False, 'aware_reclassify_derived':False}
+    extras = ({'busco_download_lineages': [cfg.get('busco_lineage', 'bacteria_odb10')], 'kraken_mem_mb': None, 'kraken_review_before_filtering': False, 'aware_mode':'legacy', 'aware_run_until':'assembly', 'aware_preserve_groups':False, 'aware_statistics':False, 'aware_reclassify_derived':False}
               if tool == 'hybas' else {} if tool == 'micpscope' else {'storage': {'native_results_directory': None}})
     defaults.update(_flatten(extras))
     # Include companion paths and model identities recognized by the database selector.
@@ -266,6 +271,8 @@ def validate(tool, text):
     from .hardware import workflow_environment
     workflow_environment(cfg)
     if tool == 'hybas':
+        from .aware_modes import resolve
+        cfg = resolve(cfg)
         for name, options in OPTIONS[tool].items():
             if name in cfg and cfg[name] not in options and not (name in AUTO_KEYS and cfg[name] == 'auto'):
                 raise ValueError(name + ': choose ' + ', '.join(options))

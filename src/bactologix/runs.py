@@ -419,6 +419,12 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         raise ValueError("Choose at least one core and 512 MB memory")
     cfg = bind_paths(parse_config(config_text), tool, store, installed)
     if tool == "hybas":
+        from .aware_modes import resolve
+        cfg = resolve(cfg)
+        if cfg.get("aware_mode", "legacy") != "legacy":
+            capability = Path(installed["source"]) / "app/aware-outputs.json"
+            if not capability.is_file() or json.loads(capability.read_text()).get("modes_interface") != 1:
+                raise ValueError("Select a HybAs 10 experimental version supporting AWARE+ modes.")
         from .run_config import uses_auto
         from .manifest_inputs import require_adapter
         if uses_auto(cfg):
@@ -430,7 +436,7 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         if aware_outputs.enabled(cfg) and not aware_outputs.supports(installed['source']):
             raise ValueError('This HybAs version does not support unified AWARE outputs. Select a compatible development version.')
         if sample.get('aware_provenance') and not cfg.get('aware_reclassify_derived', False):
-            cfg.update(run_kraken=False, kraken_decision_mode='off', kraken_review_before_filtering=False,
+            cfg.update(aware_mode='off', run_kraken=False, kraken_decision_mode='off', kraken_review_before_filtering=False,
                        aware_run_until='assembly', aware_preserve_groups=False, aware_statistics=False)
         from .identification import OPTION, supports
         if OPTION in cfg and not isinstance(cfg[OPTION], bool):
@@ -484,6 +490,7 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
                "workflow_sha256": tree_digest(folder / "workflow"), "inputs": inputs, "input_layout": input_layout(output, tool), "cores": cores, "memory_mb": memory_mb,
                "parent": parent, "label": label or sample["id"], "created": now(), "dry_run_ok": False,
                "bactologix_version": __version__,
+               "experimental": tool == "hybas" and (Path(installed["source"]) / "app/aware-outputs.json").is_file(),
                "reuse": "input-files-only; workflow outputs are independent"}
         if frozen_manifest:
             run["frozen_manifest"] = frozen_manifest
@@ -572,6 +579,9 @@ def command(store, run, action):
     elif action == "run":
         pos = argv.index('snakemake')
         argv[pos:pos] = ['python', str(DATA / 'run_existing.py')]
+    if run["tool"] == "hybas" and parse_config(run["config"]).get("aware_mode") == "auto" and action in {"prepare", "check-environments"}:
+        # Auto checkpoints discover the downstream DAG after taxonomy; prepare all configured environments up front.
+        argv.extend(["all", "setup_envs"])
     from .identification import arguments
     decision_args = arguments(run)
     from .aware_outputs import arguments as aware_arguments
@@ -642,7 +652,7 @@ def execute_workflow(ctx):
         run["validated_controller"] = run["last_controller"]
     elif payload["action"] == "run":
         from . import identification
-        if identification.enabled(run) and not run.get('identification', {}).get('decision_path'):
+        if identification.enabled(run) and not run.get('identification', {}).get('decision_path') and identification.waiting(run):
             identification.capture(run, ctx.job['id'])
             store.put('runs', run['id'], run)
             ctx.write('Identification complete. Awaiting researcher review; no filtering or assembly was started.')

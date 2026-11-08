@@ -26,3 +26,11 @@ Statistical intervals describe observed Kraken assignment support under sampling
 Methods exports verify the saved identification or AWARE receipt. Identification-only and AWARE-only exports omit downstream method claims; completed assembly exports retain their available execution records. Reproducibility ZIPs include the verified stage evidence. The output picker shows the parent sample, child sample IDs and actual retained routes.
 
 Use `scripts/package_development_pair.py` to build an application wheel and both source archives from explicit Git commits. The generated `testing-pair.json` and `SHA256SUMS` identify the paired test build. Install into an isolated virtual environment and separate Bactologix home. A package is not an execution approval: the official prerelease compatibility registry remains the gate for managed runs on a new HybAs commit.
+
+## AWARE+ mode controls (0.1.0a86.dev4)
+
+HybAs 10 is experimental across inputs, polishing and AWARE+. Compatible sources advertise `modes_interface: 1`. The guided editor exposes Off, Taxonomy only, Auto filter and Split by taxonomy, plus Existing configuration for older runs. Reconstruct is explicitly not implemented. Source capability is checked before creating mode-enabled runs.
+
+Split stops for selection of derived samples; shared/ambiguous and unclassified pools stay separate. Auto pauses on weak/discordant recommendations and uses the existing immutable review/continuation flow. Taxonomy and Split do not filter the parent reads. Derived inputs still skip reclassification unless explicitly requested.
+
+The administrator approval/revocation and attributed user/device provenance proposal is deferred to beta-launch planning. It is not implemented or enabled by this change. Revisit privacy disclosure, signed provenance, offline expiry and data-preserving revocation before beta.

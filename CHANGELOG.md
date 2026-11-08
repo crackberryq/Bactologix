@@ -623,3 +623,7 @@ Created by **Jimi Goldstein · Human Link**.
 - Existing external runs are not adopted for in-place resume. Jobs run sequentially; remote/HPC execution is not implemented.
 - Full biological analyses, analysis environments/databases/GPU tools, target-browser behavior and WSL2/aarch64-specific installation have not been validated in this development session.
 - This release is distributed through GitHub, not PyPI.
+
+## 0.1.0a86.dev4 — experimental AWARE+ modes
+
+Unified Off / Taxonomy / Auto / Split controls with source capability checks, automatic ambiguity review, unchanged legacy configurations, and experimental status in run details and Methods. Reconstruct remains unavailable. Full analytical validation of HybAs 10 inputs, polishing and AWARE+ is pending.

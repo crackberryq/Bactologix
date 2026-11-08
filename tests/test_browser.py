@@ -2694,3 +2694,31 @@ def test_aware_portable_bundle_selection(tmp_path):
         assert store.get('samples','derived')['mode']=='pacbio_only'
         assert not errors and not store.jobs()
         browser.close()
+
+
+def test_aware_plus_mode_controls_and_experimental_notice(tmp_path):
+    from playwright.sync_api import sync_playwright, expect
+    store=Store(tmp_path/'workspace')
+    store.put('configs','hybas','aware_mode: taxonomy\nrun_kraken: true\nkraken_decision_mode: aware\n')
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True)
+        page=browser.new_page(viewport={'width':1440,'height':1000})
+        errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+        render_component(page,store)
+        page.get_by_role('link',name='Configuration',exact=True).click()
+        panel=page.locator('.defaults-editor')
+        expect(panel).to_contain_text('HybAs 10 — Experimental')
+        expect(panel).to_contain_text('Reconstruct populations — Not implemented')
+        modes=panel.locator('[data-choice-name="aware_mode"]')
+        expect(modes).to_have_count(5)
+        for mode in ('split','off','auto','taxonomy','legacy'):
+            panel.locator(f'[data-choice-name="aware_mode"][data-value="{mode}"]').click()
+            expect(panel.locator(f'[data-choice-name="aware_mode"][data-value="{mode}"]')).to_have_attribute('aria-pressed','true')
+            if mode=='split':
+                expect(panel.locator('[data-choice-name="aware_run_until"][data-value="aware"]')).to_have_attribute('aria-pressed','true')
+        expect(panel.locator('[data-choice-name="kraken_decision_mode"]')).to_have_count(4)
+        for width in (390,1440):
+            page.set_viewport_size({'width':width,'height':1000})
+            assert panel.evaluate('(e)=>e.scrollWidth<=e.clientWidth+1')
+        assert not errors,errors
+        browser.close()

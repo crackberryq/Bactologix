@@ -12,7 +12,12 @@ SCHEMA = 'hybas-identification-review-v1'
 
 
 def enabled(run):
-    return run.get('tool') == 'hybas' and parse_config(run['config']).get(OPTION, False) is True
+    return run.get('tool') == 'hybas' and (parse_config(run['config']).get(OPTION, False) is True or parse_config(run['config']).get('aware_mode') == 'auto')
+
+
+def waiting(run):
+    doc = json.loads(report_path(run).read_text())
+    return doc.get("awaiting_review", True) is True
 
 
 def supports(source):

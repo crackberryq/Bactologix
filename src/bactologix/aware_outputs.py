@@ -20,7 +20,9 @@ def supports(source):
 
 
 def enabled(cfg):
-    return cfg.get('aware_run_until', 'assembly') == 'aware' or cfg.get('aware_preserve_groups') is True or cfg.get('aware_statistics') is True
+    from .aware_modes import resolve
+    cfg = resolve(cfg)
+    return cfg.get('aware_mode') in {'taxonomy', 'auto', 'split'} or cfg.get('aware_run_until', 'assembly') == 'aware' or cfg.get('aware_preserve_groups') is True or cfg.get('aware_statistics') is True
 
 
 def safe_file(root, relative):
