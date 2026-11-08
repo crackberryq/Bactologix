@@ -1,3 +1,9 @@
+## 0.1.0a86.dev3 — AWARE reporting and testing package (unreleased)
+
+- Export evidence-verified, stage-specific Methods for identification and AWARE completion, including optional preservation/statistics and derived-input provenance.
+- Show parent sample and child IDs alongside actual retained routes in the output picker.
+- Build paired development source archives and an app wheel from immutable commits, with checksums and an explicit test matrix. Managed execution remains subject to exact-commit prerelease review.
+
 ## 0.1.0a86.dev2 — Unified AWARE outputs (unreleased)
 
 - Add one AWARE configuration group for the run endpoint, optional read preservation, statistical evidence and explicit reclassification of derived inputs.

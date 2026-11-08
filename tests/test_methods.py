@@ -262,3 +262,42 @@ def test_methods_with_real_pinned_source(tmp_path, tool):
         settings = {p['setting']: p['value'] for p in doc['parameters']}
         assert settings['modules.vfdb.threads'] == '1'
         assert settings['execution.cores'] == '1'
+
+
+def stage_bundle(run):
+    root=Path(run['output'])/'reports/aware';root.mkdir(parents=True)
+    filtering='field\tvalue\nisolate\t'+run['sample']['id']+'\nselected_target_taxid\t22\nkraken_decision_mode\tmanual\nillumina_kraken_decision\twhitelist_filter\nillumina_kraken_decision_reason\tmanual target\n'
+    (root/'filtering.tsv').write_text(filtering)
+    data=dict(schema='hybas-aware-bundle-v1',isolate=run['sample']['id'],groups=[dict(id='primary',units={'illumina':8})],files=[dict(path='filtering.tsv',sha256=hashlib.sha256(filtering.encode()).hexdigest())],statistics=dict(target_taxid='11',stability=dict(replicates=200,seed=1729)))
+    path=root/'manifest.json';path.write_text(json.dumps(data));run['aware']=dict(state='complete',bundle_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+    return root
+
+
+def test_aware_methods_only_describe_finished_stage(workspace,run):
+    root=stage_bundle(run)
+    doc=methods.build(workspace,run);prose='\n'.join(doc['paragraphs'])
+    assert doc['completed_stage']=='aware'
+    assert 'TaxID 22' in prose and 'TaxID 11' in prose
+    assert '95% Wilson' in prose and '200 stratified' in prose
+    assert 'QUAST' not in prose and 'Unicycler' not in prose and 'BUSCO' not in prose
+    assert not any('Planned settings only' in w for w in doc['warnings'])
+    for format in ('txt','md','html','zip'):
+        assert methods.download(workspace,run,format)['name'].endswith('.'+format)
+    data=methods.download(workspace,run,'zip')
+    with zipfile.ZipFile(io.BytesIO(base64.b64decode(data['base64']))) as archive:
+        assert 'evidence/reports/aware/manifest.json' in archive.namelist()
+        assert 'evidence/reports/aware/filtering.tsv' in archive.namelist()
+    (root/'filtering.tsv').write_text('changed')
+    with pytest.raises(ValueError,match='filtering decisions changed'):methods.build(workspace,run)
+
+
+def test_identification_methods_exclude_filtering_claims(workspace,run):
+    root=Path(run['output'])/'reports/identification';root.mkdir(parents=True)
+    path=root/'review.json';path.write_text(json.dumps(dict(schema='hybas-identification-review-v1',isolate=run['sample']['id'],recommendation={'taxid':'11'})))
+    run['identification']=dict(state='awaiting_review',evidence_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+    doc=methods.build(workspace,run)
+    assert doc['completed_stage']=='identification'
+    assert 'filtering not established' in doc['state']
+    assert 'QUAST' not in '\n'.join(doc['paragraphs'])
+    path.write_text('{}')
+    with pytest.raises(ValueError,match='stage evidence changed'):methods.build(workspace,run)

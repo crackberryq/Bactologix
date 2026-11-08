@@ -20,3 +20,9 @@ Derived runs skip Kraken by default to avoid repeated filtering. Enable **Reclas
 **Continue to assembly** validates the same run's saved source and AWARE bundle, creates a checksummed continuation receipt, and performs a new native dry-run/environment check before assembly. It preserves the original YAML and reuses verified upstream outputs. Install missing environments through the existing controls, then retry continuation. Completion of assembly remains separate from completion of AWARE.
 
 Statistical intervals describe observed Kraken assignment support under sampling assumptions. Selection frequency is a deterministic stratified bootstrap of original assignments passed to the unchanged election rule. Neither statistic establishes identification correctness or removes database bias. Statistical evidence does not change the cleaning decision.
+
+## Stage-aware Methods and testing package
+
+Methods exports verify the saved identification or AWARE receipt. Identification-only and AWARE-only exports omit downstream method claims; completed assembly exports retain their available execution records. Reproducibility ZIPs include the verified stage evidence. The output picker shows the parent sample, child sample IDs and actual retained routes.
+
+Use `scripts/package_development_pair.py` to build an application wheel and both source archives from explicit Git commits. The generated `testing-pair.json` and `SHA256SUMS` identify the paired test build. Install into an isolated virtual environment and separate Bactologix home. A package is not an execution approval: the official prerelease compatibility registry remains the gate for managed runs on a new HybAs commit.
