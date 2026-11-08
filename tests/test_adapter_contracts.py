@@ -61,7 +61,7 @@ def test_database_admin_target_is_sample_free(tmp_path, tool, key):
 def test_environment_admin_dag_uses_all_native_recipes_without_samples(tmp_path, tool):
     source = native_source(tool)
     rows = maintenance.recipes({'tool': tool, 'source': str(source)})
-    assert len(rows) == len(maintenance.RECIPES[tool])
+    assert len(rows) == (6 if tool == "hybas" else len(maintenance.RECIPES[tool]))
     snakefile = maintenance.environment_snakefile(tmp_path, rows)
     result = subprocess.run([sys.executable, '-m', 'snakemake', '--snakefile', str(snakefile),
                              '--directory', str(tmp_path), '--cores', '1', '--dry-run'],

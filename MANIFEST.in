@@ -7,3 +7,6 @@ include tests/windows_desktop.ps1
 recursive-include src/bactologix/data *
 recursive-include src/bactologix/ui *
 global-exclude *.py[cod]
+
+include docs/RELEASE_0.1.0a55.md
+include docs/hybas-manifests.md

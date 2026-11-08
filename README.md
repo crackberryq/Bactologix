@@ -1,4 +1,6 @@
-# Bactologix 0.1.0a85 — Alpha
+# Bactologix 0.1.0a86.dev1 — Alpha (unreleased)
+
+[HybAs manifest inputs](docs/hybas-manifests.md)
 
 **Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a85/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
 

@@ -144,7 +144,8 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
                 page.locator('.defaults-editor [data-action="guided-run-tab"][data-id="' + name + '"]').click()
             def defaults_pipeline(name):
                 page.locator('[data-action="config-tool"][data-id="' + name + '"]').click()
-            expect(page.locator('.defaults-editor .mode-card')).to_have_count(4)
+            expect(page.locator('.defaults-editor .mode-card[data-choice-name="kraken_decision_mode"]')).to_have_count(4)
+            expect(page.locator('.defaults-editor .mode-card[data-choice-name="aware_run_until"]')).to_have_count(2)
             expect(page.get_by_label('Full configuration', exact=True)).to_have_count(0)
             capture('configuration-hybas')
             defaults_tab('quality')
@@ -2423,6 +2424,44 @@ def test_pipeline_order_and_reference_builder(tmp_path):
         browser.close()
 
 
+def test_hybas_manifest_preview_and_registration(tmp_path):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import snapshot, dispatch
+    from test_manifest_inputs import manifest
+    store = Store(tmp_path/'manifest workspace')
+    path, reads = manifest(tmp_path)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+        errors = [];page.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(page, store)
+        page.get_by_role('link', name='Samples', exact=True).click()
+        page.get_by_role('button', name='Import HybAs manifest', exact=True).click()
+        dialog = page.get_by_role('dialog', name='Import HybAs libraries', exact=True)
+        expect(dialog.get_by_role('button', name='Import reviewed libraries', exact=True)).to_be_disabled()
+        dialog.get_by_label('Manifest path', exact=True).fill(str(path))
+        def respond(kind, failure=False):
+            req = page.evaluate('window.acceptanceEvents.at(-1).value');assert req['kind']==kind
+            try:
+                result=dispatch(store,kind,req['payload']);assert not failure
+                response={'id':req['id'],'ok':True,**result}
+            except ValueError as exc:
+                assert failure
+                response={'id':req['id'],'ok':False,'message':str(exc)}
+            page.evaluate('({response,workspace}) => {Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                          {'response':response,'workspace':snapshot(store)})
+        dialog.get_by_role('button',name='Preview libraries',exact=True).click();respond('preview_manifest')
+        expect(dialog.locator('tbody')).to_contain_text('pacbio')
+        path.write_text(path.read_text()+'# changed\n')
+        dialog.get_by_role('button',name='Import reviewed libraries',exact=True).click();respond('import_manifest',True)
+        expect(dialog.get_by_role('alert')).to_contain_text('changed')
+        assert not store.all('samples')
+        dialog.get_by_role('button',name='Preview libraries',exact=True).click();respond('preview_manifest')
+        dialog.get_by_role('button',name='Import reviewed libraries',exact=True).click();respond('import_manifest')
+        expect(dialog).to_have_count(0)
+        assert store.get('samples','sample')['mode']=='pacbio_only'
+        assert not store.jobs() and not store.all('runs') and not errors
+
 def test_reference_starter_default_edit_restore_and_build(tmp_path, monkeypatch):
     from playwright.sync_api import sync_playwright, expect
     from bactologix import database_builder
@@ -2567,11 +2606,23 @@ from test_identification import paused
 from test_native import workspace, installation, sample
 
 
-def test_identification_review_target_preview_and_saved_choice(paused, monkeypatch):
+@pytest.mark.parametrize("long_platform", ["ont", "pacbio"])
+def test_identification_review_target_preview_and_saved_choice(paused, monkeypatch, long_platform):
     from playwright.sync_api import sync_playwright, expect
     from bactologix.ui_backend import dispatch, snapshot
     from bactologix import identification
     store, run = paused
+    if long_platform == 'pacbio':
+        import json
+        path=identification.report_path(run);doc=json.loads(path.read_text())
+        doc['platforms']={'illumina':True,'pacbio':True}
+        for row in doc['candidates']:
+            row['pacbio_pct']=row.pop('ont_pct')
+            row['manual_actions']['pacbio']='whitelist_filter'
+            del row['manual_actions']['ont']
+        doc['recommendation']['actions']={'illumina':'passthrough','pacbio':'whitelist_filter'}
+        path.write_text(json.dumps(doc));identification.capture(run,'identification-job')
+        store.put('runs',run['id'],run)
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={'width': 1440, 'height': 1000})
@@ -2588,6 +2639,7 @@ def test_identification_review_target_preview_and_saved_choice(paused, monkeypat
         respond()
         dialog=page.get_by_role('dialog',name='Review identification',exact=True)
         expect(dialog).to_contain_text('Example one')
+        expect(dialog).to_contain_text('PacBio %' if long_platform=='pacbio' else 'ONT %')
         dialog.locator('#identification-mode').select_option('manual')
         dialog.locator('#identification-candidate').select_option('22')
         expect(dialog.locator('#identification-taxid')).to_have_value('22')
@@ -2610,5 +2662,63 @@ def test_identification_review_target_preview_and_saved_choice(paused, monkeypat
         assert len(store.jobs())==1 and store.jobs()[0]['payload']['action']=='continue'
         assert store.get('runs',run['id'])['identification']['selection']['taxid']=='22'
         assert Path(run['folder'],'config.yaml').read_text()==run['config']
+        assert not errors,errors
+        browser.close()
+
+
+def test_aware_portable_bundle_selection(tmp_path):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import snapshot, dispatch
+    from test_aware_outputs import bundle
+    store=Store(tmp_path/'aware workspace')
+    path,_=bundle(tmp_path/'bundle')
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True)
+        page=browser.new_page(viewport={'width':1440,'height':1100})
+        errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
+        render_component(page,store)
+        page.get_by_role('link',name='Samples',exact=True).click()
+        page.get_by_role('button',name='Import AWARE bundle',exact=True).click()
+        dialog=page.get_by_role('dialog',name='AWARE outputs',exact=True)
+        dialog.get_by_label('AWARE manifest path',exact=True).fill(str(path))
+        def respond(kind):
+            req=page.evaluate('window.acceptanceEvents.at(-1).value');assert req['kind']==kind
+            result=dispatch(store,kind,req['payload'])
+            page.evaluate('({response,workspace})=>{Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                          {'response':{'id':req['id'],'ok':True,**result},'workspace':snapshot(store)})
+        dialog.get_by_role('button',name='Preview bundle',exact=True).click();respond('preview_aware')
+        expect(dialog.locator('tbody')).to_contain_text('Example species')
+        dialog.get_by_role('checkbox',name='Select Example species',exact=True).check()
+        dialog.get_by_role('button',name='Register selected samples',exact=True).click();respond('import_aware')
+        expect(dialog).to_have_count(0)
+        assert store.get('samples','derived')['mode']=='pacbio_only'
+        assert not errors and not store.jobs()
+        browser.close()
+
+
+def test_aware_plus_mode_controls_and_experimental_notice(tmp_path):
+    from playwright.sync_api import sync_playwright, expect
+    store=Store(tmp_path/'workspace')
+    store.put('configs','hybas','aware_mode: taxonomy\nrun_kraken: true\nkraken_decision_mode: aware\n')
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True)
+        page=browser.new_page(viewport={'width':1440,'height':1000})
+        errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+        render_component(page,store)
+        page.get_by_role('link',name='Configuration',exact=True).click()
+        panel=page.locator('.defaults-editor')
+        expect(panel).to_contain_text('HybAs 10 — Experimental')
+        expect(panel).to_contain_text('Reconstruct populations — Not implemented')
+        modes=panel.locator('[data-choice-name="aware_mode"]')
+        expect(modes).to_have_count(5)
+        for mode in ('split','off','auto','taxonomy','legacy'):
+            panel.locator(f'[data-choice-name="aware_mode"][data-value="{mode}"]').click()
+            expect(panel.locator(f'[data-choice-name="aware_mode"][data-value="{mode}"]')).to_have_attribute('aria-pressed','true')
+            if mode=='split':
+                expect(panel.locator('[data-choice-name="aware_run_until"][data-value="aware"]')).to_have_attribute('aria-pressed','true')
+        expect(panel.locator('[data-choice-name="kraken_decision_mode"]')).to_have_count(4)
+        for width in (390,1440):
+            page.set_viewport_size({'width':width,'height':1000})
+            assert panel.evaluate('(e)=>e.scrollWidth<=e.clientWidth+1')
         assert not errors,errors
         browser.close()

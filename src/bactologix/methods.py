@@ -314,6 +314,10 @@ def build(store, run):
     latest = jobs[0] if jobs else None
     complete = bool(run.get('completed')) and (not latest or latest['status'] == 'succeeded')
     state = 'Completed workflow' if complete else 'Incomplete execution' if jobs else 'Planned methods'
+    from .aware_methods import describe
+    stage = describe(run, complete, _read)
+    if stage:
+        state = stage['state']
     receipt = store.get('methods_evidence', run['id'])
     evidence, origin = {}, 'No completed execution record'
     if complete:
@@ -329,7 +333,7 @@ def build(store, run):
     warnings.extend(evidence.get('warnings', []))
     if evidence.get('native_run', {}).get('completeness') == 'incomplete':
         warnings.append('The native report records incomplete requested scope. Review the module execution statuses before describing the analyses as completed.')
-    if not complete:
+    if not complete and not stage:
         warnings.append('Planned settings only: this export does not claim that analyses completed. Download again after completion.')
     if run['tool'] == 'micpscope':
         paragraphs, tools = ['The workflow was configured to calculate protein sequence descriptors with Biopython and generate a source-labelled evidence report. These descriptors do not determine pH or temperature optima, shelf life, material performance or deployment safety.'], ['micpscope', 'biopython', 'snakemake']
@@ -337,6 +341,22 @@ def build(store, run):
         paragraphs, tools = (_hybas if run['tool'] == 'hybas' else _basis)(effective, run)
     else:
         paragraphs, tools = ['The saved configuration is provided in the supplement. Method-specific prose is unavailable for this source version.'], []
+    if stage:
+        if not complete:
+            paragraphs, tools = stage['paragraphs'], stage['tools']
+        else:
+            paragraphs.extend(stage['paragraphs'])
+        origin = stage['origin'] if not complete else origin + '; ' + stage['origin']
+        evidence['aware_stage'] = stage['evidence']
+        evidence.setdefault('files', []).extend(stage['files'])
+        if complete and evidence.get('decisions', {}).get('final_source_stage'):
+            paragraphs.append('The retained execution record identifies the final assembly source stage as ' + str(evidence['decisions']['final_source_stage']) + '. Executed polishing stages were ' + (', '.join(evidence['decisions'].get('executed_stages', [])) or 'none recorded') + '.')
+    if run['tool'] == 'hybas' and (run.get('experimental') or effective.get('aware_mode', 'legacy') != 'legacy' or '10.' in str(run.get('version', {})) or '10.' in str(effective.get('workflow_version', ''))):
+        paragraphs.insert(0, 'HybAs 10 is experimental: input modes, polishing paths and AWARE+ features have not completed analytical validation. AWARE+ mode: ' + str(effective.get('aware_mode', 'legacy')) + '.')
+    provenance = run['sample'].get('aware_provenance')
+    if provenance:
+        paragraphs.append('Inputs were derived from AWARE parent sample ' + provenance['parent_sample'] + ', group ' + provenance['group'] + '. The source bundle SHA-256 was ' + provenance['bundle_sha256'] + '.')
+        paragraphs.append('Kraken reclassification of the retained inputs was ' + ('enabled in this draft.' if explicit.get('aware_reclassify_derived') else 'disabled; the draft reused the retained read group.'))
     transition = run.get('followup_transition')
     if transition:
         from .followup import verify_transition
@@ -403,6 +423,7 @@ def build(store, run):
         'config_sha256': run['config_sha256'], 'workflow_sha256': run['workflow_sha256'],
         'followup_transition': run.get('followup_transition'),
         'sample_id': run['sample']['id'], 'parent': run.get('parent'), 'completed': run.get('completed') if complete else None,
+        'completed_stage': stage['stage'] if stage else ('assembly' if complete and run['tool']=='hybas' else None),
         'paragraphs': [intro, *paragraphs], 'execution': execution, 'software': software,
         'parameters': parameters, 'warnings': list(dict.fromkeys(warnings)), 'evidence_origin': origin,
         'evidence': evidence, 'citation_url': f"https://github.com/{PIPELINES[run['tool']]['repo']}/tree/{run['commit']}"}
@@ -455,6 +476,15 @@ def download(store, run, format):
         for row in doc['parameters']:
             writer.writerow(["'" + v if v.startswith(('=', '+', '-', '@', '\t', '\r', '\n')) else v for v in row.values()])
         archive.writestr('settings.tsv', table.getvalue())
+        if doc.get('completed_stage') in {'identification', 'aware', 'assembly'} and doc['evidence'].get('aware_stage'):
+            for item in doc['evidence'].get('files', []):
+                if not item['path'].startswith(('reports/aware/', 'reports/identification/')):
+                    continue
+                raw = _read(run['output'], item['path'])
+                if raw is None or hashlib.sha256(raw).hexdigest() != item['sha256']:
+                    raise ValueError('Stage evidence changed during Methods download.')
+                archive.writestr('evidence/' + item['path'], raw)
+
         citation = _read(Path(run['folder']) / 'workflow', 'CITATION.cff')
         if citation:
             archive.writestr('citations/pipeline-source-CITATION.cff', citation)

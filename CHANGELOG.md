@@ -1,3 +1,24 @@
+## 0.1.0a86.dev3 — AWARE reporting and testing package (unreleased)
+
+- Export evidence-verified, stage-specific Methods for identification and AWARE completion, including optional preservation/statistics and derived-input provenance.
+- Show parent sample and child IDs alongside actual retained routes in the output picker.
+- Build paired development source archives and an app wheel from immutable commits, with checksums and an explicit test matrix. Managed execution remains subject to exact-commit prerelease review.
+
+## 0.1.0a86.dev2 — Unified AWARE outputs (unreleased)
+
+- Add one AWARE configuration group for the run endpoint, optional read preservation, statistical evidence and explicit reclassification of derived inputs.
+- Distinguish AWARE completion from assembly completion. Continue the same frozen run using a checksummed AWARE receipt and a fresh native dry-run/environment check.
+- Inspect and select primary/provisional species groups, or import a portable AWARE bundle from another folder. Keep actual library types, read groups, pairing and PacBio chemistry; derive the child input mode from retained data.
+- Verify bundle content before registration and derived inputs before execution. Prevent repeated filtering by default, retain parent provenance, and keep ambiguous/unclassified groups available for inspection/export.
+- Preserve all a85 branding, citation, workspace and navigation changes. Development integration only; no stable release activation.
+
+## 0.1.0a86.dev1 — HybAs 10 integration (unreleased)
+
+- Integrate the v10 manifest/Auto controls with the current app, including identification review and recent installer/recovery updates.
+- Preserve boolean pause controls alongside Auto module settings and show PacBio evidence and filtering actions explicitly.
+- Preserve the a85 GenoMix Human Link branding, navigation order, visible citation downloads and personalized workspace labels.
+- Keep exact-commit compatibility gating; no new pipeline release is activated.
+
 ## 0.1.0a85 — Workspace branding and citations
 
 - Show Powered by GenoMix Human Link below the Bactologix brand.
@@ -155,6 +176,14 @@
 - Keep stop-request history while removing the misleading pending-stop label from finished attempts.
 
 # Changelog
+
+## Bactologix 0.1.0a55 — Alpha (unreleased)
+
+- Import reviewed HybAs input manifests with platform, chemistry, library preparation, orientation and read-group identity. Check file availability and reject changes between preview and registration.
+- Freeze the selected sample's manifest in each run; retain original declarations and input size/mtime identity. Verify frozen bytes and inputs before resume. Do not modify source reads or existing runs.
+- Require a reviewed `hybas-v2` exact-commit contract for manifest inputs and Auto settings. Old application adapters reject this schema. New v2 workspaces default supported controls to Auto; saved explicit defaults remain unchanged.
+- Discover pinned Flye, SPAdes and NxTrim environments for setup and show the integrated HybAs research report in results. Controller requirements remain derived from the approved source.
+- Add a separate Snakemake 9.27.1 native DAG check for frozen HiFi, CLR/Illumina and ONT/Illumina inputs. No new HybAs release is activated by this application change.
 
 ## 0.1.0a61 — Keep saved-run editing on the requested run
 
@@ -595,7 +624,6 @@ Created by **Jimi Goldstein · Human Link**.
 - Full biological analyses, analysis environments/databases/GPU tools, target-browser behavior and WSL2/aarch64-specific installation have not been validated in this development session.
 - This release is distributed through GitHub, not PyPI.
 
+## 0.1.0a86.dev4 — experimental AWARE+ modes
 
-
-
-
+Unified Off / Taxonomy / Auto / Split controls with source capability checks, automatic ambiguity review, unchanged legacy configurations, and experimental status in run details and Methods. Reconstruct remains unavailable. Full analytical validation of HybAs 10 inputs, polishing and AWARE+ is pending.

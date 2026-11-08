@@ -217,6 +217,8 @@ def check_run_files(run):
     verify(run, full=False)
     from .identification import check_decision
     check_decision(run)
+    from .aware_outputs import check_continuation
+    check_continuation(run)
     folder = Path(run["folder"])
     if hashlib.sha256((folder / "config.yaml").read_bytes()).hexdigest() != run["config_sha256"]:
         raise ValueError("Saved configuration changed. Create a new draft for changed settings.")
@@ -232,6 +234,8 @@ def check_run_files(run):
     expected_sheet = sample_sheet(run["sample"], run["tool"], run["output"]).encode()
     if (folder / "samples.tsv").read_bytes() != expected_sheet:
         raise ValueError("Saved sample sheet changed. Create a new draft.")
+    from .manifest_inputs import verify as verify_manifest
+    verify_manifest(run)
     check_inputs(run)
     expected = run.get("input_layout")
     if expected is None:
@@ -277,10 +281,17 @@ def run_status(run, jobs, checked):
         return related[0]["status"]
     if run.get("identification", {}).get("state") == "awaiting_review":
         return "awaiting_review"
+    if run.get("aware", {}).get("state") == "complete" and not run.get("completed"):
+        return "aware_complete"
     return "completed" if run.get("completed") else "checked" if checked else "draft"
 
 
 def stage_inputs(sample, tool, destination):
+    if sample.get("input_manifest"):
+        if tool != "hybas":
+            raise ValueError("Manifest samples are HybAs inputs; use completed outputs for downstream pipelines")
+        from .manifest_inputs import stage
+        return stage(sample, destination)
     original = Path(sample["path"])
     sid = sample["id"]
     inputs = []
@@ -400,11 +411,33 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         raise ValueError("Set up a supported pipeline runner first")
     if installed.get('setup_mode') == 'first_install' and not installed.get('setup_completed'):
         raise ValueError('Finish first-time installation in Install & update before creating a run draft')
+    if sample.get("input_manifest"):
+        from .manifest_inputs import require_adapter
+        require_adapter(store, tool, installed)
     cores, memory_mb = int(cores), int(memory_mb)
     if cores < 1 or memory_mb < 512:
         raise ValueError("Choose at least one core and 512 MB memory")
     cfg = bind_paths(parse_config(config_text), tool, store, installed)
     if tool == "hybas":
+        from .aware_modes import resolve
+        cfg = resolve(cfg)
+        if cfg.get("aware_mode", "legacy") != "legacy":
+            capability = Path(installed["source"]) / "app/aware-outputs.json"
+            if not capability.is_file() or json.loads(capability.read_text()).get("modes_interface") != 1:
+                raise ValueError("Select a HybAs 10 experimental version supporting AWARE+ modes.")
+        from .run_config import uses_auto
+        from .manifest_inputs import require_adapter
+        if uses_auto(cfg):
+            require_adapter(store, tool, installed)
+
+        from . import aware_outputs
+        if any(cfg.get(k) for k in ('aware_assembly_continuation', 'aware_assembly_continuation_sha256')):
+            raise ValueError('Assembly continuation is managed through AWARE outputs, not draft YAML.')
+        if aware_outputs.enabled(cfg) and not aware_outputs.supports(installed['source']):
+            raise ValueError('This HybAs version does not support unified AWARE outputs. Select a compatible development version.')
+        if sample.get('aware_provenance') and not cfg.get('aware_reclassify_derived', False):
+            cfg.update(aware_mode='off', run_kraken=False, kraken_decision_mode='off', kraken_review_before_filtering=False,
+                       aware_run_until='assembly', aware_preserve_groups=False, aware_statistics=False)
         from .identification import OPTION, supports
         if OPTION in cfg and not isinstance(cfg[OPTION], bool):
             raise ValueError("Pause after identification must be true or false.")
@@ -426,8 +459,15 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         inputs = stage_inputs(sample, tool, output)
         if expected_inputs is not None and inputs != expected_inputs:
             raise ValueError("Original inputs differ from the parent run. Register changed data as a new run, not a comparison variant.")
-        cfg["threads"] = cores
+        if tool != "hybas" or cfg.get("threads") != "auto":
+            cfg["threads"] = cores
+        frozen_manifest = None
         if tool == "hybas":
+            cfg.pop("input_manifest", None)
+            if sample.get("input_manifest"):
+                from .manifest_inputs import freeze
+                frozen_manifest = freeze(sample, folder)
+                cfg["input_manifest"] = frozen_manifest["path"]
             cfg.update(base_dir=str(folder / "outputs"), sample_sheet=str(folder / "samples.tsv"), setup_only=False, admin_mode=False, ci_mode=False)
             cfg.pop("isolate", None)
         elif tool == "micpscope":
@@ -450,7 +490,10 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
                "workflow_sha256": tree_digest(folder / "workflow"), "inputs": inputs, "input_layout": input_layout(output, tool), "cores": cores, "memory_mb": memory_mb,
                "parent": parent, "label": label or sample["id"], "created": now(), "dry_run_ok": False,
                "bactologix_version": __version__,
+               "experimental": tool == "hybas" and (Path(installed["source"]) / "app/aware-outputs.json").is_file(),
                "reuse": "input-files-only; workflow outputs are independent"}
+        if frozen_manifest:
+            run["frozen_manifest"] = frozen_manifest
         (folder / "bactologix-run.json").write_text(json.dumps(run, indent=2) + "\n")
         if register:
             store.register_run(run)
@@ -496,7 +539,7 @@ def validate_launch(store, rid, action, check_busy=True):
     preflight(store, run["tool"], run["commit"], Path(run["folder"]) / "workflow")
     if not supported(run["tool"], run["commit"], store):
         raise ValueError("This source version has no reviewed execution adapter")
-    if action == "continue" and not run.get("identification", {}).get("decision_path"):
+    if action == "continue" and not (run.get("identification", {}).get("decision_path") or run.get("aware", {}).get("continuation_path")):
         raise ValueError("Review and finalize the target before continuing.")
     if action == "run" and run.get("identification", {}).get("state") == "awaiting_review":
         raise ValueError("Awaiting researcher review. Open Review identification to choose the target.")
@@ -536,8 +579,16 @@ def command(store, run, action):
     elif action == "run":
         pos = argv.index('snakemake')
         argv[pos:pos] = ['python', str(DATA / 'run_existing.py')]
+    if run["tool"] == "hybas" and parse_config(run["config"]).get("aware_mode") == "auto" and action in {"prepare", "check-environments"}:
+        # Auto checkpoints discover the downstream DAG after taxonomy; prepare all configured environments up front.
+        argv.extend(["all", "setup_envs"])
     from .identification import arguments
-    argv.extend(arguments(run))
+    decision_args = arguments(run)
+    from .aware_outputs import arguments as aware_arguments
+    extra = aware_arguments(run)
+    if extra:
+        decision_args = decision_args + extra if decision_args else ['--config', *extra]
+    argv.extend(decision_args)
     if bootstrap:
         argv.extend(['--forcerun', 'capture_followup_review'])
     return argv
@@ -547,6 +598,8 @@ def execute_workflow(ctx):
     payload, store = dict(ctx.job["payload"]), ctx.store
     run = validate_launch(store, payload["run_id"], payload["action"], check_busy=False)
     from .variants import verify
+    from .aware_outputs import verify_sample
+    verify_sample(run["sample"])
     verify(run)  # Full hashes at execution, not on every UI readiness refresh.
     if tree_digest(Path(run["folder"]) / "workflow") != run["workflow_sha256"]:
         raise ValueError("The run's workflow source changed; create a new draft")
@@ -555,7 +608,7 @@ def execute_workflow(ctx):
         check_environments(ctx, run)
         return
     if payload["action"] == "continue":
-        ctx.write("Validating the finalized identification decision and continuation plan")
+        ctx.write("Validating the saved AWARE decisions and continuation plan")
         run['dry_run_ok'] = False
         store.put('runs', run['id'], run)
         ctx.command(command(store, run, 'dry-run'), cwd=Path(run['folder']) / 'workflow')
@@ -599,11 +652,20 @@ def execute_workflow(ctx):
         run["validated_controller"] = run["last_controller"]
     elif payload["action"] == "run":
         from . import identification
-        if identification.enabled(run) and not run.get('identification', {}).get('decision_path'):
+        if identification.enabled(run) and not run.get('identification', {}).get('decision_path') and identification.waiting(run):
             identification.capture(run, ctx.job['id'])
             store.put('runs', run['id'], run)
             ctx.write('Identification complete. Awaiting researcher review; no filtering or assembly was started.')
             return
+        from . import aware_outputs
+        cfg = parse_config(run['config'])
+        if run['tool'] == 'hybas' and aware_outputs.enabled(cfg):
+            aware_outputs.capture(run, ctx.job['id'])
+            if cfg.get('aware_run_until') == 'aware' and not run['aware'].get('continuation_path'):
+                store.put('runs', run['id'], run)
+                ctx.write('AWARE complete. Outputs are ready for inspection, derived samples, or continuation to assembly.')
+                return
+            run['aware']['state'] = 'assembled'
         run["completed"] = now()
         if run.get('identification'):
             run['identification']['state'] = 'completed'
@@ -630,6 +692,9 @@ def report_candidates(store, run):
             entries.insert(0, ("HybAs AWARE report", "reports/hybas/report.html"))
         if run["tool"] == "basis" and not store.get("followup_output_owner", run["id"]):
             entries.append(("Follow-up report", "safety/deepsafe-report/report.html"))
+    if run["tool"] == "hybas" and run.get("run_type") != "followup":
+        entries.append(("AWARE outputs", "reports/aware/report.html"))
+        entries.append(("HybAs research report", "reports/hybas_research/hybas_report.html"))
     return entries
 
 
@@ -651,7 +716,3 @@ def reports(store):
         if Path(item["report"]).is_file():
             result.append({"id": item["id"], "name": "Live test report", "path": item["report"], "run": item["id"], "sample": "Software smoke test"})
     return result
-
-
-
-

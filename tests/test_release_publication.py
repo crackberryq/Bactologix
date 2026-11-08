@@ -127,3 +127,12 @@ def test_temporary_draft_url_cannot_point_to_another_repository(publication):
     state['release']['assets'][0]['browser_download_url'] = 'https://github.com/other/repo/releases/download/untagged-123abc/wheel.whl'
     with pytest.raises(ValueError, match='updater would reject'):
         publisher.verify_assets(state['release'], list(dist.iterdir()), VERSION)
+
+
+def test_canonical_alpha_release_name_and_notes(publication):
+    root, dist, state = publication
+    (root/'CHANGELOG.md').write_text(f'# Changelog\n\n## Bactologix {VERSION} — Alpha\n\n- Canonical release notes.\n')
+    publisher.publish(root, dist, COMMIT)
+    assert state['release']['name'] == f'Bactologix {VERSION} — Alpha'
+    assert state['release']['tag_name'] == 'v' + VERSION
+    assert 'Canonical release notes.' in state['release']['body']

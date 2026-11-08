@@ -24,7 +24,7 @@ from . import environment_health
 
 RECIPES = {
     "micpscope": {"properties": "Protein properties and evidence report", "database-builder": "Database Builder (DIAMOND)", "reference-search": "Reference protein search (DIAMOND)"},
-    "hybas": {"assembly": "Assembly and read preparation", "qc": "QC, Kraken2 and BUSCO",
+    "hybas": {"library_assembly": "Library-aware SPAdes assembly", "library_preprocess": "Illumina and Nextera preparation", "pacbio_assembly": "PacBio Flye assembly", "assembly": "Assembly and read preparation", "qc": "QC, Kraken2 and BUSCO",
               "polishing": "Racon and Polypolish", "medaka": "Medaka", "annotation": "Prokka",
               "controller": "Lightweight workflow Python"},
     "basis": {"core-amr": "AMRFinderPlus", "rgi": "CARD / RGI", "diamond": "VFDB and BacMet",
@@ -383,6 +383,3 @@ def download_log_tail(store, job):
         except OSError:
             continue
     return ''.join(tails)
-
-
-

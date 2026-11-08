@@ -1,5 +1,6 @@
 """Typed, run-local configuration editing without changing saved defaults."""
 from __future__ import annotations
+from pathlib import Path
 
 import json
 import math
@@ -13,18 +14,52 @@ from .runs import parse_config
 
 MANAGED = {
     'micpscope': {'samples', 'output_dir', 'threads', 'memory_mb', 'reference_database_sha256'},
-    'hybas': {'base_dir', 'sample_sheet', 'isolate', 'threads', 'setup_only', 'admin_mode', 'ci_mode', 'kraken_review_decision', 'kraken_review_decision_sha256'},
+    'hybas': {'base_dir', 'sample_sheet', 'input_manifest', 'isolate', 'threads', 'setup_only', 'admin_mode', 'ci_mode', 'kraken_review_decision', 'kraken_review_decision_sha256', 'aware_assembly_continuation', 'aware_assembly_continuation_sha256'},
     'basis': {'bactomics_root', 'samples', 'isolates', 'isolate', 'threads', 'memory_mb',
               'execution.cores', 'execution.memory_mb'},
 }
 OPTIONS = {
     'micpscope': {},
-    'hybas': {'kraken_decision_mode': ['off', 'manual', 'auto', 'aware'],
+    'hybas': {'aware_mode': ['legacy', 'off', 'taxonomy', 'auto', 'split'], 'aware_run_until': ['assembly', 'aware'], 'kraken_decision_mode': ['off', 'manual', 'auto', 'aware'],
               'polish_mode': ['none', 'racon', 'medaka', 'tripolish']},
     'basis': {'resources.policy': ['auto', 'manual'],
               'deep.aware.preset': ['auto-strict', 'auto-medium', 'auto-loose']},
 }
+AUTO_MODULES = {'run_kraken', 'run_busco', 'run_prokka', 'run_multiqc', 'run_polypolish'}
+AUTO_INTEGERS = {'threads', 'total_mem_mb', 'assembly_mem_mb', 'spades_memory_gb', 'polishing_mem_mb', 'kraken_mem_mb', 'busco_mem_mb', 'prokka_mem_mb'}
+AUTO_KEYS = AUTO_MODULES | AUTO_INTEGERS | {'run_mode', 'polish_mode'}
+
+
+def uses_auto(cfg):
+    return any(cfg.get(key) == 'auto' for key in AUTO_KEYS)
+
+
+def defaults(store, tool):
+    saved = store.get('configs', tool)
+    if saved is not None:
+        return saved
+    from .runs import template
+    text = template(tool)
+    if tool == 'hybas':
+        from .release_contract import approval
+        installed = store.get('installs', store.get('settings', 'active-hybas'))
+        row = approval(store, tool, installed['version']['commit']) if installed else None
+        if row and row['configuration_schema'] == 'hybas-v2':
+            cfg = parse_config(text)
+            cfg.update({key: 'auto' for key in AUTO_KEYS})
+            capability = Path(installed['source']) / 'app/aware-outputs.json'
+            if capability.is_file() and json.loads(capability.read_text()).get('modes_interface') == 1:
+                cfg['aware_mode'] = 'auto'
+            return yaml.safe_dump(cfg, sort_keys=False)
+    return text
+
+
 LABELS = {
+    'aware_mode': 'AWARE+ · Mode',
+    'aware_run_until': 'AWARE+ · Run endpoint',
+    'aware_preserve_groups': 'AWARE · Preserve additional read groups',
+    'aware_statistics': 'AWARE · Statistical evidence',
+    'aware_reclassify_derived': 'AWARE · Reclassify derived inputs',
     'kraken_review_before_filtering': 'Pause after identification',
     'run_kraken': 'Run Kraken2', 'kraken_decision_mode': 'Kraken decision mode',
     'run_busco': 'Run BUSCO', 'run_prokka': 'Run Prokka', 'run_multiqc': 'Run MultiQC',
@@ -35,6 +70,11 @@ LABELS = {
     'deep.aware.enabled': 'Enable BaSIS AWARE', 'deep.aware.preset': 'AWARE preset',
 }
 HELP = {
+    'aware_run_until': 'Assembly runs the complete workflow. Aware stops after identification, filtering and requested reports; continue assembly later from the saved run.',
+    'aware_preserve_groups': 'Retain provisional species groups plus shared and unclassified reads. Supports Illumina, ONT and PacBio. Does not reconstruct strains.',
+    'aware_statistics': 'Report assignment-support intervals and resampling stability, not the probability of correct identification.',
+    'aware_reclassify_derived': 'Derived samples reuse verified retained reads and skip Kraken by default. Enable to apply the selected Kraken settings again.',
+
     'kraken_review_before_filtering': 'Stop after Kraken, review the report, then finalize the target and continue. Requires a compatible HybAs version.',
     'run_kraken': 'Switching off also sets the decision mode to Off. Switching on from Off selects AWARE.',
     'kraken_decision_mode': 'Off skips Kraken. Manual, Auto and AWARE enable it. The pipeline keeps its existing decision rules.',
@@ -74,7 +114,7 @@ def _group(tool, name):
     if tool == 'hybas':
         if name in {'db_root', 'kraken_db_name', 'busco_lineage', 'busco_download_lineages'}:
             return 'Databases'
-        if name == 'run_kraken' or name.startswith('kraken_') or 'taxid' in name:
+        if name == 'run_kraken' or name.startswith(('kraken_', 'aware_')) or 'taxid' in name:
             return 'Kraken & AWARE'
         if any(x in name for x in ('polish', 'racon', 'medaka', 'keep_percent')):
             return 'Assembly & polishing'
@@ -104,7 +144,8 @@ def editor(tool, text):
     defaults = json.loads((DATA / 'config-catalog.json').read_text())['defaults'][tool]
     defaults = _flatten(defaults)
     supplied = _flatten(cfg)
-    extras = ({'busco_download_lineages': [cfg.get('busco_lineage', 'bacteria_odb10')], 'kraken_mem_mb': None, 'kraken_review_before_filtering': False}
+    auto = tool == 'hybas' and uses_auto(cfg)
+    extras = ({'busco_download_lineages': [cfg.get('busco_lineage', 'bacteria_odb10')], 'kraken_mem_mb': None, 'kraken_review_before_filtering': False, 'aware_mode':'legacy', 'aware_run_until':'assembly', 'aware_preserve_groups':False, 'aware_statistics':False, 'aware_reclassify_derived':False}
               if tool == 'hybas' else {} if tool == 'micpscope' else {'storage': {'native_results_directory': None}})
     defaults.update(_flatten(extras))
     # Include companion paths and model identities recognized by the database selector.
@@ -129,7 +170,14 @@ def editor(tool, text):
             kind = 'optional_integer' if name == 'kraken_mem_mb' else 'optional_string'
         if tool == 'micpscope' and name == 'reference_database':
             kind = 'reference_database'
-        options = OPTIONS[tool].get(name, [])
+        options = list(OPTIONS[tool].get(name, []))
+        if auto and name in AUTO_MODULES:
+            options = ['auto', 'true', 'false']
+            value = str(value).lower()
+        if auto and name == 'polish_mode':
+            options.insert(0, 'auto')
+        if auto and name in AUTO_INTEGERS:
+            kind = 'string'
         if options and isinstance(value, str):
             kind = 'select'
         rows.append({'key': key, 'name': name, 'path': path, 'value': value, 'kind': kind,
@@ -202,10 +250,16 @@ def compile_config(tool, text, changes=None):
                 if not isinstance(raw, str):
                     raise ValueError('enter a text value')
                 value = raw
-            if row['options'] and value not in row['options']:
+            if tool == 'hybas' and row['name'] in AUTO_KEYS and value == 'auto':
+                pass
+            elif row['options'] and value not in row['options']:
                 raise ValueError('choose ' + ', '.join(row['options']))
         except (ValueError, TypeError, OverflowError, yaml.YAMLError) as exc:
             raise ValueError(row['name'] + ': ' + str(exc)) from exc
+        if tool == 'hybas' and row['name'] in AUTO_MODULES and value in ('true', 'false'):
+            value = value == 'true'
+        if tool == 'hybas' and row['name'] in AUTO_INTEGERS and isinstance(value, str) and value.isdigit():
+            value = int(value)
         _assign(cfg, row['path'], value, remove)
     result = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True) if changes else text
     parse_config(result)
@@ -217,24 +271,26 @@ def validate(tool, text):
     from .hardware import workflow_environment
     workflow_environment(cfg)
     if tool == 'hybas':
+        from .aware_modes import resolve
+        cfg = resolve(cfg)
         for name, options in OPTIONS[tool].items():
-            if name in cfg and cfg[name] not in options:
+            if name in cfg and cfg[name] not in options and not (name in AUTO_KEYS and cfg[name] == 'auto'):
                 raise ValueError(name + ': choose ' + ', '.join(options))
-        for name in ('kraken_review_before_filtering', 'run_kraken', 'run_busco', 'run_prokka', 'run_multiqc', 'run_polypolish'):
-            if name in cfg and not isinstance(cfg[name], bool):
+        for name in ('aware_preserve_groups', 'aware_statistics', 'aware_reclassify_derived', 'kraken_review_before_filtering', 'run_kraken', 'run_busco', 'run_prokka', 'run_multiqc', 'run_polypolish'):
+            if name in cfg and not isinstance(cfg[name], bool) and (name == 'kraken_review_before_filtering' or name.startswith('aware_') or cfg[name] != 'auto'):
                 raise ValueError(name + ' must be true or false.')
         if cfg.get('kraken_decision_mode', 'aware') != 'off' and cfg.get('run_kraken', True) is False:
             raise ValueError('Kraken is off but its decision mode is enabled. Set the mode to Off or enable Run Kraken2.')
-        if cfg.get('kraken_review_before_filtering') and (cfg.get('kraken_decision_mode') == 'off' or cfg.get('run_kraken') is False):
+        if (cfg.get('kraken_review_before_filtering') or cfg.get('aware_run_until') == 'aware' or cfg.get('aware_preserve_groups') or cfg.get('aware_statistics')) and (cfg.get('kraken_decision_mode') == 'off' or cfg.get('run_kraken') is False):
             raise ValueError('Pause after identification requires Kraken to be enabled.')
         for name, value in cfg.items():
             if name == 'keep_percent' or name.startswith('kraken_') and name.endswith('_percent'):
                 if isinstance(value, bool) or not isinstance(value, (int, float)) or not (1 if name == 'keep_percent' else 0) <= value <= 100:
                     raise ValueError(name + ' must be within ' + ('1–100.' if name == 'keep_percent' else '0–100.'))
         for name in ('assembly_mem_mb', 'polishing_mem_mb', 'kraken_mem_mb', 'spades_memory_gb', 'min_fasta_length', 'racon_rounds'):
-            if name in cfg and (isinstance(cfg[name], bool) or not isinstance(cfg[name], int) or cfg[name] < (0 if name == 'racon_rounds' else 1)):
+            if name in cfg and not (name in AUTO_KEYS and cfg[name] == 'auto') and (isinstance(cfg[name], bool) or not isinstance(cfg[name], int) or cfg[name] < (0 if name == 'racon_rounds' else 1)):
                 raise ValueError(name + ' must be a ' + ('nonnegative' if name == 'racon_rounds' else 'positive') + ' integer.')
-        if cfg.get('spades_memory_gb', 8) * 1024 > cfg.get('assembly_mem_mb', 8192):
+        if cfg.get('spades_memory_gb') != 'auto' and cfg.get('assembly_mem_mb') != 'auto' and cfg.get('spades_memory_gb', 8) * 1024 > cfg.get('assembly_mem_mb', 8192):
             raise ValueError('SPAdes memory (GB) must fit within assembly memory (MB).')
     else:
         if 'extend' in cfg and not isinstance(cfg['extend'], bool):
@@ -253,6 +309,3 @@ def validate(tool, text):
             if row['included'] and row['options'] and row['value'] not in row['options']:
                 raise ValueError(row['name'] + ': choose ' + ', '.join(row['options']))
     return text
-
-
-

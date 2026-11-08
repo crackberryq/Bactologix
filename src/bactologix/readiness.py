@@ -12,7 +12,7 @@ from .store import now
 
 
 def identity(store, run):
-    fields = [run['config_sha256'], run['workflow_sha256'], run.get('rule_cache'), current_controller(store, run), run.get('identification', {}).get('decision_sha256')]
+    fields = [run['config_sha256'], run['workflow_sha256'], run.get('rule_cache'), current_controller(store, run), run.get('identification', {}).get('decision_sha256'), run.get('aware', {}).get('continuation_sha256')]
     return hashlib.sha256(json.dumps(fields).encode()).hexdigest()
 
 

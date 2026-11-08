@@ -116,7 +116,7 @@ def snapshot(store):
         checked = dry_run_current(store, run)
         status = run_status(run, jobs, checked)
         runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant", "identification")} | {
-            "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
+            "aware_state": run.get("aware"), "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
             "kraken_mode": "off" if cfg.get("run_kraken") is False else kraken_mode,
             "can_micp_handoff": run["tool"] == "hybas" and status == "completed",
             "can_followup": followup.available(run, store) and status == "completed",
@@ -124,7 +124,7 @@ def snapshot(store):
             "followup_transition": run.get('followup_transition'),
             "review_enabled": cfg.get("kraken_review_before_filtering", False), "strategy": cfg.get("polish_mode", "—"), "can_handoff": run["tool"] == "hybas" and status == "completed" and all(
                 Path(run["output"], "annotation", run["sample"]["id"] + ext).is_file() for ext in (".fna", ".faa", ".gff"))})
-    configs = {t: store.get("configs", t, template(t)) for t in PIPELINES}
+    configs = {t: run_config.defaults(store, t) for t in PIPELINES}
     catalogs = {}
     for tool in PIPELINES:
         catalogs[tool] = versions(store, tool)
@@ -380,6 +380,12 @@ def dispatch(store, kind, p):
         else:
             jid = enqueue(store, "check", {"installation": item["id"]}) if kind == "check_install" else enqueue(store, "install", {"tool": item["tool"], "version": item["version"], "repair": kind == "repair_install"})
         return {"message": "Queued " + jid, "navigate": "jobs"}
+    if kind in {"preview_manifest", "import_manifest"}:
+        from . import manifest_inputs
+        if kind == "preview_manifest":
+            return {"manifest_import": manifest_inputs.review(str(local_path(p["path"]))), "keep_modal": True}
+        rows = manifest_inputs.commit(store, str(local_path(p["path"])), p.get("token"))
+        return {"message": f"Imported {len(rows)} manifest samples.", "navigate": "samples"}
     if kind == "add_sample":
         register_sample(store, p["id"].strip(), str(local_path(p["path"])), p["mode"])
         return {"message": "Sample registered.", "navigate": "samples"}
@@ -436,7 +442,7 @@ def dispatch(store, kind, p):
         return response
     if kind == "run_config_editor":
         tool = _tool(p)
-        text = p.get("text", store.get("configs", tool, template(tool)))
+        text = p.get("text", run_config.defaults(store, tool))
         if not isinstance(text, str):
             raise ValueError("Provide configuration as YAML text.")
         text = run_config.compile_config(tool, text, p.get("changes"))
@@ -454,7 +460,7 @@ def dispatch(store, kind, p):
         if not 1 <= cores <= 512 or not 512 <= memory <= 2000000:
             raise ValueError("CPU or memory budget is outside the supported range")
         samples = [_item(store, "samples", sid) for sid in _ids(p)]
-        text = store.get("configs", tool, template(tool))
+        text = run_config.defaults(store, tool)
         if "config" in p:
             config = p["config"]
             if not isinstance(config, dict) or config.get("tool") != tool or not isinstance(config.get("text"), str):
@@ -541,6 +547,22 @@ def dispatch(store, kind, p):
         from .workflow_unlock import request
         jid = request(store, p.get('id'), p.get('signature'))
         return {'message': 'Unlock queued. The analysis queue stays paused; no analysis will start.', 'navigate': 'jobs', 'unlock_job': jid}
+    if kind in {'preview_aware', 'import_aware', 'continue_aware'}:
+        from . import aware_outputs
+        rid = p.get('id')
+        run = store.get('runs', rid) if rid else None
+        path = aware_outputs.bundle_path(run) if run else local_path(p['path'])
+        if kind == 'preview_aware':
+            return {'aware_outputs': {**aware_outputs.review(path), 'run_id': rid,
+                     'can_continue': bool(run and run.get('aware',{}).get('state') in {'complete','continuation_ready'} and parse_config(run['config']).get('aware_run_until') == 'aware')}, 'keep_modal': True}
+        if kind == 'continue_aware':
+            aware_outputs.continue_assembly(store, rid, p.get('token'))
+            validate_launch(store, rid, 'continue')
+            enqueue(store, 'workflow', {'run_id':rid, 'action':'continue'})
+            return {'message':'Assembly continuation queued.', 'navigate':'jobs'}
+        samples = aware_outputs.commit(store, path, p.get('token'), p.get('selected'))
+        return {'message':f'Imported {len(samples)} derived samples. Select them to create separate run drafts.', 'navigate':'samples'}
+
     if kind in {"inspect_identification", "save_identification", "continue_identification"}:
         from . import identification
         rid = p.get('id')
@@ -589,7 +611,7 @@ def dispatch(store, kind, p):
         if run_status(run, store.jobs(), dry_run_current(store, run)) != "completed":
             raise ValueError("Complete the HybAs AWARE run before creating a BaSIS AWARE draft")
         check_run_files(run)
-        create_run(store, "basis", dict(run["sample"], path=run["output"]), store.get("configs", "basis", template("basis")), run["cores"], run["memory_mb"], run["id"], run["label"] + " · BaSIS")
+        create_run(store, "basis", {"id": run["sample"]["id"], "path": run["output"], "mode": run["sample"]["mode"]}, store.get("configs", "basis", template("basis")), run["cores"], run["memory_mb"], run["id"], run["label"] + " · BaSIS")
         return {"message": "Created a new draft.", "navigate": "runs"}
     if kind == 'queue_control':
         state = queue.change(store, p.get('action'), p.get('revision'), p.get('id'))
