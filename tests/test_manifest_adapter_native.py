@@ -25,7 +25,7 @@ def test_manifest_native_dag(tmp_path, platform, chemistry, short, pause, endpoi
         pytest.skip('Immutable v2 checkout not supplied')
     source = Path(supplied).resolve()
     commit = subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'],text=True).strip()
-    assert commit == '7f077556453df058b1dff5826bc7d0536b83e039'
+    assert commit == '08c315479f5493ce0b1f44ba26da3c7f2e0d748b'
     store = Store(tmp_path/'workspace')
     installed = {'id':'v2','tool':'hybas','source':str(source),'controller':sys.prefix,'ready':True,
                  'version':{'commit':commit,'ref':'v2 software test'}}

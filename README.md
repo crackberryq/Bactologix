@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a86.dev1 — Alpha (unreleased)
+# Bactologix 0.1.0a86.dev6 — Experimental development
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
 
@@ -605,7 +605,7 @@ report refresh to change their presentation.
 
 Controller environments are keyed by pipeline, environment-file bytes and platform. Each reviewed release must explicitly pin Python (minor series or patch) and a complete Snakemake version in its Conda environment file. Setup installs those requirements, rather than whatever happens to be the newest Snakemake. The verified versions appear on the installation card and in the setup log. A changed definition creates a separate runner; a failed installation/check never activates the new version. Existing controllers are health-checked against the selected release before reuse. Repair prepares a fresh controller and retains the old one. Existing drafts use the repaired controller for the same source commit, and require a fresh native dry-run before preparation or execution. Their original controller path remains recorded as creation provenance. Snakemake uses a stable absolute `--conda-prefix` per pipeline outside version-specific source folders; its native content/pin/deploy-script hashing governs rule environment reuse. No environment or old run is routinely deleted. Database/model storage is separate. BaSIS's configured `resources.policy: auto` can download missing resources during an actual run. HybAs database provisioning remains the upstream explicit workflow/configuration responsibility.
 
-One OS lock serializes jobs in each Bactologix workspace, including environment preparation. Child processes inherit the lock. The worker marks abandoned running jobs interrupted on recovery and pauses the queue for review. Run/resume uses normal Snakemake metadata and `--rerun-incomplete`; Bactologix never fabricates completion records, deletes scheduler locks, or weakens rerun triggers. The generated sample sheet and exact staged input-link mapping are verified before every launch. Input size/mtime changes invalidate a draft; these are metadata checks, not full input content hashes. Older drafts reconstruct their expected link mapping from recorded source identities, never from the current staged links; unverifiable drafts are rejected. Comparison clones must retain the parent’s exact input snapshot, including its file inventory. A failed execution remains failed after later successful dry-runs, and discovered reports show their source run status. Native workflow provenance may provide additional content checksums.
+One OS lock serializes jobs in each Bactologix workspace, including environment preparation. Child processes inherit the lock. The worker marks abandoned running jobs interrupted on recovery and pauses the queue for review. Run/resume uses normal Snakemake metadata and `--rerun-incomplete`; Bactologix never fabricates completion records, deletes scheduler locks, or weakens rerun triggers. The generated sample sheet and exact staged input-link mapping are verified before every launch. New drafts record streaming SHA-256 input fingerprints. Launch and reuse verify recorded content hashes as well as size/mtime; quick UI readiness checks use metadata without rereading large input files. Older drafts remain explicitly metadata-only and are not retroactively declared content-verified. Hashing can detect changed contents even when size and timestamp are preserved; it does not lock externally writable files throughout execution. Older drafts reconstruct their expected link mapping from recorded source identities, never from the current staged links; unverifiable drafts are rejected. Comparison clones must retain the parent’s exact input snapshot, including its file inventory. A failed execution remains failed after later successful dry-runs, and discovered reports show their source run status. Native workflow provenance may provide additional content checksums.
 
 ## Reviewed BaSIS AWARE follow-up
 
@@ -690,8 +690,10 @@ This is a dedicated continuation, not **Edit settings** (which creates a separat
 draft). Finalized targets cannot be silently replaced. Older saved runs retain
 their original source and behavior; select the updated pipeline for new drafts.
 Manual TaxIDs must be resolvable from this run's Kraken report. Database/input
-identity uses size/mtime checks; saved classification evidence additionally uses
-SHA-256 checksums.
+identity follows the native pipeline's recorded resource checks. New app drafts
+also record and recheck input SHA-256 fingerprints before launch or reuse; legacy
+drafts retain their original metadata-only identity. Saved classification evidence
+uses SHA-256 checksums.
 
 ## Independent development installation
 

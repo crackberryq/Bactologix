@@ -1,3 +1,11 @@
+## 0.1.0a86.dev6 — Pre-beta evidence integrity fixes
+
+Bind refreshed evidence to sample identity and recorded execution observations; reject conflicting available provenance. Preserve failed/cancelled analysis status, evidence attribution, assessment coverage and report rendering status separately. Legacy evidence and absent native versions remain explicitly unverified.
+
+New drafts record streaming input SHA-256 fingerprints, rechecked before launch/reuse. Quick readiness checks stay lightweight and disclose their scope. Methods exports retain recorded identity without claiming a new verification.
+
+Includes corrected development pipeline snapshots after their exact-commit checks. See [fix status and remaining qualification](docs/PREBETA_FIXES.md). This development update does not promote a beta or establish analytical accuracy.
+
 ## 0.1.0a86.dev3 — AWARE reporting and testing package (unreleased)
 
 - Export evidence-verified, stage-specific Methods for identification and AWARE completion, including optional preservation/statistics and derived-input provenance.

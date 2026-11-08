@@ -81,8 +81,12 @@ def panel(store, run):
     checked_at = now()
     blocked = False
     try:
-        check_run_files(run)
-        row('inputs', 'Inputs and saved files', 'Unchanged', 'File sizes, timestamps and staged input links match this draft.', 'good', checked_at)
+        check_run_files(run, full=False)
+        from .runs import input_identity
+        row('inputs', 'Inputs and saved files', 'Unchanged',
+            'File metadata and staged links match this draft. Recorded identity: ' + input_identity(run) +
+            '. This quick check does not reread input content; recorded SHA-256 hashes are verified before launch or reuse.',
+            'info', checked_at)
     except (OSError, ValueError, KeyError) as exc:
         blocked = True
         row('inputs', 'Inputs and saved files', 'Needs attention', str(exc), 'error', checked_at)

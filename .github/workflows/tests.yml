@@ -84,7 +84,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: crackberryq/Bactomics_HybAs
-          ref: 7f077556453df058b1dff5826bc7d0536b83e039
+          ref: 08c315479f5493ce0b1f44ba26da3c7f2e0d748b
           path: upstream-hybas-v2
       - run: python -m pip install . pytest 'snakemake==9.27.1'
       - name: Validate frozen manifest native DAGs
@@ -169,13 +169,13 @@ jobs:
         include:
           - tool: hybas
             repo: crackberryq/Bactomics_HybAs
-            commit: 7f077556453df058b1dff5826bc7d0536b83e039
+            commit: 08c315479f5493ce0b1f44ba26da3c7f2e0d748b
           - tool: basis
             repo: crackberryq/Bactomics_BaSIS
-            commit: 4fa218db3dfc73733267d36c225ebc0d8df50f27
+            commit: 53c61df005443b2d258664e1da1d3dd9a0a2591e
           - tool: micpscope
             repo: crackberryq/Bactomics_GeneScope
-            commit: cffb4212f8466560d0d071c3dea0cbfd11e08d22
+            commit: 3f799a7d8a19d917cb66840899adbf49c27e82ec
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -186,12 +186,18 @@ jobs:
           repository: ${{ matrix.repo }}
           ref: ${{ matrix.commit }}
           path: development-source
-      - run: python -m pip install . pytest
+      - run: python -m pip install . pytest biopython==1.86
       - name: Verify exact Dev source and adapter contract
         env:
           BACTOLOGIX_DEV_SOURCE: ${{ github.workspace }}/development-source
           BACTOLOGIX_DEV_TOOL: ${{ matrix.tool }}
         run: python -m pytest tests/test_development_channel.py -q -k dev_source_contract
+      - name: Verify saved report refresh against the exact Dev renderer
+        env:
+          BACTOLOGIX_MICPSCOPE_SOURCE: ${{ matrix.tool == 'micpscope' && format('{0}/development-source', github.workspace) || '' }}
+          BACTOLOGIX_BASIS_SOURCE: ${{ matrix.tool == 'basis' && format('{0}/development-source', github.workspace) || '' }}
+          BACTOLOGIX_HYBAS_REPORT_SOURCE: ${{ matrix.tool == 'hybas' && format('{0}/development-source', github.workspace) || '' }}
+        run: python -m pytest tests/test_report_refresh.py -q
   publish:
     name: Publish checked application release
     needs: [tests, browser, environment-deployment, windows-desktop, hybas-v2-adapter, development-contracts]

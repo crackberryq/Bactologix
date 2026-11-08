@@ -139,15 +139,48 @@ def import_samples(store, text):
     return commit(store, text)
 
 
+def _fingerprint(path):
+    """Stream a file once and reject replacement or mutation during the read."""
+    digest = hashlib.sha256()
+    with path.open('rb') as handle:
+        before = os.fstat(handle.fileno())
+        for block in iter(lambda: handle.read(1024 * 1024), b''):
+            digest.update(block)
+        after = os.fstat(handle.fileno())
+    current = path.stat()
+    def identity(stat):
+        return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+    if identity(before) != identity(after) or identity(after) != identity(current):
+        raise ValueError('Input changed while its content was being checked: ' + str(path))
+    return {'path': str(path), 'size': after.st_size, 'mtime_ns': after.st_mtime_ns,
+            'sha256': digest.hexdigest()}
+
+
 def snapshot_files(paths):
     result = []
     for path in sorted(set(Path(p).resolve() for p in paths)):
-        stat = path.stat()
-        result.append({"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns})
+        result.append(_fingerprint(path))
     return result
 
 
-def check_inputs(run):
+def matching_inputs(expected, current):
+    """Match every recorded field; a legacy record makes no content assertion."""
+    if len(expected) != len(current):
+        return False
+    indexed = {row['path']: row for row in current}
+    if len(indexed) != len(current) or {row['path'] for row in expected} != set(indexed):
+        return False
+    return all(row['path'] in indexed and all(indexed[row['path']].get(key) == value
+               for key, value in row.items()) for row in expected)
+
+
+def input_identity(run):
+    return ('SHA-256 content fingerprints' if run.get('inputs') and
+            all(row.get('sha256') for row in run['inputs']) else
+            'legacy file size/mtime only; original content identity unverified')
+
+
+def check_inputs(run, full=True):
     for expected in run["inputs"]:
         path = Path(expected["path"])
         try:
@@ -156,6 +189,11 @@ def check_inputs(run):
             raise ValueError("Input is no longer accessible: " + str(path)) from exc
         if stat.st_size != expected["size"] or stat.st_mtime_ns != expected["mtime_ns"]:
             raise ValueError("Input changed since this draft was created: " + str(path) + ". Create a new draft.")
+        if 'sha256' in expected:
+            if not isinstance(expected['sha256'], str) or not re.fullmatch(r'[0-9a-f]{64}', expected['sha256']):
+                raise ValueError('Input content identity is invalid. Create a new draft: ' + str(path))
+            if full and not matching_inputs([expected], [_fingerprint(path)]):
+                raise ValueError('Input changed since this draft was created (SHA-256 content mismatch): ' + str(path) + '. Create a new draft.')
 
 
 def input_layout(output, tool):
@@ -201,7 +239,7 @@ def sample_sheet(sample, tool, output):
     return handle.getvalue()
 
 
-def check_run_files(run):
+def check_run_files(run, full=True):
     if run["tool"] == "micpscope":
         from .micp_handoff import database_identity, digest
         cfg = parse_config(run["config"])
@@ -223,7 +261,7 @@ def check_run_files(run):
     if hashlib.sha256((folder / "config.yaml").read_bytes()).hexdigest() != run["config_sha256"]:
         raise ValueError("Saved configuration changed. Create a new draft for changed settings.")
     if run.get("run_type") == "followup":
-        check_inputs(run)
+        check_inputs(run, full=full)
         if input_layout(run["output"], run["tool"]) != run["input_layout"]:
             raise ValueError("Staged screening inputs changed")
         for expected in run["followup_sources"]:
@@ -236,7 +274,7 @@ def check_run_files(run):
         raise ValueError("Saved sample sheet changed. Create a new draft.")
     from .manifest_inputs import verify as verify_manifest
     verify_manifest(run)
-    check_inputs(run)
+    check_inputs(run, full=full)
     expected = run.get("input_layout")
     if expected is None:
         # Older drafts have resolved source identities but no staged-link manifest.
@@ -460,7 +498,7 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         shutil.copytree(source, folder / "workflow", ignore=shutil.ignore_patterns(".git", ".snakemake", "__pycache__", "*.pyc"))
         output = folder / "outputs" / sample["id"]
         inputs = stage_inputs(sample, tool, output)
-        if expected_inputs is not None and inputs != expected_inputs:
+        if expected_inputs is not None and not matching_inputs(expected_inputs, inputs):
             raise ValueError("Original inputs differ from the parent run. Register changed data as a new run, not a comparison variant.")
         if tool != "hybas" or cfg.get("threads") != "auto":
             cfg["threads"] = cores
@@ -626,7 +664,7 @@ def execute_workflow(ctx):
             raise ValueError('Continuation needs tool environments: ' + ', '.join(missing) + '. Use Install environments, then Continue run.')
         payload['action'] = 'run'
     ctx.write("Run " + run["id"] + " · source " + run["commit"])
-    ctx.write("Input identity uses file size/mtime checks. Workflow provenance may add content checksums.")
+    ctx.write('Input identity: ' + input_identity(run) + '. Content fingerprints, where recorded, were rechecked before launch.')
     if payload['action'] == 'run':
         ctx.write('Environment policy: reuse matching installed environments only; automatic installation and repair are disabled.')
     if payload["action"] == "dry-run":

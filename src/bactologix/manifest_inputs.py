@@ -75,12 +75,12 @@ def require_adapter(store, tool, installed):
 def stage(sample, destination):
     from .aware_outputs import verify_sample
     verify_sample(sample)
-    from .runs import snapshot_files
+    from .runs import snapshot_files, matching_inputs
     document = {'schema_version': 1, 'samples': [sample['input_manifest']]}
     validated = validate_manifest(document, base_dir=Path(sample['path']))
     files = paths(validated['manifest']['samples'][0])
     current = snapshot_files(files)
-    if current != sample['inputs']:
+    if not matching_inputs(sample['inputs'], current):
         raise ValueError('Manifest inputs changed since registration. Register the changed data again.')
     destination.mkdir(parents=True)
     return current
