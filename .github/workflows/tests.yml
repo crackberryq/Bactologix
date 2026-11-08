@@ -153,9 +153,10 @@ jobs:
           python-version: '3.11'
       - name: Windows launcher, installer rendering and browser ownership
         shell: powershell
-        run: |
-          ./tests/windows_desktop.ps1
-          ./tests/windows_development.ps1
+        run: ./tests/windows_desktop.ps1
+      - name: Independent Dev launcher and bundled payload
+        shell: powershell
+        run: ./tests/windows_development.ps1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
