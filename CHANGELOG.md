@@ -1,3 +1,10 @@
+## 0.1.0a89 — 2026-11-09 · Ubuntu account readiness
+
+- Skip the account-creation terminal when Ubuntu already executes commands as a regular default user, including resumed first-time setup.
+- Recheck actual account readiness after the terminal closes, regardless of its exit code. Closing a completed account window no longer produces a false installation failure.
+- Keep root-only, malformed identity and failed WSL probes blocked, with actionable diagnostics and preserved continuation.
+- Clarify the instructions when account setup is still necessary. Download the new Windows ZIP to update an older extracted installer.
+
 ## 0.1.0a88 — 2026-11-09 · Alpha · Beta interface preparation
 
 - Apply the approved teal workspace design with readable typography, stronger status contrast, responsive controls, clear workspace identity and a visible release-channel badge.
@@ -622,6 +629,7 @@ Created by **Jimi Goldstein · Human Link**.
 - Existing external runs are not adopted for in-place resume. Jobs run sequentially; remote/HPC execution is not implemented.
 - Full biological analyses, analysis environments/databases/GPU tools, target-browser behavior and WSL2/aarch64-specific installation have not been validated in this development session.
 - This release is distributed through GitHub, not PyPI.
+
 
 
 
