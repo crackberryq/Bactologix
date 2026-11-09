@@ -1,3 +1,9 @@
+## 0.1.0a94.dev1 — 2026-11-10 · Alpha · Sample-aware setup review
+
+- Add a Setup adviser in new-run Settings and Review. Check registered input availability and explain polishing routes for exact reviewed HybAs versions; show pipeline-specific annotation and evidence guidance for BaSIS and GeneScope.
+- Read starting values from the selected clean source commit. Distinguish these template values from saved settings and unknown native fallbacks. Do not infer optimal polishing rounds, a Medaka model or biological suitability from input names or file size.
+- Apply individual source values explicitly to the unsaved draft, with freshness checks for samples, source, settings and compute limits. Keep manual edits, saved defaults and previous runs intact.
+
 ## 0.1.0a93.dev1 — 2026-11-09 · Alpha · Open isolate analysis folders
 
 - Point the Samples page’s Open isolate folder action at saved Bactologix analysis outputs. Open a single available output directly; offer a folder chooser for multiple linked analyses. Shared follow-up output paths appear once.
