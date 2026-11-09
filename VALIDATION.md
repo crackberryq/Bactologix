@@ -1,3 +1,11 @@
+## 0.1.0a91.dev1 GeneScope Methods recovery
+
+- Metadata-reader fixtures cover valid results larger than 8 MB, complete-file checksums, trailing corruption, duplicate identity fields, bounded nesting/scalars, symlinks and concurrent file changes.
+- Recovery fixtures distinguish positively matched successful attempts, legacy unverified outputs, unchanged pre-existing outputs and conflicting identities/checksums. Immutable completion and per-attempt snapshots remain unchanged.
+- Methods/export regression coverage checks source-specific defaults, retained unknown versions, failed retries, inspection and portable downloads. No per-step history is fabricated from result metadata.
+- Regular and development application, browser, Windows, package and exact pipeline contract checks remain release gates. These checks validate export behavior, not biological performance.
+
+
 ## 0.1.0a90.dev1 isolate export and history
 
 - Disposable filesystem fixtures cover exact isolate lineage, archived analyses, shared follow-ups, external inputs, unrelated-record exclusion, and immutable per-attempt evidence.
