@@ -593,6 +593,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             expect(page.get_by_role('button', name='Save defaults', exact=True)).to_be_enabled()
             expect(page.locator('#default-save-status')).to_have_text('Saved defaults')
             page.get_by_role('link', name='Pipelines & databases', exact=True).click()
+            page.get_by_role('button', name='Guided setup', exact=True).click()
             expect(page.locator('.setup-guide')).to_be_visible()
             expect(page.locator('.setup-step')).to_have_count(5)
             expect(page.locator('.setup-steps .setup-step').first).to_contain_text('Pipeline')
