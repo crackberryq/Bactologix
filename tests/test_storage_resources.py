@@ -197,6 +197,21 @@ def test_storage_accounting_snapshot_is_not_a_dependency(managed):
     assert all(not row['blocked'] for row in rows(store, retirement(item)).values())
 
 
+def test_deleted_run_history_does_not_remain_a_live_resource_dependency(managed):
+    store, item, _ = managed
+    run = {'id': 'old-run', 'installation': item['id'], 'source': item['source'],
+           'controller': item['controller'], 'rule_cache': item['rule_cache'],
+           'config': 'database: ' + item['controller'] + '/historical-reference\n'}
+    store.put('runs', run['id'], run)
+    assert all(row['blocked'] for row in rows(store, retirement(item)).values())
+    # Match cleanup's tombstone: preserve the deleted record for audit, without
+    # giving its historical paths the semantics of retained scientific data.
+    store.put('deleted_runs', run['id'], {'id': run['id'], 'run': run, 'cleanup': 'fixture-receipt'})
+    with store.connect() as db:
+        db.execute("DELETE FROM items WHERE kind='runs' AND id=?", (run['id'],))
+    assert all(not row['blocked'] for row in rows(store, retirement(item)).values())
+
+
 @pytest.mark.parametrize('kind,body', [
     ('samples', lambda p: {'id': 'input', 'reads': str(p / 'input.fastq')}),
     ('database_builds', lambda p: {'id': 'reference', 'output': str(p / 'reference.dmnd')}),

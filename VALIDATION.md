@@ -1,11 +1,9 @@
 ## 0.1.0a87 storage management
 
-Validation is in progress for the Storage cleanup feature. Deletion regression
-checks use disposable fixtures only; existing user runs and input files are not
-test data. Required coverage includes dependency and ownership checks, unchanged
-preview scope, shared inputs, links, concurrent work, and recoverable partial
-cleanup. The real Chromium/Streamlit flow and the existing package, Windows,
-environment and near-beta contract jobs remain publication gates.
+- Local full regression suite: 841 passed, 91 skipped (browser and upstream-dependent cases are exercised by CI). Subsequent focused cleanup, ownership, concurrency, recovery and measurement checks: 92 passed.
+- A real serialized-worker fixture verifies that cleanup waits for the worker lease, deletes only reviewed run files, retains original inputs and a transferred copy, and records a completion receipt. Its process inventory is controlled separately from permission/active-process regression cases.
+- Disposable fixtures cover stale previews, exact confirmation, shared inputs, retained follow-ups and variants, related workspace locks, hard links, symlinks, mount boundaries, interrupted deletion and bounded cleanup manifests. No user data was used as deletion test data.
+- Chromium/Streamlit, Windows desktop, package/environment deployment and all three near-beta pipeline contracts passed the initial GitHub candidate. The final release remains gated on the same required checks for its exact commit.
 
 This release does not change scientific pipeline algorithms. Filesystem tests do
 not establish physical disk reclamation on every WSL/Windows storage layout.

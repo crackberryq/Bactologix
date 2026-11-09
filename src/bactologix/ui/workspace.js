@@ -213,9 +213,12 @@ function cleanupSize(c){
  if(c.kind==='sample_registration')return 0;
  if(c.logical_bytes!=null)return c.logical_bytes;
  if(U.cleanupMeasured?.[cleanupKey(c)]!=null)return U.cleanupMeasured[cleanupKey(c)];
- const paths=(c.paths||[]).map(p=>typeof p==='string'?p:p.path),rows=U.storage?.last_scan?.locations||[];
- const measured=paths.map(path=>rows.find(r=>r.path===path&&r.state==='measured'));
- return paths.length&&measured.every(Boolean)?measured.reduce((sum,r)=>sum+r.logical_bytes,0):null;
+ const paths=[...new Set((c.paths||[]).map(p=>typeof p==='string'?p:p.path))],rows=U.storage?.last_scan?.locations||[];
+ // Scan rows partition nested locations: a run-folder row excludes its output rows.
+ // A known parent cannot estimate an unknown child prefix, so every root must match.
+ if(!paths.length||paths.some(path=>!rows.some(r=>r.path===path)))return null;
+ const measured=rows.filter(r=>paths.some(path=>r.path===path||r.path.startsWith(path.replace(/[\\/]+$/,'')+'/')||r.path.startsWith(path.replace(/[\\/]+$/,'')+'\\')));
+ return measured.every(r=>r.state==='measured'&&r.logical_bytes!=null)?measured.reduce((sum,r)=>sum+r.logical_bytes,0):null;
 }
 function cleanupVisible(){const category=val('cleanup-category','');return cleanupCandidates().filter(c=>!category||cleanupGroup(c)===category).sort((a,b)=>(cleanupSize(b)??-1)-(cleanupSize(a)??-1)||a.label.localeCompare(b.label));}
 function cleanupStatus(status){return ({completed:'Completed',succeeded:'Completed',partial:'Partially completed',failed:'Failed',staging:'Preparing deletion',deleting:'Deleting',running:'Deleting',queued:'Queued',cancelled:'Cancelled'})[status]||status||'Recorded';}
@@ -329,7 +332,7 @@ function usageDetail(data){
  return `<div class="usage-detail">${statusBadge(t.job_status)}${jobTelemetry(j)}<p class="inline-info">Recorded for this job attempt only. A resumed run gets its own record.</p><div class="usage-charts">${usageChart(data.points,'cpu','CPU use (%)','%')}${usageChart(data.points,'ram','Sampled RAM (MiB)','MiB')}</div><div class="usage-facts"><div><span>Observed CPU time</span><strong>${usageMeasure(t.samples?t.observed_cpu_s:null,' s')}</strong></div><div><span>Usable / unavailable samples</span><strong>${usageNumber(t.samples,0)} / ${usageNumber(t.unavailable_samples,0)}</strong></div><div><span>Configured run budget</span><strong>${Number.isFinite(t.budget?.cores)?usageNumber(t.budget.cores,0)+' cores · '+usageNumber(t.budget.memory_mb,0)+' MB':'Not a saved run'}</strong></div><div><span>Recorded platform</span><strong>${e(t.system)} · ${e(t.architecture)}</strong></div></div><p class="secondary-line">Summary updated ${e(t.updated_at)}<br>Charts saved ${e(data.history_updated_at||'not yet')} · ${t.history_compacted?'History combined into intervals':'Charts saved at most every 30 seconds and at command completion'}</p>${t.partial_process_tree?notice('Some processes could not be read','CPU and RAM values describe only the observed processes.',true):''}${t.progress?.log_gap?notice('Some log output was skipped','The displayed task counts and steps may be incomplete.',true):''}<details class="config-section"><summary>Measurement scope & provenance</summary><div class="padded"><ul>${(t.notes||[]).map(n=>`<li>${e(n)}</li>`).join('')}</ul><p>Bactologix ${e(t.app_version)} · Python ${e(t.python)}</p>${t.pipeline?`<p>Pipeline: ${e(S.pipelines[t.pipeline]?.name||t.pipeline)}</p><p class="path-cell">Source commit: ${e(t.commit||'Unavailable')}<br>Configuration SHA-256: ${e(t.config_sha256||'Unavailable')}<br>Workflow SHA-256: ${e(t.workflow_sha256||'Unavailable')}</p>`:''}</div></details></div>`;
 }
 
-function jobLabel(j){return j.kind==='report_refresh'?'Regenerate report · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='database_build'?'Database Builder · '+j.payload.name+' · '+j.payload.version:j.kind==='workflow_unlock'?'Unlock workflow · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='workstation'?'Workstation check':j.kind==='environments'?'Environments · '+j.payload.tool+' · '+j.payload.action:j.kind==='database_download'?'Database · '+j.payload.tool+' · '+j.payload.resource:j.kind==='workflow'?({'dry-run':'Validate run',prepare:'Install environments',run:'Run / resume',continue:'Continue after identification','check-environments':'Check run environments'}[j.payload.action]||j.payload.action)+' · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='install'?S.pipelines[j.payload.tool]?.name+' · '+j.payload.version.ref:j.kind==='app_update'?(j.payload.update_all?'Update Bactologix & all pipelines':'Bactologix → v'+j.payload.release.version):j.kind;}
+function jobLabel(j){return j.kind==='storage_cleanup'?'Storage cleanup':j.kind==='report_refresh'?'Regenerate report · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='database_build'?'Database Builder · '+j.payload.name+' · '+j.payload.version:j.kind==='workflow_unlock'?'Unlock workflow · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='workstation'?'Workstation check':j.kind==='environments'?'Environments · '+j.payload.tool+' · '+j.payload.action:j.kind==='database_download'?'Database · '+j.payload.tool+' · '+j.payload.resource:j.kind==='workflow'?({'dry-run':'Validate run',prepare:'Install environments',run:'Run / resume',continue:'Continue after identification','check-environments':'Check run environments'}[j.payload.action]||j.payload.action)+' · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='install'?S.pipelines[j.payload.tool]?.name+' · '+j.payload.version.ref:j.kind==='app_update'?(j.payload.update_all?'Update Bactologix & all pipelines':'Bactologix → v'+j.payload.release.version):j.kind;}
 
 function queueNotice(){
  const q=S.queue;if(!q?.paused||U.view==='jobs')return '';
@@ -344,7 +347,7 @@ function queuePanel(){
 function jobCard(j){return `<div class="job-card" data-job-id="${e(j.id)}"><div><div class="job-title">${e(jobLabel(j))}</div><div class="job-sub">${e(j.id)} · ${e(j.created)}</div>${j.guidance?guidancePanel(j):j.error?`<p class="error">${e(j.error)}</p>`:''}</div><div>${jobStatus(j)}${j.cancel&&j.status==='running'?'<small class="secondary-line">Stop requested</small>':''}</div><div class="button-row">${runBy(j.payload.run_id)?btn('run-detail','Review run',false,j.payload.run_id):''}${j.kind==='workstation'?btn('workstation-detail','Review check',false,j.id):''}${btn('job-log','View log',false,j.id,'file')}${usageButton(j)}${['queued','running'].includes(j.status)&&!(j.kind==='app_update'&&j.status==='running')?btn('cancel-job','Stop',false,j.id,'stop'):''}</div>${jobTelemetry(j)}</div>`;}
 const activeJob=j=>['queued','running'].includes(j.status);
 const jobPipeline=j=>j.payload.tool||runBy(j.payload.run_id)?.tool||S.installs.find(i=>i.id===j.payload.installation)?.tool||'';
-const jobKinds={workflow:'Saved-run workflow',environments:'Environment maintenance',database_download:'Database preparation',install:'Pipeline installation',connect:'Connect installation',check:'Runner check',smoke:'Software check',workstation:'Workstation check',app_update:'Application update'};
+const jobKinds={storage_cleanup:'Storage cleanup',workflow:'Saved-run workflow',environments:'Environment maintenance',database_download:'Database preparation',install:'Pipeline installation',connect:'Connect installation',check:'Runner check',smoke:'Software check',workstation:'Workstation check',app_update:'Application update'};
 function historyRows(){
  const query=val('history-search').trim().toLowerCase(),status=val('history-status','all'),pipeline=val('history-pipeline','all'),kind=val('history-kind','all');
  const rows=S.jobs.filter(j=>!activeJob(j)&&
@@ -1184,7 +1187,14 @@ if(response.download&&U.modal?.kind==='workstation')U.workstationCheck=S.worksta
 if(response.uninstall_plan)U.uninstallPlan=response.uninstall_plan;
 if(response.storage_cleanup){U.storageCleanup=response.storage_cleanup;const keys=new Set(cleanupCandidates().map(cleanupKey));U.cleanupSelected=(U.cleanupSelected||[]).filter(key=>keys.has(key));}
 if(response.cleanup_receipt)U.cleanupReceipt=response.cleanup_receipt;
-if(response.cleanup_plan){U.cleanupPlan=response.cleanup_plan;U.cleanupMeasured||={};for(const c of response.cleanup_plan.candidates||[]){if(c.logical_bytes!=null)U.cleanupMeasured[cleanupKey(c)]=c.logical_bytes;}}
+if(response.cleanup_plan){
+ U.cleanupPlan=response.cleanup_plan;U.cleanupMeasured||={};
+ for(const c of response.cleanup_plan.candidates||[]){
+  const roots=[...new Set((c.paths||[]).map(p=>typeof p==='string'?p:p.path))],measured=roots.map(path=>response.cleanup_plan.paths.find(p=>p.path===path));
+  if(c.logical_bytes!=null)U.cleanupMeasured[cleanupKey(c)]=c.logical_bytes;
+  else if(roots.length&&measured.every(p=>p?.logical_bytes!=null))U.cleanupMeasured[cleanupKey(c)]=measured.reduce((sum,p)=>sum+p.logical_bytes,0);
+ }
+}
 if(response.ok&&U.requestOrigin?.kind==='execute_storage_cleanup'){U.cleanupSelected=[];U.cleanupPlan=null;setDraft('cleanup-acknowledged',false);setDraft('cleanup-confirmation','');}
 if(response.open_environments){const id=response.open_environments;setDraft('environment-cache-'+id,S.environments[id]?.cache||'');U.modal={kind:'environments',id,action:U.modal?.action||'install',advanced:true};}
 if(response.database_run_plan)U.databaseRunPlan=response.database_run_plan;

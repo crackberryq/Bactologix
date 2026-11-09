@@ -115,7 +115,7 @@ def _configured_paths(value, errors):
 
 def _registered_paths(store, selected, errors):
     """Protect retained data and references; history is not a live dependency."""
-    ignored = {'installs', 'environment_checks', OWNER_KIND, 'storage', 'processes', 'job_owners',
+    ignored = {'installs', 'environment_checks', OWNER_KIND, 'storage', 'deleted_runs', 'processes', 'job_owners',
                'desktop_sessions'}
     with store.connect() as db:
         records = db.execute('SELECT kind,id,body FROM items').fetchall()

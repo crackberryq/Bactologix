@@ -86,8 +86,18 @@ def _other_workspaces(store):
     """Read known neighbouring/default workspaces without initializing or writing them."""
     from platformdirs import user_data_dir
     homes = {Path(user_data_dir(name)) for name in ('bactologix', 'bactologix-dev')}
+    homes.update(Path.home() / '.local/share' / name for name in ('bactologix', 'bactologix-dev'))
     configured = store.get('settings', 'storage-other-workspaces', [])
     errors = []
+    discovery = os.environ.get('BACTOLOGIX_STORAGE_DISCOVERY_DEFAULTS')
+    if discovery:
+        try:
+            defaults = json.loads(discovery)
+            if not isinstance(defaults, list) or any(not isinstance(p, str) or not Path(p).is_absolute() for p in defaults):
+                raise ValueError('Expected absolute workspace paths.')
+            homes.update(Path(p) for p in defaults)
+        except (ValueError, TypeError):
+            errors.append('Preserved workspace discovery paths are invalid. Restart from the launcher before cleanup.')
     if not isinstance(configured, list):
         return [], [], ['Configured related workspaces must be a list of absolute paths.']
     for value in configured:
@@ -100,7 +110,7 @@ def _other_workspaces(store):
     except OSError as exc:
         errors.append('Cannot inspect neighbouring workspaces: ' + str(exc))
     records, checked = [], []
-    for home in sorted(homes):
+    for home in sorted({p.resolve() for p in homes}):
         if home.resolve() == store.home:
             continue
         path = home / 'workspace.sqlite3'
@@ -217,6 +227,23 @@ def _candidates(store, selected=(), own_job=None):
                     if k in {'samples', 'runs', 'installs', 'configs', 'database_locations', 'database_downloads'}]
     others, checked, errors = _other_workspaces(store)
     dependencies.extend(others)
+    inspected = []
+    for home, kind, key, body in dependencies:
+        if kind == 'runs' and not (home == str(store.home) and ('runs', key) in deleted_records):
+            manifest = Path(body.get('folder', '')) / 'variant.json'
+            if body.get('variant') or manifest.exists() or manifest.is_symlink():
+                try:
+                    with _open(manifest) as fd:
+                        info = os.fstat(fd)
+                        if not stat.S_ISREG(info.st_mode) or info.st_size > 32 * 1024 * 1024:
+                            raise ValueError('Variant dependency manifest is not a bounded regular file.')
+                        with os.fdopen(os.dup(fd)) as stream:
+                            evidence = json.load(stream)
+                    body = {**body, 'cleanup_dependency_manifest': evidence}
+                except (OSError, ValueError) as exc:
+                    errors.append('Cannot inspect retained variant ' + key + ': ' + str(exc))
+        inspected.append((home, kind, key, body))
+    dependencies = inspected
     busy = [j for j in store.jobs() if j['status'] in {'queued', 'running'} and j['id'] != own_job]
     unfinished = [r for r in store.all(_RECEIPTS) if r.get('status') != 'completed']
     with store.connect() as db:
@@ -241,6 +268,10 @@ def _candidates(store, selected=(), own_job=None):
         if row['paths']:
             row['blocked'].extend(errors)
             hard_blocked = hard_blocked or bool(errors)
+        if row['kind'] == 'sample_files' and any(
+                _inside(Path(value), Path(home)) for value in row['paths'] for home in [str(store.home), *checked]):
+            row['blocked'].append('Sample files inside a managed workspace must be cleaned through their owning run or resource; unregister the sample separately.')
+            hard_blocked = True
         for value in row['paths']:
             target = Path(value)
             for home, kind, key, body in dependencies:
@@ -292,7 +323,8 @@ def receipt(store, key):
     row = store.get(_RECEIPTS, key)
     if not row:
         raise ValueError('Choose an existing storage cleanup receipt.')
-    return {**row, **_receipt_summary(row),
+    return {**_receipt_summary(row), 'candidates': [_public_candidate(c) for c in row.get('candidates', [])],
+            'operations': [{k: op[k] for k in ('original', 'quarantine', 'state')} for op in row.get('operations', [])],
             'deleted_paths': [op['original'] for op in row.get('operations', []) if op['state'] == 'deleted'],
             'retained_paths': [op['quarantine'] if op['state'] == 'staged' else op['original'] for op in row.get('operations', []) if op['state'] != 'deleted']}
 
@@ -472,7 +504,22 @@ def preview(store, targets):
         plan = _build(store, targets)
         plan.update(id=identifier('cleanup-plan'), created_at=now())
         store.put(_PLANS, plan['id'], plan)
+        _prune_plans(store)
     return _public_plan(plan)
+
+
+def _prune_plans(store, completed=None):
+    """Keep only recent review manifests and plans awaiting execution."""
+    with store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        active = {json.loads(r[0]).get('plan_id') for r in db.execute(
+            "SELECT payload FROM jobs WHERE kind='storage_cleanup' AND status IN ('queued','running')")}
+        keys = [r[0] for r in db.execute('SELECT id FROM items WHERE kind=? ORDER BY rowid DESC', (_PLANS,))]
+        for key in keys[3:]:
+            if key not in active:
+                db.execute('DELETE FROM items WHERE kind=? AND id=?', (_PLANS, key))
+        if completed:
+            db.execute('DELETE FROM items WHERE kind=? AND id=?', (_PLANS, completed))
 
 
 def _verify(store, plan, own_job=None):
@@ -525,11 +572,17 @@ def request(store, plan_id, signature, confirmation, acknowledged):
 
 
 def _write_receipt(store, receipt):
-    store.put(_RECEIPTS, receipt['id'], receipt)
+    persisted = receipt
+    if receipt.get('status') == 'completed':
+        persisted = {**receipt, 'operations': [{**op, 'inventory': {
+            k: v for k, v in op['inventory'].items() if k not in {'manifest', 'parent_stamp'}}}
+            for op in receipt['operations']]}
+    store.put(_RECEIPTS, receipt['id'], persisted)
 
 
 def _retire_records(store, receipt):
     """Tombstones and removal of live records share one SQLite transaction."""
+    removed = list(receipt.get('removed_records', []))
     with store.connect() as db:
         db.execute('BEGIN IMMEDIATE')
         for candidate in receipt['candidates']:
@@ -539,14 +592,15 @@ def _retire_records(store, receipt):
                     old = json.loads(row[0])
                     if 'expected' in record and old != record['expected']:
                         raise ValueError('A workspace record changed during cleanup; recovery is required.')
-                    receipt.setdefault('removed_records', []).append({'kind': record['kind'], 'id': record['id'], 'body': old})
+                    removed.append({'kind': record['kind'], 'id': record['id'], 'body': old})
                     db.execute('DELETE FROM items WHERE kind=? AND id=?', (record['kind'], record['id']))
                     if record['kind'] == 'runs':
                         _put(db, 'deleted_runs', record['id'], {'id': record['id'], 'cleanup': receipt['id'], 'deleted_at': now(), 'run': old})
             for record in candidate.get('record_updates', []):
                 _put(db, record['kind'], record['id'], record['body'])
-        receipt['records_retired'] = True
-        _put(db, _RECEIPTS, receipt['id'], receipt)
+        _put(db, _RECEIPTS, receipt['id'], {**receipt, 'records_retired': True, 'removed_records': removed})
+    # Keep success flags out of error receipts if SQLite COMMIT failed.
+    receipt.update(records_retired=True, removed_records=removed)
 
 
 def _stage(operation):
@@ -675,9 +729,13 @@ def execute(ctx):
                     _write_receipt(store, receipt)
             receipt.update(status='completed', finished_at=now())
             _write_receipt(store, receipt)
-            ctx.write('Storage cleanup completed. Original records and deletion paths are retained in the receipt.')
         except BaseException as exc:
             receipt.update(status='partial', error=str(exc) or type(exc).__name__)
             _write_receipt(store, receipt)
             raise
+        try:
+            _prune_plans(store, plan['id'])
+        except (sqlite3.Error, OSError):
+            pass  # A cache-pruning failure cannot undo a completed deletion.
+        ctx.write('Storage cleanup completed. Original records and deletion paths are retained in the receipt.')
     return _receipt_summary(receipt)
