@@ -65,7 +65,7 @@ def _pick(row, keys):
 
 
 def collect(run):
-    """Read metadata only; never enumerate raw inputs, native results or databases."""
+    """Retain metadata only; never open raw inputs or installed databases."""
     result = {'files': [], 'warnings': [], 'versions': {}, 'records': [], 'decisions': {}}
     root = Path(run['output'])
 
@@ -85,12 +85,40 @@ def collect(run):
             return None
 
     if run['tool'] == 'micpscope':
-        data = read('micpscope/results.json') or {}
-        if data.get('sample_id') == run['sample']['id']:
-            result['versions']['biopython'] = data.get('provenance', {}).get('biopython_version', UNKNOWN)
-            result['versions']['micpscope'] = data.get('software_version', UNKNOWN)
-        else:
-            result['warnings'].append('GeneScope results are missing or belong to a different sample.')
+        from .genescope_metadata import read as read_metadata
+        from .evidence_identity import validate_native
+        try:
+            loaded = read_metadata(root)
+            if loaded is None:
+                result['warnings'].append('GeneScope results are missing: micpscope/results.json.')
+                return result
+            data, identity = loaded
+            if not data.get('sample_id'):
+                raise ValueError('GeneScope results have no sample identity.')
+            checked = validate_native(run, data)
+            if 'sample identity' not in checked['checks'] or 'sample identity' in checked['missing']:
+                raise ValueError('GeneScope results have no verified sample identity.')
+            provenance = data.get('provenance', {})
+            for source in (data, provenance):
+                for key in ('run_id', 'bactologix_run_id'):
+                    if key in source and source[key] != run['id']:
+                        raise ValueError('GeneScope results name a different run.')
+            reference = data.get('reference_search', {})
+            if reference.get('input_sha256') and provenance.get('input_sha256') != reference['input_sha256']:
+                raise ValueError('GeneScope reference metadata names a different protein input.')
+            expected_database = parse_config(run['config']).get('reference_database_sha256')
+            actual_database = reference.get('database', {}).get('checksums_sha256')
+            if expected_database and actual_database and actual_database != expected_database:
+                raise ValueError('GeneScope reference database identity does not match the saved run.')
+            result.update(metadata=data, identity=checked)
+            result['files'].append(identity)
+            result['versions'] = {'biopython': _value(provenance.get('biopython_version')),
+                                  'micpscope': _value(data.get('software_version')),
+                                  'python': _value(provenance.get('python_version'))}
+            if reference.get('tool_version'):
+                result['versions']['diamond'] = _value(reference['tool_version'])
+        except (OSError, ValueError, UnicodeError, RecursionError) as exc:
+            result['warnings'].append('Could not collect GeneScope Methods metadata: ' + str(exc))
         return result
     if run['tool'] == 'hybas':
         summary = read('metadata/run_summary.json') or {}
@@ -324,6 +352,15 @@ def _flatten(value, prefix=''):
             yield name, item
 
 
+def _genescope(cfg):
+    paragraphs = ['The workflow was configured to calculate protein sequence descriptors with Biopython and generate a source-labelled evidence report. These descriptors do not determine pH or temperature optima, shelf life, material performance or deployment safety.']
+    tools = ['micpscope', 'biopython', 'python', 'snakemake']
+    if cfg.get('reference_database'):
+        paragraphs.append('An optional DIAMOND protein reference search was configured against the selected application database. Its saved search filters are listed in the settings supplement; similarity candidates do not establish function, and configuration alone does not establish that a search executed.')
+        tools.append('diamond')
+    return paragraphs, tools
+
+
 def build(store, run):
     warnings = []
     explicit, effective, known = _configuration(run, warnings)
@@ -337,23 +374,39 @@ def build(store, run):
         state = stage['state']
     receipt = store.get('methods_evidence', run['id'])
     evidence, origin = {}, 'No completed execution record'
+    recovery = None
     if complete:
         if (receipt and receipt.get('run_id') == run['id']
                 and (not latest or receipt.get('job_id') == latest['id'])
                 and all(receipt.get(k) == run.get(k) for k in ('completed', 'config_sha256', 'workflow_sha256', 'commit'))):
             evidence, origin = receipt['evidence'], 'Completion-time snapshot'
+            from .methods_recovery import supplement
+            recovery = supplement(store, run, receipt, latest, collect)
+            if recovery:
+                origin += ('; supplemental metadata read from current output at export'
+                           if recovery['status'] in {'recovered', 'unverified'} else
+                           '; supplemental metadata recovery attempted at export')
         elif run.get('run_type') == 'followup' and store.get('followup_output_owner', run.get('parent')) != run['id']:
             warnings.append('This follow-up no longer owns the shared output. Historical execution evidence was not captured.')
         else:
             evidence, origin = collect(run), 'Legacy output metadata read at export'
             warnings.append('No completion-time Methods snapshot exists. Available legacy metadata was read at export; verify its association with this run.')
-    warnings.extend(evidence.get('warnings', []))
+    if recovery:
+        # Preserve the failed original snapshot in provenance, but do not repeat
+        # its false sample-mismatch diagnosis in the current review notes.
+        warnings.extend(w for w in evidence.get('warnings', [])
+                        if 'Methods evidence exceeds 8 MB: micpscope/results.json' not in w
+                        and w != 'GeneScope results are missing or belong to a different sample.')
+        warnings.append('The original completion snapshot could not collect GeneScope metadata because of the former 8 MB limit. It is retained unchanged in the reproducibility ZIP; supplemental metadata is identified separately.')
+        warnings.extend(recovery['warnings'])
+    else:
+        warnings.extend(evidence.get('warnings', []))
     if evidence.get('native_run', {}).get('completeness') == 'incomplete':
         warnings.append('The native report records incomplete requested scope. Review the module execution statuses before describing the analyses as completed.')
     if not complete and not stage:
         warnings.append('Planned settings only: this export does not claim that analyses completed. Download again after completion.')
-    if run['tool'] == 'micpscope':
-        paragraphs, tools = ['The workflow was configured to calculate protein sequence descriptors with Biopython and generate a source-labelled evidence report. These descriptors do not determine pH or temperature optima, shelf life, material performance or deployment safety.'], ['micpscope', 'biopython', 'snakemake']
+    if run['tool'] == 'micpscope' and known:
+        paragraphs, tools = _genescope(effective)
     elif known:
         paragraphs, tools = (_hybas if run['tool'] == 'hybas' else _basis)(effective, run)
     else:
@@ -383,12 +436,24 @@ def build(store, run):
         paragraphs.append('The saved screening source was ' + transition['screening_commit'] +
                               '; the explicitly selected follow-up source was ' + transition['commit'] +
                               '. The recorded AWARE scope was ' + transition['scope'] + '.')
+    legacy_genescope = run['tool'] == 'micpscope' and origin == 'Legacy output metadata read at export'
     versions = dict(evidence.get('versions', {}))
+    supplementary_versions = (recovery or {}).get('evidence', {}).get('versions', {})
+    if run['tool'] == 'micpscope':
+        tools = list(dict.fromkeys([*tools, *versions, *supplementary_versions]))
     records = evidence.get('records', [])
     for row in records:
         versions[row.get('module', '')] = _value(row.get('tool_version'))
     software = [{'tool': name, 'version': _value(versions.get(name)), 'scope': 'Configured; execution must be verified'} for name in dict.fromkeys(tools)]
     for row in software:
+        if row['version'] != UNKNOWN and run['tool'] == 'micpscope':
+            row['scope'] = ('Current output metadata; execution attribution unverified' if legacy_genescope
+                            else 'GeneScope result metadata; per-step execution not recorded')
+        if row['version'] == UNKNOWN and supplementary_versions.get(row['tool']):
+            row['version'] = _value(supplementary_versions[row['tool']])
+            row['scope'] = ('Supplemental output metadata; matched completed attempt'
+                            if recovery['status'] == 'recovered' else
+                            'Current output metadata; execution attribution unverified')
         record = next((r for r in records if r.get('module') == row['tool']), None)
         if record:
             row['scope'] = _value(record.get('execution_status'))
@@ -433,9 +498,18 @@ def build(store, run):
         paragraphs.append(f"This run branches from {lineage['parent']}. Eligible existing results were retained as isolated copies; affected workflow steps were scheduled independently.")
         execution.append(f"Result inheritance: {lineage['checkpoints']} checkpoint groups offered for reuse. Native cache candidates may be recomputed if their execution identity differs.")
         warnings.append('Inherited checkpoints are not new tool executions. Parent runtime and resource usage are not attributed to this variant. Inspect variant.json for source records and copied-result identities.')
-    recorded = [r['tool'] + ' ' + r['version'] for r in software if r['version'] != UNKNOWN]
+    recorded = [r['tool'] + ' ' + r['version'] for r in software
+                if r['version'] != UNKNOWN and r['tool'] not in supplementary_versions]
     if recorded:
-        paragraphs.append('Recorded software versions: ' + '; '.join(recorded) + '.')
+        label = ('Versions reported by current GeneScope output metadata (execution attribution unverified): '
+                 if legacy_genescope else 'Recorded software versions: ')
+        paragraphs.append(label + '; '.join(recorded) + '.')
+    recovered_versions = [r['tool'] + ' ' + r['version'] for r in software
+                          if r['version'] != UNKNOWN and r['tool'] in supplementary_versions]
+    if recovered_versions:
+        attribution = ('matched to the recorded completed attempt' if recovery['status'] == 'recovered'
+                       else 'execution attribution unverified')
+        paragraphs.append('Versions reported by supplemental GeneScope output metadata (' + attribution + '): ' + '; '.join(recovered_versions) + '.')
     from .runs import input_identity
     document = {'id': run['id'], 'state': state, 'generated_at': now(), 'generator_version': __version__,
         'input_identity': input_identity(run), 'input_snapshots': run.get('inputs', []),
@@ -447,13 +521,21 @@ def build(store, run):
         'completed_stage': stage['stage'] if stage else ('assembly' if complete and run['tool']=='hybas' else None),
         'paragraphs': [intro, *paragraphs], 'execution': execution, 'software': software,
         'parameters': parameters, 'warnings': list(dict.fromkeys(warnings)), 'evidence_origin': origin,
-        'evidence': evidence, 'citation_url': f"https://github.com/{PIPELINES[run['tool']]['repo']}/tree/{run['commit']}"}
+        'evidence': evidence, 'supplemental_evidence': recovery,
+        'citation_url': f"https://github.com/{PIPELINES[run['tool']]['repo']}/tree/{run['commit']}"}
     document['text'] = render_text(document)
     return document
 
 
 def render_text(doc, markdown=False):
     heading = lambda title: ('## ' if markdown else '') + title
+    recovered = doc.get('supplemental_evidence')
+    supplemental = []
+    if recovered:
+        supplemental = ['Supplemental metadata read at: ' + _value(recovered.get('read_at')),
+                        'Supplemental metadata status: ' + recovered['status']]
+        supplemental += ['Supplemental output SHA256: ' + f['sha256']
+                         for f in recovered.get('evidence', {}).get('files', [])]
     lines = [('## ' if markdown else '') + 'Methods', '', *[p + '\n' for p in doc['paragraphs']],
              heading('Export status and review'), '', doc['state'] + ' · ' + doc['id'],
              'Evidence source: ' + doc['evidence_origin'], *['- ' + w for w in doc['warnings']], '',
@@ -462,6 +544,7 @@ def render_text(doc, markdown=False):
              heading('Reproducibility'), '', 'Pipeline source: ' + doc['citation_url'],
              'Frozen configuration SHA256: ' + doc['config_sha256'],
              'Workflow copy SHA256: ' + doc['workflow_sha256'],
+             *supplemental,
              'Recorded input identity: ' + doc.get('input_identity', 'Not recorded') + '. Export does not recheck current input contents.',
              'Draft created with Bactologix: ' + doc['created_with_bactologix'],
              'Methods generated by Bactologix ' + doc['generator_version'] + ' at ' + doc['generated_at'], '',

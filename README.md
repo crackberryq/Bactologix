@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a90.dev1 — Experimental development
+# Bactologix 0.1.0a91.dev1 — Experimental development
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
 
@@ -6,7 +6,7 @@ This development update adds [verified isolate export and analysis history](docs
 alongside reviewed storage cleanup. It retains the independent Dev workspace
 and experimental HybAs 10 workflow.
 
-**Windows Dev setup:** download [Bactologix-Dev-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a90.dev1/Bactologix-Dev-Windows.zip), extract it into a new folder, and run **Bactologix-Dev-Setup.cmd**. It installs or updates the independent Dev app and keeps its workspace separate. Older Dev builds need this bundle once to recognize the new Dev update channel. See [parallel testing](docs/DEVELOPMENT.md).
+**Windows Dev setup:** download [Bactologix-Dev-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a91.dev1/Bactologix-Dev-Windows.zip), extract it into a new folder, and run **Bactologix-Dev-Setup.cmd**. It installs or updates the independent Dev app and keeps its workspace separate. Older Dev builds need this bundle once to recognize the new Dev update channel. See [parallel testing](docs/DEVELOPMENT.md).
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
@@ -387,6 +387,16 @@ export instead of borrowing current defaults. HybAs read modes, Kraken/AWARE,
 polishing, quality and annotation switches, and BaSIS module exclusions, AWARE
 and follow-up settings drive the prose. Follow-up exports distinguish inherited
 screening from new execution.
+
+For GeneScope runs affected by the former **8 MB Methods evidence** error,
+update Bactologix, reopen the completed run, and choose **Methods → Refresh Methods**.
+The exporter streams the existing results and preserves the original completion
+snapshot. Recovered versions are separately labelled, with a full-file checksum
+and the time of the new read in the export. Where no recorded attempt checksum
+exists, their execution attribution remains unverified. Missing historical tool
+versions, step records and original input hashes are not reconstructed. This
+recovery does not rerun the analysis. Missing or conflicting outputs remain
+unavailable and are explained in the review notes.
 
 Review the Methods text, database/model identities and tool/database citations
 before submission. Exports contain sample identifiers and local paths. Exporting
