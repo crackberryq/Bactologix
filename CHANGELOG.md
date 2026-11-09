@@ -1,3 +1,13 @@
+## 0.1.0a88 — 2026-11-09 · Alpha · Beta interface preparation
+
+- Apply the approved teal workspace design with readable typography, stronger status contrast, responsive controls, clear workspace identity and a visible release-channel badge.
+- Simplify navigation into Home, Samples, Runs, Results, Comparisons and three management areas; keep global Activity and existing deep links accessible.
+- Start new runs with Purpose → Inputs → Settings → Review, keep advanced configuration available, and explain tab-only editor recovery accurately.
+- Keep sample deselection separate from workspace unregistration; give the next eligible run action priority while retaining secondary controls.
+- Present execution and evidence coverage together, lead results with reports, and group technical exports and attempt history into expandable sections.
+- Put measured storage capacity first, add category/search/sort controls and visible-item selection, preserve exact deletion previews and receipts, and route interrupted cleanup to its own recovery record.
+- Preserve pipeline algorithms, scientific defaults, installation consent and independent regular/Dev workspaces. This remains an alpha release preparing for beta testing.
+
 ## 0.1.0a87 — 2026-11-09 · Alpha · Storage management
 
 - Add Storage cleanup controls for saved run results, sample registrations, explicitly selected known input files, and unused managed pipeline sources and environments.
