@@ -1,11 +1,11 @@
-# Bactologix 0.1.0a93 — Alpha
+# Bactologix 0.1.0a94 — Alpha
 
 This regular alpha adds verified isolate export and recorded analysis history,
 alongside reviewed storage cleanup and the pre-beta evidence-integrity fixes. It remains separate from Bactologix Dev: regular
 installation and updates reject development releases. See [report evidence integrity](docs/report-evidence-integrity.md) for
 sample attribution, diagnostic report states and assessment coverage.
 
-**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a93/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
+**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a94/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
@@ -15,6 +15,19 @@ Closing the last dedicated app/browser window stops only that desktop session's 
 Home highlights work needing attention and recent runs. New runs follow **Purpose → Inputs → Settings → Review**, with advanced settings and compute limits available under Settings. **Activity** in the header opens the job queue; **Pipelines & databases** combines software setup and database management. Existing saved links remain usable.
 
 Results show execution and evidence coverage separately. Storage starts with measured filesystem capacity, category filters and a review of selected deletion paths. **Leave editor** retains edits in the current browser tab; use the final save action to create a durable run draft. Removing a sample registration asks for confirmation and keeps its files.
+
+### Sample-aware setup review
+
+In **New run → Settings → Setup adviser**, select **Review setup** to check the
+registered inputs and review source-specific starting settings. HybAs guidance
+explains applicable polishing stages and rounds; BaSIS and GeneScope guidance
+covers annotation inputs and evidence scope. **Use source value** changes one
+setting in the unsaved draft. It preserves saved defaults and existing runs.
+
+Source template values are starting points, not sample-specific optima. The
+adviser does not measure read quality or coverage, select a Medaka model, or
+certify biological suitability. Every draft still needs native validation.
+See [setup adviser](docs/setup-adviser.md) for scope and limitations.
 
 ### Isolate export and analysis history
 

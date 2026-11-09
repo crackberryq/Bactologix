@@ -448,6 +448,11 @@ def dispatch(store, kind, p):
             variants.eligible(store, _item(store, 'runs', p.get('id')))
             response['edit_run']['variant'] = True
         return response
+    if kind in {"inspect_setup_advice", "apply_setup_advice"}:
+        from . import setup_advice
+        if kind == "apply_setup_advice":
+            return setup_advice.apply(store, p)
+        return {"setup_advice": setup_advice.review(store, p), "keep_modal": True}
     if kind == "run_config_editor":
         tool = _tool(p)
         text = p.get("text", store.get("configs", tool, template(tool)))

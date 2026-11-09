@@ -1,3 +1,9 @@
+## 0.1.0a94 setup adviser
+
+- Source fixtures verify exact clean commit identity and bounded committed-template reads without running pipeline code. Missing, dirty, stale and unsupported sources remain unverified.
+- Adviser fixtures check input availability, source-specific route explanations, mixed inputs, unknown values, explicit draft-only application and stale preview rejection. These checks validate software behavior, not biological performance or optimal parameter values.
+- Browser acceptance covers review, explicit application, edits that invalidate advice, recovered drafts and mobile/keyboard access. Existing pipeline, Windows, package and regression checks remain release gates.
+
 ## 0.1.0a93 isolate folder routing
 
 - Routing checks cover a single output, multiple pipelines, shared follow-ups, absent outputs, unlinked same-name samples and revalidation when a folder is selected. Caller-supplied paths do not determine the target.
