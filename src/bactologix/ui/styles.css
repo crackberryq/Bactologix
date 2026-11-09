@@ -549,3 +549,5 @@ td{padding:18px 20px;line-height:1.55}
 
 /* Identity lives in the persistent header. */
 .workspace-tag{display:none}.workspace-identity{overflow-wrap:anywhere}.result-status-card>p{flex-basis:100%;margin:0}.result-file-details{margin-top:10px}.result-file-details>summary{font-size:13px;min-height:36px;padding:8px 0;cursor:pointer;color:var(--muted)}
+
+.result-status-card.failure{background:#fff1f0;border-color:#e5b9b5}.home-runs td:last-child .btn{white-space:nowrap}.utility-card>.btn{flex-shrink:0;white-space:nowrap}
