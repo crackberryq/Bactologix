@@ -139,6 +139,22 @@ def job_guidance(store, job):
         return None
     from .support import log_tail
     text, scope = log_tail(store, job['id'], max_bytes=24000)
+    if job.get('kind') == 'isolate_export':
+        receipt = store.get('isolate_export_receipts', job['id'])
+        return {
+            'title': 'Isolate export did not finish',
+            'text': ('Original files were retained. The destination may contain a partial package. '
+                     'Review the export receipt and create a new preview before trying again.' if receipt else
+                     'No export receipt is available for this attempt. Original files were retained. '
+                     'Open Samples and create a new export preview.'),
+            'category': 'isolate_export', 'run_id': None, 'step': None,
+            'receipt_id': job['id'] if receipt else None,
+            'action': 'isolate-export-receipt' if receipt else 'go-samples',
+            'evidence': str(job.get('error') or 'Export status: ' + job['status'])[:1200],
+            'confidence': 'Recorded interruption' if job['status'] == 'interrupted' else 'Recorded failure',
+            'scope': 'Copy and verification status; no source deletion or cloud-upload verification is implied.',
+            'log_status': scope['status'],
+        }
     if job.get('kind') == 'storage_cleanup':
         # A recovery job continues the original receipt rather than creating one
         # with the new job ID. A failure before staging may have no receipt yet.

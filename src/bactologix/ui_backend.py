@@ -21,6 +21,7 @@ from .runs import (absolute_path, clone_runs, command, create_run,
 from .store import identifier
 from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, storage_cleanup, compatibility, comparisons, sample_imports
 from . import setup_state, assessment
+from . import isolate_actions
 from . import reference_catalog
 from . import database_builder, followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
@@ -145,6 +146,7 @@ def snapshot(store):
             "resource_defaults": {t: hardware.run_defaults(store, t) for t in PIPELINES},
             "active": {t: store.get("settings", "active-" + t) for t in PIPELINES},
             "catalogs": catalogs, "samples": store.all("samples"), "runs": runs,
+            "isolate_exports": isolate_actions.export_history(store),
             "jobs": jobs, "queue": queue_state, "reports": report_rows, "configs": configs,
             "fields": {t: configuration_fields(t, configs[t]) for t in PIPELINES},
             "databases": {t: databases.panel(store, t) for t in PIPELINES},
@@ -197,10 +199,13 @@ def dispatch(store, kind, p):
     """Only named UI commands are allowed. Browser-supplied objects are not trusted."""
     if not isinstance(p, dict):
         raise ValueError("Invalid action payload")
-    if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "inspect_storage_cleanup", "inspect_storage_cleanup_receipt", "download_storage", "inspect_compatibility", "download_compatibility", "compare_saved_runs", "download_comparison", "preview_samples", "refresh_app_releases", "cancel_job"}:
+    isolate_readonly = isolate_actions.ACTIONS - {'preview_isolate_export', 'start_isolate_export'}
+    if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "inspect_storage_cleanup", "inspect_storage_cleanup_receipt", "download_storage", "inspect_compatibility", "download_compatibility", "compare_saved_runs", "download_comparison", "preview_samples", "refresh_app_releases", "cancel_job"} | isolate_readonly:
         updates.assert_current(store)
         if updates.status(store)["active_job"]:
             raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
+    if kind in isolate_actions.ACTIONS:
+        return isolate_actions.dispatch(store, kind, p, enqueue)
     if kind == 'restart_as_browser':
         from .desktop import request_browser
         if request_browser(store):

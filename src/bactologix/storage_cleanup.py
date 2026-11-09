@@ -33,6 +33,8 @@ def _hash(value):
 
 
 def assert_mutation_allowed(db):
+    if db.execute("SELECT 1 FROM jobs WHERE kind='isolate_export' AND status IN ('queued','running')").fetchone():
+        raise ValueError('An isolate export is queued or running. Finish or cancel it before changing this workspace.')
     if db.execute("SELECT 1 FROM jobs WHERE kind='storage_cleanup' AND status IN ('queued','running')").fetchone():
         raise ValueError('Storage cleanup is queued or running. Wait before changing this workspace.')
     for row in db.execute('SELECT body FROM items WHERE kind=?', (_RECEIPTS,)):
@@ -180,6 +182,8 @@ def _base_candidates(store, selected):
         deletions = [{'kind': 'runs', 'id': key, 'expected': run}]
         for kind, record_id, body in records:
             if kind in {'run_visibility', 'methods_evidence', 'followup_output_owner'} and record_id == key:
+                deletions.append({'kind': kind, 'id': record_id, 'expected': body})
+            if kind == 'methods_attempt_evidence' and isinstance(body, dict) and body.get('run_id') == key:
                 deletions.append({'kind': kind, 'id': record_id, 'expected': body})
             if kind in {'reports', 'report_refreshes'} and isinstance(body, dict) and (body.get('run') == key or body.get('run_id') == key):
                 deletions.append({'kind': kind, 'id': record_id, 'expected': body})
