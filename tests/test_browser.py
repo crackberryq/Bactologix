@@ -1973,7 +1973,7 @@ def test_storage_cleanup_requires_review_and_preserves_unselected_files(tmp_path
             page.get_by_role('link', name='Storage', exact=True).click()
             cleanup = page.get_by_role('region', name='Storage cleanup', exact=True)
             expect(cleanup.get_by_role('heading', name='Reclaim disk space')).to_be_visible()
-            expect(cleanup).to_contain_text('Bactologix does not verify backups')
+            expect(cleanup).to_contain_text('This cleanup action does not recheck the destination')
             cleanup.get_by_role('button', name='Input files', exact=True).click()
             expect(cleanup).to_contain_text('Registration only · files stay on disk')
             protected = cleanup.locator('[data-cleanup-key="sample_files:cleanup.fixture"]')
@@ -2010,7 +2010,7 @@ def test_storage_cleanup_requires_review_and_preserves_unselected_files(tmp_path
             # Nested output locations are partitioned out of the parent scan row.
             # Their combined size must agree with the exact cleanup-root preview.
             expect(dialog.locator('.cleanup-preview-summary > div').nth(1).locator('strong')).to_have_text(measured_run_bytes)
-            expect(dialog).to_contain_text('Bactologix has not verified a backup or transfer')
+            expect(dialog).to_contain_text('Cleanup does not recheck your destination or its current contents')
             destructive = dialog.get_by_role('button', name='Permanently delete selected', exact=True)
             confirm = dialog.get_by_label('Type DELETE to confirm permanent deletion', exact=True)
             acknowledged = dialog.locator('#cleanup-acknowledged')

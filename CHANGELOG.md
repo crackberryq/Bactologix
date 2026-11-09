@@ -1,3 +1,12 @@
+## 0.1.0a90.dev1 — 2026-11-09 · Alpha · Isolate export and history
+
+- Add sample location and linked-analysis dossiers, including archived analyses and explicit downstream handoffs.
+- Copy an isolate's available inputs, outputs, reports, logs, frozen settings and relevant records to a new folder; preview scope and verify destination contents with SHA256.
+- Preserve original files, deduplicate repeated staged input links, retain failed-copy receipts and distinguish local verification from SharePoint cloud synchronization.
+- Export the recorded sample-history graph as SVG, PDF, JSON and HTML, with explicit planned, observed and unknown evidence.
+- Retain completion evidence per execution attempt and keep legacy evidence gaps visible.
+- Keep scientific pipeline algorithms and settings unchanged; sample-specific settings advice is not part of this release.
+
 ## 0.1.0a89.dev1 — 2026-11-09 · Ubuntu account readiness
 
 - Carry the regular installer's account readiness fix into the independent Dev installer.

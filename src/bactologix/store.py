@@ -136,6 +136,10 @@ class Store:
                 if lock_active(db, payload.get('run_id')):
                     raise ValueError('A variant is copying this run. Wait for the snapshot to finish.')
             pending = db.execute("SELECT kind FROM jobs WHERE status IN ('queued','running')").fetchall()
+            if kind == 'isolate_export' and pending:
+                raise ValueError('Finish or cancel queued/running jobs before exporting an isolate snapshot.')
+            if any(row[0] == 'isolate_export' for row in pending):
+                raise ValueError('An isolate export is queued or running. Finish or cancel it before starting other work.')
             if kind == 'storage_cleanup' and pending:
                 raise ValueError('Finish or cancel queued/running jobs before deleting stored data.')
             if any(row[0] == "app_update" for row in pending):
