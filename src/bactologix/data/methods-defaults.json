@@ -2,7 +2,8 @@
   "schema": 1,
   "sources": {
     "hybas": "780ee7086c15c49f2825800ec463327f009f14a6",
-    "basis": "14f161a1f252a712053892961edf2275469c8dab"
+    "basis": "14f161a1f252a712053892961edf2275469c8dab",
+    "micpscope": "af9502c3040258a69b1efc662a6f11b95e46b729"
   },
   "defaults": {
     "hybas": {
@@ -276,11 +277,25 @@
         "policy": "auto",
         "directory": "resources"
       }
+    },
+    "micpscope": {
+      "samples": "examples/samples.tsv",
+      "output_dir": "results",
+      "threads": 1,
+      "memory_mb": 2048,
+      "reference_database": "",
+      "reference_min_identity": 30,
+      "reference_min_coverage": 70,
+      "reference_max_evalue": 1e-05
     }
   },
   "equivalent_sources": {
     "basis": [
       "1d2d96b266e98d956254d1a518ff5b437ab7a10a"
+    ],
+    "micpscope": [
+      "b47b16c286051ec841e7cdb593350004eb028475",
+      "f46cc9feeb30cd89b36876b7d341ed6750e19ce3"
     ]
   }
 }
