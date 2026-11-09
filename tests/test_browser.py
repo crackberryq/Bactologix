@@ -163,6 +163,8 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             page.get_by_role('button', name='Select this folder', exact=True).click()
             page.locator('#sample-id').fill('browser.fixture')
             page.get_by_role('button', name='Register sample', exact=True).click()
+            expect(page.get_by_role('dialog')).to_have_count(0)
+            expect(page.locator('[data-sample-row="browser.fixture"]')).to_be_visible()
             expect(page.get_by_role('heading', name='Your input folders.', exact=True)).to_be_visible()
             assert Store(workspace).get('samples', 'browser.fixture')['path'] == str(sample)
             page.get_by_role('link', name='Settings', exact=True).click()
@@ -285,9 +287,24 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             page.get_by_role('button', name='Close dialog', exact=True).click()
             page.get_by_role('link', name='Samples', exact=True).click()
             expect(page.locator('.saved-runs')).to_have_count(0)
-            page.locator('.registered-samples').get_by_role('button', name='Remove from sample list', exact=True).click()
+            visibility_before = Store(workspace).all('run_visibility')
+            remove_sample = page.locator('.registered-samples').get_by_role('button', name='Remove from sample list', exact=True)
+            remove_sample.click()
+            removal = page.get_by_role('dialog', name='Remove sample from list?', exact=True)
+            expect(removal).to_be_visible()
+            # Cancelling the confirmation keeps registration and run visibility intact.
+            removal.get_by_role('button', name='Close dialog', exact=True).click()
+            expect(removal).to_have_count(0)
+            expect(page.locator('[data-sample-row="browser.fixture"]')).to_be_visible()
+            assert Store(workspace).get('samples', 'browser.fixture')['path'] == str(sample)
+            assert Store(workspace).all('run_visibility') == visibility_before
+            remove_sample.click()
+            removal.get_by_role('button', name='Remove from list', exact=True).click()
+            expect(removal).to_have_count(0)
             expect(page.locator('.registered-samples')).to_contain_text('0 folders')
             assert Store(workspace).get('samples', 'browser.fixture') is None
+            assert Store(workspace).get('run_visibility', parent['id'])['archived'] is True
+            assert Store(workspace).get('run_visibility', child['id'])['archived'] is True
             page.get_by_role('link', name='Runs', exact=True).click()
             expect(page.locator('.registered-samples')).to_have_count(0)
             expect(page.locator('.saved-runs [data-run-row]')).to_have_count(0)
@@ -2521,7 +2538,7 @@ def test_responsive_navigation_and_workspace_tools(tmp_path):
         expect(page.locator('.sidebar')).to_be_hidden()
         expect(page.locator('.workspace-shell')).not_to_have_attribute('inert', '')
         page.locator('.workspace-tools > summary').click()
-        page.locator('#main h1').click(position={'x': 5, 'y': 5})
+        page.locator('.page-footer > span').click()
         expect(page.locator('.workspace-tools')).not_to_have_attribute('open', '')
         page.locator('.workspace-tools > summary').click()
         page.get_by_role('button', name='Desktop window', exact=True).click()
