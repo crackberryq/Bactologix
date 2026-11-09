@@ -165,7 +165,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             page.get_by_role('button', name='Register sample', exact=True).click()
             expect(page.get_by_role('dialog')).to_have_count(0)
             expect(page.locator('[data-sample-row="browser.fixture"]')).to_be_visible()
-            expect(page.get_by_role('heading', name='Your input folders.', exact=True)).to_be_visible()
+            expect(page.get_by_role('heading', name='Your isolates.', exact=True)).to_be_visible()
             assert Store(workspace).get('samples', 'browser.fixture')['path'] == str(sample)
             page.get_by_role('link', name='Settings', exact=True).click()
             expect(page.get_by_role('heading', name='Your defaults, your settings.', exact=True)).to_be_visible()
@@ -1469,7 +1469,7 @@ def test_background_poll_preserves_and_queues_a_foreground_action(tmp_path, work
         page.evaluate('response => window.acceptanceRender(response)',
                       {'id': second['id'], 'ok': True, 'navigate': 'samples', 'message': 'Sample registered.'})
         expect(page.get_by_role('dialog')).to_have_count(0)
-        expect(page.get_by_role('heading', name='Your input folders.', exact=True)).to_be_visible()
+        expect(page.get_by_role('heading', name='Your isolates.', exact=True)).to_be_visible()
         assert page.evaluate('window.acceptanceEvents.length') == 2
         assert store.all('samples') == []  # UI boundary fixture; no backend mutation occurred.
         browser.close()

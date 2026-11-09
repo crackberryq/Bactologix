@@ -1,3 +1,9 @@
+## 0.1.0a93.dev1 — 2026-11-09 · Alpha · Open isolate analysis folders
+
+- Point the Samples page’s Open isolate folder action at saved Bactologix analysis outputs. Open a single available output directly; offer a folder chooser for multiple linked analyses. Shared follow-up output paths appear once.
+- Keep original inputs accessible through the explicitly labelled Open input folder action in isolate details. Missing analyses show an explanation and never fall back to source inputs.
+- Keep existing files and run locations unchanged; regular and Dev workspaces remain independent.
+
 ## 0.1.0a92.dev1 — 2026-11-09 · Alpha · Methods across all pipelines
 
 - Validate HybAs and BaSIS publication metadata against the selected sample and available source, configuration and input identities. Stream large BaSIS reports and preserve original completion snapshots during explicitly labelled metadata recovery.
