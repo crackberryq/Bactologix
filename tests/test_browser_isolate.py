@@ -42,6 +42,35 @@ def capture(page, name):
         page.screenshot(path=str(folder / (name + '.png')), full_page=True)
 
 
+def assert_compact_isolate_tabs(dialog):
+    """Keep all three sections visible in one usable row at every viewport."""
+    tabs = dialog.locator('[data-action="isolate-tab"]')
+    boxes = tabs.evaluate_all('''buttons => buttons.map(button => {
+        const rect = button.getBoundingClientRect();
+        return {label: button.textContent.trim(), x: rect.x, y: rect.y,
+                right: rect.right, width: rect.width, height: rect.height};
+    })''')
+    assert len(boxes) == 3, boxes
+    assert max(box['y'] for box in boxes) - min(box['y'] for box in boxes) <= 2, boxes
+    assert all(44 <= box['height'] <= 64 for box in boxes), boxes
+    assert all(box['width'] >= 70 for box in boxes), boxes
+    assert all(left['right'] <= right['x'] + 1 for left, right in zip(boxes, boxes[1:])), boxes
+
+
+def assert_readable_sample_actions(row):
+    """Prevent narrow table cells from turning action labels into letter columns."""
+    actions = row.locator('[data-action="open-isolate-inputs"], '
+                          '[data-action="isolate-details"], [data-action="isolate-export"]')
+    sizes = actions.evaluate_all('''buttons => buttons.map(button => {
+        const rect = button.getBoundingClientRect();
+        return {label: button.textContent.trim(), width: rect.width, height: rect.height,
+                contentWidth: button.scrollWidth, availableWidth: button.clientWidth};
+    })''')
+    assert len(sizes) == 3, sizes
+    assert all(size['width'] >= 110 and 30 <= size['height'] <= 76 for size in sizes), sizes
+    assert all(size['contentWidth'] <= size['availableWidth'] + 1 for size in sizes), sizes
+
+
 def test_isolate_history_links_evidence_downloads_and_mobile_keyboard(tmp_path, monkeypatch):
     from playwright.sync_api import sync_playwright, expect
     from bactologix import launcher
@@ -70,6 +99,7 @@ def test_isolate_history_links_evidence_downloads_and_mobile_keyboard(tmp_path, 
         assert {r['id'] for r in result['runs']} == {fixture[k]['id'] for k in ('hybas', 'basis', 'genescope')}
         dialog = page.get_by_role('dialog', name='Isolate · isolate-07', exact=True)
         expect(dialog).to_be_visible()
+        assert_compact_isolate_tabs(dialog)
         expect(dialog.locator('[data-isolate-run]')).to_have_count(3)
         expect(dialog.locator('[data-isolate-run="run-unrelated-same-name"]')).to_have_count(0)
         expect(dialog).to_contain_text(str(fixture['original']))
@@ -79,6 +109,10 @@ def test_isolate_history_links_evidence_downloads_and_mobile_keyboard(tmp_path, 
         capture(page, 'isolate-files-desktop')
         dialog.get_by_role('button', name='Sample history', exact=True).click()
         expect(dialog.get_by_role('group', name='Sample history diagram', exact=True)).to_be_visible()
+        limitations = dialog.locator('.isolate-history-view > details.isolate-warnings')
+        expect(limitations).to_have_count(1)
+        expect(limitations.locator('summary')).to_contain_text('History limitations')
+        assert not limitations.evaluate('(el) => el.open')
         graph = result['history']
         assert any(n['status'] == 'failed' for n in graph['nodes'])
         assert any(n['status'] in {'unknown', 'not_recorded', 'planned'} for n in graph['nodes'])
@@ -104,12 +138,16 @@ def test_isolate_history_links_evidence_downloads_and_mobile_keyboard(tmp_path, 
         capture(page, 'isolate-history-desktop')
         page.set_viewport_size({'width': 390, 'height': 844})
         expect(dialog).to_be_visible()
+        assert_compact_isolate_tabs(dialog)
+        assert not limitations.evaluate('(el) => el.open')
         assert dialog.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
         capture(page, 'isolate-history-mobile')
         dialog.get_by_role('button', name='Close dialog', exact=True).click()
         expect(dialog).to_have_count(0)
         expect(trigger).to_be_focused()
+        assert_readable_sample_actions(row)
+        capture(page, 'isolate-sample-actions-mobile')
         assert store.jobs() == jobs_before
         assert original_bytes(fixture) == before
         assert not errors, errors
@@ -140,6 +178,7 @@ def test_isolate_export_previews_then_copies_and_shows_verified_local_receipt(tm
             page.locator('[data-sample-row="isolate-07"]').get_by_role('button', name='Export isolate', exact=True).click()
             respond('isolate_details')
             dialog = page.get_by_role('dialog', name='Isolate · isolate-07', exact=True)
+            assert_compact_isolate_tabs(dialog)
             copy_button = dialog.get_by_role('button', name='Copy & verify', exact=True)
             expect(copy_button).to_be_disabled()
             dialog.get_by_label('Destination folder', exact=True).fill(str(destination))
@@ -163,6 +202,7 @@ def test_isolate_export_previews_then_copies_and_shows_verified_local_receipt(tm
             expect(copy_button).to_be_enabled()
             capture(page, 'isolate-export-review-desktop')
             page.set_viewport_size({'width': 390, 'height': 844})
+            assert_compact_isolate_tabs(dialog)
             assert dialog.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
             expect(copy_button).to_be_visible()
