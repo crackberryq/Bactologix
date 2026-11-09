@@ -1,3 +1,11 @@
+## 0.1.0a92 — 2026-11-09 · Alpha · Methods across all pipelines
+
+- Validate HybAs and BaSIS publication metadata against the selected sample and available source, configuration and input identities. Stream large BaSIS reports and preserve original completion snapshots during explicitly labelled metadata recovery.
+- Keep configured settings, environment inventories, actual controller versions, reused results and incomplete native scope distinct. Report requested and effective Medaka models separately; preserve recorded versions even when a source has no reviewed prose template.
+- Capture Snakemake and controller Python from future actual workflow invocations in immutable attempt records. This does not reconstruct missing historical versions or individual rule execution.
+- Include database fingerprints in readable Methods exports and isolate packages. Add reviewed defaults for current regular sources and a saved-settings-only template for experimental HybAs 10.
+- Clarify the existing per-run output layout. No scientific pipeline algorithm, analysis setting or result location changes.
+
 ## 0.1.0a91 — 2026-11-09 · Alpha · GeneScope Methods recovery
 
 - Stream and hash complete GeneScope results while retaining only publication metadata, removing the former 8 MB Methods limit for these outputs. Reject malformed, changing, linked and identity-conflicting evidence; keep missing results distinct from read failures and sample mismatches.

@@ -1,3 +1,10 @@
+## 0.1.0a92 all-pipeline Methods audit
+
+- Collector fixtures cover positive sample identity, conflicting input/source/configuration identities, large reports, complete-file checksums, malformed metadata, unsafe paths and concurrent replacements.
+- Methods regressions distinguish requested/effective models, environment inventories/runtime measurements, reused results/new execution, incomplete scope, unknown source templates and retrospective metadata. Original snapshots remain immutable.
+- Runtime receipt tests execute a sample-free Snakemake workflow and exercise failure, interruption, identity/nonce/path conflicts, immutable storage and completion-capture ordering. Export does not probe current environments or infer individual rule execution.
+- Regular and development application, browser, Windows, package and exact pipeline contract checks remain release gates. These checks establish software evidence behaviour, not biological performance.
+
 ## 0.1.0a91 GeneScope Methods recovery
 
 - Metadata-reader fixtures cover valid results larger than 8 MB, complete-file checksums, trailing corruption, duplicate identity fields, bounded nesting/scalars, symlinks and concurrent file changes.

@@ -1,9 +1,31 @@
 """Content observations associate evidence with attempts, not scientific validity."""
 import hashlib
+import os
 from pathlib import Path
 from .store import now
 
-LIMIT = 100 * 1024 * 1024
+LIMIT = 512 * 1024 * 1024
+
+
+def fingerprint(path):
+    """Hash complete output evidence in chunks without allocating its payload."""
+    from .results import _file, _identity
+    digest, count = hashlib.sha256(), 0
+    with _file(path) as handle:
+        before = os.fstat(handle.fileno())
+        if before.st_size > LIMIT:
+            raise ValueError('Evidence exceeds the observation limit')
+        while block := handle.read(1024 * 1024):
+            count += len(block)
+            if count > LIMIT:
+                raise ValueError('Evidence exceeds the observation limit')
+            digest.update(block)
+        if count != before.st_size or _identity(before) != _identity(os.fstat(handle.fileno())):
+            raise ValueError('Evidence changed during observation')
+    with _file(path) as current:
+        if _identity(before) != _identity(os.fstat(current.fileno())):
+            raise ValueError('Evidence path changed during observation')
+    return digest.hexdigest()
 
 
 def paths(run):
@@ -57,15 +79,13 @@ def binding(store, run, relative, sha, jobs):
 
 
 def observe(ctx, run, phase):
-    from .results import read_file
     try:
         receipt = ctx.store.get('report_evidence', ctx.job['id'], {
             'schema': 1, 'job_id': ctx.job['id'], 'run': identity(run)})
         files = {}
         for relative in paths(run):
             try:
-                raw = read_file(Path(run['output']) / relative, LIMIT)
-                files[relative] = {'state': 'available', 'sha256': hashlib.sha256(raw).hexdigest()}
+                files[relative] = {'state': 'available', 'sha256': fingerprint(Path(run['output']) / relative)}
             except FileNotFoundError:
                 files[relative] = {'state': 'missing'}
             except (OSError, ValueError):
