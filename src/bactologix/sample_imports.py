@@ -12,6 +12,8 @@ COLUMNS = {'sample_id', 'input_folder', 'read_mode'}
 MODES = {'hybrid', 'ont_only', 'illumina_only'}
 
 
+from .storage_guard import mutation
+
 def review(store, text, registrations=None):
     from .runs import absolute_path, valid_id
     if not isinstance(text, str) or len(text.encode()) > MAX_BYTES:
@@ -90,6 +92,7 @@ def review(store, text, registrations=None):
     return result
 
 
+@mutation
 def commit(store, text, expected=None):
     with store.connect() as db:
         db.execute('BEGIN IMMEDIATE')

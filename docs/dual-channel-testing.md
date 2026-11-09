@@ -6,7 +6,7 @@ beta or establish analytical accuracy.
 
 | Component | Regular testing installation | Experimental installation |
 | --- | --- | --- |
-| Bactologix | 0.1.0a86; `bactologix` launcher | 0.1.0a86.dev7; `bactologix-dev` launcher |
+| Bactologix | 0.1.0a87; `bactologix` launcher | 0.1.0a87.dev1; `bactologix-dev` launcher |
 | HybAs | 9.0.3; v9 workflow | HybAs 10 development; experimental input modes and AWARE+ |
 | BaSIS | 0.4.0a6 | 0.4.0a6; independent Dev installation |
 | GeneScope | 0.1.0a16 with MICP database 1.0.1 | 0.1.0a16; independent Dev installation and MICP 1.0.1 database copy |

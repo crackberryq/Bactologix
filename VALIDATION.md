@@ -1,3 +1,15 @@
+## 0.1.0a87 storage management
+
+Validation is in progress for the Storage cleanup feature. Deletion regression
+checks use disposable fixtures only; existing user runs and input files are not
+test data. Required coverage includes dependency and ownership checks, unchanged
+preview scope, shared inputs, links, concurrent work, and recoverable partial
+cleanup. The real Chromium/Streamlit flow and the existing package, Windows,
+environment and near-beta contract jobs remain publication gates.
+
+This release does not change scientific pipeline algorithms. Filesystem tests do
+not establish physical disk reclamation on every WSL/Windows storage layout.
+
 ## 0.1.0a86 evidence-integrity backport
 
 The regular alpha receives the shared pre-beta evidence identity, analysis-state,

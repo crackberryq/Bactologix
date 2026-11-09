@@ -16,6 +16,8 @@ from .store import identifier, now
 from . import __version__
 
 
+from .storage_guard import mutation
+
 def parse_config(text):
     if len(text.encode()) > 2 * 1024 * 1024:
         raise ValueError("Configuration exceeds 2 MB")
@@ -52,6 +54,7 @@ def absolute_path(value):
     return path
 
 
+@mutation
 def register_sample(store, sid, path, mode="hybrid"):
     valid_id(sid)
     folder = absolute_path(path)
@@ -72,6 +75,7 @@ def register_sample(store, sid, path, mode="hybrid"):
     return row
 
 
+@mutation
 def remove_sample(store, sid, expected):
     """Unregister a sample and archive its idle runs without changing run records or files."""
     if not isinstance(sid, str) or not isinstance(expected, dict):
@@ -116,6 +120,7 @@ def _set_archive(db, rid, archived, reason):
                (rid, json.dumps(body)))
 
 
+@mutation
 def archive_runs(store, ids, archived=True):
     """Change list visibility atomically; frozen provenance, reports and files are retained."""
     if not isinstance(ids, list) or not ids or len(ids) > 500 or any(not isinstance(rid, str) for rid in ids):
@@ -430,6 +435,7 @@ def bind_paths(cfg, tool, store, installed):
     return cfg
 
 
+@mutation
 def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, parent=None, label=None, installation=None, expected_inputs=None, register=True):
     spec = PIPELINES[tool]
     install_id = installation or store.get("settings", "active-" + tool)
@@ -498,6 +504,7 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         raise
 
 
+@mutation
 def clone_runs(store, parent_id, aware_free=False, strategies=None):
     parent = store.get("runs", parent_id)
     if not parent or parent["tool"] != "hybas":

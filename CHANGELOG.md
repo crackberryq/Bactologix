@@ -1,3 +1,11 @@
+## 0.1.0a87 — 2026-11-09 · Alpha · Storage management
+
+- Add Storage cleanup controls for saved run results, sample registrations, explicitly selected known input files, and unused managed pipeline sources and environments.
+- Preview exact removal paths and measured file sizes, show dependency blocks, and require transfer/discard acknowledgment plus typed confirmation before queuing permanent deletion.
+- Recheck ownership and references before removal; protect active work, retained runs, shared resources, external environments and source files reached through links.
+- Keep cleanup receipts and expose incomplete cleanup for review and retry. Removing a registration or archiving a run remains distinct from freeing file space.
+- Retain explicit read-only storage measurement and report file-byte estimates separately from actual filesystem availability.
+
 ## 0.1.0a86 — 2026-11-09 · Alpha · Evidence integrity before beta
 
 - Bind saved report evidence to its sample and available content, source, configuration and execution identities. Keep missing legacy provenance explicitly unverified.

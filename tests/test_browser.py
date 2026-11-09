@@ -1839,6 +1839,146 @@ def test_storage_overview_is_explicit_persistent_and_read_only(tmp_path):
         proc.terminate(); proc.wait(timeout=15)
 
 
+def test_storage_cleanup_requires_review_and_preserves_unselected_files(tmp_path, installed):
+    """A real cleanup job deletes only confirmed fixture output; preview is inert."""
+    from playwright.sync_api import sync_playwright, expect
+    store, item = installed
+    sample = tmp_path / 'cleanup sample'
+    inputs = sample / 'raw/illumina'
+    inputs.mkdir(parents=True)
+    for mate in (1, 2):
+        (inputs / f'fixture_R{mate}.fastq').write_text('@fixture\nACGT\n+\nIIII\n')
+    from bactologix.runs import register_sample
+    registered = register_sample(store, 'cleanup.fixture', str(sample), 'illumina_only')
+    run = create_run(store, 'hybas', registered, 'custom_note: cleanup fixture\n',
+                     label='Transferred fixture results')
+    output = Path(run['output'])
+    output.mkdir(parents=True, exist_ok=True)
+    report = output / 'retired-report.txt'
+    report.write_bytes(b'confirmed temporary browser fixture\n' * 100)
+    retained = tmp_path / 'transferred copies'
+    retained.mkdir()
+    copy = retained / report.name
+    copy.write_bytes(report.read_bytes())
+    with socket.socket() as sock:
+        sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
+    with (tmp_path / 'cleanup-server.log').open('w') as log:
+        proc = subprocess.Popen([str(Path(sys.executable).with_name('bactologix')), '--home', str(store.home),
+                                 '--host', '127.0.0.1', '--port', str(port), '--no-browser'],
+                                stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    try:
+        url = f'http://127.0.0.1:{port}'
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                with urlopen(url + '/_stcore/health', timeout=1) as response:
+                    if response.status == 200: break
+            except OSError:
+                if time.monotonic() >= deadline: pytest.fail((tmp_path / 'cleanup-server.log').read_text())
+                time.sleep(.2)
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            page.goto(url)
+            page.get_by_role('link', name='Storage', exact=True).click()
+            cleanup = page.get_by_role('region', name='Storage cleanup', exact=True)
+            expect(cleanup.get_by_role('heading', name='Reclaim disk space')).to_be_visible()
+            expect(cleanup).to_contain_text('Bactologix does not verify backups')
+            expect(cleanup).to_contain_text('Registration only · files stay on disk')
+            protected = cleanup.locator('[data-cleanup-key="sample_files:cleanup.fixture"]')
+            expect(protected.locator('input')).to_be_disabled()
+            protected.locator('summary').click()
+            protected.get_by_role('button', name='Review protection', exact=True).click()
+            dialog = page.get_by_role('dialog', name='Review permanent cleanup')
+            expect(dialog).to_contain_text('Cleanup is blocked')
+            expect(dialog.get_by_role('button', name='Permanently delete selected')).to_be_disabled()
+            expect(dialog.locator('#cleanup-acknowledged')).to_have_count(0)
+            dialog.get_by_role('button', name='Close', exact=True).click()
+            assert report.exists() and not store.jobs()
+            candidate = cleanup.locator(f'[data-cleanup-key="run:{run["id"]}"]')
+            candidate.locator('input').check()
+            preview = cleanup.get_by_role('button', name='Preview selected cleanup', exact=True)
+            preview.click()
+            expect(dialog).to_contain_text(run['folder'])
+            expect(dialog).to_contain_text('Bactologix has not verified a backup or transfer')
+            destructive = dialog.get_by_role('button', name='Permanently delete selected', exact=True)
+            confirm = dialog.get_by_label('Type DELETE to confirm permanent deletion', exact=True)
+            acknowledged = dialog.locator('#cleanup-acknowledged')
+            expect(destructive).to_be_disabled()
+            confirm.fill('DELETE')
+            expect(destructive).to_be_disabled()
+            acknowledged.check()
+            expect(destructive).to_be_enabled()
+            confirm.fill('delete')
+            expect(destructive).to_be_disabled()
+            confirm.fill('DELETE')
+            acknowledged.uncheck()
+            expect(destructive).to_be_disabled()
+            acknowledged.check()
+            expect(destructive).to_be_enabled()
+            destructive.focus(); page.keyboard.press('Tab')
+            expect(dialog.get_by_role('button', name='Close dialog', exact=True)).to_be_focused()
+            page.keyboard.press('Shift+Tab')
+            expect(destructive).to_be_focused()
+            # Closing a fully completed confirmation must still perform no deletion.
+            dialog.get_by_role('button', name='Close', exact=True).click()
+            expect(preview).to_be_focused()
+            assert report.exists() and not store.jobs()
+            preview.click()
+            expect(dialog.locator('#cleanup-acknowledged')).not_to_be_checked()
+            expect(dialog.locator('#cleanup-confirmation')).to_have_value('')
+            dialog.locator('#cleanup-confirmation').fill('DELETE')
+            dialog.locator('#cleanup-acknowledged').check()
+            folder = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+            if folder:
+                Path(folder).mkdir(parents=True, exist_ok=True)
+                page.screenshot(path=str(Path(folder) / 'storage-cleanup-confirmation.png'), full_page=True)
+            destructive.click()
+            expect(dialog).not_to_be_visible()
+            history = page.get_by_role('region', name='Cleanup history', exact=True)
+            expect(history).to_contain_text('Completed', timeout=30000)
+            assert not report.exists()
+            assert copy.read_bytes() == b'confirmed temporary browser fixture\n' * 100
+            assert all((inputs / f'fixture_R{mate}.fastq').exists() for mate in (1, 2))
+            assert Path(item['source']).is_dir() and store.get('installs', item['id'])
+            assert any(j['kind'] == 'storage_cleanup' for j in store.jobs())
+            history.get_by_role('button', name='View receipt', exact=True).first.click()
+            receipt = page.get_by_role('dialog', name='Cleanup receipt')
+            expect(receipt).to_contain_text('Measure storage again')
+            expect(receipt).to_contain_text('Transferred fixture results')
+            receipt.get_by_role('button', name='Close', exact=True).click()
+            # A persisted interruption must clearly show the error and remaining path.
+            # This fixture only exercises receipt rendering; it never queues recovery.
+            from bactologix.store import now
+            store.put('storage_cleanup_receipts', 'cleanup-partial-browser-fixture', {
+                'id': 'cleanup-partial-browser-fixture', 'created_at': now(), 'status': 'partial',
+                'targets': [{'kind': 'run', 'id': 'interrupted-fixture'}],
+                'candidates': [{'kind': 'run', 'id': 'interrupted-fixture', 'label': 'Interrupted fixture'}],
+                'logical_bytes': copy.stat().st_size,
+                'error': 'Fixture cleanup stopped before removing the retained file.',
+                'operations': [{'original': str(copy), 'quarantine': str(retained / '.fixture-staged'),
+                                'state': 'planned'}]})
+            cleanup.get_by_role('button', name='Refresh cleanup list', exact=True).click()
+            partial = history.locator('article').filter(has_text='Partially completed')
+            expect(partial).to_contain_text('Fixture cleanup stopped')
+            partial.get_by_role('button', name='View receipt', exact=True).click()
+            expect(receipt).to_contain_text('Retained paths · 1')
+            expect(receipt).to_contain_text(str(copy))
+            expect(receipt).to_contain_text('Fixture cleanup stopped')
+            receipt.get_by_role('button', name='Close', exact=True).click()
+            assert copy.exists()
+            page.set_viewport_size({'width': 390, 'height': 844})
+            assert cleanup.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
+            if folder:
+                page.screenshot(path=str(Path(folder) / 'storage-cleanup-mobile.png'), full_page=True)
+            assert errors == []
+            browser.close()
+    finally:
+        proc.terminate(); proc.wait(timeout=15)
+
+
 def test_version_compatibility_overview_preserves_saved_bindings(tmp_path, installed):
     """Records-only browser overview, exact export, filters and review navigation."""
     import json

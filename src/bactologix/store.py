@@ -8,6 +8,7 @@ from pathlib import Path
 import sqlite3
 import uuid
 from platformdirs import user_data_dir
+from .storage_guard import activity, exclusive, mutation
 
 
 def now():
@@ -54,6 +55,14 @@ class Store:
             db.close()
 
     def put(self, kind, key, value):
+        guarded = kind in {'samples', 'runs', 'installs', 'configs', 'database_locations',
+                           'database_downloads', 'reports', 'report_refreshes', 'run_visibility'} or kind == 'settings'
+        if guarded:
+            with activity(self):
+                return self._put(kind, key, value)
+        return self._put(kind, key, value)
+
+    def _put(self, kind, key, value):
         with self.connect() as db:
             db.execute("INSERT INTO items VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body",
                        (kind, key, json.dumps(value)))
@@ -69,6 +78,7 @@ class Store:
             rows = db.execute("SELECT body FROM items WHERE kind=? ORDER BY rowid DESC", (kind,)).fetchall()
         return [json.loads(row[0]) for row in rows]
 
+    @mutation
     def register_run(self, run):
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -78,6 +88,7 @@ class Store:
                 raise ValueError('The installation changed or was removed while creating this draft. Refresh and try again.')
             db.execute("INSERT INTO items VALUES ('runs',?,?)", (run['id'], json.dumps(run)))
 
+    @mutation
     def activate_installation(self, key):
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -89,6 +100,10 @@ class Store:
                        ('active-' + item['tool'], json.dumps(key)))
 
     def submit(self, kind, payload):
+        with (exclusive(self) if kind == 'storage_cleanup' else activity(self)):
+            return self._submit(kind, payload)
+
+    def _submit(self, kind, payload):
         jid = identifier("job")
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -107,6 +122,8 @@ class Store:
                 if lock_active(db, payload.get('run_id')):
                     raise ValueError('A variant is copying this run. Wait for the snapshot to finish.')
             pending = db.execute("SELECT kind FROM jobs WHERE status IN ('queued','running')").fetchall()
+            if kind == 'storage_cleanup' and pending:
+                raise ValueError('Finish or cancel queued/running jobs before deleting stored data.')
             if any(row[0] == "app_update" for row in pending):
                 raise ValueError("A Bactologix update is queued or running. Wait for it to finish and restart the app.")
             if kind == "app_update":

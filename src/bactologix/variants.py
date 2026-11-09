@@ -49,6 +49,8 @@ HYBAS_CHECKPOINTS = {
 }
 
 
+from .storage_guard import mutation
+
 def sha(path):
     with Path(path).open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
@@ -394,6 +396,7 @@ def checkpoint_branch(parent, child):
     return manifest
 
 
+@mutation
 def branch(store, parent, child):
     """Called while the parent submission lock is held; child remains a draft."""
     eligible(store, parent)

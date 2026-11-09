@@ -54,7 +54,7 @@ def launch_worker(store):
 
 
 def enqueue(store, kind, payload):
-    if kind not in {"install", "connect", "bootstrap", "check", "workflow", "smoke", "workstation", "app_update", "environments", "database_download", "database_build", "report_refresh"}:
+    if kind not in {"install", "connect", "bootstrap", "check", "workflow", "smoke", "workstation", "app_update", "environments", "database_download", "database_build", "report_refresh", "storage_cleanup"}:
         raise ValueError("Unknown operation")
     if platform.system() != "Linux":
         raise RuntimeError("Run this app inside Linux or WSL2 to execute jobs.")
@@ -430,7 +430,10 @@ def smoke(ctx):
 
 def execute(ctx):
     kind = ctx.job["kind"]
-    if kind == "app_update":
+    if kind == 'storage_cleanup':
+        from .storage_cleanup import execute as cleanup_storage
+        cleanup_storage(ctx)
+    elif kind == "app_update":
         if ctx.job['payload'].get('update_all'):
             from .update_all import execute as update_everything
             update_everything(ctx)

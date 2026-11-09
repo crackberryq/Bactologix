@@ -9,6 +9,8 @@ from . import run_config
 from .runs import check_run_files, create_run, current_controller, tree_digest
 
 
+from .storage_guard import mutation
+
 def source(store, rid):
     run = store.get('runs', rid)
     if not run:
@@ -40,6 +42,7 @@ def editor(store, rid):
             'run_config_view': 'settings', 'keep_modal': True}
 
 
+@mutation
 def apply(store, payload):
     if payload.get("variant"):
         from . import variants
