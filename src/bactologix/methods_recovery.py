@@ -12,24 +12,28 @@ LEGACY_SIZE_WARNING = 'Could not read micpscope/results.json: Methods evidence e
 
 
 def supplement(store, run, receipt, latest_job, collector):
-    """Recover only a legacy GeneScope size failure, with explicit attribution.
+    """Recover only a legacy GeneScope or BaSIS size failure, with explicit attribution.
 
     The caller has already checked completion and the snapshot's run binding.
     All returned evidence was collected now, even when its content fingerprint
     matches an observed historical attempt. Nothing is written to the store.
     """
+    tool = run.get('tool')
+    label = 'GeneScope' if tool == 'micpscope' else 'BaSIS'
+    relative = RESULTS if tool == 'micpscope' else ('safety/deepsafe-report/evidence.json' if run.get('run_type') == 'followup' else 'safety/evidence.json')
+    size_warning = 'Could not read ' + relative + ': Methods evidence exceeds 8 MB: ' + relative
     original = receipt.get('evidence') if isinstance(receipt, dict) else None
-    if (run.get('tool') != 'micpscope' or not isinstance(original, dict)
+    if (tool not in {'micpscope', 'basis'} or not isinstance(original, dict)
             or original.get('files') or original.get('versions')
             or not isinstance(original.get('warnings'), list)
-            or LEGACY_SIZE_WARNING not in original['warnings']):
+            or size_warning not in original['warnings']):
         return None
 
     result = {'schema': 1, 'status': 'unavailable', 'read_at': None, 'evidence': {},
               'original_completion_snapshot': copy.deepcopy(receipt),
               'attribution': {'state': 'unverified', 'label': 'Evidence attribution unverified',
                               'job_id': None, 'attempt_status': 'unknown', 'commit': None},
-              'warnings': ['The original completion snapshot is unchanged.']}
+              'warnings': []}
 
     def failed(status, message):
         result['status'] = status
@@ -37,6 +41,8 @@ def supplement(store, run, receipt, latest_job, collector):
         result['warnings'].append(message)
         return result
 
+    if run.get('run_type') == 'followup' and store.get('followup_output_owner', run.get('parent')) != run['id']:
+        return failed('blocked', 'This follow-up no longer owns its shared output; current files cannot supplement its historical snapshot.')
     if latest_job is not None and latest_job.get('status') != 'succeeded':
         return failed('blocked', 'Metadata recovery cannot establish completed execution for an unsuccessful latest attempt.')
     if latest_job is not None and receipt.get('job_id') != latest_job.get('id'):
@@ -45,21 +51,21 @@ def supplement(store, run, receipt, latest_job, collector):
         result['read_at'] = now()
         evidence = collector(run)
     except (OSError, ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError) as exc:
-        return failed('unavailable', 'Could not recover GeneScope metadata: ' + str(exc))
+        return failed('unavailable', 'Could not recover ' + label + ' metadata: ' + str(exc))
     if not isinstance(evidence, dict):
-        return failed('unavailable', 'No usable GeneScope metadata was collected.')
+        return failed('unavailable', 'No usable ' + label + ' metadata was collected.')
     result['warnings'].extend(w for w in evidence.get('warnings', []) if isinstance(w, str))
     metadata = evidence.get('metadata')
     files = evidence.get('files')
-    fingerprint = next((row for row in files if isinstance(row, dict) and row.get('path') == RESULTS), None) if isinstance(files, list) else None
+    fingerprint = next((row for row in files if isinstance(row, dict) and row.get('path') == relative), None) if isinstance(files, list) else None
     if (not isinstance(metadata, dict) or not isinstance(fingerprint, dict)
             or not isinstance(fingerprint.get('sha256'), str)
             or not re.fullmatch('[0-9a-f]{64}', fingerprint['sha256'])):
-        return failed('unavailable', 'GeneScope metadata recovery has no usable metadata and complete-file fingerprint.')
+        return failed('unavailable', label + ' metadata recovery has no usable metadata and complete-file fingerprint.')
     try:
         native = validate_native(run, metadata)
         if 'sample identity' not in native['checks'] or 'sample identity' in native['missing']:
-            raise ValueError('Recovered GeneScope metadata has no verified sample identity.')
+            raise ValueError('Recovered ' + label + ' metadata has no verified sample identity.')
         provenance = metadata.get('provenance') or {}
         # Optional producer claims can disqualify a supplement, but agreement
         # never establishes attribution without the content-bound receipt.
@@ -68,18 +74,21 @@ def supplement(store, run, receipt, latest_job, collector):
                 continue
             for key in ('run_id', 'bactologix_run_id'):
                 if key in declared and declared[key] != run['id']:
-                    raise ValueError('Recovered GeneScope metadata names a different or unsupported run identity.')
+                    raise ValueError('Recovered ' + label + ' metadata names a different or unsupported run identity.')
             for key in ('job_id', 'bactologix_job_id'):
                 if key in declared and (latest_job is None or declared[key] != latest_job['id']):
-                    raise ValueError('Recovered GeneScope metadata names a different or unrecorded execution attempt.')
-        attribution = binding(store, run, RESULTS, fingerprint['sha256'], [latest_job] if latest_job else [])
+                    raise ValueError('Recovered ' + label + ' metadata names a different or unrecorded execution attempt.')
+        attribution = binding(store, run, relative, fingerprint['sha256'], [latest_job] if latest_job else [])
     except (OSError, ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError) as exc:
-        return failed('blocked', 'GeneScope metadata recovery was blocked: ' + str(exc))
+        return failed('blocked', label + ' metadata recovery was blocked: ' + str(exc))
 
     result['attribution'] = attribution
     result['status'] = 'recovered' if attribution['state'] == 'recorded_attempt' else 'unverified'
     # Only descriptive metadata is supplemented. Do not infer stage execution.
-    result['evidence'] = copy.deepcopy({key: evidence[key] for key in ('files', 'warnings', 'versions', 'metadata') if key in evidence})
+    keys = ('files', 'warnings', 'versions', 'version_scopes', 'metadata')
+    if tool == 'basis':
+        keys += ('records', 'native_run', 'database_hashes')
+    result['evidence'] = copy.deepcopy({key: evidence[key] for key in keys if key in evidence})
     result['evidence']['native_identity'] = native
     if result['status'] == 'recovered':
         result['warnings'].append('The recovered metadata checksum matches content created or changed during the recorded successful attempt; it was collected at export, not at completion.')

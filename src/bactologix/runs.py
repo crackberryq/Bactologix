@@ -685,14 +685,28 @@ def execute_workflow(ctx):
     store.put("runs", run["id"], run)
     from . import results
     results.observe(ctx, run, 'before')
+    runtime, invocation_succeeded = None, False
     try:
         from .hardware import workflow_environment
         extra_env = workflow_environment(parse_config(run['config']))
         ctx.write('GPU policy: ' + ('CPU only (CUDA devices hidden)' if extra_env else 'Native tool settings; existing CUDA visibility preserved'))
+        if payload['action'] == 'run':
+            try:
+                from . import methods_runtime
+                runtime = methods_runtime.prepare(store, run, ctx.job)
+                extra_env = dict(extra_env or {}, **runtime['environment'])
+            except Exception as exc:
+                ctx.write('Controller runtime observation unavailable: ' + str(exc))
         kwargs = {"extra_env": extra_env} if extra_env else {}
         ctx.command(command(store, run, payload["action"]), cwd=Path(run["folder"]) / "workflow", **kwargs)
+        invocation_succeeded = True
     finally:
         results.observe(ctx, run, 'after')
+        if runtime is not None:
+            try:
+                methods_runtime.finish(store, run, ctx.job['id'], runtime, succeeded=invocation_succeeded)
+            except Exception as exc:
+                ctx.write('Controller runtime observation unavailable: ' + str(exc))
     run["last_action"] = payload["action"]
     if payload["action"] == "dry-run":
         run["dry_run_ok"] = True
