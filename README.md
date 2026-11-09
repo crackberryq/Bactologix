@@ -1,11 +1,11 @@
-# Bactologix 0.1.0a90 — Alpha
+# Bactologix 0.1.0a91 — Alpha
 
 This regular alpha adds verified isolate export and recorded analysis history,
 alongside reviewed storage cleanup and the pre-beta evidence-integrity fixes. It remains separate from Bactologix Dev: regular
 installation and updates reject development releases. See [report evidence integrity](docs/report-evidence-integrity.md) for
 sample attribution, diagnostic report states and assessment coverage.
 
-**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a90/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
+**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a91/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
@@ -386,6 +386,16 @@ export instead of borrowing current defaults. HybAs read modes, Kraken/AWARE,
 polishing, quality and annotation switches, and BaSIS module exclusions, AWARE
 and follow-up settings drive the prose. Follow-up exports distinguish inherited
 screening from new execution.
+
+For GeneScope runs affected by the former **8 MB Methods evidence** error,
+update Bactologix, reopen the completed run, and choose **Methods → Refresh Methods**.
+The exporter streams the existing results and preserves the original completion
+snapshot. Recovered versions are separately labelled, with a full-file checksum
+and the time of the new read in the export. Where no recorded attempt checksum
+exists, their execution attribution remains unverified. Missing historical tool
+versions, step records and original input hashes are not reconstructed. This
+recovery does not rerun the analysis. Missing or conflicting outputs remain
+unavailable and are explained in the review notes.
 
 Review the Methods text, database/model identities and tool/database citations
 before submission. Exports contain sample identifiers and local paths. Exporting

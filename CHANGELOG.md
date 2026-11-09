@@ -1,3 +1,10 @@
+## 0.1.0a91 — 2026-11-09 · Alpha · GeneScope Methods recovery
+
+- Stream and hash complete GeneScope results while retaining only publication metadata, removing the former 8 MB Methods limit for these outputs. Reject malformed, changing, linked and identity-conflicting evidence; keep missing results distinct from read failures and sample mismatches.
+- Recover metadata from surviving outputs for historical GeneScope completion snapshots affected by that limit. Preserve original snapshots and distinguish output matched to a recorded successful attempt from retrospectively read metadata with unverified attribution.
+- Add Methods templates for the reviewed GeneScope a13/a14/a16 source commits, including the configured optional reference-search scope. Report runtime versions from output evidence; do not infer missing Snakemake versions or executed steps.
+- Refresh Methods on an existing completed run to obtain the corrected export. No analysis rerun or pipeline algorithm change is required for metadata recovery when its output is still available.
+
 ## 0.1.0a90 — 2026-11-09 · Alpha · Isolate export and history
 
 - Add sample location and linked-analysis dossiers, including archived analyses and explicit downstream handoffs.
