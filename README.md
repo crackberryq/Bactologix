@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a92.dev1 — Experimental development
+# Bactologix 0.1.0a93.dev1 — Experimental development
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
 
@@ -6,7 +6,7 @@ This development update adds [verified isolate export and analysis history](docs
 alongside reviewed storage cleanup. It retains the independent Dev workspace
 and experimental HybAs 10 workflow.
 
-**Windows Dev setup:** download [Bactologix-Dev-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a92.dev1/Bactologix-Dev-Windows.zip), extract it into a new folder, and run **Bactologix-Dev-Setup.cmd**. It installs or updates the independent Dev app and keeps its workspace separate. Older Dev builds need this bundle once to recognize the new Dev update channel. See [parallel testing](docs/DEVELOPMENT.md).
+**Windows Dev setup:** download [Bactologix-Dev-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a93.dev1/Bactologix-Dev-Windows.zip), extract it into a new folder, and run **Bactologix-Dev-Setup.cmd**. It installs or updates the independent Dev app and keeps its workspace separate. Older Dev builds need this bundle once to recognize the new Dev update channel. See [parallel testing](docs/DEVELOPMENT.md).
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
@@ -29,6 +29,11 @@ See [isolate export and history](docs/isolate-export.md) for package contents,
 verification, history downloads and limitations.
 
 ### Where isolate results are stored
+
+On **Samples**, **Open isolate folder** opens the saved Bactologix analysis output.
+If several analyses are linked, choose their folder from the list. Shared follow-up
+locations appear once. Original files are available separately under **Analysis &
+history → Open input folder**. Missing outputs never redirect to the input folder.
 
 The registered isolate folder supplies the original inputs. Normal pipeline runs
 write separately under `~/.local/share/bactologix/runs/<run-id>/outputs/<isolate-id>/`:

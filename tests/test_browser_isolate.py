@@ -59,7 +59,7 @@ def assert_compact_isolate_tabs(dialog):
 
 def assert_readable_sample_actions(row):
     """Prevent narrow table cells from turning action labels into letter columns."""
-    actions = row.locator('[data-action="open-isolate-inputs"], '
+    actions = row.locator('[data-action="open-isolate-folder"], '
                           '[data-action="isolate-details"], [data-action="isolate-export"]')
     sizes = actions.evaluate_all('''buttons => buttons.map(button => {
         const rect = button.getBoundingClientRect();
@@ -74,6 +74,7 @@ def assert_readable_sample_actions(row):
 def test_isolate_history_links_evidence_downloads_and_mobile_keyboard(tmp_path, monkeypatch):
     from playwright.sync_api import sync_playwright, expect
     from bactologix import launcher
+    from bactologix.ui_backend import snapshot
     fixture = isolate_fixture(tmp_path)
     store = fixture['store']
     before = original_bytes(fixture)
@@ -89,9 +90,39 @@ def test_isolate_history_links_evidence_downloads_and_mobile_keyboard(tmp_path, 
         respond = responder(page, store)
         page.get_by_role('link', name='Samples', exact=True).click()
         row = page.locator('[data-sample-row="isolate-07"]')
-        row.get_by_role('button', name='Open input folder', exact=True).click()
+        expect(row.get_by_role('button', name='Open input folder', exact=True)).to_have_count(0)
+        expect(page.get_by_role('columnheader', name='Isolate files', exact=True)).to_be_visible()
+        assert not row.locator('.sample-input-location').evaluate('(el) => el.open')
+        folder_trigger = row.get_by_role('button', name='Open isolate folder', exact=True)
+        expect(folder_trigger).to_have_class('btn primary')
+        folder_trigger.focus()
+        page.keyboard.press('Enter')
+        assert page.evaluate('window.acceptanceEvents.at(-1).value.payload') == {
+            'id': fixture['sample']['id'], 'kind': 'analysis'}
+        choices = respond('open_isolate_folder')['isolate_folder_choices']
+        assert len(choices['folders']) == 3
+        assert opened == []
+        folders = page.get_by_role('dialog', name='Isolate folders · isolate-07', exact=True)
+        expect(folders).to_be_visible()
+        expect(folders.locator('[data-isolate-folder]')).to_have_count(3)
+        expect(folders.get_by_role('button', name='Open analysis folder', exact=True).first).to_be_focused()
+        expect(folders).to_contain_text('run-export-hybas <fixture>')
+        expect(folders).not_to_contain_text('run-unrelated-same-name')
+        assert folders.locator('fixture').count() == 0
+        basis_folder = folders.locator('[data-isolate-folder="run-export-basis"]')
+        expect(basis_folder).to_contain_text('Archived')
+        expect(basis_folder).to_contain_text(fixture['basis']['output'])
+        capture(page, 'isolate-folder-choices-desktop')
+        basis_folder.get_by_role('button', name='Open analysis folder', exact=True).focus()
+        page.keyboard.press('Enter')
+        assert page.evaluate('window.acceptanceEvents.at(-1).value.payload') == {
+            'id': fixture['sample']['id'], 'kind': 'run', 'run_id': fixture['basis']['id']}
         respond('open_isolate_folder')
-        assert opened == [str(fixture['original'])]
+        assert opened == [fixture['basis']['output']]
+        expect(basis_folder.get_by_role('button', name='Open analysis folder', exact=True)).to_be_focused()
+        page.keyboard.press('Escape')
+        expect(folders).to_have_count(0)
+        expect(folder_trigger).to_be_focused()
         trigger = row.get_by_role('button', name='Analysis & history', exact=True)
         trigger.focus()
         page.keyboard.press('Enter')
@@ -106,6 +137,12 @@ def test_isolate_history_links_evidence_downloads_and_mobile_keyboard(tmp_path, 
         expect(dialog.locator('[data-isolate-run="run-export-basis"]')).to_contain_text('Archived')
         expect(dialog).to_contain_text('run-export-hybas <fixture>')
         assert dialog.locator('fixture').count() == 0  # Labels remain text, not inserted markup.
+        dialog.get_by_role('button', name='Open input folder', exact=True).click()
+        assert page.evaluate('window.acceptanceEvents.at(-1).value.payload') == {
+            'id': fixture['sample']['id'], 'kind': 'inputs'}
+        respond('open_isolate_folder')
+        assert opened == [fixture['basis']['output'], str(fixture['original'])]
+        expect(dialog.get_by_role('button', name='Open input folder', exact=True)).to_be_focused()
         capture(page, 'isolate-files-desktop')
         dialog.get_by_role('button', name='Sample history', exact=True).click()
         expect(dialog.get_by_role('group', name='Sample history diagram', exact=True)).to_be_visible()
@@ -148,6 +185,21 @@ def test_isolate_history_links_evidence_downloads_and_mobile_keyboard(tmp_path, 
         expect(trigger).to_be_focused()
         assert_readable_sample_actions(row)
         capture(page, 'isolate-sample-actions-mobile')
+        assert store.jobs() == jobs_before
+        assert original_bytes(fixture) == before
+        # A registration for the other input location selects its single saved
+        # output, despite sharing a name with the earlier linked analyses.
+        store.put('samples', fixture['sample']['id'], {
+            **fixture['sample'], 'path': fixture['unrelated']['sample']['path']})
+        page.evaluate('''workspace => {
+            Object.assign(window.acceptanceWorkspace, workspace);
+            window.acceptanceRender(null);
+        }''', snapshot(store))
+        row.get_by_role('button', name='Open isolate folder', exact=True).click()
+        direct = respond('open_isolate_folder')
+        assert 'isolate_folder_choices' not in direct
+        assert opened[-1] == fixture['unrelated']['output']
+        expect(page.get_by_role('dialog')).to_have_count(0)
         assert store.jobs() == jobs_before
         assert original_bytes(fixture) == before
         assert not errors, errors
@@ -237,12 +289,19 @@ def test_isolate_export_previews_then_copies_and_shows_verified_local_receipt(tm
         finish_workers(children)
 
 
-def test_missing_scope_and_unverified_attempt_are_visible_without_copying(tmp_path):
+def test_missing_scope_and_unverified_attempt_are_visible_without_copying(tmp_path, monkeypatch):
     from playwright.sync_api import sync_playwright, expect
+    from bactologix import launcher
+    from bactologix.runs import register_sample
     from bactologix.ui_backend import snapshot
     from bactologix.store import now
     fixture = isolate_fixture(tmp_path)
     store = fixture['store']
+    empty_inputs = tmp_path / 'inputs without saved analyses'
+    empty_inputs.mkdir()
+    register_sample(store, 'not-run-yet', str(empty_inputs), 'illumina_only')
+    opened = []
+    monkeypatch.setattr(launcher, 'open_folder', lambda path: opened.append(str(path)) or str(path))
     unavailable = Path(fixture['genescope']['output'])
     (unavailable / 'descriptor-result.txt').unlink()
     unavailable.rmdir()
@@ -256,6 +315,35 @@ def test_missing_scope_and_unverified_attempt_are_visible_without_copying(tmp_pa
         respond = responder(page, store)
         page.get_by_role('button', name='Open navigation', exact=True).click()
         page.get_by_role('link', name='Samples', exact=True).click()
+        empty_trigger = page.locator('[data-sample-row="not-run-yet"]').get_by_role('button', name='Open isolate folder', exact=True)
+        empty_trigger.click()
+        assert respond('open_isolate_folder')['isolate_folder_choices']['folders'] == []
+        empty_dialog = page.get_by_role('dialog', name='Isolate folders · not-run-yet', exact=True)
+        expect(empty_dialog).to_contain_text('No saved analysis folders are recorded')
+        expect(empty_dialog.get_by_role('button', name='Open analysis folder', exact=True)).to_have_count(0)
+        expect(empty_dialog.get_by_role('button', name='Open input folder', exact=True)).to_have_count(0)
+        expect(empty_dialog.get_by_role('button', name='Close dialog', exact=True)).to_be_focused()
+        assert opened == []
+        page.keyboard.press('Escape')
+        expect(empty_trigger).to_be_focused()
+        page.locator('[data-sample-row="isolate-07"]').get_by_role('button', name='Open isolate folder', exact=True).click()
+        choices = respond('open_isolate_folder')['isolate_folder_choices']
+        assert len(choices['folders']) == 3
+        folders = page.get_by_role('dialog', name='Isolate folders · isolate-07', exact=True)
+        unavailable_row = folders.locator('[data-isolate-folder="run-export-genescope"]')
+        expect(unavailable_row.get_by_role('button', name='Open analysis folder', exact=True)).to_be_disabled()
+        expect(unavailable_row).to_contain_text('Folder unavailable')
+        expect(unavailable_row).to_contain_text(str(unavailable))
+        assert folders.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
+        folders.get_by_role('button', name='Close', exact=True).focus()
+        page.keyboard.press('Tab')
+        expect(folders.get_by_role('button', name='Close dialog', exact=True)).to_be_focused()
+        page.keyboard.press('Shift+Tab')
+        expect(folders.get_by_role('button', name='Close', exact=True)).to_be_focused()
+        capture(page, 'isolate-folder-choices-mobile')
+        page.keyboard.press('Escape')
+        assert opened == []
         page.locator('[data-sample-row="isolate-07"]').get_by_role('button', name='Export isolate', exact=True).click()
         respond('isolate_details')
         dialog = page.get_by_role('dialog', name='Isolate · isolate-07', exact=True)
