@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .hybas_manifest_schema import load_manifest, validate_manifest
 from .store import now
+from .storage_guard import mutation
 
 
 def paths(sample):
@@ -50,6 +51,7 @@ def review(path):
             'Declarations and file availability checked. A compatible HybAs alpha and native dry-run are required; sequence content is checked during execution.'}
 
 
+@mutation
 def commit(store, path, token):
     result = review(path)
     if result['token'] != token:

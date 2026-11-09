@@ -18,6 +18,7 @@ import yaml
 from .local import local_path, environment_paths
 from .runs import parse_config, template
 from .store import now
+from .storage_guard import mutation
 
 MAX_DIRS = 5000
 MAX_ENTRIES = 3000
@@ -541,6 +542,7 @@ def _hybas_layout(store, paths, lineage):
     return root
 
 
+@mutation
 def save(store, tool, changes, expected_revision):
     if not isinstance(changes, dict) or not changes:
         raise ValueError("Choose or check a database location first.")

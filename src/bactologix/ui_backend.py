@@ -19,7 +19,7 @@ from .runs import (absolute_path, clone_runs, command, create_run,
                    parse_config, register_sample, remove_sample, archive_runs, reports, template, validate_launch,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
-from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, compatibility, comparisons, sample_imports
+from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, storage_cleanup, compatibility, comparisons, sample_imports
 from . import setup_state, assessment
 from . import reference_catalog
 from . import database_builder, followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
@@ -197,7 +197,7 @@ def dispatch(store, kind, p):
     """Only named UI commands are allowed. Browser-supplied objects are not trusted."""
     if not isinstance(p, dict):
         raise ValueError("Invalid action payload")
-    if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "download_storage", "inspect_compatibility", "download_compatibility", "compare_saved_runs", "download_comparison", "preview_samples", "refresh_app_releases", "cancel_job"}:
+    if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "inspect_storage_cleanup", "inspect_storage_cleanup_receipt", "download_storage", "inspect_compatibility", "download_compatibility", "compare_saved_runs", "download_comparison", "preview_samples", "refresh_app_releases", "cancel_job"}:
         updates.assert_current(store)
         if updates.status(store)["active_job"]:
             raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
@@ -507,10 +507,21 @@ def dispatch(store, kind, p):
         doc = compatibility.panel(store)
         return {'compatibility': doc, 'download': compatibility.export(doc), 'keep_modal': True}
     if kind == 'inspect_storage':
-        return {'storage': storage.panel(store), 'keep_modal': True}
+        return {'storage': storage.panel(store), 'storage_cleanup': storage_cleanup.panel(store), 'keep_modal': True}
+    if kind == 'inspect_storage_cleanup':
+        return {'storage_cleanup': storage_cleanup.panel(store), 'keep_modal': True}
+    if kind == 'inspect_storage_cleanup_receipt':
+        return {'cleanup_receipt': storage_cleanup.receipt(store, p.get('id')), 'keep_modal': True}
+    if kind == 'preview_storage_cleanup':
+        return {'cleanup_plan': storage_cleanup.preview(store, p.get('targets')), 'keep_modal': True}
+    if kind == 'execute_storage_cleanup':
+        jid = storage_cleanup.request(store, p.get('plan_id'), p.get('signature'),
+                                      p.get('confirmation'), p.get('acknowledged'))
+        return {'storage_cleanup': storage_cleanup.panel(store), 'job_id': jid,
+                'message': 'Storage cleanup queued. Follow its progress and receipt on this page.'}
     if kind == 'scan_storage':
         storage.scan(store, p.get('revision'), p.get('include_external', False))
-        return {'storage': storage.panel(store), 'message': 'Storage measurement saved. Review its scope and limits.', 'keep_modal': True}
+        return {'storage': storage.panel(store), 'storage_cleanup': storage_cleanup.panel(store), 'message': 'Storage measurement saved. Review its scope and limits.', 'keep_modal': True}
     if kind == 'download_storage':
         return {'download': storage.download(store), 'keep_modal': True}
     if kind == 'inspect_results':

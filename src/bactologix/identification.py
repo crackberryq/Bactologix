@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .runs import check_run_files, parse_config, tree_digest
 from .store import now, identifier
+from .storage_guard import mutation
 
 OPTION = 'kraken_review_before_filtering'
 SCHEMA = 'hybas-identification-review-v1'
@@ -121,6 +122,7 @@ def inspect(store, rid, mode=None, taxid=None, query=""):
             'created': doc['created']}
 
 
+@mutation
 def save(store, rid, mode, taxid, signature, confirm=False):
     """Compare-and-swap against both the reviewed evidence and the saved choice."""
     review = inspect(store, rid, mode, taxid)

@@ -74,11 +74,36 @@ def owned(store, value, label='Resource'):
     return path
 
 
+def _storage_discovery_defaults():
+    """Keep the original data-home defaults when Dev redirects its own caches."""
+    encoded = os.environ.get('BACTOLOGIX_STORAGE_DISCOVERY_DEFAULTS')
+    if encoded is not None:
+        try:
+            defaults = json.loads(encoded)
+        except (TypeError, ValueError) as exc:
+            raise ValueError('Preserved workspace discovery defaults are invalid.') from exc
+        if (not isinstance(defaults, list) or not defaults or len(defaults) > 16
+                or any(not isinstance(value, str) or not Path(value).is_absolute()
+                       or '\x00' in value for value in defaults)):
+            raise ValueError('Preserved workspace discovery defaults must be absolute workspace paths.')
+    else:
+        defaults = [str(Path(user_data_dir('bactologix')).expanduser().resolve())]
+    # Dev has a fixed default independent of XDG. Keep the conventional stable
+    # default too, even when a custom data home was inherited at launch.
+    defaults.extend(str(Path.home() / '.local/share' / name)
+                    for name in ('bactologix', 'bactologix-dev'))
+    defaults = sorted(set(defaults))
+    if len(defaults) > 16:
+        raise ValueError('Preserved workspace discovery defaults contain too many paths.')
+    return json.dumps(defaults, separators=(',', ':'))
+
+
 def environment(home):
     """Route common writable caches and temporary data to this workspace."""
     if current() != 'dev':
         return {}
     home = Path(home).resolve()
+    discovery_defaults = _storage_discovery_defaults()
     entries = {'XDG_CACHE_HOME':'cache', 'XDG_CONFIG_HOME':'config', 'XDG_DATA_HOME':'data',
                'CONDA_PKGS_DIRS':'cache/conda/pkgs', 'CONDA_ENVS_PATH':'envs',
                'PIP_CACHE_DIR':'cache/pip', 'MAMBA_ROOT_PREFIX':'tools/mamba',
@@ -100,6 +125,7 @@ def environment(home):
         except FileExistsError:
             pass
     result.update(CONDARC=str(condarc), PYTHONNOUSERSITE='1', BACTOLOGIX_DEV_HOME=str(home),
+                  BACTOLOGIX_STORAGE_DISCOVERY_DEFAULTS=discovery_defaults,
                   CONDA_EXE=str(home / 'tools/miniforge/bin/conda'),
                   CONDA_PYTHON_EXE=str(home / 'tools/miniforge/bin/python'),
                   CONDA_PREFIX='', CONDA_DEFAULT_ENV='', VIRTUAL_ENV='', PYTHONPATH='', PYTHONHOME='', PYTHONUSERBASE='',

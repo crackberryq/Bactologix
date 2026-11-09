@@ -1,3 +1,13 @@
+## 0.1.0a87.dev1 — 2026-11-09 · Experimental development · Storage management
+
+- Add Storage cleanup controls for saved run results, sample registrations, explicitly selected known input files, and unused managed pipeline sources and environments.
+- Preview exact removal paths and measured file sizes, show dependency blocks, and require transfer/discard acknowledgment plus typed confirmation before queuing permanent deletion.
+- Recheck ownership and references before removal; protect active work, retained runs, shared resources, external environments and source files reached through links.
+- Keep cleanup receipts and expose incomplete cleanup for review and retry. Removing a registration or archiving a run remains distinct from freeing file space.
+- Retain explicit read-only storage measurement and report file-byte estimates separately from actual filesystem availability.
+
+This adds the shared storage controls to the independent Dev application. HybAs 10 remains experimental; pipeline algorithms and the Dev update channel are unchanged.
+
 ## 0.1.0a86.dev7 — 2026-11-09 · Independent Dev release delivery
 
 Publish checked Dev builds from the development branch with separate Dev release tags, download asset names and the bundled Dev installer. Older regular updaters and installers cannot select these Dev downloads. Dev updates restore the canonical wheel filename locally and retain checksum and package-identity checks.

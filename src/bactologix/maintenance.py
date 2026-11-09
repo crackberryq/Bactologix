@@ -20,6 +20,7 @@ from .engine import Cancelled, find_conda
 from .local import git_read, local_path
 from .runs import parse_config, template, tree_digest
 from .store import identifier, now
+from .storage_guard import mutation
 from . import environment_health
 
 RECIPES = {
@@ -52,6 +53,7 @@ def check_deployment_path(store, item):
     return cache
 
 
+@mutation
 def set_cache(store, key, value):
     item = installation(store, key)
     if any(j["status"] in {"queued", "running"} for j in store.jobs()):

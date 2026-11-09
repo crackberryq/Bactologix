@@ -1,8 +1,12 @@
-# Bactologix 0.1.0a86.dev7 — Experimental development
+# Bactologix 0.1.0a87.dev1 — Experimental development
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
 
-**Windows Dev setup:** download [Bactologix-Dev-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a86.dev7/Bactologix-Dev-Windows.zip), extract it into a new folder, and run **Bactologix-Dev-Setup.cmd**. It installs or updates the independent Dev app and keeps its workspace separate. Older Dev builds need this bundle once to recognize the new Dev update channel. See [parallel testing](docs/DEVELOPMENT.md).
+This development update adds [reviewed storage cleanup](docs/storage-management.md)
+for results, selected sample files and unused managed pipeline environments. It
+retains the independent Dev workspace and experimental HybAs 10 workflow.
+
+**Windows Dev setup:** download [Bactologix-Dev-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a87.dev1/Bactologix-Dev-Windows.zip), extract it into a new folder, and run **Bactologix-Dev-Setup.cmd**. It installs or updates the independent Dev app and keeps its workspace separate. Older Dev builds need this bundle once to recognize the new Dev update channel. See [parallel testing](docs/DEVELOPMENT.md).
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
@@ -124,14 +128,28 @@ Opening this overview does not launch checks, migrate runs or change active vers
 snapshot. It includes local interpreter/runner/source paths and run labels and is
 not redacted; review it before sharing.
 
-### Storage overview
+### Storage management
+
+Open **Storage → Reclaim disk space** to select old run results, known sample input
+files, or unused managed pipeline sources and environments. The preview lists the
+exact paths, estimated file sizes and any dependencies that prevent deletion.
+Confirm that you have verified transferred copies or intentionally discard the
+files, then type **DELETE** to queue permanent cleanup. Review its outcome in
+**Cleanup history** and measure storage again afterward.
+
+Removing a sample registration or archiving a run keeps its files and frees no
+data space. Sample-file cleanup selects known input files; it does not recursively
+erase the sample's original folder. Shared or unverified resources remain protected.
+See [Storage cleanup and recovery](docs/storage-management.md) for the complete flow.
+
+#### Storage measurement
 
 Open **Storage** to review registered paths, then choose **Measure storage**.
 Opening the page does not scan directories. Workspace locations are included;
 **Include registered external locations** explicitly adds known external run,
-runner, cache, database and source paths. No arbitrary drive search or cleanup is
-performed. **Refresh locations** updates references without replacing the saved
-measurement; changed registration is flagged until the next measurement.
+runner, cache, database and source paths. Measurement performs no arbitrary drive
+search and never deletes files. **Refresh locations** updates references without
+replacing the saved measurement; changed registration is flagged until the next measurement.
 
 The saved overview separates runs/outputs, environments/runners, databases/models,
 retained repair folders, sources, logs and other workspace files. Review references
@@ -157,7 +175,8 @@ especially while jobs are active; totals are not reclaimable-space estimates.
 
 Use **Download overview** for the saved JSON measurement. It includes registered
 local paths and references; review before sharing. Measurements survive app
-refresh/restart. Existing files, settings, jobs and repair backups are retained.
+refresh/restart. Measurement retains existing files, settings, jobs and repair backups;
+permanent cleanup requires the separate reviewed action above.
 
 ### Results and download centre
 
@@ -550,7 +569,9 @@ Each ready pipeline card in **Install & update** has two direct actions:
 
 ## Uninstall an older pipeline version
 
-In **Install & update**, click **Uninstall version** and review the exact source folder and retained content before confirming. Only an inactive, unused managed source snapshot and its installation entry are removed. Shared runners, tool caches, databases, saved runs, results, logs and original connected checkouts remain on disk. This action does not reclaim their storage.
+In **Install & update**, click **Uninstall version** and review the exact source folder and retained content before confirming. Only an inactive, unused managed source snapshot and its installation entry are removed. Shared runners, tool caches, databases, saved runs, results, logs and original connected checkouts remain on disk. This action does not reclaim their storage. For eligible managed environments and
+runners, use **Storage → Reclaim disk space**. Its preview checks dependencies and
+can retire an unused current selection without selecting a replacement.
 
 Versions referenced by any saved run (including archived runs) or unfinished database download cannot be removed. Queued/running jobs also block uninstall. Modified, untracked or ignored source files and sources containing retained caches or checkouts must be preserved first. The app rechecks these conditions at confirmation; stale previews cannot remove a changed installation.
 

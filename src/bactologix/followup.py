@@ -19,6 +19,8 @@ from . import __version__
 from .release_contract import approval, preflight
 
 
+from .storage_guard import mutation
+
 def _contract(store, commit, parent_commit):
     row = approval(store, 'basis', commit)
     cap = row.get('followup', {}) if row else {}
@@ -127,6 +129,7 @@ def screening_sources(output):
     return result
 
 
+@mutation
 def create_followup(store, parent_id, text, reviewed=False, source_id='screening', scope=None):
     parent = store.get("runs", parent_id)
     if not parent or not available(parent, store):

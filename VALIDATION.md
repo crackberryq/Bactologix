@@ -1,3 +1,14 @@
+## 0.1.0a87.dev1 storage management
+
+- Full isolated local regression suite: 888 passed, 109 skipped. Browser and upstream-dependent cases are exercised by the required CI jobs.
+- Shared cleanup modules and regression fixtures match regular 0.1.0a87. Tests cover explicit deletion confirmation, retained dependencies, managed ownership, stale previews, related-workspace locks, hard links, symbolic links, partial cleanup recovery and bounded preview manifests.
+- Dev-specific checks preserve independent workspace and environment ownership, guard manifest/AWARE registration during cleanup, and retain the original regular-workspace discovery paths when Dev redirects XDG directories. The focused discovery, ownership and mutation suite passed 14 tests.
+- Storage estimates include nested output locations. Chromium acceptance covers confirmation, cancellation, exact removal scope, receipt rendering and nested size estimates. Windows desktop, environment deployment and pipeline contract CI remain publication gates for the final commit.
+
+Only disposable fixtures were deleted during development. This release does not
+change scientific pipeline algorithms or establish physical Windows/WSL disk
+compaction behavior.
+
 ## 0.1.0a85 workspace presentation
 
 - UI bridge, Methods, and package checks: 31 passed, 2 skipped.
