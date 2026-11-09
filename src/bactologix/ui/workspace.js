@@ -1093,8 +1093,8 @@ if(action==='isolate-details'||action==='isolate-export'){
 else if(action==='isolate-tab'){U.isolateTab=id;renderModal();$$('[data-action="isolate-tab"]').find(n=>n.dataset.id===id)?.focus();}
 else if(action==='refresh-isolate'){U.isolateExportPlan=null;request('isolate_details',{id:U.modal.id});}
 else if(action==='open-isolate-folder'){U.isolateFolderOrigin={action,id};request('open_isolate_folder',{id,kind:'analysis'});}
-else if(action==='open-isolate-inputs')request('open_isolate_folder',{id,kind:'inputs'});
-else if(action==='open-isolate-analysis'&&['isolate','isolate-folders'].includes(U.modal?.kind))request('open_isolate_folder',{id:U.modal.id,kind:'run',run_id:id});
+else if(action==='open-isolate-inputs'){U.isolateFolderFocus=U.modal?{kind:U.modal.kind,modalId:U.modal.id,action,id}:null;request('open_isolate_folder',{id,kind:'inputs'});}
+else if(action==='open-isolate-analysis'&&['isolate','isolate-folders'].includes(U.modal?.kind)){U.isolateFolderFocus={kind:U.modal.kind,modalId:U.modal.id,action,id};request('open_isolate_folder',{id:U.modal.id,kind:'run',run_id:id});}
 else if(action==='isolate-node'){U.isolateNode=id;renderModal();$$('[data-action="isolate-node"]').find(n=>n.dataset.id===id)?.focus();}
 else if(action==='download-isolate-history'&&U.modal?.kind==='isolate')request('download_isolate_history',{id:U.modal.id,format:id});
 else if(action==='preview-isolate-export'&&U.modal?.kind==='isolate'){
@@ -1425,6 +1425,15 @@ root.addEventListener('click',click);root.addEventListener('input',onInput);root
 render();
 if(newResponse&&(response.cleanup_plan||response.cleanup_receipt))$('.modal [data-action="close"]')?.focus();
 if(newResponse&&response.isolate_folder_choices)($('.isolate-folder-modal [data-action="open-isolate-analysis"]:not(:disabled)')||$('.isolate-folder-modal [data-action="close"]'))?.focus({preventScroll:true});
+if(newResponse&&U.requestOrigin?.kind==='open_isolate_folder'){
+ // The busy state disables the opener before renderModal can capture focus.
+ // Restore it after the response so keyboard navigation remains in the dialog.
+ const saved=U.isolateFolderFocus;U.isolateFolderFocus=null;
+ if(saved&&U.modal?.kind===saved.kind&&U.modal.id===saved.modalId){
+  const target=$$('.modal [data-action]').find(n=>n.dataset.action===saved.action&&n.dataset.id===saved.id&&!n.disabled);
+  (target||$('.modal [data-action="close"]'))?.focus({preventScroll:true});
+ }
+}
 if(newResponse&&response.message)toast(response.message,!response.ok);else renderToast();
 if(newResponse&&U.queuedRequest){const queued=U.queuedRequest;U.queuedRequest=null;request(queued.kind,queued.payload);}
 const dispose=()=>{window.removeEventListener('message',reportFolderMessage);window.removeEventListener('resize',syncNavigation);window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('popstate',routeChanged);window.removeEventListener('hashchange',routeChanged);clearTimeout(pollTimer);clearTimeout(toastTimer);root.removeEventListener('click',click);root.removeEventListener('input',onInput);root.removeEventListener('change',onChange);root.removeEventListener('keydown',keydown);};

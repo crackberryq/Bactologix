@@ -119,6 +119,7 @@ def test_isolate_history_links_evidence_downloads_and_mobile_keyboard(tmp_path, 
             'id': fixture['sample']['id'], 'kind': 'run', 'run_id': fixture['basis']['id']}
         respond('open_isolate_folder')
         assert opened == [fixture['basis']['output']]
+        expect(basis_folder.get_by_role('button', name='Open analysis folder', exact=True)).to_be_focused()
         page.keyboard.press('Escape')
         expect(folders).to_have_count(0)
         expect(folder_trigger).to_be_focused()
@@ -141,6 +142,7 @@ def test_isolate_history_links_evidence_downloads_and_mobile_keyboard(tmp_path, 
             'id': fixture['sample']['id'], 'kind': 'inputs'}
         respond('open_isolate_folder')
         assert opened == [fixture['basis']['output'], str(fixture['original'])]
+        expect(dialog.get_by_role('button', name='Open input folder', exact=True)).to_be_focused()
         capture(page, 'isolate-files-desktop')
         dialog.get_by_role('button', name='Sample history', exact=True).click()
         expect(dialog.get_by_role('group', name='Sample history diagram', exact=True)).to_be_visible()
