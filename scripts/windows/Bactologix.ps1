@@ -393,25 +393,38 @@ function Update-BrowserPresence($Presence, $Observed, [double]$Seconds) {
     # sustained absence; the heartbeat continues during this grace period.
     return ($Seconds - $Presence.missing_since -ge 10)
 }
-function Close-OwnedBrowser([string]$Profile) {
-    $endpoint = Browser-Endpoint $Profile
-    if (-not $endpoint) { return }
+function Send-BrowserCloseRequest($Endpoint) {
     $socket = New-Object Net.WebSockets.ClientWebSocket
     $cancel = New-Object Threading.CancellationTokenSource
     $cancel.CancelAfter(2000)
+    $stage = 'connect'
     try {
         $socket.Options.Proxy = $null
-        $null = $socket.ConnectAsync([Uri]"ws://127.0.0.1:$($endpoint.port)$($endpoint.socket)", $cancel.Token).GetAwaiter().GetResult()
+        $null = $socket.ConnectAsync([Uri]"ws://127.0.0.1:$($Endpoint.port)$($Endpoint.socket)", $cancel.Token).GetAwaiter().GetResult()
+        $stage = 'send'
         $bytes = [Text.Encoding]::UTF8.GetBytes('{"id":1,"method":"Browser.close"}')
         $segment = [ArraySegment[byte]]::new($bytes)
         $null = $socket.SendAsync($segment, [Net.WebSockets.WebSocketMessageType]::Text, $true, $cancel.Token).GetAwaiter().GetResult()
+        $stage = 'acknowledgement'
         # Do not abort the connection immediately after sending: wait for the
         # browser to consume the request and acknowledge or close the socket.
         $buffer = New-Object byte[] 4096
         $reply = [ArraySegment[byte]]::new($buffer)
         $received = $socket.ReceiveAsync($reply, $cancel.Token).GetAwaiter().GetResult()
         Write-Verbose ('Browser close reply: ' + [Text.Encoding]::UTF8.GetString($buffer,0,$received.Count))
-    } catch { Write-Verbose ('Browser close: ' + $_.Exception.Message) } finally { $socket.Dispose(); $cancel.Dispose() }
+    } catch { throw ('Browser close ' + $stage + ': ' + $_.Exception.Message) } finally { $socket.Dispose(); $cancel.Dispose() }
+}
+function Close-OwnedBrowser([string]$Profile) {
+    $endpoint = Browser-Endpoint $Profile
+    if (-not $endpoint) { return }
+    # A cancelled handshake does not establish delivery. Retry only this saved
+    # browser endpoint, with a fresh socket/token each time; never target another
+    # profile or terminate processes by browser name. Browser.close is idempotent.
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try { Send-BrowserCloseRequest $endpoint; return }
+        catch { Write-Verbose ('Browser close attempt ' + $attempt + '/3: ' + $_.Exception.Message) }
+        if ($attempt -lt 3) { Start-Sleep -Milliseconds 250 }
+    }
 }
 
 function Save-Log($Task, [string]$Path) {
