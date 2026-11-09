@@ -174,6 +174,7 @@ def test_legacy_ui_and_downloads_recover_separately_without_changing_history(wor
     with zipfile.ZipFile(io.BytesIO(base64.b64decode(artifact['base64']))) as archive:
         provenance = json.loads(archive.read('methods-provenance.json'))
         assert provenance['evidence'] == original['evidence']
+        assert provenance['supplemental_evidence']['original_completion_snapshot'] == original
         assert provenance['supplemental_evidence']['status'] == 'unverified'
         for filename in ('methods.txt', 'methods.md', 'methods.html'):
             content = archive.read(filename).decode()

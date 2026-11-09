@@ -26,6 +26,7 @@ def supplement(store, run, receipt, latest_job, collector):
         return None
 
     result = {'schema': 1, 'status': 'unavailable', 'read_at': None, 'evidence': {},
+              'original_completion_snapshot': copy.deepcopy(receipt),
               'attribution': {'state': 'unverified', 'label': 'Evidence attribution unverified',
                               'job_id': None, 'attempt_status': 'unknown', 'commit': None},
               'warnings': ['The original completion snapshot is unchanged.']}
