@@ -80,9 +80,13 @@ def test_completion_snapshot_survives_output_changes_and_failed_resume(workspace
     (root / 'tool_versions.tsv').write_text('tool\tversion\nunicycler\t99.9\n')
     doc = methods.build(workspace, run)
     assert doc['state'] == 'Completed workflow' and doc['evidence_origin'] == 'Completion-time snapshot'
-    assert 'unicycler 0.5.1' in '\n'.join(doc['paragraphs'])
+    software = {row['tool']: row for row in doc['software']}
+    assert software['unicycler']['version'] == '0.5.1'
+    assert 'environment package' in software['unicycler']['scope']
+    assert 'unicycler 0.5.1' not in '\n'.join(doc['paragraphs'])
     assert '99.9' not in doc['text']
-    assert not any(x['tool'] == 'busco' for x in doc['software'])
+    assert software['busco']['version'] == '5.8.2'
+    assert 'execution not established' in software['busco']['scope']
     workspace.update_job(jid, status='failed')
     failed = methods.build(workspace, run)
     assert failed['state'] == 'Incomplete execution'
@@ -164,15 +168,17 @@ def test_basis_success_can_have_incomplete_scope(workspace, run, monkeypatch):
     run['completed'] = '2026-10-27T12:00:00+00:00'
     root = Path(run['output'], 'safety')
     root.mkdir()
-    (root / 'evidence.json').write_text(json.dumps({'run': {'completeness': 'incomplete'},
+    (root / 'evidence.json').write_text(json.dumps({'schema_version': 'basis-report-1',
+        'run': {'completeness': 'incomplete', 'report_view': 'screening'},
+        'samples': [{'sample_id': run['sample']['id']}], 'deep_records': [],
         'records': [{'sample_id': run['sample']['id'], 'module': 'amrfinder', 'execution_status': 'completed', 'tool_version': '4.0'},
-                    {'sample_id': run['sample']['id'], 'module': 'icescreen', 'execution_status': 'not_assessed', 'reason': 'scope_unavailable'},
-                    {'sample_id': 'another', 'module': 'rgi', 'execution_status': 'completed'}]}))
+                    {'sample_id': run['sample']['id'], 'module': 'icescreen', 'execution_status': 'not_assessed', 'reason': 'scope_unavailable'}]}))
     doc = methods.build(workspace, run)
     assert 'Native report scope: incomplete' in doc['execution']
-    assert 'completion of AMRFinderPlus.' in doc['text']
-    assert 'ICEScreen' not in next(p for p in doc['paragraphs'] if 'retained module records' in p)
-    assert any('different sample identity' in w for w in doc['warnings'])
+    completion = next(p for p in doc['paragraphs'] if 'mark these modules complete' in p)
+    assert 'AMRFinderPlus.' in completion and 'ICEScreen' not in completion
+    assert 'execution attribution unverified' in completion
+    assert any('incomplete requested scope' in w for w in doc['warnings'])
 
 
 def test_replaced_followup_cannot_borrow_another_runs_outputs(workspace, run, monkeypatch):
