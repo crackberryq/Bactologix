@@ -1,11 +1,11 @@
-# Bactologix 0.1.0a92 — Alpha
+# Bactologix 0.1.0a93 — Alpha
 
 This regular alpha adds verified isolate export and recorded analysis history,
 alongside reviewed storage cleanup and the pre-beta evidence-integrity fixes. It remains separate from Bactologix Dev: regular
 installation and updates reject development releases. See [report evidence integrity](docs/report-evidence-integrity.md) for
 sample attribution, diagnostic report states and assessment coverage.
 
-**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a92/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
+**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a93/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
@@ -28,6 +28,11 @@ See [isolate export and history](docs/isolate-export.md) for package contents,
 verification, history downloads and limitations.
 
 ### Where isolate results are stored
+
+On **Samples**, **Open isolate folder** opens the saved Bactologix analysis output.
+If several analyses are linked, choose their folder from the list. Shared follow-up
+locations appear once. Original files are available separately under **Analysis &
+history → Open input folder**. Missing outputs never redirect to the input folder.
 
 The registered isolate folder supplies the original inputs. Normal pipeline runs
 write separately under `~/.local/share/bactologix/runs/<run-id>/outputs/<isolate-id>/`:

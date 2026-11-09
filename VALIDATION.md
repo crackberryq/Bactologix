@@ -1,3 +1,8 @@
+## 0.1.0a93 isolate folder routing
+
+- Routing checks cover a single output, multiple pipelines, shared follow-ups, absent outputs, unlinked same-name samples and revalidation when a folder is selected. Caller-supplied paths do not determine the target.
+- Browser acceptance covers the Samples action, folder selection, explicitly labelled original inputs and keyboard/mobile controls. Existing application, pipeline, Windows and deployment checks remain release gates.
+
 ## 0.1.0a92 all-pipeline Methods audit
 
 - Collector fixtures cover positive sample identity, conflicting input/source/configuration identities, large reports, complete-file checksums, malformed metadata, unsafe paths and concurrent replacements.
