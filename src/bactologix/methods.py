@@ -12,6 +12,7 @@ import hashlib
 import html
 import io
 import json
+import re
 from pathlib import Path
 import zipfile
 
@@ -26,6 +27,9 @@ from .store import now
 LIMIT = 8 * 1024 * 1024
 DEFAULTS = json.loads((DATA / 'methods-defaults.json').read_text())
 UNKNOWN = 'Not recorded'
+SOFTWARE_LABELS = {'micpscope': 'GeneScope', 'basis': 'BaSIS', 'hybas': 'HybAs',
+                   'diamond': 'DIAMOND', 'python': 'Python', 'biopython': 'Biopython',
+                   'snakemake': 'Snakemake', 'controller_python': 'Controller Python'}
 
 
 def _merge(base, update):
@@ -64,25 +68,72 @@ def _pick(row, keys):
     return {key: row[key] for key in keys if key in row}
 
 
+def _software_version(name, raw):
+    value = _value(raw)
+    # Keep original measurements in evidence; simplify only the displayed form.
+    if name == 'diamond':
+        value = re.sub(r'^diamond\s+(?:version\s+)?v?(?=\d)', '', value, flags=re.I)
+    return value
+
+
+def _reused(row):
+    return row.get('reused') is True or row.get('cache_hit') is True
+
+
+def _scope_gaps(row, native=None):
+    gaps = []
+    decision = row.get('module_decision') or {}
+    summary = row.get('completion_summary') or {}
+    if row.get('complete') is False:
+        gaps.append('native complete=false')
+    if row.get('scope_incomplete') or isinstance(decision, dict) and decision.get('scope_incomplete'):
+        gaps.append('native scope incomplete')
+    if row.get('upstream_incomplete'):
+        gaps.append('upstream assessment incomplete')
+    if isinstance(summary, dict):
+        if summary.get('selected_execution') == 'incomplete':
+            gaps.append('selected execution incomplete')
+        if summary.get('deferred_candidates'):
+            gaps.append('deferred candidates')
+    identifiers = (native or {}).get('incomplete_modules', [])
+    if row.get('module') in identifiers or str(row.get('sample_id')) + ':' + str(row.get('module')) in identifiers:
+        gaps.append('listed among native incomplete modules')
+    return gaps
+
+
+def _module_complete(row, native=None):
+    return row.get('execution_status') == 'completed' and not _scope_gaps(row, native)
+
+
+def _databases(evidence, origin):
+    rows = []
+    for row in evidence.get('database_hashes', []):
+        if isinstance(row, dict):
+            rows.append(origin + ': ' + '; '.join(str(k).replace('_', ' ') + '=' + _value(v) for k, v in row.items()))
+    reference = evidence.get('metadata', {}).get('reference_search', {}).get('database', {})
+    if reference:
+        rows.append(origin + ' · application database: ' + '; '.join(
+            k.replace('_', ' ') + '=' + _value(reference[k]) for k in
+            ('id', 'name', 'version', 'checksums_sha256', 'manifest_sha256') if k in reference))
+    for row in evidence.get('records', []):
+        parts = []
+        if row.get('database_version'):
+            parts.append('reported version=' + _value(row['database_version']))
+        manifest = row.get('database_manifest')
+        if isinstance(manifest, dict):
+            parts.extend(k.replace('_', ' ') + '=' + _value(manifest[k]) for k in
+                         ('name', 'version', 'release', 'sha256', 'manifest_sha256', 'checksums_sha256') if k in manifest)
+        elif isinstance(manifest, str) and manifest:
+            parts.append('manifest reference=' + manifest)
+        if parts:
+            rows.append(origin + ' · ' + MODULE_NAMES.get(row.get('module'), row.get('module', 'Module')) + ': ' + '; '.join(parts))
+    return rows
+
+
 def collect(run):
     """Retain metadata only; never open raw inputs or installed databases."""
     result = {'files': [], 'warnings': [], 'versions': {}, 'records': [], 'decisions': {}}
     root = Path(run['output'])
-
-    def read(rel, kind='json'):
-        try:
-            raw = _read(root, rel)
-            if raw is None:
-                return None
-            text = raw.decode('utf-8')
-            parsed = json.loads(text) if kind == 'json' else list(csv.DictReader(io.StringIO(text), delimiter='\t'))
-            if kind == 'json' and not isinstance(parsed, dict):
-                raise ValueError('Expected an object')
-            result['files'].append({'path': rel, 'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw)})
-            return parsed
-        except (OSError, ValueError, UnicodeError, RecursionError) as exc:
-            result['warnings'].append('Could not read ' + rel + ': ' + str(exc))
-            return None
 
     if run['tool'] == 'micpscope':
         from .genescope_metadata import read as read_metadata
@@ -121,50 +172,10 @@ def collect(run):
             result['warnings'].append('Could not collect GeneScope Methods metadata: ' + str(exc))
         return result
     if run['tool'] == 'hybas':
-        summary = read('metadata/run_summary.json') or {}
-        if summary.get('isolate', run['sample']['id']) != run['sample']['id']:
-            result['warnings'].append('HybAs summary sample identity does not match this run.')
-            summary = {}
-        result['decisions'] = _pick(summary, ('run_mode', 'kraken_decision', 'kraken_decision_mode',
-            'kraken_decision_reason', 'executed_stages', 'skipped_stages', 'final_source_stage',
-            'busco_lineage', 'medaka_model'))
-        for row in read('metadata/tool_versions.tsv', 'tsv') or []:
-            if row.get('tool'):
-                result['versions'][row['tool']] = _value(row.get('version'))
-        # Database file identities are provided by the workflow, not inferred from paths.
-        global_root = root.parent / 'provenance/databases'
-        try:
-            raw = _read(global_root, 'database_hashes.tsv')
-            if raw:
-                result['database_hashes'] = list(csv.DictReader(io.StringIO(raw.decode('utf-8')), delimiter='\t'))
-                result['files'].append({'path': '../provenance/databases/database_hashes.tsv',
-                                        'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw)})
-        except (OSError, ValueError, UnicodeError) as exc:
-            result['warnings'].append('Database identities unavailable: ' + str(exc))
-    else:
-        folder = 'safety/deepsafe-report' if run.get('run_type') == 'followup' else 'safety'
-        bundle = read(folder + '/evidence.json') or {}
-        meta = bundle.get('run', {})
-        if isinstance(meta, dict):
-            result['native_run'] = _pick(meta, ('version', 'completeness', 'incomplete_modules', 'report_view', 'finished_at'))
-        ordinary, deep = bundle.get('records', []), bundle.get('deep_records', [])
-        if not isinstance(ordinary, list) or not isinstance(deep, list):
-            result['warnings'].append('BaSIS execution record lists are malformed.')
-            ordinary, deep = [], []
-        rows = deep if run.get('run_type') == 'followup' else ordinary + deep
-        seen = set()
-        for row in rows:
-            if not isinstance(row, dict) or row.get('sample_id') != run['sample']['id']:
-                result['warnings'].append('A BaSIS record with an absent or different sample identity was omitted.')
-                continue
-            module = row.get('module')
-            if not isinstance(module, str) or module not in {*MODULE_NAMES, 'deepsafe'} or module in seen:
-                result['warnings'].append('A BaSIS record with an unknown or duplicate module was omitted.')
-                continue
-            seen.add(module)
-            result['records'].append(_pick(row, ('module', 'execution_status', 'reason', 'tool_version',
-                'database_version', 'database_manifest', 'module_decision', 'complete', 'upstream_incomplete')))
-    return result
+        from .hybas_methods import collect as collect_hybas
+        return collect_hybas(run, _read)
+    from .basis_methods import collect as collect_basis
+    return collect_basis(run)
 
 
 def capture(store, run, job_id):
@@ -173,6 +184,10 @@ def capture(store, run, job_id):
                'config_sha256': run['config_sha256'], 'workflow_sha256': run['workflow_sha256'],
                'commit': run['commit'], 'identification': run.get('identification'), 'captured_at': now(),
                'evidence': collect(run)}
+    from .methods_runtime import evidence as runtime_evidence
+    runtime = runtime_evidence(store, run, job_id)
+    if runtime:
+        receipt['runtime'] = runtime
     with store.connect() as db:
         db.execute('BEGIN IMMEDIATE')
         old = db.execute("SELECT body FROM items WHERE kind='methods_evidence' AND id=?", (run['id'],)).fetchone()
@@ -214,8 +229,10 @@ def _configuration(run, warnings):
         selected = json.loads(Path(decision['decision_path']).read_text())
         reviewed = {'kraken_decision_mode': selected['mode'], 'target_taxid': selected['taxid'] if selected['mode'] == 'manual' else ''}
         warnings.append('Target selection was finalized after identification. The original YAML is retained; effective settings include the recorded decision '+decision['decision_sha256']+'.')
-    known = run['commit'] in [DEFAULTS['sources'].get(run['tool']),
-        *DEFAULTS.get('equivalent_sources', {}).get(run['tool'], [])]
+    saved_only = run['commit'] in DEFAULTS.get('saved_settings_sources', {}).get(run['tool'], [])
+    overrides = DEFAULTS.get('source_overrides', {}).get(run['tool'], {})
+    known = saved_only or run['commit'] in [DEFAULTS['sources'].get(run['tool']),
+        *DEFAULTS.get('equivalent_sources', {}).get(run['tool'], []), *overrides]
     source = Path(run['folder']) / 'workflow'
     if source.exists():
         try:
@@ -229,7 +246,9 @@ def _configuration(run, warnings):
     if not known:
         warnings.append('No verified Methods template is available for this source. Only explicit saved settings and recorded execution are exported.')
         return cfg, dict(cfg, **reviewed), False
-    effective = copy.deepcopy(DEFAULTS['defaults'][run['tool']])
+    if saved_only:
+        return cfg, dict(cfg, **reviewed), True
+    effective = _merge(DEFAULTS['defaults'][run['tool']], overrides.get(run['commit'], {}))
     raw = _read(source, 'config.yaml')
     configured = _merge(parse_config(raw.decode('utf-8')) if raw else {}, cfg)
     effective = _merge(effective, configured)
@@ -272,6 +291,11 @@ def _configuration(run, warnings):
 
 
 def _hybas(cfg, run):
+    if run['commit'] in DEFAULTS.get('saved_settings_sources', {}).get('hybas', []):
+        paragraphs = ['The experimental HybAs 10 workflow was configured using the saved input and processing settings. Assembly and polishing routes depend on the input platform and configuration; available native records identify the assembler and stages separately.']
+        if 'polish_mode' in cfg:
+            paragraphs.append('The saved polishing mode was ' + _value(cfg['polish_mode']) + '. Requested settings are provided in the supplement; they do not establish which stages executed.')
+        return paragraphs, ['snakemake']
     mode = run['sample']['mode']
     paragraphs, tools = [], ['snakemake', 'unicycler', 'quast']
     paragraphs.append('The workflow was configured for ' + {'hybrid': 'hybrid Illumina and Oxford Nanopore',
@@ -391,9 +415,9 @@ def build(store, run):
         # Preserve the failed original snapshot in provenance, but do not repeat
         # its false sample-mismatch diagnosis in the current review notes.
         warnings.extend(w for w in evidence.get('warnings', [])
-                        if 'Methods evidence exceeds 8 MB: micpscope/results.json' not in w
+                        if 'Methods evidence exceeds 8 MB:' not in w
                         and w != 'GeneScope results are missing or belong to a different sample.')
-        warnings.append('The original completion snapshot could not collect GeneScope metadata because of the former 8 MB limit. It is retained unchanged in the reproducibility ZIP; supplemental metadata is identified separately.')
+        warnings.append('The original completion snapshot could not collect ' + PIPELINES[run['tool']]['name'] + ' metadata because of the former 8 MB limit. It is retained unchanged in the reproducibility ZIP; supplemental metadata is identified separately.')
         warnings.extend(recovery['warnings'])
     else:
         warnings.extend(evidence.get('warnings', []))
@@ -414,29 +438,54 @@ def build(store, run):
         paragraphs.append('The saved screening source was ' + transition['screening_commit'] +
                               '; the explicitly selected follow-up source was ' + transition['commit'] +
                               '. The recorded AWARE scope was ' + transition['scope'] + '.')
-    legacy_genescope = run['tool'] == 'micpscope' and origin == 'Legacy output metadata read at export'
-    versions = dict(evidence.get('versions', {}))
-    supplementary_versions = (recovery or {}).get('evidence', {}).get('versions', {})
-    if run['tool'] == 'micpscope':
-        tools = list(dict.fromkeys([*tools, *versions, *supplementary_versions]))
-    records = evidence.get('records', [])
+    conflicted = (run['tool'] == 'hybas' and
+        'HybAs summary sample identity does not match this run.' in evidence.get('warnings', []))
+    if conflicted:
+        warnings.append('Conflicting sample metadata in this historical snapshot is excluded from the Methods description. The original snapshot remains in the provenance ZIP.')
+    retrospective = origin.startswith('Legacy output metadata read at export')
+    from .methods_runtime import evidence as runtime_evidence
+    runtime = runtime_evidence(store, run, latest['id']) if complete and latest else None
+    versions = {} if conflicted else dict(evidence.get('versions', {}))
+    supplementary = (recovery or {}).get('evidence', {})
+    supplementary_versions = supplementary.get('versions', {})
+    scope = dict(evidence.get('version_scopes', {}))
+    if run['tool'] == 'hybas':
+        # Older snapshots did not retain the inventory/runtime distinction.
+        for name in versions:
+            scope.setdefault(name, 'Recorded environment package; execution not established')
+    records = [] if conflicted else evidence.get('records', [])
     for row in records:
-        versions[row.get('module', '')] = _value(row.get('tool_version'))
-    software = [{'tool': name, 'version': _value(versions.get(name)), 'scope': 'Configured; execution must be verified'} for name in dict.fromkeys(tools)]
-    for row in software:
-        if row['version'] != UNKNOWN and run['tool'] == 'micpscope':
-            row['scope'] = ('Current output metadata; execution attribution unverified' if legacy_genescope
-                            else 'GeneScope result metadata; per-step execution not recorded')
-        if row['version'] == UNKNOWN and supplementary_versions.get(row['tool']):
-            row['version'] = _value(supplementary_versions[row['tool']])
-            row['scope'] = ('Supplemental output metadata; matched completed attempt'
-                            if recovery['status'] == 'recovered' else
-                            'Current output metadata; execution attribution unverified')
-        record = next((r for r in records if r.get('module') == row['tool']), None)
-        if record:
-            row['scope'] = _value(record.get('execution_status'))
-    if any(row['version'] == UNKNOWN for row in software):
-        warnings.append('Some tool versions are not recorded. Environment recipe constraints and currently installed packages are not substituted for versions used by this run.')
+        name = row.get('module', '')
+        if name and row.get('tool_version'):
+            versions.setdefault(name, _value(row.get('tool_version')))
+            scope.setdefault(name, 'Native module metadata; execution=' + _value(row.get('execution_status')))
+            if _reused(row) and 'reused' not in scope[name].lower():
+                scope[name] += '; reused result, not a new execution in this attempt'
+    runtime_versions = (runtime or {}).get('versions', {})
+    tools = list(dict.fromkeys([*tools, *versions, *supplementary_versions, *runtime_versions]))
+    software = []
+    for name in tools:
+        raw = versions.get(name)
+        origin_label = scope.get(name, 'Native output metadata; per-step execution not established')
+        if _value(raw) == UNKNOWN:
+            origin_label = 'Configured; execution must be verified'
+        if retrospective and _value(raw) != UNKNOWN:
+            origin_label = 'Current output metadata; execution attribution unverified; ' + origin_label
+        if _value(raw) == UNKNOWN and name in supplementary_versions:
+            raw = supplementary_versions[name]
+            origin_label = ('Supplemental output metadata; matched completed attempt' if recovery['status'] == 'recovered'
+                            else 'Current output metadata; execution attribution unverified')
+            origin_label += '; ' + supplementary.get('version_scopes', {}).get(name, 'Native output metadata')
+        if name in runtime_versions:
+            if _value(raw) != UNKNOWN and _software_version(name, raw) != _software_version(name, runtime_versions[name]):
+                warnings.append('The native output and controller receipt record different ' + name + ' versions; both original records are retained in the provenance ZIP.')
+            raw = runtime_versions[name]
+            origin_label = (runtime or {}).get('scopes', {}).get(name, 'Recorded in the workflow controller process')
+        software.append({'tool': name, 'label': SOFTWARE_LABELS.get(name, name),
+                         'version': _software_version(name, raw), 'raw_version': _value(raw), 'scope': origin_label})
+    missing_versions = [row['label'] for row in software if row['version'] == UNKNOWN]
+    if missing_versions:
+        warnings.append('Versions not recorded: ' + ', '.join(missing_versions) + '. Current installations and environment constraints are not used to fill historical gaps.')
     warnings.append('Review database release dates, model identities and tool/database citations before submission. A directory name alone is not a database version.')
     intro = f"The analysis was configured using {PIPELINES[run['tool']]['name']} (source commit {run['commit']}) through Bactologix. The saved computing allocation was {run['cores']} CPU cores and {run['memory_mb']} MB RAM."
     parameters = []
@@ -446,48 +495,77 @@ def build(store, run):
                   if run.get('run_type') == 'followup' else 'Pinned workflow default')
         parameters.append({'setting': key, 'value': _value(value), 'origin': parameter_origin})
     execution = []
-    if evidence.get('decisions'):
+    if evidence.get('decisions') and not conflicted:
         execution += [key.replace('_', ' ').capitalize() + ': ' + _value(value) for key, value in evidence['decisions'].items()]
     if evidence.get('native_run'):
         execution.append('Native report scope: ' + _value(evidence['native_run'].get('completeness')))
+    if evidence.get('native_run', {}).get('incomplete_modules'):
+        execution.append('Native incomplete module identifiers: ' + ', '.join(evidence['native_run']['incomplete_modules']))
     for row in records:
-        execution.append(f"{MODULE_NAMES.get(row.get('module'), row.get('module'))}: execution={_value(row.get('execution_status'))}; database={_value(row.get('database_version'))}; reason={_value(row.get('reason'))}.")
+        gaps = _scope_gaps(row, evidence.get('native_run'))
+        execution.append('Assessment scope for ' + MODULE_NAMES.get(row.get('module'), row.get('module')) + ': ' +
+                         ('incomplete (' + '; '.join(gaps) + ')' if gaps else 'complete' if _module_complete(row) else 'not established'))
+        execution.append(f"{MODULE_NAMES.get(row.get('module'), row.get('module'))}: execution={_value(row.get('execution_status'))}; database={_value(row.get('database_version'))}; reused={_value(row.get('reused', row.get('cache_hit')))}; reason={_value(row.get('reason'))}.")
     if not execution:
         execution = ['No per-step execution metadata is available for this export.']
-    if complete and evidence.get('decisions'):
+    elif retrospective:
+        execution.insert(0, 'The following native records were read from current outputs; their execution attribution is unverified.')
+    if runtime:
+        execution.append('Workflow controller invocation was recorded from ' + _value(runtime.get('started_at')) +
+                         ' to ' + _value(runtime.get('finished_at')) + '. This records the workflow invocation, not individual rule execution.')
+    if supplementary.get('records'):
+        execution.append('Supplemental native module metadata (' + ('matched completed attempt' if recovery['status'] == 'recovered'
+                          else 'execution attribution unverified') + '):')
+        for row in supplementary['records']:
+            execution.append(MODULE_NAMES.get(row.get('module'), row.get('module', 'Module')) +
+                             ': native execution status=' + _value(row.get('execution_status')) +
+                             '; complete scope=' + ('recorded' if _module_complete(row, supplementary.get('native_run')) else 'not established') +
+                             ('; reused result' if _reused(row) else '') + '.')
+    if complete and evidence.get('decisions') and not conflicted:
         decisions = evidence['decisions']
         actual = []
         if 'kraken_decision' in decisions:
             actual.append('Kraken decision: ' + _value(decisions['kraken_decision']))
         if 'executed_stages' in decisions:
             actual.append('executed polishing stages: ' + (', '.join(map(str, decisions['executed_stages'])) or 'none'))
-        if 'medaka_model' in decisions and 'medaka' in decisions.get('executed_stages', []):
-            actual.append('Medaka model: ' + _value(decisions['medaka_model']))
+        if 'medaka' in decisions.get('executed_stages', []):
+            actual.append('effective Medaka model: ' + _value(decisions.get('medaka_model_effective')))
+        if decisions.get('assembler'):
+            actual.append('recorded assembler: ' + _value(decisions['assembler']))
         if actual:
-            paragraphs.append('The retained execution record reports ' + '; '.join(actual) + '.')
+            label = 'Current output metadata (execution attribution unverified) reports ' if retrospective else 'The retained native record reports '
+            paragraphs.append(label + '; '.join(actual) + '.')
     if complete and records:
-        completed_modules = [MODULE_NAMES.get(r.get('module'), r.get('module')) for r in records
-                             if r.get('execution_status') == 'completed' and r.get('complete') is not False
-                             and not r.get('upstream_incomplete')]
-        paragraphs.append('The retained module records report completion of ' + (', '.join(completed_modules) or 'no modules') +
+        completed_modules = [MODULE_NAMES.get(r.get('module'), r.get('module')) + (' (reused result)' if _reused(r) else '') for r in records
+                             if _module_complete(r, evidence.get('native_run'))]
+        label = ('Current output records (execution attribution unverified) mark these modules complete: '
+                 if retrospective else 'The retained module records report completion of ')
+        paragraphs.append(label + (', '.join(completed_modules) or 'no modules') +
                           '. Incomplete, excluded and unavailable modules are listed in the execution supplement.')
     if run.get('variant'):
         lineage = run['variant']
         paragraphs.append(f"This run branches from {lineage['parent']}. Eligible existing results were retained as isolated copies; affected workflow steps were scheduled independently.")
         execution.append(f"Result inheritance: {lineage['checkpoints']} checkpoint groups offered for reuse. Native cache candidates may be recomputed if their execution identity differs.")
         warnings.append('Inherited checkpoints are not new tool executions. Parent runtime and resource usage are not attributed to this variant. Inspect variant.json for source records and copied-result identities.')
-    recorded = [r['tool'] + ' ' + r['version'] for r in software
-                if r['version'] != UNKNOWN and r['tool'] not in supplementary_versions]
+    recorded = [r['label'] + ' ' + r['version'] for r in software
+                if r['version'] != UNKNOWN and r['tool'] not in supplementary_versions
+                and r['tool'] not in runtime_versions
+                and 'environment package' not in r['scope'].lower()]
     if recorded:
-        label = ('Versions reported by current GeneScope output metadata (execution attribution unverified): '
-                 if legacy_genescope else 'Recorded software versions: ')
+        label = ('Versions reported by current output metadata (execution attribution unverified): '
+                 if retrospective else 'Recorded software versions: ')
         paragraphs.append(label + '; '.join(recorded) + '.')
-    recovered_versions = [r['tool'] + ' ' + r['version'] for r in software
-                          if r['version'] != UNKNOWN and r['tool'] in supplementary_versions]
+    recovered_versions = [r['label'] + ' ' + r['version'] for r in software
+                          if r['version'] != UNKNOWN and r['tool'] in supplementary_versions and r['tool'] not in runtime_versions]
     if recovered_versions:
         attribution = ('matched to the recorded completed attempt' if recovery['status'] == 'recovered'
                        else 'execution attribution unverified')
-        paragraphs.append('Versions reported by supplemental GeneScope output metadata (' + attribution + '): ' + '; '.join(recovered_versions) + '.')
+        paragraphs.append('Versions reported by supplemental ' + PIPELINES[run['tool']]['name'] + ' output metadata (' + attribution + '): ' + '; '.join(recovered_versions) + '.')
+    if runtime_versions:
+        paragraphs.append('The workflow controller recorded ' + '; '.join(
+            r['label'] + ' ' + r['version'] for r in software if r['tool'] in runtime_versions) + ' for this invocation.')
+    databases = [] if conflicted else _databases(evidence, 'Current output metadata; attribution unverified' if retrospective else 'Native metadata')
+    databases += _databases(supplementary, 'Supplemental metadata; ' + ('matched attempt' if (recovery or {}).get('status') == 'recovered' else 'attribution unverified'))
     from .runs import input_identity
     document = {'id': run['id'], 'state': state, 'generated_at': now(), 'generator_version': __version__,
         'input_identity': input_identity(run), 'input_snapshots': run.get('inputs', []),
@@ -496,9 +574,9 @@ def build(store, run):
         'config_sha256': run['config_sha256'], 'workflow_sha256': run['workflow_sha256'],
         'followup_transition': run.get('followup_transition'),
         'sample_id': run['sample']['id'], 'parent': run.get('parent'), 'completed': run.get('completed') if complete else None,
-        'paragraphs': [intro, *paragraphs], 'execution': execution, 'software': software,
+        'paragraphs': [intro, *paragraphs], 'execution': execution, 'software': software, 'databases': databases,
         'parameters': parameters, 'warnings': list(dict.fromkeys(warnings)), 'evidence_origin': origin,
-        'evidence': evidence, 'supplemental_evidence': recovery,
+        'evidence': evidence, 'supplemental_evidence': recovery, 'runtime_evidence': runtime,
         'citation_url': f"https://github.com/{PIPELINES[run['tool']]['repo']}/tree/{run['commit']}"}
     document['text'] = render_text(document)
     return document
@@ -517,7 +595,8 @@ def render_text(doc, markdown=False):
              heading('Export status and review'), '', doc['state'] + ' · ' + doc['id'],
              'Evidence source: ' + doc['evidence_origin'], *['- ' + w for w in doc['warnings']], '',
              heading('Recorded execution'), '', *doc['execution'], '', heading('Software versions'), '',
-             *[f"{r['tool']}: {r['version']} ({r['scope']})" for r in doc['software']], '',
+             *[f"{r.get('label', r['tool'])}: {r['version']} ({r['scope']})" for r in doc['software']], '',
+             heading('Database identities'), '', *(doc.get('databases') or ['No additional database identity metadata is recorded.']), '',
              heading('Reproducibility'), '', 'Pipeline source: ' + doc['citation_url'],
              'Frozen configuration SHA256: ' + doc['config_sha256'],
              'Workflow copy SHA256: ' + doc['workflow_sha256'],

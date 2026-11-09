@@ -15,7 +15,7 @@ from .runs import parse_config
 
 _KINDS = (
     'samples', 'runs', 'run_visibility', 'followup_output_owner', 'reports',
-    'report_refreshes', 'methods_evidence', 'methods_attempt_evidence', 'report_evidence', 'result_observations',
+    'report_refreshes', 'methods_evidence', 'methods_attempt_evidence', 'methods_runtime', 'methods_runtime_launch', 'report_evidence', 'result_observations',
     'job_telemetry', 'job_usage_history', 'installs',
 )
 _JOB_KINDS = {'workflow', 'check', 'report_refresh'}
@@ -270,7 +270,7 @@ def build(store, sample_id):
             include = key in selected
         elif kind == 'methods_evidence':
             include = key in selected and isinstance(body, dict) and body.get('run_id') == key
-        elif kind == 'methods_attempt_evidence':
+        elif kind in {'methods_attempt_evidence', 'methods_runtime', 'methods_runtime_launch'}:
             include = isinstance(body, dict) and body.get('run_id') in selected and body.get('job_id') == key
         elif kind in {'job_telemetry', 'job_usage_history'}:
             include = key in job_ids
