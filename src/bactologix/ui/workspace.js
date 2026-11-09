@@ -33,6 +33,7 @@ function restoreWizard(){
 function clearWizard(){
  $('.run-wizard')?.remove();
  U.wizard=null;U.wizardRecovered=false;U.revision=null;U.revisionConfig=null;U.runConfigs={};
+ U.setupAdvice=null;U.setupAdviceContext=null;U.setupAdviceRequest=null;U.setupAdviceInvalidated=false;
  for(const key of Object.keys(U.drafts))if(/^(run-|revision-)/.test(key))delete U.drafts[key];
  try{sessionStorage.removeItem(wizardKey);}catch{/* No stored recovery data is available. */}
 }
@@ -495,6 +496,7 @@ function computeDefaults(tool){
 function runFieldValue(c,f){return Object.hasOwn(c.changes,f.key)?c.changes[f.key]:f.kind==='yaml'?f.yaml:f.value;}
 function runConfigPayload(){const c=runEditor();return c?{tool:c.tool,text:c.text,changes:c.changes}:null;}
 function editRunField(c,f,value){
+ if(c.scope!=='defaults')invalidateSetupAdvice();
  c.changes[f.key]=value;
  const get=name=>c.fields.find(x=>x.name===name),put=(name,v)=>{const row=get(name);if(row)c.changes[row.key]=v;};
  if(c.tool==='hybas'&&f.name==='aware_mode'&&value!=='legacy'){
@@ -610,6 +612,34 @@ function runSettingsPanel(c){
  }
  return runSettingTabs(c)+`<div class="guided-panel">${content}</div>`;
 }
+function setupAdvicePayload(){
+ const c=runEditor();if(wizardKind()!=='new-run'||!c)return null;
+ const budget=draftBudget(c.tool);
+ return {tool:c.tool,ids:S.samples.filter(s=>val('run-sample-'+s.id,false)).map(s=>s.id),config:runConfigPayload(),cores:Number(val('run-cores',budget.cores)),memory_mb:Number(val('run-memory',budget.memory_mb))};
+}
+function setupAdviceContext(){
+ const p=setupAdvicePayload();if(!p)return null;
+ const source=activeInstall(p.tool);
+ return JSON.stringify({payload:p,source:source?{id:source.id,source:source.source,version:source.version,ready:source.ready,setup_completed:source.setup_completed}:null,samples:S.samples.filter(s=>p.ids.includes(s.id))});
+}
+function setupAdviceFresh(){return !!U.setupAdvice&&!U.setupAdviceInvalidated&&U.setupAdviceContext===setupAdviceContext();}
+function invalidateSetupAdvice(){
+ if(!U.setupAdvice)return;
+ U.setupAdviceInvalidated=true;
+ const status=$('[data-setup-advice-status]');if(status)status.textContent='Setup changed. Refresh the review before applying a source value.';
+ const refresh=$('[data-action="review-setup"]');if(refresh)refresh.textContent='Refresh review';
+ for(const button of $$('[data-action="apply-setup-advice"]'))button.disabled=true;
+}
+function adviceValue(value){return value===null||value===undefined?'Not recorded':value===''?'Blank (native selection)':typeof value==='boolean'?(value?'On':'Off'):typeof value==='object'?JSON.stringify(value):String(value);}
+function setupAdvicePanel(c){
+ if(wizardKind()!=='new-run')return '';
+ if(U.setupAdvice&&U.setupAdviceContext!==setupAdviceContext())U.setupAdviceInvalidated=true;
+ const advice=U.setupAdvice?.tool===c.tool?U.setupAdvice:null,fresh=!!advice&&setupAdviceFresh(),selected=S.samples.some(s=>val('run-sample-'+s.id,false));
+ const title=`<div class="setup-advice-heading"><div><h3 tabindex="-1" data-setup-advice-heading>Setup adviser</h3><p>Review your selected inputs and compare settings with the selected source’s starting values.</p></div>${btn('review-setup',advice?'Refresh review':'Review setup',false,'','check',!selected)}</div>`;
+ if(!advice)return `<section class="setup-advice" aria-label="Setup adviser">${title}<p class="setup-advice-empty">Suggestions stay separate from your settings until you choose to apply one. No analysis starts here.</p></section>`;
+ const source=advice.source||{};
+ return `<section class="setup-advice" aria-label="Setup adviser">${title}<p class="setup-advice-status" data-setup-advice-status role="status">${fresh?'Review complete. These are starting values, not sample-specific optima. Apply only the settings you want to use.':'Setup changed. Refresh the review before applying a source value.'}</p><div class="setup-advice-source">${badge(source.verified?'Source verified':'Source unverified',source.verified?'blue':'amber')}<span>${e(source.label||'Selected pipeline source')}</span>${source.commit?`<code>${e(source.commit.slice(0,12))}</code>`:''}</div>${(advice.checks||[]).length?`<div class="setup-advice-checks">${advice.checks.map(item=>`<div class="setup-advice-check ${['error','warning'].includes(item.level)?'needs-review':''}"><strong>${e(item.title)}</strong><p>${e(item.detail)}</p></div>`).join('')}</div>`:''}<details class="setup-advice-inputs"><summary>Inputs · ${(advice.samples||[]).length} sample${advice.samples?.length===1?'':'s'}</summary>${(advice.samples||[]).map(sample=>`<div class="setup-advice-sample"><div><strong>${e(sample.id)}</strong><span>${e(readMode(sample.mode||'Not recorded'))}</span></div><ul>${(sample.inputs||[]).map(item=>`<li><strong>${e(item.label)}</strong>${badge(item.status)}<p>${e(item.detail)}</p></li>`).join('')}</ul></div>`).join('')}</details>${(advice.settings||[]).length?`<h4 class="setup-advice-settings-title">Source starting settings</h4><div class="setup-advice-settings">${advice.settings.map(item=>`<article data-advice-setting="${e(item.name)}"><h4>${e(item.name.replaceAll('_',' '))}</h4><dl><div><dt>Current setting</dt><dd>${e(adviceValue(item.current))}</dd><small>${e(item.current_origin)}</small></div><div><dt>Selected-source starting value</dt><dd>${e(adviceValue(item.default))}</dd><small>${e(item.origin)}</small></div></dl><p>${e(item.detail)}</p>${item.change!==null&&item.change!==undefined&&item.applicable?btn('apply-setup-advice','Use source value',false,item.name,'',!fresh):''}</article>`).join('')}</div>`:''}${(advice.limits||[]).length?`<details class="setup-advice-limits" open><summary>What this review can establish</summary><ul>${advice.limits.map(item=>`<li>${e(item)}</li>`).join('')}</ul></details>`:''}<details class="setup-advice-provenance"><summary>Source details</summary><dl><dt>Source commit</dt><dd>${e(source.commit||'Not recorded')}</dd><dt>Configuration</dt><dd>${e(source.config_path||'Not recorded')}</dd><dt>Configuration SHA256</dt><dd>${e(source.config_sha256||'Not recorded')}</dd></dl></details></section>`;
+}
 function runReview(c,chosen,budget={cores:val('run-cores',S.resource_defaults?.[c.tool]?.cores??4),memory_mb:val('run-memory',S.resource_defaults?.[c.tool]?.memory_mb??16000)}){
  const v=name=>{const f=c.fields.find(f=>f.name===name);return f?runFieldValue(c,f):'—';};
  const pairs=c.tool==='micpscope'?[['Input','Annotated protein FASTA'],['Workflow','Protein properties + report']]:c.tool==='hybas'?[['AWARE+ mode',v('aware_mode')==='legacy'?(v('run_kraken')?v('kraken_decision_mode'):'off'):v('aware_mode')],['Polishing',v('polish_mode')],['BUSCO',v('run_busco')==='auto'?'Auto':v('run_busco')===true||v('run_busco')==='true'?'On':'Off'],['Prokka',v('run_prokka')==='auto'?'Auto':v('run_prokka')===true||v('run_prokka')==='true'?'On':'Off'],['MultiQC',v('run_multiqc')==='auto'?'Auto':v('run_multiqc')===true||v('run_multiqc')==='true'?'On':'Off']]:[['Enabled modules',c.fields.filter(f=>f.name.startsWith('modules.')&&f.name.endsWith('.enabled')&&runFieldValue(c,f)===true).length],['AWARE',v('deep.aware.enabled')?'On':'Off'],['DeepSafe',v('deep.enabled')?'On':'Off']];
@@ -638,6 +668,7 @@ function runComputeBudget(tool,revision=null){
 }
 function selectRunPipeline(tool){
  if(!Object.hasOwn(S.pipelines,tool))return;
+ invalidateSetupAdvice();
  draftInputs();setDraft('run-tool',tool);U.runBudgetTool=tool;
  const budget=draftBudget(tool);setDraft('run-cores',budget.cores);setDraft('run-memory',budget.memory_mb);
  const c=runEditor();
@@ -652,8 +683,8 @@ function renderNewRun(){
  if(!c)return body+'<p role="status">Loading saved configuration…</p>';
  if(tool==='micpscope')body+=notice('GeneScope inputs','Register a folder containing annotation/&lt;sample_id&gt;.faa. Optional files in the same folder: &lt;sample_id&gt;.evidence.csv, &lt;sample_id&gt;.gff (coordinates), &lt;sample_id&gt;.interpro.tsv (existing signatures). Read mode does not affect this workflow.');
  if(tab==='samples')body+=`<div class="settings-intro"><div><h3>Connect your inputs</h3><p>${e(S.pipelines[tool].name)} · Select the samples to include. Each sample receives its own draft.</p></div>${btn('new-sample','Connect input folder',false,'','plus')}</div><p class="inline-info">Connecting a folder registers its location. Original files stay where they are. Unchecking a sample only excludes it from these drafts.</p>${S.samples.length?S.samples.map(s=>`<div class="sample-choice"><label class="source-card"><input type="checkbox" id="run-sample-${e(s.id)}" data-sample="${e(s.id)}" ${val('run-sample-'+s.id,false)?'checked':''}><span><strong>${e(s.id)}</strong><small>${e(s.path)}</small></span></label></div>`).join(''):empty('No input folders connected yet.','Connect the folder containing the inputs for your chosen pipeline.')}`;
- else if(tab==='settings')body+=`<div class="run-draft-intro"><strong>Review the settings for your drafts.</strong><span>Start with saved defaults. Customize only what this task needs.</span></div>${select('run-tool','Pipeline',Object.keys(S.pipelines).map(t=>[t,S.pipelines[t].name]),tool)}${runComputeBudget(tool)}${runSettingsPanel(c)}`;
- else if(tab==='review')body+=runReview(c,chosen);
+ else if(tab==='settings')body+=`<div class="run-draft-intro"><strong>Review the settings for your drafts.</strong><span>Start with saved defaults. Customize only what this task needs.</span></div>${select('run-tool','Pipeline',Object.keys(S.pipelines).map(t=>[t,S.pipelines[t].name]),tool)}${runComputeBudget(tool)}${setupAdvicePanel(c)}${runSettingsPanel(c)}`;
+ else if(tab==='review')body+=runReview(c,chosen)+setupAdvicePanel(c);
  else body+=`${runComputeBudget(tool)}${runSettingTabs(c)}<div class="guided-panel"><div class="settings-intro"><div><h3>Full configuration</h3><p>Edit custom keys or paste your existing YAML. Returning to the controls checks its format.</p></div>${btn('run-config-tab','Back to controls',false,'settings')}</div>${area('run-yaml-'+tool,'Run configuration YAML',c.text,'spellcheck="false" rows="18" data-run-yaml="'+tool+'"')}</div>`;
  body+=`<div class="run-draft-summary"><span>${chosen.length} sample${chosen.length===1?'':'s'} selected · ${e(S.pipelines[tool].name)} · Settings apply to these drafts only</span>${tab!=='samples'?btn('check-run-config','Check settings',false,'','check'):''}</div>`;
  return body;
@@ -1043,7 +1074,8 @@ if(t.id?.startsWith('followup-source-')){const id=U.modal.id;delete U.drafts['fo
 if(t.id?.startsWith('followup-scope-')){setDraft('followup-reviewed',false);renderModal();}
 if(['support-job','support-log','support-reviewed'].includes(t.id)){if(t.id!=='support-reviewed'){setDraft('support-reviewed',false);if(!val('support-job',''))setDraft('support-log',false);}renderModal();}
 if(t.id==='setup-pipeline'){U.setupTool=t.value;setDraft('hardware-target',t.value);render();}
-if(t.dataset.sample&&wizardKind()==='new-run')render();
+if(t.dataset.sample&&wizardKind()==='new-run'){invalidateSetupAdvice();render();}
+if(['run-cores','run-memory'].includes(t.id))invalidateSetupAdvice();
 if(t.dataset.runField){const c=runEditor(),f=c?.fields.find(f=>f.key===t.dataset.runField);if(f){editRunField(c,f,t.type==='checkbox'?t.checked:t.value);if(t.type==='checkbox'||t.tagName==='SELECT')renderEditor();}}
 if(t.id==='run-tool')selectRunPipeline(t.value);
 if(t.dataset.applyRun||t.dataset.applyResource)renderModal();
@@ -1078,9 +1110,9 @@ function input(event){const t=event.target;
 if(t.id==='isolate-export-destination'){U.drafts[t.id]=t.value;syncIsolateExport();return;}
 if(['cleanup-acknowledged','cleanup-confirmation'].includes(t.id)){U.drafts[t.id]=t.type==='checkbox'?t.checked:t.value;syncCleanupConfirmation();}
 if(t.id==='support-text'){setDraft('support-reviewed',false);const box=$('#support-reviewed');if(box)box.checked=false;syncSupport();}
-if(['run-cores','revision-cores','run-memory','revision-memory'].includes(t.id)){const kind=t.id.endsWith('cores')?'cores':'memory',label=$('[data-review-budget="'+kind+'"]');if(label)label.textContent=t.value+(kind==='cores'?' cores':' MB');}
+if(['run-cores','revision-cores','run-memory','revision-memory'].includes(t.id)){invalidateSetupAdvice();const kind=t.id.endsWith('cores')?'cores':'memory',label=$('[data-review-budget="'+kind+'"]');if(label)label.textContent=t.value+(kind==='cores'?' cores':' MB');}
 if(t.dataset.runField){const c=runEditor(),f=c?.fields.find(f=>f.key===t.dataset.runField);if(f)editRunField(c,f,t.type==='checkbox'?t.checked:t.value);}
-if(t.dataset.runYaml){const c=runEditor();c.text=t.value;c.changes={};c.raw=true;updateDefaultStatus();}
+if(t.dataset.runYaml){const c=runEditor();if(c.scope!=='defaults')invalidateSetupAdvice();c.text=t.value;c.changes={};c.raw=true;updateDefaultStatus();}
 if(t.id&&t.type!=='file')U.drafts[t.id]=t.type==='checkbox'?t.checked:t.value;if(t.id?.startsWith('identification-'))syncIdentification();if(t.id?.startsWith('environment-cache-'))syncEnvironmentControls();if(t.id?.startsWith('dbpath-')){const tool=U.resourceTool||'hybas',key=t.id.slice(('dbpath-'+tool+'-').length);delete dbState(tool).resets[key];setDraft('dbcand-'+tool+'-'+key,'');for(const b of $$('[data-action="save-databases"]'))b.disabled=false;const pos=t.selectionStart,id=t.id;render();const field=$('#'+id);field?.focus();if(pos!==null)field?.setSelectionRange(pos,pos);}if(t.id==='sample-table')syncSampleImport();if(t.id==='comparison-search')refreshComparison(true);if(t.id==='history-search')refreshHistory(true);if(t.id==='compatibility-search')filterCompatibility();if(t.id==='results-search')filterResults();if(t.id===editorSearchId(runEditor()||{}))filterRunSettings();if(t.id==='version-search'||(t.id==='version-channel'||t.id==='release-channel'))filterVersions();if(['registered-sample-search','run-search','cleanup-search'].includes(t.id)){const pos=t.selectionStart,id=t.id;render();$('#'+id).focus();$('#'+id).setSelectionRange(pos,pos);}}
 function click(event){if(!event.target.closest('.workspace-tools'))$('.workspace-tools')?.removeAttribute('open');if(event.target.closest('.skip')){event.preventDefault();closeNavigation(false);$('#main').focus();$('#main').scrollIntoView({block:'start'});return;}const nav=event.target.closest('[data-nav]');if(nav){if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();navigate(nav.dataset.nav);return;}const a=event.target.closest('[data-action]');if(!a)return;if(a.tagName==='A'){if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();}const action=a.dataset.action,id=a.dataset.id;draftInputs();U.error='';
 if(action==='toggle-navigation'){U.navOpen=!U.navOpen;syncNavigation();if(U.navOpen)$('#navigation [data-nav]').focus();return;}if(action==='close-navigation'){closeNavigation();return;}
@@ -1160,6 +1192,14 @@ else if(action==='new-run'||action==='sample-draft'){
  openWizard();
 }
 else if(action==='run-purpose')selectRunPipeline(id);
+else if(action==='review-setup'||action==='apply-setup-advice'){
+ const payload=setupAdvicePayload();if(!payload||!payload.ids.length)return;
+ const apply=action==='apply-setup-advice';
+ if(apply&&(!setupAdviceFresh()||!U.setupAdvice.settings?.some(item=>item.name===id&&item.applicable&&item.change!==null&&item.change!==undefined))){invalidateSetupAdvice();return;}
+ const kind=apply?'apply_setup_advice':'inspect_setup_advice';
+ U.setupAdviceRequest={kind,context:setupAdviceContext(),setting:apply?id:null};
+ request(kind,{...payload,...(apply?{signature:U.setupAdvice.signature,setting:id}:{})});
+}
 else if(action==='run-config-tab'){
  const c=runEditor();if(!c){if(wizardKind()==='new-run'&&['purpose','samples'].includes(id)){U.runConfigTab=id;render();}return;}
  if(id==='yaml'||id==='review'||c.raw)requestEditor(id,id==='review');
@@ -1174,12 +1214,14 @@ else if(action==='run-choice'){
 }
 else if(action==='run-setting-group'){const c=runEditor();editorUI(c).runConfigGroup[c.tool]=id;setDraft(editorSearchId(c),'');filterRunSettings();}
 else if(action==='reload-run-defaults'){
+ invalidateSetupAdvice();
  if(runEditor()?.scope==='defaults')request('default_config_editor',{tool:U.tool,view:editorUI().runConfigTab});
  else if(wizardKind()==='edit-run')request('edit_run_settings',{id:U.revision.id,variant:!!U.revision.variant});
  else request('run_config_editor',{tool:val('run-tool','hybas'),view:U.runConfigTab});
 }
 else if(action==='check-run-config')requestEditor(editorUI().runConfigTab,true);
 else if(action==='reset-run-field'){
+ invalidateSetupAdvice();
  const c=runEditor(),f=c.fields.find(f=>f.key===id);delete c.changes[id];
  if(c.tool==='hybas'&&['run_kraken','kraken_decision_mode'].includes(f?.name))for(const x of c.fields.filter(x=>['run_kraken','kraken_decision_mode'].includes(x.name)))delete c.changes[x.key];
  renderEditor();
@@ -1364,6 +1406,8 @@ const newResponse=response&&response.id!==U.handled;
 const backgroundResponse=U.background;
 // Preserve drafts before rendering a new server snapshot.
 draftInputs();
+const adviceResponseCurrent=newResponse&&!!U.setupAdviceRequest&&U.setupAdviceRequest.kind===U.requestOrigin?.kind&&U.setupAdviceRequest.context===setupAdviceContext();
+const preserveSetupAdvice=newResponse&&response.run_config&&U.requestOrigin?.kind==='run_config_editor'&&setupAdviceFresh();
 if(newResponse){if(!response.ok&&U.requestOrigin?.kind==='import_samples'){U.sampleImport=null;U.importText=null;}U.handled=response.id;U.pending=null;U.error=response.ok?'':response.message;if(response.resource_defaults_saved){for(const tool of response.resource_defaults_saved){const saved=S.resource_defaults[tool];setDraft('compute-cores-'+tool,saved.cores);setDraft('compute-memory-'+tool,saved.memory_mb);setDraft('compute-gpu-'+tool,saved.gpu_mode||(tool==='micpscope'?'cpu':'native'));if(!defaultsDirty(defaultEditor(tool)))delete U.defaultEditors?.[tool];}}if(response.aware_outputs)U.awareOutputs=response.aware_outputs;if(response.manifest_import)U.manifestImport=response.manifest_import;if(response.config){const c=response.config;U.drafts['yaml-'+c.tool]=c.text;U.fields[c.tool]=c.fields;const el=$('#yaml-'+c.tool);if(el)el.value=c.text;}if(response.browser){U.browser=response.browser;setDraft('folder-path',response.browser.path);}if(response.database_scan){const scan=response.database_scan,t=scan.tool,state=dbState(t);state.scan=scan;for(const r of S.databases[t].rows){const key=dbPath(t,r.id),preferred=scan.candidates[r.id]?.find(c=>c.preferred);if(preferred&&!state.resets[r.id]&&val(key,r.path)===r.path){setDraft(key,preferred.path);setDraft('dbcand-'+t+'-'+r.id,preferred.path);}}}
 if(response.ok&&response.refreshed_catalog&&U.modal?.kind==='versions'&&U.modal.id===response.refreshed_catalog&&!U.versionChoiceExplicit){U.drafts['version-'+U.modal.id]=defaultPipelineVersion(U.modal.id);}
 if(response.removed_sample){
@@ -1377,10 +1421,14 @@ if(response.edit_run){
  U.runSettingTab[U.revision.tool]=guidedTabs[U.revision.tool].some(t=>t[0]===U.runDetailTab)?U.runDetailTab:guidedTabs[U.revision.tool][0][0];
  setDraft('revision-cores',U.revision.cores);setDraft('revision-memory',U.revision.memory_mb);setDraft('run-setting-search','');
 }
-if(response.run_config){
+if(response.run_config&&(!response.setup_advice||adviceResponseCurrent)){
+ if(!response.setup_advice&&!preserveSetupAdvice)invalidateSetupAdvice();
  const c=response.run_config;U.runConfigs ||= {};if(wizardKind()==='edit-run')U.revisionConfig={...c,changes:{},raw:false};else U.runConfigs[c.tool]={...c,changes:{},raw:false};
  U.runConfigTab=response.run_config_view;if(U.runConfigTab==='yaml'){U.runSettingTab ||= {};U.runSettingTab[c.tool]='advanced';}setDraft('run-yaml-'+c.tool,c.text);
+ if(preserveSetupAdvice)U.setupAdviceContext=setupAdviceContext();
 }
+if(response.setup_advice&&adviceResponseCurrent){U.setupAdvice=response.setup_advice;U.setupAdviceContext=setupAdviceContext();U.setupAdviceInvalidated=false;}
+if(!response.ok&&['inspect_setup_advice','apply_setup_advice'].includes(U.requestOrigin?.kind))invalidateSetupAdvice();
 if(response.default_config){
  const c=response.default_config,old=defaultEditor(c.tool);U.defaultEditors ||= {};
  U.defaultEditors[c.tool]={...c,scope:'defaults',changes:{},raw:false,savedText:response.default_config_loaded||response.default_config_saved?c.text:old?.savedText??c.text};
@@ -1423,6 +1471,10 @@ window.addEventListener('message',reportFolderMessage);
 window.addEventListener('resize',syncNavigation);window.addEventListener('beforeunload',beforeUnload);window.addEventListener('popstate',routeChanged);window.addEventListener('hashchange',routeChanged);
 root.addEventListener('click',click);root.addEventListener('input',onInput);root.addEventListener('change',onChange);root.addEventListener('keydown',keydown);
 render();
+if(newResponse&&['inspect_setup_advice','apply_setup_advice'].includes(U.requestOrigin?.kind)){
+ if(wizardKind()==='new-run')($('[data-setup-advice-heading]')||$('[data-action="review-setup"]'))?.focus({preventScroll:true});
+ U.setupAdviceRequest=null;
+}
 if(newResponse&&(response.cleanup_plan||response.cleanup_receipt))$('.modal [data-action="close"]')?.focus();
 if(newResponse&&response.isolate_folder_choices)($('.isolate-folder-modal [data-action="open-isolate-analysis"]:not(:disabled)')||$('.isolate-folder-modal [data-action="close"]'))?.focus({preventScroll:true});
 if(newResponse&&U.requestOrigin?.kind==='open_isolate_folder'){
