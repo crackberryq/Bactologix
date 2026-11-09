@@ -1,3 +1,10 @@
+## 0.1.0a88 interface preparation
+
+- Regression coverage includes purpose-first setup, selection without sample unregistration, run revision/recovery, independent execution/coverage presentation, keyboard/mobile navigation, storage filtering and exact cleanup confirmation.
+- Cleanup recovery has explicit regression cases for interrupted, failed, receipt-less and recovery-job attempts.
+- Node-backed storage tests exercise filtering, hidden selections, dependencies and unknown measurements. Chromium/Streamlit acceptance, Windows desktop, package deployment and all three pipeline contracts remain mandatory CI release gates.
+- No scientific settings or pipeline algorithms are changed. Novice usability sessions and physical workstation acceptance remain separate beta qualification tasks.
+
 ## 0.1.0a87 storage management
 
 - Local full regression suite: 841 passed, 91 skipped (browser and upstream-dependent cases are exercised by CI). Subsequent focused cleanup, ownership, concurrency, recovery and measurement checks: 92 passed.

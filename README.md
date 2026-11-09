@@ -1,18 +1,24 @@
-# Bactologix 0.1.0a87 — Alpha
+# Bactologix 0.1.0a88 — Alpha
 
 This regular alpha adds reviewed storage cleanup and retains the pre-beta
 evidence-integrity fixes. It remains separate from Bactologix Dev: regular
 installation and updates reject development releases. See [report evidence integrity](docs/report-evidence-integrity.md) for
 sample attribution, diagnostic report states and assessment coverage.
 
-**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a87/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
+**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a88/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
 
+### Preparing the beta interface
+
+Home highlights work needing attention and recent runs. New runs follow **Purpose → Inputs → Settings → Review**, with advanced settings and compute limits available under Settings. **Activity** in the header opens the job queue; **Pipelines & databases** combines software setup and database management. Existing saved links remain usable.
+
+Results show execution and evidence coverage separately. Storage starts with measured filesystem capacity, category filters and a review of selected deletion paths. **Leave editor** retains edits in the current browser tab; use the final save action to create a durable run draft. Removing a sample registration asks for confirmation and keeps its files.
+
 ### Workspace identity and citations
 
-The sidebar shows **Powered by GenoMix Human Link** and names the workspace
+The sidebar shows **Powered by GenoMix Human Link**. The header names the workspace
 after the local account running Bactologix (for example, **Jimi's workspace**).
 Unavailable or generic administrator accounts retain **Local workspace**.
 This is a display label; workspace folders and saved runs are unchanged.
