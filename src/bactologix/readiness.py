@@ -139,6 +139,33 @@ def job_guidance(store, job):
         return None
     from .support import log_tail
     text, scope = log_tail(store, job['id'], max_bytes=24000)
+    if job.get('kind') == 'storage_cleanup':
+        # A recovery job continues the original receipt rather than creating one
+        # with the new job ID. A failure before staging may have no receipt yet.
+        receipt = store.get('storage_cleanup_receipts', job['id'])
+        if not receipt:
+            receipt = next((row for row in store.all('storage_cleanup_receipts')
+                            if row.get('recovery_job') == job['id']), None)
+        if not receipt:
+            plan = store.get('storage_cleanup_plans', job['payload'].get('plan_id'), {})
+            candidates = plan.get('candidates', [])
+            if len(candidates) == 1 and candidates[0].get('kind') == 'cleanup_remaining':
+                receipt = store.get('storage_cleanup_receipts', candidates[0]['id'])
+        interrupted = job['status'] == 'interrupted'
+        return {
+            'title': 'Cleanup stopped' if interrupted else 'Cleanup did not finish',
+            'text': ('Some files may already be removed. Review the cleanup receipt for deleted and retained paths. '
+                     'Review the remaining items in Storage before choosing any further cleanup.' if receipt else
+                     'No cleanup receipt is available for this attempt. Review the job log and current items in Storage '
+                     'before choosing any further cleanup. Do not assume that the selected files were removed.'),
+            'category': 'storage_cleanup', 'run_id': None, 'step': None,
+            'receipt_id': receipt['id'] if receipt else None,
+            'action': 'cleanup-receipt' if receipt else 'go-storage',
+            'evidence': str(job.get('error') or 'The cleanup job was recorded as ' + job['status'] + '.')[:1200],
+            'confidence': 'Recorded interruption' if interrupted else 'Recorded failure',
+            'scope': 'Cleanup status and receipts describe this deletion attempt. Further cleanup requires a new review and confirmation.',
+            'log_status': scope['status'],
+        }
     # Match complete bounded lines only; shell commands and huge payloads are not evidence.
     lines = [line for line in text.splitlines() if not line.lstrip().startswith('$ ')]
     error = str(job.get('error') or '')[:2048]

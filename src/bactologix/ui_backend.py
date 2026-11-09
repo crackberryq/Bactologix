@@ -459,7 +459,7 @@ def dispatch(store, kind, p):
         if p.get("validate"):
             run_config.validate(tool, text)
         view = p.get("view", "settings")
-        if view not in {"samples", "settings", "yaml", "review"}:
+        if view not in {"purpose", "samples", "settings", "yaml", "review"}:
             raise ValueError("Choose a run configuration view.")
         return {"run_config": run_config.editor(tool, text), "run_config_view": view, "keep_modal": True,
                 "message": "Run settings checked. The native dry-run is still required." if p.get("validate") else ""}
