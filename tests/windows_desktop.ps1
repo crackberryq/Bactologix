@@ -196,6 +196,47 @@ public static class ControlFileFixture {
     Assert (-not (Update-BrowserPresence $presence $present 24)) 'Live browser did not recover'
     Assert (-not (Update-BrowserPresence $presence @{reachable=$true;pages=0} 25)) 'One empty tab response triggered shutdown'
     Write-Output 'Control-file sharing, bounded retry, preservation and browser grace checks passed.'
+
+    # Cancellation before an acknowledgement is not delivery. Exercise retries
+    # without opening unrelated browsers or allowing endpoint retargeting.
+    $savedEndpoint = (Get-Item Function:Browser-Endpoint).ScriptBlock
+    $savedCloseRequest = (Get-Item Function:Send-BrowserCloseRequest).ScriptBlock
+    try {
+        $script:CloseEndpointReads = 0; $script:CloseAttempts = 0; $script:CloseTargets = @()
+        function Browser-Endpoint {
+            param($Profile)
+            Assert ($Profile -eq 'fixture-owned') 'Close retry changed the requested profile'
+            $script:CloseEndpointReads++
+            # A second lookup would represent a replaced profile endpoint.
+            return @{port=1234;socket=('/devtools/browser/' + $script:CloseEndpointReads)}
+        }
+        function Send-BrowserCloseRequest {
+            param($Endpoint)
+            $script:CloseAttempts++
+            $script:CloseTargets += ($Endpoint.port.ToString() + $Endpoint.socket)
+            if ($script:CloseAttempts -eq 1) { throw [OperationCanceledException]::new('Fixture handshake timeout') }
+        }
+        Close-OwnedBrowser 'fixture-owned'
+        Assert ($script:CloseAttempts -eq 2) 'Cancelled close request was not retried once before success'
+        Assert ($script:CloseEndpointReads -eq 1 -and (@($script:CloseTargets | Select-Object -Unique)).Count -eq 1) 'Retry retargeted another browser endpoint'
+        $script:CloseEndpointReads = 0; $script:CloseAttempts = 0
+        function Send-BrowserCloseRequest {
+            param($Endpoint)
+            $script:CloseAttempts++
+            throw [OperationCanceledException]::new('Fixture persistent timeout')
+        }
+        Close-OwnedBrowser 'fixture-owned'
+        Assert ($script:CloseAttempts -eq 3 -and $script:CloseEndpointReads -eq 1) 'Close retries were unbounded or reread the endpoint'
+        $script:CloseAttempts = 0
+        function Browser-Endpoint { param($Profile) return $null }
+        Close-OwnedBrowser 'fixture-owned'
+        Assert ($script:CloseAttempts -eq 0) 'Missing profile endpoint still sent a close request'
+        Write-Output 'Owned-browser close retries passed: timeout recovery, bounded failure and fixed endpoint.'
+    } finally {
+        Set-Item Function:Browser-Endpoint $savedEndpoint
+        Set-Item Function:Send-BrowserCloseRequest $savedCloseRequest
+    }
+
     $shortcut = Join-Path $temporary 'Bactologix.lnk'
     New-Shortcut $temporary $shortcut
     $link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
@@ -213,6 +254,7 @@ public static class ControlFileFixture {
     $bitmap.Save((Join-Path $repo 'windows-setup-preview.png')); $bitmap.Dispose()
     $view.Form.Hide()
     $browser = Find-Browser
+    Write-Output ('Browser fixture: ' + $browser + ' version ' + (Get-Item $browser).VersionInfo.FileVersion)
     foreach ($name in @('owned','independent')) {
         $profile = Join-Path $temporary $name; $profiles += $profile
         $task = Start-Owned $browser @('--headless=new',"--user-data-dir=$profile",'--remote-debugging-port=0','--remote-debugging-address=127.0.0.1','--no-first-run','--disable-background-mode','about:blank')
@@ -220,11 +262,17 @@ public static class ControlFileFixture {
         $deadline = [Diagnostics.Stopwatch]::StartNew()
         while ($deadline.Elapsed.TotalSeconds -lt 45 -and -not (Browser-State $profile).reachable) { Start-Sleep -Milliseconds 200 }
         Assert ((Browser-State $profile).pages -ge 1) 'Dedicated browser was not observable'
+        Write-Output ('Observed ' + $name + ' browser PID ' + $task.Process.Id + ' at ' + (Browser-Endpoint $profile).port)
     }
     Close-OwnedBrowser $profiles[0]
     # Headless Edge runs in this foreground process. Check actual termination:
     # its HTTP endpoint can briefly accept empty responses during teardown.
-    Assert ($browserProcesses[0].WaitForExit(30000)) 'Owned browser process did not exit'
+    $ownedExited = $browserProcesses[0].WaitForExit(30000)
+    if (-not $ownedExited) {
+        Write-Output ('Owned browser exit timeout; PID ' + $browserProcesses[0].Id + '; state ' + ((Browser-State $profiles[0]) | ConvertTo-Json -Compress))
+        Write-Output ('Independent browser PID ' + $browserProcesses[1].Id + '; state ' + ((Browser-State $profiles[1]) | ConvertTo-Json -Compress))
+    }
+    Assert $ownedExited 'Owned browser process did not exit'
     Assert (-not $browserProcesses[1].HasExited) 'Independent browser process exited'
     Assert ((Browser-State $profiles[1]).reachable) 'Independent browser was affected'
     Write-Output 'Windows desktop checks passed: syntax, exact argument transport, atomic control, shortcut icon, installer render and isolated browser shutdown.'

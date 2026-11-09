@@ -4,6 +4,8 @@
 - Simplify navigation into Home, Samples, Runs, Results, Comparisons and three management areas; keep global Activity and existing deep links accessible.
 - Start new runs with Purpose → Inputs → Settings → Review, keep advanced configuration available, and explain tab-only editor recovery accurately.
 - Keep sample deselection separate from workspace unregistration; give the next eligible run action priority while retaining secondary controls.
+- Confirm removal from the sample list and close the confirmation after a successful response; original files remain on disk.
+- Retry a cancelled Windows browser-close request within a bounded window, using only the original session endpoint.
 - Present execution and evidence coverage together, lead results with reports, and group technical exports and attempt history into expandable sections.
 - Put measured storage capacity first, add category/search/sort controls and visible-item selection, preserve exact deletion previews and receipts, and route interrupted cleanup to its own recovery record.
 - Preserve pipeline algorithms, scientific defaults, installation consent and independent regular/Dev workspaces. This remains an alpha release preparing for beta testing.
