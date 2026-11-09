@@ -1,3 +1,12 @@
+## 0.1.0a90.dev1 isolate export and history
+
+- Disposable filesystem fixtures cover exact isolate lineage, archived analyses, shared follow-ups, external inputs, unrelated-record exclusion, and immutable per-attempt evidence.
+- Real worker integration copies a synthetic isolate with all three linked pipelines, verifies package checksums and local links, and confirms that original files remain unchanged.
+- Export regressions include stale previews, unavailable files, changed historical input hashes, unavailable Methods, unsafe links, destination substitution, insufficient space, cancellation and interrupted copies. Verification and historical completeness are distinct receipt fields.
+- History fixtures cover failed attempts, checks versus execution, mismatched evidence, missing legacy steps and portable SVG/PDF/JSON/HTML outputs. Vector rendering is visually reviewed; native tool execution order is not invented.
+- Regular and Dev regression suites, Chromium/Streamlit acceptance, Windows desktop, package/environment deployment and exact pipeline contracts remain release gates. Physical USB disconnection, filesystem-specific limits and completed SharePoint cloud synchronization require workstation acceptance; no cloud verification is claimed.
+- This release adds data management and recorded provenance. It does not change scientific algorithms or provide sample-specific polishing recommendations.
+
 ## 0.1.0a88.dev1 interface preparation
 
 - Regression coverage includes purpose-first setup, selection without sample unregistration, run revision/recovery, independent execution/coverage presentation, keyboard/mobile navigation, storage filtering and exact cleanup confirmation.

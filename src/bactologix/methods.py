@@ -140,12 +140,29 @@ def collect(run):
 
 
 def capture(store, run, job_id):
-    """Keep execution metadata before shared follow-up output can be replaced."""
+    """Retain completion evidence per attempt before shared outputs can change."""
     receipt = {'schema': 1, 'run_id': run['id'], 'job_id': job_id, 'completed': run['completed'],
                'config_sha256': run['config_sha256'], 'workflow_sha256': run['workflow_sha256'],
                'commit': run['commit'], 'identification': run.get('identification'), 'captured_at': now(),
                'evidence': collect(run)}
-    store.put('methods_evidence', run['id'], receipt)
+    with store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        old = db.execute("SELECT body FROM items WHERE kind='methods_evidence' AND id=?", (run['id'],)).fetchone()
+        if old:
+            previous = json.loads(old['body'])
+            if previous.get('run_id') == run['id'] and isinstance(previous.get('job_id'), str):
+                db.execute("INSERT INTO items VALUES ('methods_attempt_evidence',?,?) ON CONFLICT(kind,id) DO NOTHING",
+                           (previous['job_id'], old['body']))
+        existing = db.execute("SELECT body FROM items WHERE kind='methods_attempt_evidence' AND id=?", (job_id,)).fetchone()
+        if existing:
+            saved = json.loads(existing['body'])
+            if {k: v for k, v in saved.items() if k != 'captured_at'} != {k: v for k, v in receipt.items() if k != 'captured_at'}:
+                raise ValueError('Completion evidence for this attempt is already recorded and cannot be replaced.')
+            receipt = saved
+        encoded = json.dumps(receipt)
+        db.execute("INSERT INTO items VALUES ('methods_attempt_evidence',?,?) ON CONFLICT(kind,id) DO NOTHING", (job_id, encoded))
+        db.execute("INSERT INTO items VALUES ('methods_evidence',?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body",
+                   (run['id'], encoded))
     return receipt
 
 
