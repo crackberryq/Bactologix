@@ -186,20 +186,38 @@ function Show-SetupRestart($View, [string]$Name) {
 function Confirm-UbuntuInstall([string]$Name) {
     return ([Windows.Forms.MessageBox]::Show("Set up Windows WSL and install $Name now? Windows may request administrator permission and a restart. Existing Linux distributions will be kept.", 'Bactologix setup', 'YesNo','Question') -eq 'Yes')
 }
-function Initialize-UbuntuUser($View, [string]$Name) {
-    Show-Stage $View 'Create your Ubuntu account' 'In the Ubuntu window, finish creating your Linux username and password. Then type exit to return here. Your password is not collected by Bactologix.'
-    [Windows.Forms.MessageBox]::Show('Ubuntu will open in a separate window. Complete its first-launch instructions to create a regular Linux user. When you reach the Linux prompt, type exit. Setup will then continue.', 'Ubuntu first launch', 'OK','Information') | Out-Null
+function Get-UbuntuUserState([string]$Name) {
+    try {
+        # A successful command as a non-root default user proves both startup
+        # and account readiness; neither a window exit code nor registration does.
+        $uid = (Capture @('--distribution',$Name,'--exec','id','-u')).Trim()
+        if ($uid -match '^0*[1-9][0-9]*$') { return @{Ready=$true; Diagnostic='Ubuntu regular user is ready.'} }
+        if ($uid -match '^0+$') { return @{Ready=$false; Diagnostic='Ubuntu is using root. Finish creating and selecting your regular Linux user.'} }
+        return @{Ready=$false; Diagnostic='Ubuntu returned an invalid user identity. Setup has not continued.'}
+    } catch { return @{Ready=$false; Diagnostic=$_.Exception.Message} }
+}
+function Open-UbuntuAccountWindow($View, [string]$Name) {
+    Show-Stage $View 'Finish your Ubuntu account setup' 'Complete the username and password prompts in Ubuntu. If a Linux prompt appears, type exit and press Enter. Setup then checks your account and continues.'
+    [Windows.Forms.MessageBox]::Show('Complete the Ubuntu username and password prompts. If you reach a prompt ending in $, type exit and press Enter to return to Setup. Your password is not collected by Bactologix.', 'Ubuntu account setup', 'OK','Information') | Out-Null
     $task = Start-Process -FilePath (Get-WslExecutable) -ArgumentList ((@('--distribution',$Name) | ForEach-Object { Quote-Argument $_ }) -join ' ') -PassThru
     while (-not $task.WaitForExit(200)) { [Windows.Forms.Application]::DoEvents() }
     $task.Refresh()
-    if ($task.ExitCode -ne 0) {
-        # The interactive window may have closed. Capture a noninteractive probe
-        # so the actual WSL diagnostic remains available in the dialog and log.
-        $diagnostic = 'Ubuntu first launch did not complete.'
-        try { Test-UbuntuReady $Name } catch { $diagnostic = $_.Exception.Message }
-        Write-SetupLog ("Ubuntu first launch exit $($task.ExitCode): " + $diagnostic)
-        throw "Ubuntu first launch failed (exit $($task.ExitCode)). $diagnostic Use Continue Bactologix Setup after resolving this error."
+    return $task.ExitCode
+}
+function Initialize-UbuntuUser($View, [string]$Name) {
+    Show-Stage $View 'Checking your Ubuntu account' 'Checking whether Ubuntu already has a working regular user.'
+    $state = Get-UbuntuUserState $Name
+    if ($state.Ready) {
+        Write-SetupLog 'Ubuntu regular user already ready; skipped account window.'
+        return
     }
+    $code = Open-UbuntuAccountWindow $View $Name
+    # Closing the terminal can return STATUS_CONTROL_C_EXIT even after account
+    # creation succeeded. Recheck actual readiness regardless of that exit code.
+    $state = Get-UbuntuUserState $Name
+    Write-SetupLog ("Ubuntu account window exit ${code}: " + $state.Diagnostic)
+    if ($state.Ready) { return }
+    throw "Ubuntu account setup is incomplete (window exit $code). $($state.Diagnostic) Use Continue Bactologix Setup to retry."
 }
 function Prepare-Ubuntu($View, [string]$Name) {
     $pending = Read-Json (Join-Path $script:Root 'setup-state.json')
@@ -564,5 +582,6 @@ if (-not $TestMode) {
         [Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Bactologix', 'OK', 'Warning') | Out-Null
     } finally { $script:AllowClose = $true; $view.Form.Close(); $view.Form.Dispose() }
 }
+
 
 

@@ -144,6 +144,46 @@ function Enable-WindowsOptionalFeature { param($Online,$FeatureName,$All,$NoRest
         foreach ($name in $setupFunctions) { Set-Item "Function:$name" $savedSetupFunctions[$name] }
     }
 
+    # Account readiness regressions: exercise the real orchestration without
+    # opening a terminal or modifying the CI runner's WSL installation.
+    $accountFunctions = @('Capture','Open-UbuntuAccountWindow','Show-Stage','Write-SetupLog')
+    $savedAccountFunctions = @{}
+    foreach ($name in $accountFunctions) { $savedAccountFunctions[$name] = (Get-Item "Function:$name").ScriptBlock }
+    try {
+        function Show-Stage { param($View,$Title,$Detail) }
+        function Write-SetupLog { param($Message) }
+        function Capture {
+            param($Arguments)
+            Assert (($Arguments -join ',') -eq '--distribution,Ubuntu,--exec,id,-u') 'Account probe changed distribution or command'
+            $value = $script:AccountResponses.Dequeue()
+            if ($value -eq 'probe-failed') { throw 'fixture WSL startup failed' }
+            return $value
+        }
+        function Open-UbuntuAccountWindow { param($View,$Name) $script:AccountWindows++; return $script:AccountExit }
+        foreach ($case in @(
+            @{Responses=@('1000');Exit=0;Windows=0;Ready=$true},
+            @{Responses=@('0','1000');Exit=0;Windows=1;Ready=$true},
+            @{Responses=@('0','1000');Exit=-1073741510;Windows=1;Ready=$true},
+            @{Responses=@('probe-failed','1000');Exit=-1;Windows=1;Ready=$true},
+            @{Responses=@('0','0');Exit=0;Windows=1;Ready=$false},
+            @{Responses=@('0','0');Exit=-1073741510;Windows=1;Ready=$false},
+            @{Responses=@('0','probe-failed');Exit=-1;Windows=1;Ready=$false},
+            @{Responses=@('invalid','invalid');Exit=0;Windows=1;Ready=$false}
+        )) {
+            $script:AccountResponses = [Collections.Queue]::new()
+            foreach ($value in $case.Responses) { $script:AccountResponses.Enqueue($value) }
+            $script:AccountWindows=0; $script:AccountExit=$case.Exit; $failure=''
+            try { Initialize-UbuntuUser $null 'Ubuntu' } catch { $failure=$_.Exception.Message }
+            Assert (($failure -eq '') -eq $case.Ready) ('Account readiness result incorrect: ' + $failure)
+            Assert ($script:AccountWindows -eq $case.Windows) 'Ready account opened an unnecessary terminal'
+            Assert ($script:AccountResponses.Count -eq 0) 'Account readiness was not rechecked'
+            if (-not $case.Ready) { Assert ($failure -match 'setup is incomplete.*Continue Bactologix Setup') 'Missing actionable continuation message' }
+        }
+        Write-Output 'Ubuntu account tests passed: ready-user skip, normal exit, window close, root-only, invalid UID and WSL failure.'
+    } finally {
+        foreach ($name in $accountFunctions) { Set-Item "Function:$name" $savedAccountFunctions[$name] }
+    }
+
     $scriptPath = Join-Path $repo 'scripts/windows/Bactologix.ps1'
     $tokens=$null; $errors=$null
     $null = [Management.Automation.Language.Parser]::ParseFile($scriptPath,[ref]$tokens,[ref]$errors)
@@ -280,5 +320,6 @@ public static class ControlFileFixture {
     foreach ($profile in $profiles) { Close-OwnedBrowser $profile }
     foreach ($view in $views) { $view.Form.Close(); $view.Form.Dispose() }
 }
+
 
 

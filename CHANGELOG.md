@@ -1,3 +1,9 @@
+## 0.1.0a89.dev1 — 2026-11-09 · Ubuntu account readiness
+
+- Carry the regular installer's account readiness fix into the independent Dev installer.
+- Skip an unnecessary account terminal for a working non-root user; recheck readiness after the window closes, including interruption exits.
+- Preserve root-only and startup-failure checks, continuation, and separate Dev installation paths.
+
 ## 0.1.0a88.dev1 — 2026-11-09 · Experimental development · Beta interface preparation
 
 - Apply the approved teal workspace design with readable typography, stronger status contrast, responsive controls, clear workspace identity and a visible release-channel badge.
@@ -672,3 +678,4 @@ Unified Off / Taxonomy / Auto / Split controls with source capability checks, au
 ## 0.1.0a86.dev5 — independent development platform
 
 Adds Bactologix Dev with dedicated installers/launchers, workspace ownership, separate Conda/application/pipeline environments, caches and model/database storage. Development catalog and app updates are isolated from the regular channel. Initial exact builds cover HybAs 10 and reviewed BaSIS/GeneScope baselines. Adds isolation and installer regression checks; fixes the AWARE+ component test's missing backend response. No analytical validation or beta access-control features are claimed.
+
