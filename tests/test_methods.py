@@ -242,7 +242,7 @@ def test_worker_captures_after_success_and_capture_failure_is_nonfatal(workspace
     monkeypatch.setattr('bactologix.engine.find_conda', lambda s: '/fixture/conda')
     lines = []
     ctx = SimpleNamespace(store=workspace, job={'id': 'job-fixture', 'payload': {'run_id': run['id'], 'action': 'run'}},
-                          write=lines.append, command=lambda *a, **kw: None)
+                          write=lines.append, command=lambda *a, **kw: None, check_cancel=lambda: None)
     execute_workflow(ctx)
     receipt = workspace.get('methods_evidence', run['id'])
     assert receipt['completed'] == workspace.get('runs', run['id'])['completed']
@@ -250,6 +250,7 @@ def test_worker_captures_after_success_and_capture_failure_is_nonfatal(workspace
     def failed_capture(*a):
         raise OSError('metadata unavailable')
     monkeypatch.setattr(methods, 'capture', failed_capture)
+    ctx.job['id'] = 'job-fixture-next-attempt'
     execute_workflow(ctx)
     assert workspace.get('runs', run['id'])['completed']
     assert any('Methods metadata could not be captured' in line for line in lines)

@@ -1,3 +1,11 @@
+## 0.1.0a97 — 2026-11-10 · Alpha · Preserve engineering research outputs
+
+- Retain native results, intermediate files, failed products and earlier attempts across HybAs, BaSIS and GeneScope.
+- Use reviewed per-job archive adapters in current pipeline versions. Older frozen workflows receive verified independent output snapshots before execution; preservation failure stops launch. Registered original inputs remain references.
+- Keep incomplete and temporary-marked workflow products. Preserve replaced checkpoint contents and failed staging copies.
+- Add All tool outputs, analysis folders, run files, native retained histories and prior snapshots. Isolate exports include these histories. Storage removal remains an explicit reviewed action.
+- Preservation cannot reconstruct previously deleted files, calculate missing stage measurements or establish scientific validation.
+
 ## 0.1.0a96 — 2026-11-10 · Alpha · Run-specific Methods and data-flow evidence
 
 - State explicitly that the assembled scientific pipelines are experimental and have not established application-level scientific validation. Explain configured tools, their inputs, outputs and purpose; keep execution evidence separate.

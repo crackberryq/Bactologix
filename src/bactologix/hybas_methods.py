@@ -14,6 +14,7 @@ PACKAGE_SCOPE = 'Recorded environment package; execution not established'
 RUNTIME_SOURCES = {
     '780ee7086c15c49f2825800ec463327f009f14a6',
     'a99e00b041a184f36cfdf8a2ab5b61f0f255a02d',
+    '87c1ab81c8652bd10db47954193e27ad802cfc86',
     '08c315479f5493ce0b1f44ba26da3c7f2e0d748b',
 }
 SCALARS = {

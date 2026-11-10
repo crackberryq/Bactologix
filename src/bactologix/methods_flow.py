@@ -212,7 +212,8 @@ def _hybas(b, cfg):
         reports.append(b.step('multiqc', 'multiqc', reports[:], 'Aggregated QC report'))
     if _bool(cfg.get('run_prokka')):
         reports.append(b.step('prokka', 'prokka', [final], 'Prokka annotation / GFF / protein FASTA'))
-    if b.run.get('commit') == 'a99e00b041a184f36cfdf8a2ab5b61f0f255a02d':
+    if b.run.get('commit') in {'a99e00b041a184f36cfdf8a2ab5b61f0f255a02d',
+                               '87c1ab81c8652bd10db47954193e27ad802cfc86'}:
         b.step('hybas-report', 'report', [final, *reports], 'HybAs report and retained metadata', 'HybAs report renderer')
     b.warnings.append('Polishing arrows show configured dependencies, not a claim every requested stage ran. Native skip/reuse records are labelled separately.')
 
