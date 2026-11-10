@@ -712,7 +712,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             page.get_by_role('button', name='Continue to settings', exact=True).click()
             customize_compute(page)
             expect(page.get_by_label('CPU cores per run', exact=True)).to_have_value(str(budget['cores']))
-            expect(page.get_by_label('Memory budget (MB)', exact=True)).to_have_value(str(budget['memory_mb']))
+            expect(page.get_by_label('Physical RAM budget (MB)', exact=True)).to_have_value(str(budget['memory_mb']))
             page.get_by_label('CPU cores per run', exact=True).fill('3')
             page.locator('#run-tool').select_option('basis')
             customize_compute(page)

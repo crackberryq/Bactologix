@@ -625,6 +625,12 @@ URLs contain only the page, run ID and section, not configuration or input paths
 
 ## Run checks and environment availability
 
+Runs can use an explicit additional disk-swap allowance under **Customize compute
+resources**. Physical RAM and swap are shown separately, and current capacity is
+rechecked before validation and execution. Existing runs keep their saved policy;
+editing creates a revision. See [swap memory](docs/swap-memory.md) for capacity,
+performance and provenance details.
+
 Saved-run **Overview → Run checks** separates inputs/saved files, pipeline/runner setup, native validation, frozen database paths and tool environment availability. The panel reports the scope and time of each check. **Runner set up** on an installation card refers to the runner only; it does not mean every analysis tool or database is ready. **Validate run** performs the native dry-run. Saved database paths remain visible under **Databases**, independently of later default changes.
 
 After validation, **Check environments** asks the native workflow for its current environment inventory and checks completed folders in this run's own cache. This action never installs, deletes or repairs tool environments. The receipt is specific to the frozen configuration, source, runner and cache; completion markers are rechecked when the panel refreshes. It does not run executable probes or guarantee environments that later checkpoints may discover. Use the installation-level checker below for executable probes. Known missing/incomplete environments direct you to **Install environments**; normal execution retains its existing-environments-only guard.

@@ -39,6 +39,24 @@ def test_order_and_inline_thresholds():
     assert 'workflow allocation, not measured per-tool resource use' in text
 
 
+@pytest.mark.parametrize('tool', ['hybas', 'basis', 'micpscope'])
+def test_swap_allowance_is_saved_scheduling_policy_not_measured_ram(tool):
+    args = fixture(tool)
+    args[2]['bactologix_compute'] = {'swap_mb': 98304}
+    before = copy.deepcopy(args)
+    text = prose(args)
+    assert '28672 MB RAM' in text
+    assert 'additional 98304 MB disk-swap allowance was configured' in text
+    assert 'total scheduler budget of 126976 MB' in text
+    assert 'does not establish actual swap consumption' in text
+    assert '126976 MB RAM' not in text
+    assert args == before
+
+
+def test_legacy_methods_do_not_infer_swap_from_current_hardware():
+    assert 'disk-swap allowance' not in prose(fixture())
+
+
 def test_native_stages_models_and_final_producer():
     args=fixture()
     args[1]['evidence']['decisions']=dict(assembler='unicycler',executed_stages=['racon1','racon2','medaka'],
