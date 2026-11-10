@@ -140,4 +140,10 @@ def finish(token, error=None):
     doc = {key: token['started'][key] for key in
            ('schema', 'job_id', 'run_id', 'nonce', 'context_sha256', 'identity_sha256')}
     doc.update(started_sha256=token['started_sha256'], finished_at=timestamp(), status=status, exit_code=code)
+    # The observer snapshots only this controller's structured rule events.
+    # Keep the existing 64 KiB receipt bound and never sacrifice version capture
+    # when optional rule metadata cannot be represented.
+    trace = token.get('rule_trace')
+    if isinstance(trace, dict) and len(encoded(trace)) <= 48 * 1024:
+        doc['rule_trace'] = trace
     write_reserved(token['folder'], 'finished.json', token['context']['files']['finished.json'], doc)

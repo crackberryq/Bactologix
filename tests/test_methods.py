@@ -117,7 +117,7 @@ def test_unknown_source_never_borrows_current_defaults(workspace, run):
     run['commit'] = 'f' * 40
     doc = methods.build(workspace, run)
     assert all(p['origin'] == 'Saved run' for p in doc['parameters'])
-    assert not doc['software']
+    assert [(row['tool'], row['version']) for row in doc['software']] == [('snakemake', methods.UNKNOWN)]
 
 
 def test_previous_basis_release_retains_equivalent_methods_defaults(run, monkeypatch):
@@ -261,7 +261,7 @@ def test_methods_with_real_pinned_source(tmp_path, tool):
     store, run = setup_run(tmp_path, tool)
     doc = methods.build(store, run)
     assert methods.DEFAULTS['sources'][tool] == run['commit']
-    assert not any('No verified Methods template' in w for w in doc['warnings'])
+    assert not any('No source-matched workflow description' in w for w in doc['warnings'])
     assert ('Unicycler' if tool == 'hybas' else 'AMRFinderPlus') in '\n'.join(doc['paragraphs'])
     # Check native per-run CPU semantics, not only the presence of a UI field.
     if tool == 'basis':

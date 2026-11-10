@@ -27,9 +27,13 @@ from .store import now
 LIMIT = 8 * 1024 * 1024
 DEFAULTS = json.loads((DATA / 'methods-defaults.json').read_text())
 UNKNOWN = 'Not recorded'
+VALIDATION_STATUS = ('Experimental pipeline: scientific validation of the assembled workflow for its intended application '
+                     'has not been established. This document describes saved settings and available execution evidence; '
+                     'workflow completion does not establish analytical accuracy, biological function or deployment safety.')
 SOFTWARE_LABELS = {'micpscope': 'GeneScope', 'basis': 'BaSIS', 'hybas': 'HybAs',
                    'diamond': 'DIAMOND', 'python': 'Python', 'biopython': 'Biopython',
-                   'snakemake': 'Snakemake', 'controller_python': 'Controller Python'}
+                   'snakemake': 'Snakemake', 'controller_python': 'Controller Python',
+                   'vfdb': 'DIAMOND (VFDB search)', 'bacmet': 'DIAMOND (BacMet search)'}
 
 
 def _merge(base, update):
@@ -244,7 +248,7 @@ def _configuration(run, warnings):
     else:
         known = False
     if not known:
-        warnings.append('No verified Methods template is available for this source. Only explicit saved settings and recorded execution are exported.')
+        warnings.append('No source-matched workflow description is available for this source. Only explicit saved settings and recorded execution are exported.')
         return cfg, dict(cfg, **reviewed), False
     if saved_only:
         return cfg, dict(cfg, **reviewed), True
@@ -377,7 +381,7 @@ def _flatten(value, prefix=''):
 
 
 def _genescope(cfg):
-    paragraphs = ['The workflow was configured to calculate protein sequence descriptors with Biopython and generate a source-labelled evidence report. These descriptors do not determine pH or temperature optima, shelf life, material performance or deployment safety.']
+    paragraphs = ['The workflow was configured to calculate protein sequence descriptors with Biopython, calculate the aliphatic index in GeneScope from residue counts, and generate a source-labelled evidence report. These descriptors do not determine pH or temperature optima, shelf life, material performance or deployment safety.']
     tools = ['micpscope', 'biopython', 'python', 'snakemake']
     if cfg.get('reference_database'):
         paragraphs.append('An optional DIAMOND protein reference search was configured against the selected application database. Its saved search filters are listed in the settings supplement; similarity candidates do not establish function, and configuration alone does not establish that a search executed.')
@@ -428,7 +432,7 @@ def build(store, run):
     if evidence.get('native_run', {}).get('completeness') == 'incomplete':
         warnings.append('The native report records incomplete requested scope. Review the module execution statuses before describing the analyses as completed.')
     if not complete and not stage:
-        warnings.append('Planned settings only: this export does not claim that analyses completed. Download again after completion.')
+        warnings.append('This attempt is not recorded as completed. Any available controller events are shown separately; saved settings alone do not establish execution. Download again after completion.')
     if run['tool'] == 'micpscope' and known:
         paragraphs, tools = _genescope(effective)
     elif known:
@@ -466,7 +470,9 @@ def build(store, run):
         warnings.append('Conflicting sample metadata in this historical snapshot is excluded from the Methods description. The original snapshot remains in the provenance ZIP.')
     retrospective = origin.startswith('Legacy output metadata read at export')
     from .methods_runtime import evidence as runtime_evidence
-    runtime = runtime_evidence(store, run, latest['id']) if (complete or stage) and latest else None
+    runtime = runtime_evidence(store, run, latest['id'], include_incomplete=True) if latest else None
+    if runtime:
+        warnings.extend(runtime.get('warnings', []))
     versions = {} if conflicted else dict(evidence.get('versions', {}))
     supplementary = (recovery or {}).get('evidence', {})
     supplementary_versions = supplementary.get('versions', {})
@@ -484,7 +490,7 @@ def build(store, run):
             if _reused(row) and 'reused' not in scope[name].lower():
                 scope[name] += '; reused result, not a new execution in this attempt'
     runtime_versions = (runtime or {}).get('versions', {})
-    tools = list(dict.fromkeys([*tools, *versions, *supplementary_versions, *runtime_versions]))
+    tools = list(dict.fromkeys(['snakemake', *tools, *versions, *supplementary_versions, *runtime_versions]))
     software = []
     for name in tools:
         raw = versions.get(name)
@@ -508,8 +514,14 @@ def build(store, run):
     missing_versions = [row['label'] for row in software if row['version'] == UNKNOWN]
     if missing_versions:
         warnings.append('Versions not recorded: ' + ', '.join(missing_versions) + '. Current installations and environment constraints are not used to fill historical gaps.')
+    if 'snakemake' not in runtime_versions:
+        warnings.append('No attributable Snakemake controller version was recorded for this execution attempt. '
+                        'Updating Bactologix cannot reconstruct a missing historical version; the currently installed '
+                        'Snakemake version is not substituted. New executions can record their own controller version.')
     warnings.append('Review database release dates, model identities and tool/database citations before submission. A directory name alone is not a database version.')
-    intro = f"The analysis was configured using {PIPELINES[run['tool']]['name']} (source commit {run['commit']}) through Bactologix. The saved computing allocation was {run['cores']} CPU cores and {run['memory_mb']} MB RAM."
+    intro = (f"This run was configured as a sequence of computational steps orchestrated with Snakemake through Bactologix. "
+             f"The workflow implementation was {PIPELINES[run['tool']]['name']} (source commit {run['commit']}). "
+             f"The saved computing allocation was {run['cores']} CPU cores and {run['memory_mb']} MB RAM.")
     parameters = []
     supplied = dict(_flatten(explicit))
     for key, value in _flatten(effective):
@@ -534,7 +546,18 @@ def build(store, run):
         execution.insert(0, 'The following native records were read from current outputs; their execution attribution is unverified.')
     if runtime:
         execution.append('Workflow controller invocation was recorded from ' + _value(runtime.get('started_at')) +
-                         ' to ' + _value(runtime.get('finished_at')) + '. This records the workflow invocation, not individual rule execution.')
+                         ' to ' + _value(runtime.get('finished_at')) + '; outcome=' + _value(runtime.get('status')) +
+                         '. The controller version identifies the orchestration process; individual steps require their own evidence.')
+        trace = runtime.get('rule_trace')
+        if trace is not None:
+            execution = [line for line in execution if line != 'No per-step execution metadata is available for this export.']
+            execution.append('Controller rule-event coverage: ' + _value(trace.get('coverage')) + '. '
+                             'These are scheduler-declared dependencies and reported outcomes, not observations of file bytes or every internal executable.')
+            if not trace.get('jobs'):
+                execution.append('No rule events were recorded for this invocation; earlier attempts are not substituted.')
+            for row in trace.get('jobs', []):
+                execution.append('Rule ' + row['rule'] + ': controller status=' + row['status'] +
+                                 '; declared inputs=' + str(len(row['inputs'])) + '; declared outputs=' + str(len(row['outputs'])) + '.')
     if supplementary.get('records'):
         execution.append('Supplemental native module metadata (' + ('matched completed attempt' if recovery['status'] == 'recovered'
                           else 'execution attribution unverified') + '):')
@@ -597,12 +620,41 @@ def build(store, run):
         'followup_transition': run.get('followup_transition'),
         'sample_id': run['sample']['id'], 'parent': run.get('parent'), 'completed': run.get('completed') if complete else None,
         'completed_stage': stage['stage'] if stage else ('assembly' if complete and run['tool']=='hybas' else None),
-        'paragraphs': [intro, *paragraphs], 'execution': execution, 'software': software, 'databases': databases,
+        'validation_status': VALIDATION_STATUS,
+        'paragraphs': [VALIDATION_STATUS, intro, *paragraphs], 'execution': execution, 'software': software, 'databases': databases,
         'parameters': parameters, 'warnings': list(dict.fromkeys(warnings)), 'evidence_origin': origin,
         'evidence': evidence, 'supplemental_evidence': recovery, 'runtime_evidence': runtime,
         'citation_url': f"https://github.com/{PIPELINES[run['tool']]['repo']}/tree/{run['commit']}"}
+    from . import methods_flow
+    document['flow'] = methods_flow.build(run, document, effective, known_source=known)
+    document['flow_svg'] = methods_flow.svg(document['flow']).decode('utf-8')
+    document['workflow_steps'] = document['flow']['tool_steps']
+    document['warnings'] = list(dict.fromkeys([*document['warnings'], *document['flow'].get('warnings', [])]))
     document['text'] = render_text(document)
     return document
+
+
+def _flow_lines(doc, markdown=False):
+    heading = lambda value: ('## ' if markdown else '') + value
+    graph = doc.get('flow', {})
+    lines = [heading('Run data flow and tool roles'), '', graph.get('caption', ''),
+             graph.get('coverage', {}).get('explanation', ''), '']
+    controller = next((row for row in doc['software'] if row['tool'] == 'snakemake'), None)
+    if controller:
+        lines += ['Snakemake ' + controller['version'] + ': coordinates rule dependencies and task scheduling; '
+                  'it does not validate the scientific interpretation. Version evidence: ' + controller['scope'] + '.', '']
+    for row in doc.get('workflow_steps', []):
+        lines += [row['label'] + ' — ' + row.get('status_label', row['status']),
+                  'What: ' + row['what'], 'Why: ' + row['why'],
+                  'Inputs: ' + ('; '.join(row.get('declared_inputs', row['inputs'])) or 'Not recorded'),
+                  'Outputs: ' + ('; '.join(row.get('declared_outputs', row['outputs'])) or 'Not recorded'),
+                  'Version: ' + row.get('version', UNKNOWN) + ' (' + row.get('version_scope', 'Not recorded') + ')',
+                  'Evidence: ' + row['evidence'], '']
+    if not doc.get('workflow_steps'):
+        lines += ['Tool-level steps are not available for this source and execution record.', '']
+    lines += ['The HTML and SVG exports include the run-specific diagram. The reproducibility ZIP also includes '
+              'methods-flow.json with explicit node and relationship evidence.', '']
+    return lines
 
 
 def render_text(doc, markdown=False):
@@ -615,6 +667,7 @@ def render_text(doc, markdown=False):
         supplemental += ['Supplemental output SHA256: ' + f['sha256']
                          for f in recovered.get('evidence', {}).get('files', [])]
     lines = [('## ' if markdown else '') + 'Methods', '', *[p + '\n' for p in doc['paragraphs']],
+             *_flow_lines(doc, markdown),
              heading('Export status and review'), '', doc['state'] + ' · ' + doc['id'],
              'Evidence source: ' + doc['evidence_origin'], *['- ' + w for w in doc['warnings']], '',
              heading('Recorded execution'), '', *doc['execution'], '', heading('Software versions'), '',
@@ -633,17 +686,33 @@ def render_text(doc, markdown=False):
 
 def _html(doc):
     body = ''.join('<p>' + html.escape(p) + '</p>' for p in doc['paragraphs'])
+    esc = lambda value: html.escape(str(value), quote=True)
+    steps = ''.join('<tr><th scope="row">' + esc(row['label']) + '<br><small>' + esc(row.get('status_label', row['status'])) + '</small></th>'
+                    '<td>' + esc(row['what']) + '<p><strong>Purpose:</strong> ' + esc(row['why']) + '</p></td>'
+                    '<td><strong>Inputs:</strong> ' + esc('; '.join(row.get('declared_inputs', row['inputs'])) or 'Not recorded') +
+                    '<p><strong>Outputs:</strong> ' + esc('; '.join(row.get('declared_outputs', row['outputs'])) or 'Not recorded') + '</p></td>'
+                    '<td>' + esc(row.get('version', UNKNOWN)) + '<p>' + esc(row['evidence']) + '</p></td></tr>'
+                    for row in doc.get('workflow_steps', []))
+    flow = ('<section aria-label="Run data flow"><h2>Run data flow</h2><p>' + esc(doc['flow']['caption']) +
+            '</p><p>' + esc(doc['flow']['coverage']['explanation']) + '</p><div class="diagram">' + doc['flow_svg'] +
+            '</div><details class="full-size"><summary>View diagram at full size</summary><div class="diagram" tabindex="0" role="region" aria-label="Full-size run diagram">' + doc['flow_svg'] + '</div></details><h2>Tools and purpose</h2><div class="table-wrap"><table><thead><tr><th>Step and status</th>'
+            '<th>What and why</th><th>Data flow</th><th>Version and evidence</th></tr></thead><tbody>' + steps + '</tbody></table></div></section>')
     return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
-            '<title>Methods — ' + html.escape(doc['id']) + '</title><style>body{font:16px/1.6 system-ui;max-width:880px;margin:40px auto;padding:0 24px;color:#172b30}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.5 monospace}h1{font-size:28px}@media print{body{margin:0}}</style>'
+            '<title>Methods — ' + html.escape(doc['id']) + '</title><style>body{font:16px/1.6 system-ui;max-width:1100px;margin:40px auto;padding:0 24px;color:#172b30}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.5 monospace}h1{font-size:28px}.diagram,.table-wrap{overflow:auto}svg{max-width:100%;height:auto}.full-size .diagram{max-height:85vh}.full-size svg{max-width:none}summary{cursor:pointer;padding:12px 0}.diagram:focus{outline:2px solid #16786d}table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid #d5dfdf;padding:12px;vertical-align:top;text-align:left;overflow-wrap:anywhere}td p{margin-bottom:0}@media print{.full-size{display:none}body{margin:0}tr{break-inside:avoid}.diagram,.table-wrap{overflow:visible}}</style>'
             '<h1>Methods</h1><p><strong>' + html.escape(doc['state']) + '</strong> · ' + html.escape(doc['id']) + '</p>' + body +
+            flow +
             '<h2>Review and reproducibility supplement</h2><pre>' + html.escape(doc['text'].split('Export status and review\n', 1)[1]) + '</pre></html>')
 
 
 def download(store, run, format):
-    if format not in {'txt', 'md', 'html', 'zip'}:
-        raise ValueError('Choose Text, Markdown, HTML or the reproducibility ZIP.')
+    if format not in {'txt', 'md', 'html', 'zip', 'svg', 'json'}:
+        raise ValueError('Choose Text, Markdown, HTML, SVG, diagram JSON or the reproducibility ZIP.')
     doc = build(store, run)
     name = run['id'] + '-methods.' + format
+    if format in {'svg', 'json'}:
+        return {'name': run['id'] + '-methods-flow.' + format,
+                'text': doc['flow_svg'] if format == 'svg' else json.dumps(doc['flow'], indent=2, ensure_ascii=False) + '\n',
+                'type': 'image/svg+xml' if format == 'svg' else 'application/json'}
     if format != 'zip':
         text = _html(doc) if format == 'html' else render_text(doc, format == 'md')
         return {'name': name, 'text': text, 'type': {'txt': 'text/plain', 'md': 'text/markdown', 'html': 'text/html'}[format]}
@@ -652,8 +721,10 @@ def download(store, run, format):
         archive.writestr('methods.txt', doc['text'])
         archive.writestr('methods.md', render_text(doc, True))
         archive.writestr('methods.html', _html(doc))
+        archive.writestr('methods-flow.svg', doc['flow_svg'])
+        archive.writestr('methods-flow.json', json.dumps(doc['flow'], indent=2, ensure_ascii=False) + '\n')
         archive.writestr('config.yaml', run['config'])
-        archive.writestr('methods-provenance.json', json.dumps({k: v for k, v in doc.items() if k != 'text'}, indent=2, ensure_ascii=False) + '\n')
+        archive.writestr('methods-provenance.json', json.dumps({k: v for k, v in doc.items() if k not in {'text', 'flow_svg'}}, indent=2, ensure_ascii=False) + '\n')
         table = io.StringIO()
         writer = csv.writer(table, delimiter='\t', lineterminator='\n')
         writer.writerow(['setting', 'value', 'origin'])
@@ -678,7 +749,7 @@ def download(store, run, format):
         else:
             app_citation.pop('version', None)
         archive.writestr('citations/Bactologix-CITATION.cff', yaml.safe_dump(app_citation, sort_keys=False, allow_unicode=True))
-        archive.writestr('README.txt', 'Review Methods and unresolved items before publication.\nThe YAML and supplement contain local paths and sample identifiers.\nSoftware versions are recorded evidence, not current environment probes.\nCite the pipeline source and tools/databases used; add verified publication references.\nThe workflow configuration and execution behavior were not changed by this export.\n')
+        archive.writestr('README.txt', VALIDATION_STATUS + '\nReview Methods and unresolved items before publication.\nThe YAML, diagram and supplement contain local paths and sample identifiers.\nSoftware versions are recorded evidence, not current environment probes.\nThe diagram distinguishes recorded rule events from source-matched configured dependencies; neither establishes scientific validity.\nCite the pipeline source and tools/databases used; add verified publication references.\nThe workflow configuration and execution behavior were not changed by this export.\n')
     return {'name': name, 'base64': base64.b64encode(buffer.getvalue()).decode(), 'type': 'application/zip'}
 
 

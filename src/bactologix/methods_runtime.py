@@ -93,26 +93,42 @@ def prepare(store, run, job):
     return {**launch, 'environment': dict(zip(native.ENV, (str(path), context['nonce'], launch['context_sha256'])))}
 
 
-def _validate(run, job, launch, started, finished):
+def _validate_start(run, job, launch, started):
+    """Validate the producing attempt, independent of later controller checks."""
+    identity = launch.get('identity', {})
     if (launch.get('schema') != 1 or launch.get('job_id') != job['id'] or launch.get('run_id') != run['id']
-            or launch.get('identity') != _identity(run, job)):
+            or identity.get('run') != run_identity(run) or identity.get('action') != job['payload']['action']
+            or not isinstance(identity.get('controller'), str) or not Path(identity['controller']).is_absolute()):
         raise ValueError('Runtime receipt has different run or execution identity')
     context = launch['context']
     if (hashlib.sha256(native.encoded(context)).hexdigest() != launch['context_sha256']
             or hashlib.sha256(native.encoded(launch['identity'])).hexdigest() != context['identity_sha256']):
         raise ValueError('Runtime receipt context changed')
-    for doc in (started, finished):
-        if not isinstance(doc, dict) or any(doc.get(key) != expected for key, expected in
-                {'schema': 1, 'job_id': job['id'], 'run_id': run['id'], 'nonce': context['nonce'],
-                 'context_sha256': launch['context_sha256'], 'identity_sha256': context['identity_sha256']}.items()):
-            raise ValueError('Controller observation does not match its reserved context')
-    if (started.get('controller') != context['controller']
-            or finished.get('started_sha256') != hashlib.sha256(native.encoded(started)).hexdigest()):
+    expected = {'schema': 1, 'job_id': job['id'], 'run_id': run['id'], 'nonce': context['nonce'],
+                'context_sha256': launch['context_sha256'], 'identity_sha256': context['identity_sha256']}
+    if not isinstance(started, dict) or any(started.get(key) != value for key, value in expected.items()):
+        raise ValueError('Controller observation does not match its reserved context')
+    if started.get('controller') != context['controller']:
         raise ValueError('Controller observation changed')
     versions = started.get('versions', {})
     if (set(versions) != {'snakemake', 'controller_python'}
             or any(not isinstance(v, str) or not v or len(v) > 200 for v in versions.values())):
         raise ValueError('Actual controller versions are unavailable')
+    start = datetime.fromisoformat(started['started_at'])
+    if start.tzinfo is None:
+        raise ValueError('Controller invocation timestamps are invalid')
+    return versions
+
+
+def _validate(run, job, launch, started, finished):
+    versions = _validate_start(run, job, launch, started)
+    context = launch['context']
+    expected = {'schema': 1, 'job_id': job['id'], 'run_id': run['id'], 'nonce': context['nonce'],
+                'context_sha256': launch['context_sha256'], 'identity_sha256': context['identity_sha256']}
+    if not isinstance(finished, dict) or any(finished.get(key) != value for key, value in expected.items()):
+        raise ValueError('Controller observation does not match its reserved context')
+    if finished.get('started_sha256') != hashlib.sha256(native.encoded(started)).hexdigest():
+        raise ValueError('Controller observation changed')
     start, end = datetime.fromisoformat(started['started_at']), datetime.fromisoformat(finished['finished_at'])
     if start.tzinfo is None or end.tzinfo is None or end < start:
         raise ValueError('Controller invocation timestamps are invalid')
@@ -135,13 +151,15 @@ def finish(store, run, jid, launch, *, succeeded):
     if saved['path'] != str(path / 'context.json'):
         raise ValueError('Runtime receipt path changed')
     receipt = {'schema': 1, 'job_id': jid, 'run_id': run['id'], 'identity': saved['identity'],
-               'status': 'unavailable', 'parent_succeeded': bool(succeeded), 'observations': {}, 'warnings': []}
+               'status': 'unavailable', 'parent_succeeded': bool(succeeded), 'observations': {},
+               'observation_sha256': {}, 'warnings': []}
     try:
         for name, key in (('started.json', 'started'), ('finished.json', 'finished')):
-            doc, _, inode = native.read(path / name)
+            doc, digest, inode = native.read(path / name)
             if inode != saved['context']['files'][name]:
                 raise ValueError('Reserved runtime receipt file changed')
             receipt['observations'][key] = doc
+            receipt['observation_sha256'][key] = digest
         started, finished = receipt['observations']['started'], receipt['observations']['finished']
         _validate(run, job, saved, started, finished)
         receipt['status'] = finished['status'] if succeeded else 'cancelled' if job.get('cancel') else 'failed'
@@ -153,27 +171,67 @@ def finish(store, run, jid, launch, *, succeeded):
     return _immutable(store, RECEIPT, jid, receipt)
 
 
-def evidence(store, run, job_id):
-    """Return successful, bound evidence without reading current files/packages."""
+def evidence(store, run, job_id, *, include_incomplete=False):
+    """Return bound controller observations, never probe current packages.
+
+    The default retains the successful-invocation contract used by historical
+    completion snapshots. Methods may explicitly include a failed/interrupted
+    attempt's observed controller version; that does not establish completion
+    or any individual rule's execution.
+    """
     try:
         job = _job(store, run, job_id)
-        if job['status'] not in {'running', 'succeeded'} or job.get('cancel'):
+        if job['status'] not in {'running', 'succeeded', 'failed', 'cancelled', 'interrupted'}:
+            return None
+        if not include_incomplete and (job['status'] not in {'running', 'succeeded'} or job.get('cancel')):
             return None
         receipt, launch = store.get(RECEIPT, job_id), store.get(LAUNCH, job_id)
-        if (not receipt or not launch or receipt.get('status') != 'succeeded'
+        if (not receipt or not launch
                 or receipt.get('schema') != 1 or receipt.get('job_id') != job_id
-                or receipt.get('run_id') != run['id'] or receipt.get('identity') != _identity(run, job)
-                or receipt.get('parent_succeeded') is not True):
+                or receipt.get('run_id') != run['id'] or receipt.get('identity') != launch.get('identity')
+                or (not include_incomplete and (receipt.get('status') != 'succeeded'
+                                               or receipt.get('parent_succeeded') is not True))):
             return None
-        started, finished = receipt['observations']['started'], receipt['observations']['finished']
-        versions = _validate(run, job, launch, started, finished)
-        if finished['status'] != 'succeeded':
+        started = receipt['observations']['started']
+        finished = receipt['observations'].get('finished')
+        hashes = receipt.get('observation_sha256', {})
+        # Finished legacy observations bind the start through started_sha256.
+        # A start-only observation additionally needs its capture-time hash.
+        if finished is None and not hashes.get('started'):
             return None
-        return {'schema': 1, 'job_id': job_id, 'run_id': run['id'], 'identity': copy.deepcopy(receipt['identity']),
+        for key, doc in (('started', started), ('finished', finished)):
+            if doc is not None and key in hashes and hashes[key] != hashlib.sha256(native.encoded(doc)).hexdigest():
+                return None
+        versions = (_validate(run, job, launch, started, finished) if finished is not None
+                    else _validate_start(run, job, launch, started))
+        successful = (finished is not None and finished['status'] == 'succeeded'
+                      and receipt.get('status') == 'succeeded' and receipt.get('parent_succeeded') is True
+                      and job['status'] in {'running', 'succeeded'} and not job.get('cancel'))
+        if not include_incomplete and not successful:
+            return None
+        state = 'succeeded' if successful else ('cancelled' if job.get('cancel') or job['status'] == 'cancelled'
+                else 'interrupted' if job['status'] == 'interrupted'
+                else 'failed' if job['status'] == 'failed'
+                else finished['status'] if finished is not None and finished['status'] != 'succeeded'
+                else 'completion_unverified')
+        scope = ('Observed in the actual workflow controller invocation; individual step execution is not established'
+                 if successful else 'Observed at the start of this ' + state.replace('_', ' ') +
+                 ' workflow controller invocation; successful completion and individual step execution are not established')
+        result = {'schema': 1, 'job_id': job_id, 'run_id': run['id'], 'identity': copy.deepcopy(receipt['identity']),
                 'versions': dict(versions),
-                'scopes': {name: 'Observed in the actual workflow controller invocation; individual step execution is not established' for name in versions},
-                'started_at': started['started_at'], 'finished_at': finished['finished_at'],
-                'status': 'succeeded', 'exit_code': 0, 'executable': started['executable'],
+                'scopes': {name: scope for name in versions},
+                'started_at': started['started_at'], 'finished_at': finished['finished_at'] if finished is not None else None,
+                'status': state, 'exit_code': finished['exit_code'] if finished is not None else None,
+                'executable': started['executable'],
                 'context_sha256': launch['context_sha256']}
+        if finished is not None and 'rule_trace' in finished:
+            try:
+                if not hashes.get('finished'):
+                    raise ValueError('The rule trace has no capture-time content hash')
+                from .data.run_trace import clean_trace
+                result['rule_trace'] = clean_trace(finished['rule_trace'])
+            except (ValueError, TypeError, KeyError, AttributeError) as exc:
+                result['warnings'] = ['Recorded rule data flow is unavailable: ' + str(exc)]
+        return result
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
         return None

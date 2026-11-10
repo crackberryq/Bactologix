@@ -90,7 +90,7 @@ jobs:
       - name: Validate frozen manifest native DAGs
         env:
           BACTOLOGIX_HYBAS_V2_SOURCE: ${{ github.workspace }}/upstream-hybas-v2
-        run: python -m pytest -q tests/test_manifest_inputs.py tests/test_manifest_adapter_native.py
+        run: python -m pytest -q tests/test_manifest_inputs.py tests/test_manifest_adapter_native.py tests/test_run_trace.py tests/test_methods_runtime.py
 
   browser:
     runs-on: ubuntu-latest
@@ -119,7 +119,7 @@ jobs:
           BACTOLOGIX_HYBAS_SOURCE: ${{ github.workspace }}/upstream-hybas
         run: |
           python -m pytest -q tests/test_browser.py::test_reference_starter_default_edit_restore_and_build
-          python -m pytest -q tests/test_browser.py tests/test_browser_isolate.py tests/test_browser_adviser.py tests/test_browser_notifications.py -k 'not test_reference_starter_default_edit_restore_and_build'
+          python -m pytest -q tests/test_browser.py tests/test_browser_isolate.py tests/test_browser_adviser.py tests/test_browser_notifications.py tests/test_browser_methods_flow.py -k 'not test_reference_starter_default_edit_restore_and_build'
       - uses: actions/upload-artifact@v4
         if: always()
         with:

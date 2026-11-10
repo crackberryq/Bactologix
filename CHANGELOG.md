@@ -1,3 +1,10 @@
+## 0.1.0a96.dev1 — 2026-11-10 · Alpha · Run-specific Methods and data-flow evidence
+
+- State explicitly that the assembled scientific pipelines are experimental and have not established application-level scientific validation. Explain configured tools, their inputs, outputs and purpose; keep execution evidence separate.
+- Preserve recorded Snakemake controller versions after later environment checks. Display attributable versions for failed or interrupted attempts with their actual outcome; never substitute current installed versions into historical runs.
+- Capture bounded scheduler rule events during new executions and export their declared file dependencies and outcomes as a run-specific diagram. Preserve explicit partial coverage and no-op runs. Older runs receive a clearly labelled source-matched configuration diagram when supported.
+- Add diagram SVG/JSON downloads, embed the figure in printable Methods HTML, and include the figure and structured graph in the reproducibility ZIP. Keep regular and Dev installations independent.
+
 ## 0.1.0a95.dev1 — 2026-11-10 · Alpha · Notifications and update availability
 
 - Add a persistent notification center for job outcomes, identification review and available application/pipeline updates. Distinguish validation, execution and paused-for-review outcomes; keep failed-job details in the log.

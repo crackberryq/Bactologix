@@ -92,7 +92,7 @@ def test_unknown_source_keeps_native_versions_without_borrowing_configured_metho
     versions = {row['tool']: row['version'] for row in doc['software']}
     assert all(versions[name] == version for name, version in expected.items())
     assert all(row['origin'] == 'Saved run' for row in doc['parameters'])
-    assert any('No verified Methods template' in note for note in doc['warnings'])
+    assert any('No source-matched workflow description' in note for note in doc['warnings'])
     assert not any('was configured with Unicycler' in text or 'requested modules were' in text for text in doc['paragraphs'])
 
 
@@ -165,7 +165,7 @@ def test_reviewed_regular_hybas_template_remains_available(workspace, run):
     run['commit'] = HYBAS_NEARBETA
     doc = methods.build(workspace, run)
     assert 'assembly quality assessment with QUAST' in doc['text']
-    assert not any('No verified Methods template' in note for note in doc['warnings'])
+    assert not any('No source-matched workflow description' in note for note in doc['warnings'])
 
 
 @pytest.mark.parametrize('assembler', ['flye', 'spades'])
@@ -188,7 +188,7 @@ def test_current_basis_source_uses_reviewed_scope_default(workspace, run, monkey
     setting = next(row for row in doc['parameters'] if row['setting'] == 'deep.aware.scope')
     assert setting['value'] == 'amrfinder-review' and setting['origin'] == 'Pinned workflow default'
     assert 'scope amrfinder-review' in doc['text']
-    assert not any('No verified Methods template' in note for note in doc['warnings'])
+    assert not any('No source-matched workflow description' in note for note in doc['warnings'])
 
 
 @pytest.mark.parametrize('partial', [
