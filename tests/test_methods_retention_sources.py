@@ -13,10 +13,16 @@ from bactologix.store import Store
 RELEASES = [
     ('hybas', 'a99e00b041a184f36cfdf8a2ab5b61f0f255a02d',
      '87c1ab81c8652bd10db47954193e27ad802cfc86'),
+    ('hybas', '87c1ab81c8652bd10db47954193e27ad802cfc86',
+     '585abb34ed4401da64b37a9fd629ba8adc236396'),
     ('basis', '6128b06279fec2f51015a76f798d0364a4b81602',
      '749e178cc8c1f74b1997e11eca0a624822f92aee'),
+    ('basis', '749e178cc8c1f74b1997e11eca0a624822f92aee',
+     '7c293d36a633a726424d544c6ffc39824537ebe4'),
     ('micpscope', 'f46cc9feeb30cd89b36876b7d341ed6750e19ce3',
      '92ea05df6e9c156ecba13315993d4cd12142fcfc'),
+    ('micpscope', '92ea05df6e9c156ecba13315993d4cd12142fcfc',
+     '28bf38c44eb07fe8e4865f67d59ef6b4028f51dc'),
 ]
 
 

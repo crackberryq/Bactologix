@@ -1,3 +1,10 @@
+## 0.1.0a98 — 2026-11-10 · Alpha · Conda-compatible output preservation
+
+- Recognize corrected retention releases for all three pipelines. Their version guards use the executing Snakemake runtime and accept Conda's placeholder package metadata while continuing to reject unsupported or conflicting versions.
+- Use the corrected HybAs runtime-version export for new Methods evidence; retain historical evidence unchanged.
+- Preserve all output history and exact source identities. Existing runs remain bound to their original frozen workflow; create new runs with the corrected pipeline release.
+- Extend native Conda verification so controller packaging differences cannot silently bypass the release checks.
+
 ## 0.1.0a97 — 2026-11-10 · Alpha · Preserve engineering research outputs
 
 - Retain native results, intermediate files, failed products and earlier attempts across HybAs, BaSIS and GeneScope.
