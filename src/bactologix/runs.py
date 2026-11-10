@@ -465,6 +465,9 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
     validate_resources(store, parse_config(config_text))
     cfg = bind_paths(parse_config(config_text), tool, store, installed)
     validate_resources(store, cfg)
+    from .compute_memory import policy, require_adapter as require_memory_adapter
+    policy({'memory_mb': memory_mb}, cfg)
+    require_memory_adapter(store, tool, installed['version']['commit'], cfg, installed['source'])
     if tool == "hybas":
         from .aware_modes import resolve
         cfg = resolve(cfg)
@@ -585,6 +588,8 @@ def validate_launch(store, rid, action, check_busy=True):
     current_controller(store, run)
     from .release_contract import preflight
     preflight(store, run["tool"], run["commit"], Path(run["folder"]) / "workflow")
+    from .compute_memory import require_adapter as require_memory_adapter
+    require_memory_adapter(store, run['tool'], run['commit'], parse_config(run['config']), Path(run['folder']) / 'workflow')
     if not supported(run["tool"], run["commit"], store):
         raise ValueError("This source version has no reviewed execution adapter")
     if action == "continue" and not (run.get("identification", {}).get("decision_path") or run.get("aware", {}).get("continuation_path")):
@@ -595,12 +600,14 @@ def validate_launch(store, rid, action, check_busy=True):
         raise ValueError("A successful native dry-run with the current runner is required before preparing tools or running")
     check_run_files(run)
     from .preflight import assert_launch
-    assert_launch(run, "run" if action == "continue" else action)
+    assert_launch(run, "run" if action == "continue" else action, store=store)
     return run
 
 
 def command(store, run, action):
     from .engine import find_conda
+    from .compute_memory import policy, require_adapter as require_memory_adapter
+    require_memory_adapter(store, run['tool'], run['commit'], parse_config(run['config']), Path(run['folder']) / 'workflow')
     conda = find_conda(store)
     if not conda:
         raise ValueError("Conda is missing")
@@ -614,7 +621,7 @@ def command(store, run, action):
     argv = [conda, "run", "--no-capture-output", "-p", current_controller(store, run), "snakemake",
             "--snakefile", str(folder / "workflow" / entry),
             "--directory", str(directory), "--configfile", str(folder / "config.yaml"),
-            "--cores", str(run["cores"]), "--resources", "mem_mb=" + str(run["memory_mb"]), "kraken_jobs=1",
+            "--cores", str(run["cores"]), "--resources", "mem_mb=" + str(policy(run)['scheduler_mb']), "kraken_jobs=1",
             "--use-conda", "--conda-prefix", run.get("rule_cache") or str(store.home / "envs" / run["tool"]),
             "--rerun-incomplete", "--keep-incomplete", "--notemp"]
     if run.get("variant_entry"):
@@ -672,6 +679,8 @@ def execute_workflow(ctx):
             raise ValueError('Continuation needs tool environments: ' + ', '.join(missing) + '. Use Install environments, then Continue run.')
         payload['action'] = 'run'
     ctx.write("Run " + run["id"] + " · source " + run["commit"])
+    from .compute_memory import summary as memory_summary
+    ctx.write('Compute policy: ' + memory_summary(run))
     ctx.write('Input identity: ' + input_identity(run) + '. Content fingerprints, where recorded, were rechecked before launch.')
     if payload['action'] == 'run':
         ctx.write('Environment policy: reuse matching installed environments only; automatic installation and repair are disabled.')

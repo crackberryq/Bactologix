@@ -185,7 +185,9 @@ def _capacity(store, redactor):
     return {'source': 'cached app inventory; not refreshed for this snapshot', 'checked_at': _date(info.get('checked_at')),
             'wsl': info.get('wsl') if type(info.get('wsl')) is bool else None,
             'cpu': {k: _number(_dict(info.get('cpu')).get(k)) for k in ('logical', 'physical', 'available')},
-            'memory_mb': {k: _number(_dict(info.get('memory')).get(k)) for k in ('total_mb', 'available_mb', 'swap_mb')},
+            'memory_mb': {k: _number(_dict(info.get('memory')).get(k)) for k in
+                          ('total_mb', 'available_mb', 'swap_mb', 'swap_available_mb',
+                           'combined_total_mb', 'combined_available_mb')},
             'workspace_disk_mb': {k: _number(_dict(info.get('disk')).get(k)) for k in ('total_mb', 'free_mb')},
             'gpu': {'status': redactor.text(str(gpu.get('status', 'Unknown'))[:200]),
                     'driver': _version(gpu.get('driver')), 'cuda_driver_max': _version(gpu.get('cuda_driver_max')),

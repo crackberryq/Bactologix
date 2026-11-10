@@ -46,6 +46,14 @@ def reason(tool, row):
                 or retention.get('strategy') != 'archive-before-replace'
                 or not isinstance(retention.get('helper'), str) or retention['helper'] not in hashes):
             return 'Release contract lacks a checked output-preservation adapter.'
+    compute = row.get('compute_memory')
+    if compute is not None:
+        expected = {'interface': 1, 'swap_policy': 'physical_ram_plus_explicit_swap_v1',
+                    'helper': 'workflow/lib/settings.py'}
+        if (tool != 'hybas' or row.get('configuration_schema') != 'hybas-v2'
+                or not isinstance(compute, dict) or compute != expected
+                or type(compute.get('interface')) is not int or expected['helper'] not in hashes):
+            return 'Release contract lacks a checked swap-scheduling adapter.'
     followup = row.get('followup')
     if followup is not None:
         if (tool != 'basis' or not isinstance(followup, dict)
