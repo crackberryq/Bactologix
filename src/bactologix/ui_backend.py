@@ -96,6 +96,7 @@ def workspace_label():
 
 
 def snapshot(store):
+    from . import notifications
     from .queue import reconcile_interrupted
     reconcile_interrupted(store)
     records = {r['id']: r for r in store.all('job_telemetry') if isinstance(r, dict) and 'id' in r}
@@ -106,7 +107,9 @@ def snapshot(store):
     # pip briefly replaces package data. Keep the already-rendered workspace
     # available until restart instead of reading those files during replacement.
     if (app_update["active_job"] or app_update["restart_required"]) and store.home in _SNAPSHOTS:
-        return {**copy.deepcopy(_SNAPSHOTS[store.home]), "jobs": jobs, "app_update": app_update, "queue": queue_state}
+        cached = copy.deepcopy(_SNAPSHOTS[store.home])
+        return {**cached, "jobs": jobs, "app_update": app_update, "queue": queue_state,
+                "notifications": notifications.panel(store, jobs, cached.get('runs', []))}
     runs = []
     archived = {r["id"] for r in store.all("run_visibility") if r.get("archived")}
     for run in store.all("runs"):
@@ -140,6 +143,7 @@ def snapshot(store):
             report = {**report, "assessment": coverage[report["run"]]}
         report_rows.append(report)
     result = {"version": __version__, "workspace": str(store.home), "workspace_label": workspace_label(), "doctor": doctor(store),
+            "notifications": notifications.panel(store, jobs, runs),
             "setup_overview": {t: setup_state.overview(store, t) for t in PIPELINES},
             "pipelines": PIPELINES, "installs": [installation_status(i, jobs, store) for i in store.all("installs")],
             "app_update": app_update, "hardware": hardware.panel(store), "workstation_checks": workstation.history(store),
@@ -199,6 +203,19 @@ def dispatch(store, kind, p):
     """Only named UI commands are allowed. Browser-supplied objects are not trusted."""
     if not isinstance(p, dict):
         raise ValueError("Invalid action payload")
+    if kind in {'mark_notifications_read', 'save_notification_settings', 'claim_desktop_notifications', 'check_notification_updates'}:
+        from . import notifications, update_checks
+        if kind == 'mark_notifications_read':
+            return notifications.mark_read(store, p)
+        if kind == 'save_notification_settings':
+            return notifications.configure(store, p)
+        if kind == 'claim_desktop_notifications':
+            # Reconcile outcomes before claiming so resolved review/update
+            # alerts cannot be delivered from an old browser snapshot.
+            notifications.panel(store)
+            return notifications.claim_desktop(store, p)
+        started = update_checks.tick(store, force=True)
+        return {'message': 'Checking update availability in the background.' if started else 'A check is already running, was requested recently, or is disabled for this session.', 'keep_modal': True}
     isolate_readonly = isolate_actions.ACTIONS - {'preview_isolate_export', 'start_isolate_export'}
     if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "inspect_storage_cleanup", "inspect_storage_cleanup_receipt", "download_storage", "inspect_compatibility", "download_compatibility", "compare_saved_runs", "download_comparison", "preview_samples", "refresh_app_releases", "cancel_job"} | isolate_readonly:
         updates.assert_current(store)

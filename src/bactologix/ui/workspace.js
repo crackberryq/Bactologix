@@ -4,6 +4,7 @@ const {parentElement, data, setTriggerValue} = component;
 const root = parentElement.querySelector(".bacto-root");
 root._dispose?.();
 const icons={home:'M3 10 12 3l9 7M5 9v12h14V9M9 21v-7h6v7',samples:'M5 3h14v18H5zM9 8h6M9 12h6M9 16h4',install:'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5',resources:'M4 6c0-4 16-4 16 0s-16 4-16 0m0 0v12c0 4 16 4 16 0V6M4 12c0 4 16 4 16 0',config:'M4 7h16M4 17h16M8 4v6m8 4v6',jobs:'M8 5h12v16H4V5h4m0-2h8v4H8zM8 12h8m-8 4h5',compare:'M5 20V10m7 10V4m7 16v-7M3 21h18',plus:'M12 5v14M5 12h14',arrow:'M5 12h14m-5-5 5 5-5 5',clone:'M8 8h12v12H8zM4 16H3V3h13v1',check:'m5 12 4 4 10-10',clock:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m0 4v5l3 2',close:'m6 6 12 12M6 18 18 6',external:'M14 3h7v7m0-7-11 11M10 5H4v15h15v-6',play:'m8 4 12 8-12 8z',stop:'M6 6h12v12H6z',info:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m0 7v6m0-9v.01',chevron:'m9 5 7 7-7 7',folder:'M3 7h7l2-3h9v16H3z',gear:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2',file:'M5 3h9l5 5v13H5zM14 3v6h5M9 13h6m-6 4h6',cpu:'M7 7h10v10H7zM9 2v3m6-3v3M9 19v3m6-3v3M2 9h3m-3 6h3m14-6h3m-3 6h3',branch:'M6 3v14a4 4 0 0 0 4 4m-4-9h8a4 4 0 0 0 4-4V3',trash:'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7',download:'M12 3v12m-4-4 4 4 4-4M4 18v3h16v-3'};
+icons.bell='M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4';
 const icon=n=>`<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${icons[n]||icons.file}"/></svg>`;
 
 const e=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -121,7 +122,7 @@ function defaultPipelineVersion(tool){
  return (recommended&&visible(recommended)?recommended:ordered.find(r=>r.supported&&visible(r)))?.id||'';
 }
 function browse(target,path='',nearest=false){U.browserReturn=U.modal?{...U.modal}:null;U.browser=null;U.drafts['folder-query']='';U.drafts['folder-hidden']=false;modal('folders',target);request('browse_folders',{path,nearest});}
-function draftInputs(){const compute=$('.run-wizard .compute-summary');if(compute)U.runComputeOpen=compute.open;if($('[data-cleanup-history]'))U.cleanupHistoryOpen=$('[data-cleanup-history]').open;if($('[data-storage-details]'))U.storageDetailsOpen=$('[data-storage-details]').open;U.recoveryOpen ||= {};for(const el of $$('.recovery-panel'))U.recoveryOpen[el.dataset.recoveryJob]=el.open;for(const el of $$('input[id],textarea[id],select[id]')){if(el.type==='file')continue;U.drafts[el.id]=el.type==='checkbox'?el.checked:el.value;}if(wizardKind()==='new-run'&&U.runBudgetTool&&$('#run-cores')){U.runBudgets||={};U.runBudgets[U.runBudgetTool]={cores:val('run-cores'),memory_mb:val('run-memory')};}}
+function draftInputs(){if($('.notification-preferences'))U.notificationPreferencesOpen=$('.notification-preferences').open;const compute=$('.run-wizard .compute-summary');if(compute)U.runComputeOpen=compute.open;if($('[data-cleanup-history]'))U.cleanupHistoryOpen=$('[data-cleanup-history]').open;if($('[data-storage-details]'))U.storageDetailsOpen=$('[data-storage-details]').open;U.recoveryOpen ||= {};for(const el of $$('.recovery-panel'))U.recoveryOpen[el.dataset.recoveryJob]=el.open;for(const el of $$('input[id],textarea[id],select[id]')){if(el.type==='file')continue;U.drafts[el.id]=el.type==='checkbox'?el.checked:el.value;}if(wizardKind()==='new-run'&&U.runBudgetTool&&$('#run-cores')){U.runBudgets||={};U.runBudgets[U.runBudgetTool]={cores:val('run-cores'),memory_mb:val('run-memory')};}}
 function draftBudget(tool){U.runBudgets||={};U.budgetDefaults||={};const defaults=S.resource_defaults?.[tool]||{cores:4,memory_mb:16000},stamp=JSON.stringify(defaults);if(U.budgetDefaults[tool]!==stamp){delete U.runBudgets[tool];U.budgetDefaults[tool]=stamp;}return U.runBudgets[tool]||defaults;}
 function krakenLabel(r){return r.tool==='hybas'?({off:'Off',manual:'Manual',auto:'Auto',aware:'AWARE'}[r.kraken_mode]||r.kraken_mode||'Pipeline default'):'—';}
 function readMode(mode){return ({hybrid:'Hybrid',illumina_only:'Illumina only',ont_only:'ONT only'}[mode]||String(mode).replaceAll('_',' '));}
@@ -784,7 +785,7 @@ ${notice('A quick layout check','Discovery reads filenames and small metadata fi
 <div class="database-footer"><span>${dirty.length?'Selections are not saved yet. Save to use them in future drafts.':'Existing run drafts keep their frozen resource paths.'}</span>${btn('save-databases','Save for future runs',true,t,'check',!dirty.length)}</div>`;}
 function render(){draftInputs();$('#navigation').innerHTML=navs.map(([key,label,ico])=>`${key==='overview'?'<div class="nav-label">WORK</div>':key==='install'?'<div class="nav-divider"></div><div class="nav-label">MANAGE</div>':''}<a href="#${key}" aria-label="${e(label)}" data-nav="${key}" class="nav-item ${(['run','draft'].includes(U.view)?'runs':U.view==='resources'?'install':U.view)===key?'active':''}" ${(['run','draft'].includes(U.view)?'runs':U.view==='resources'?'install':U.view)===key?'aria-current="page"':''}>${icon(ico)}<span>${label}</span>${key==='jobs'&&S.jobs.some(j=>['queued','running'].includes(j.status))?`<span class="nav-count">${S.jobs.filter(j=>['queued','running'].includes(j.status)).length}</span>`:''}</a>`).join('');$('#crumb').textContent=U.view==='draft'?'Runs / Unfinished draft':U.view==='run'?'Runs / '+(runBy(U.runId)?.label||'Saved run'):navs.find(n=>n[0]===U.view)?.[1]||({jobs:'Activity',resources:'Pipelines & databases'})[U.view]||'Home';$('#app-version').textContent='v'+S.version;$('#workspace-name').textContent=S.workspace.split('/').pop();$('#workspace-name').title=S.workspace;$('#workspace-label').textContent=S.workspace_label||'Local workspace';const running=S.jobs.filter(j=>j.status==='running').length,queued=S.jobs.filter(j=>j.status==='queued').length;$('#queue-status').textContent=S.queue?.paused?`Queue paused · ${running} running · ${queued} waiting`:running||queued?`${running} running · ${queued} queued${S.queue?.held_count?' · '+S.queue.held_count+' held':''}`:'No active jobs';$('.status-dot').classList.toggle('active',!!running);$('#header-activity-count').textContent=running+queued?'('+String(running+queued)+')':'';$('#header-workspace').textContent=S.workspace_label||'Local workspace';$('#header-workspace').title=S.workspace;const dev=S.channel==='development'||S.channel==='dev'||S.version.includes('.dev');$('#release-channel-badge').textContent=dev?'DEV · Experimental':'REGULAR';$('#release-channel-badge').classList.toggle('experimental',dev);
 $('#main').innerHTML=appUpdateNotice()+queueNotice()+wizardBanner()+(!U.modal&&U.error?`<div class="error" role="alert">${e(U.error)}</div>`:'')+({overview,samples,runs:runsPage,run:runPage,draft:wizardPage,comparisons,jobs,reports:reportsPage,storage:storagePage,install,resources:resourcePage,configure:configuration}[U.view]||overview)();
-if(!$('#connection-status')){const x=document.createElement('div');x.id='connection-status';x.className='connection-status';$('.topbar-location').append(x);}syncNavigation();renderBusy();renderModal();filterResults();filterCompatibility();if(['configure','draft'].includes(U.view)&&!U.modal)filterRunSettings();persistWizard();schedulePoll();
+syncNotificationBell();if(!$('#connection-status')){const x=document.createElement('div');x.id='connection-status';x.className='connection-status';$('.topbar-location').append(x);}syncNavigation();renderBusy();renderModal();filterResults();filterCompatibility();if(['configure','draft'].includes(U.view)&&!U.modal)filterRunSettings();persistWizard();schedulePoll();
 if(U.view==='install'&&U.setupTab==='compatibility'&&!U.compatibility&&!U.pending&&!U.queuedRequest&&!U.error)request('inspect_compatibility');
 if(U.view==='storage'&&!U.storage&&!U.pending&&!U.queuedRequest&&!U.error)request('inspect_storage');
 if(U.view==='run'&&!U.modal&&!U.pending&&!U.queuedRequest&&!U.error&&runBy(U.runId)&&U.detail?.id!==U.runId)request('inspect_run',{id:U.runId});
@@ -792,15 +793,116 @@ if(U.view==='run'&&U.runDetailTab==='results'&&!U.modal&&!U.pending&&!U.queuedRe
 if(U.view==='draft'&&U.wizard&&!runEditor()&&!U.pending&&!U.error&&U.runConfigTab!=='purpose'){if(wizardKind()==='edit-run')request('edit_run_settings',{id:U.wizard.id,variant:!!U.wizard.variant});else request('run_config_editor',{tool:val('run-tool','hybas'),view:U.runConfigTab||'samples'});}
 if(U.view==='configure'&&!U.modal&&!U.pending&&!U.queuedRequest&&!U.error){const c=defaultEditor();if(!c||!defaultsDirty(c)&&c.revision!==S.databases[U.tool].revision)request('default_config_editor',{tool:U.tool});}}
 function schedulePoll(){
- clearTimeout(pollTimer);if(U.pending||U.queuedRequest||!S.jobs.some(j=>['queued','running'].includes(j.status)))return;
+ clearTimeout(pollTimer);if(U.pending||U.queuedRequest)return;
+ const activeJobs=S.jobs.some(j=>['queued','running'].includes(j.status));
+ if(!activeJobs&&!S.notifications)return;
+ const delay=activeJobs?4000:desktopNotificationState().enabled?15000:30000;
  pollTimer=setTimeout(()=>{
   const active=parentElement.activeElement||document.activeElement;
-  const editing=active&&root.contains(active)&&active.matches('input,textarea,select,[contenteditable="true"]');
-  if(editing||(U.modal&&!['run','log','usage','workstation','isolate-export-receipt'].includes(U.modal.kind))){schedulePoll();return;}
+  const editing=document.hasFocus()&&active&&root.contains(active)&&active.matches('input,textarea,select,[contenteditable="true"]');
+  if(editing||(document.hasFocus()&&U.modal&&!['run','log','usage','workstation','isolate-export-receipt','notifications'].includes(U.modal.kind))){schedulePoll();return;}
   const kind=U.modal?.kind==='isolate-export-receipt'?'isolate_export_receipt':U.modal?.kind==='workstation'?'inspect_workstation':U.modal?.kind==='usage'?'job_metrics':U.modal?.kind==='log'?'job_log':U.view==='run'&&runBy(U.runId)?(U.runDetailTab==='results'?'inspect_results':'inspect_run'):U.view==='storage'?'inspect_storage':'refresh';
-  request(kind,U.modal?{id:U.modal.id}:U.view==='run'?{id:U.runId}:{},true);
- },4000);
+  request(kind,U.modal&&U.modal.kind!=='notifications'?{id:U.modal.id}:U.view==='run'?{id:U.runId}:{},true);
+ },delay);
 }
+// Notifications stay in this local workspace. Desktop permission is per browser.
+const notificationStorageKey='bactologix:notifications:v1:'+S.workspace;
+function desktopNotificationState(){
+ if(U.notificationDevice)return U.notificationDevice;
+ try{const value=JSON.parse(localStorage.getItem(notificationStorageKey)||'null');
+  U.notificationDevice={enabled:value?.enabled===true,seen:Array.isArray(value?.seen)?value.seen.filter(x=>typeof x==='string').slice(-1000):[],nextClaimAt:Number.isFinite(value?.nextClaimAt)?Math.min(value.nextClaimAt,Date.now()+30000):0};
+ }catch{U.notificationDevice={enabled:false,seen:[],nextClaimAt:0};U.notificationStorageError=true;}
+ return U.notificationDevice;
+}
+function saveDesktopNotificationState(){
+ try{localStorage.setItem(notificationStorageKey,JSON.stringify(desktopNotificationState()));U.notificationStorageError=false;}
+ catch{U.notificationStorageError=true;}
+}
+function notificationPermission(){
+ if(typeof window.Notification!=='function')return 'unsupported';
+ if(!window.isSecureContext)return 'insecure';
+ return Notification.permission;
+}
+function notificationStateMessage(){
+ const permission=notificationPermission();
+ if(permission==='unsupported')return 'Desktop alerts are unavailable in this app window. Use Restart as browser to try a supported desktop browser. Saved alerts remain here.';
+ if(permission==='insecure')return 'Desktop alerts need a secure browser context, such as HTTPS or localhost. Saved alerts remain available here.';
+ if(permission==='denied')return 'Desktop alerts are blocked by your browser. Change this site’s notification permission in browser settings, then enable alerts here.';
+ return desktopNotificationState().enabled&&permission==='granted'?'Desktop alerts are enabled in this browser while Bactologix is open or minimized. Your browser and operating system control delivery.':'Desktop alerts are off in this browser. Enable them to request permission; saved alerts remain available in Bactologix.';
+}
+function syncNotificationBell(){
+ if(!S.notifications)return;
+ let button=$('[data-action="notifications"]');
+ if(!button){button=document.createElement('button');button.type='button';button.className='btn notification-bell';button.dataset.action='notifications';button.dataset.id='';$('.top-actions').prepend(button);}
+ const unread=Math.max(0,Number(S.notifications.unread)||0);
+ button.setAttribute('aria-label','Notifications'+(unread?', '+unread+' unread':''));
+ button.title='Notifications';button.innerHTML=icon('bell')+'<span class="notification-bell-label">Notifications</span>'+(unread?'<span class="notification-count" aria-hidden="true">'+(unread>99?'99+':unread)+'</span>':'');
+}
+function notificationContext(item){
+ const target=item.target||{},job=target.kind==='job'?S.jobs.find(row=>row.id===target.id):null;
+ const run=target.kind==='run'?runBy(target.id):job?.payload?.run_id?runBy(job.payload.run_id):null;
+ if(run)return [S.pipelines[run.tool]?.name,run.sample?.id||run.label,job?.id||run.id].filter(Boolean).join(' · ');
+ if(job)return job.id;
+ if(target.kind==='pipeline_update')return S.pipelines[target.tool]?.name||'';
+ return '';
+}
+function notificationCenter(){
+ const n=S.notifications||{},settings=n.settings||{},check=n.update_check||{},items=n.items||[],permission=notificationPermission(),device=desktopNotificationState();
+ const choices=[['jobs','Job outcomes'],['review','Runs waiting for review'],['updates','Available updates'],['auto_update_checks','Check for updates automatically']];
+ const errors=Array.isArray(check.errors)?check.errors:Object.entries(check.errors||{}).map(([name,value])=>name+': '+(typeof value==='string'?value:JSON.stringify(value)));
+ return `<section class="notification-center"><div class="notification-overview"><div><strong>${n.unread||0} unread</strong><p>Saved alerts for this workspace. Opening an alert marks it as read.</p></div>${btn('notifications-read-all','Mark all read',false,'','check',!n.unread)}</div><section class="notification-desktop" aria-label="Desktop alert preferences"><h3>Desktop alerts</h3><p data-notification-permission>${e(notificationStateMessage())}</p>${U.notificationError?`<p class="error" role="alert">${e(U.notificationError)}</p>`:''}${U.notificationStorageError?'<p class="inline-info">This browser cannot save notification preferences. Keep this tab open; enable alerts again after reopening.</p>':''}<div class="button-row">${device.enabled&&permission==='granted'?btn('notifications-desktop-off','Turn off desktop alerts')+btn('notifications-test','Send test alert'):btn('notifications-desktop-on',U.notificationPermissionBusy?'Waiting for browser permission…':'Enable desktop alerts',false,'','bell',U.notificationPermissionBusy||['unsupported','insecure','denied'].includes(permission))}</div><p class="inline-info">Pop-ups use brief status messages. Opening one takes you back to Bactologix. No desktop alerts are sent after the application closes.</p></section><details class="notification-preferences" ${U.notificationPreferencesOpen?'open':''}><summary>Notification and update preferences</summary><div class="notification-choice-grid">${choices.map(([key,label])=>`<label class="check-field"><input type="checkbox" id="notifications-${key}" ${val('notifications-'+key,settings[key]!==false)?'checked':''}><span>${label}</span></label>`).join('')}</div>${btn('notifications-save','Save preferences',true)}<p class="inline-info">Automatic checks look for available application and pipeline releases. Installation remains a separate choice.</p></details><section class="notification-update-status" aria-label="Update check status"><div><strong>${check.checking?'Checking available updates…':'Update availability'}</strong><p>Last successful check: ${e(check.last_success||'Not checked yet')}${check.last_attempt&&check.last_attempt!==check.last_success?'<br>Last attempt: '+e(check.last_attempt):''}</p></div>${btn('notifications-check-updates','Check for updates',false,'','download',!!check.checking)}${errors.length?`<div class="notification-update-errors" role="status"><strong>Some update checks could not finish</strong><ul>${errors.map(error=>`<li>${e(typeof error==='string'?error:JSON.stringify(error))}</li>`).join('')}</ul><p>Previously saved availability may be out of date.</p></div>`:''}</section><div class="notification-list" aria-label="Saved notifications">${items.length?items.map(item=>`<article class="notification-item ${item.read?'is-read':'is-unread'}" data-notification-id="${e(item.id)}"><div><div class="notification-item-title"><h3>${e(item.title)}</h3>${item.active===false?badge('Resolved'):!item.read?badge('Unread','blue'):''}</div><p>${e(item.body)}</p>${notificationContext(item)?`<p class="notification-context">${e(notificationContext(item))}</p>`:''}<small>${e(item.created||'Date not recorded')} · ${e({jobs:'Job outcome',review:'Researcher review',updates:'Update availability'}[item.category]||'Workspace')}</small></div><div class="button-row">${btn('notification-open','Open alert',false,item.id,'arrow')}${!item.read?btn('notification-read','Mark read',false,item.id):''}</div></article>`).join(''):'<div class="notification-empty"><h3>No saved alerts yet</h3><p>New job outcomes, review requests and available updates will appear here.</p></div>'}</div><p class="notification-history-note">Latest 200 saved alerts. Notification preferences control new unread alerts and desktop attempts; existing history stays available.</p></section>`;
+}
+function refreshNotificationControls(){if(U.modal?.kind==='notifications'){draftInputs();renderModal();$('.modal [data-action="close"]')?.focus({preventScroll:true});}syncNotificationBell();schedulePoll();}
+async function enableDesktopNotifications(){
+ if(U.notificationPermissionBusy)return;
+ U.notificationError='';const permission=notificationPermission();
+ if(['unsupported','insecure','denied'].includes(permission)){refreshNotificationControls();return;}
+ U.notificationPermissionBusy=true;
+ try{
+  const granted=permission==='granted'?permission:await Notification.requestPermission();
+  const device=desktopNotificationState();device.enabled=granted==='granted';
+  if(device.enabled){device.seen=[...new Set([...(device.seen||[]),...(S.notifications?.items||[]).map(x=>x.id),...(S.notifications?.desktop_candidates||[]).map(x=>x.id)])].slice(-1000);device.nextClaimAt=0;}
+  saveDesktopNotificationState();
+  if(granted!=='granted')U.notificationError=granted==='denied'?'Desktop alerts were blocked. Saved alerts remain available in Bactologix.':'Permission was not granted. You can enable desktop alerts again later.';
+ }catch{desktopNotificationState().enabled=false;saveDesktopNotificationState();U.notificationError='This app window could not request desktop permission. Try Restart as browser; saved alerts remain available here.';}
+ finally{U.notificationPermissionBusy=false;root._notificationRefresh?.();}
+}
+function openNotificationTarget(target){
+ if(!target||typeof target!=='object')return;
+ if(target.kind==='job'&&typeof target.id==='string'){modal('log',target.id);request('job_log',{id:target.id});}
+ else if(target.kind==='run'&&typeof target.id==='string')openRun(target.id,'overview');
+ else if(target.kind==='app_update'){modal('app-update');if(!S.app_update.catalog)request('refresh_app_releases');}
+ else if(target.kind==='pipeline_update'&&S.pipelines[target.tool]){U.drafts['version-search']='';U.drafts['version-channel']='all';U.versionChoiceExplicit=false;U.drafts['version-'+target.tool]=defaultPipelineVersion(target.tool);modal('versions',target.tool);}
+ else toast('This alert has no available workspace destination.',true);
+}
+function requestNotificationOpen(item){
+ if(!item)return;
+ if(U.pending&&!U.background||U.queuedRequest){toast('Wait for the current action, then open the saved alert.',true);return;}
+ U.notificationOpen={id:item.id,target:item.target};request('mark_notifications_read',{ids:[item.id]});
+}
+function showDesktopNotification(item,test=false){
+ if(!desktopNotificationState().enabled||notificationPermission()!=='granted')return;
+ try{
+  const scope=Array.from(S.workspace).reduce((value,ch)=>(value*31+ch.charCodeAt(0))>>>0,0).toString(16);
+  const app=S.version.includes('.dev')?'Bactologix Dev':'Bactologix';
+  const popup=new Notification(app+' · '+item.title,{body:item.body,tag:'bactologix-'+scope+'-'+item.id});
+  popup.onclick=()=>{window.focus();popup.close();if(!test)root._notificationOpen?.(item);};
+  if(test)toast('Test alert requested. Browser and operating system settings control whether it is displayed.');
+ }catch{
+  desktopNotificationState().enabled=false;saveDesktopNotificationState();U.notificationError='This browser could not display a desktop alert. Saved alerts are still available here. Try a supported desktop browser or check its notification settings.';root._notificationRefresh?.();
+ }
+}
+function claimDesktopNotifications(){
+ const device=desktopNotificationState();if(!S.notifications||!device.enabled||notificationPermission()!=='granted'||U.pending||U.queuedRequest||Date.now()<(device.nextClaimAt||0))return;
+ const seen=new Set(device.seen),items=(S.notifications.desktop_candidates||[]).filter(item=>!item.read&&!seen.has(item.id)).slice(0,3);
+ if(!items.length)return;
+ device.seen=[...device.seen,...items.map(item=>item.id)].slice(-1000);device.nextClaimAt=Date.now()+30000;saveDesktopNotificationState();
+ request('claim_desktop_notifications',{ids:items.map(item=>item.id)},true);
+}
+function notificationStorageChanged(event){if(event.key!==notificationStorageKey)return;U.notificationDevice=null;root._notificationRefresh?.();}
+root._notificationRefresh=refreshNotificationControls;
+root._notificationOpen=requestNotificationOpen;
+
 function supportMatches(){return !!U.support&&(U.support.job_id||'')===val('support-job','')&&U.support.include_log===!!val('support-log',false);}
 function clearSupport(){U.support=null;for(const key of ['support-job','support-log','support-text','support-reviewed'])delete U.drafts[key];}
 function supportValid(){const text=val('support-text','');return supportMatches()&&text.trim()&&!text.includes('\0')&&new TextEncoder().encode(text).length<=131072&&val('support-reviewed',false)===true;}
@@ -820,7 +922,8 @@ function identificationMatches(){const d=U.identification;return !!d&&val('ident
 function syncIdentification(){for(const b of $$('[data-action="save-identification"],[data-action="continue-identification"]'))b.disabled=!U.identification?.valid||!identificationMatches();}
 function renderModal(){const m=U.modal;if(!m){$('#modal-root').innerHTML='';$('.app-shell').removeAttribute('inert');return;}
 let title='',desc='',body='',foot='',wide=false;
-const priorModal=$('.isolate-modal,.isolate-folder-modal'),keepIsolatePosition=priorModal?.dataset.modalKind===m.kind,priorActive=parentElement.activeElement||document.activeElement,focusInIsolate=keepIsolatePosition&&priorModal.contains(priorActive),priorFocus=focusInIsolate?{id:priorActive.id,action:priorActive.dataset.action,key:priorActive.dataset.id,label:priorActive.getAttribute('aria-label')}:null,priorBodyScroll=keepIsolatePosition?$('.modal-body')?.scrollTop:0,priorGraph=keepIsolatePosition?$('.isolate-graph-scroll'):null,priorGraphScroll=priorGraph?{top:priorGraph.scrollTop,left:priorGraph.scrollLeft}:null;
+if(m.kind==='notifications'){wide=true;title='Notifications';desc='Job outcomes, researcher reviews and update availability.';body=notificationCenter();}
+const priorModal=$('.isolate-modal,.isolate-folder-modal,.notification-modal'),keepIsolatePosition=priorModal?.dataset.modalKind===m.kind,priorActive=parentElement.activeElement||document.activeElement,focusInIsolate=keepIsolatePosition&&priorModal.contains(priorActive),priorFocus=focusInIsolate?{id:priorActive.id,action:priorActive.dataset.action,key:priorActive.dataset.id,label:priorActive.getAttribute('aria-label')}:null,priorBodyScroll=keepIsolatePosition?$('.modal-body')?.scrollTop:0,priorGraph=keepIsolatePosition?$('.isolate-graph-scroll'):null,priorGraphScroll=priorGraph?{top:priorGraph.scrollTop,left:priorGraph.scrollLeft}:null;
 if(m.kind==='isolate'){
  wide=true;title='Isolate · '+m.id;desc='Original inputs, linked analyses and recorded history in one place.';
  const d=U.isolate?.sample?.id===m.id?U.isolate:null,tab=U.isolateTab||'files';
@@ -993,7 +1096,7 @@ if(m.kind==='register-report'){title='Add an existing HTML report';desc='Choose 
 if(m.kind==='report'){wide=true;const r=U.report?.id===m.id?U.report:null;title=r?.name||'HTML report';desc=r?.path||'Loading report…';body=r?'<div id="report-frame-container"></div>':'<p>Loading the original HTML report…</p>';foot=r?.workstation?btn('workstation-detail','Back to check',true,m.id):btn('open-report-folder','Open report folder',false,m.id,'folder',!r)+btn('download-report','Download original HTML',true,m.id,'download',!r);}
 if(m.kind==='app-window-help'){title='Open Bactologix as an app';desc='A dedicated window without the usual browser tabs and address bar.';body=`<p>Bactologix opens in app mode by default:</p><pre class="code-block">bactologix</pre><p>Uses an installed Chrome, Edge or Chromium browser. Under WSL it tries Windows Edge or Chrome. If an app window is unavailable, the regular browser opens.</p><p class="settings-note">Windows desktop shortcut: closing the last dedicated window stops this session, with confirmation for active jobs. Separately launched Ubuntu work stays running. Terminal launch: keep the terminal open; closing a browser tab alone does not stop that server. After an app update, the existing window refreshes. Browser policies may affect window appearance.</p><p class="settings-note">Use Workspace tools → Restart as browser to open this workspace in a regular browser without stopping the server or jobs. The Windows shortcut keeps the new browser window in its own session; closing the last session window stops its work.</p>`;foot='';}
 if(m.kind==='credits'){title='Citations & credits';desc='Powered by GenoMix Human Link';body=`<div class="author-card"><span class="brand-mark">__BRAND_SVG__</span><div><h3>Your workflow, connected.</h3><p>HybAs AWARE, BaSIS AWARE and GeneScope (MICP Scope) in one workspace.</p></div></div><p class="credits-copy">Created by <strong>Jimi Goldstein</strong> · Human Link<br><a href="https://orcid.org/0000-0002-7829-0090" target="_blank" rel="noopener noreferrer">ORCID 0000-0002-7829-0090 ↗</a></p><pre class="code-block">${e(S.citations['CITATION.txt'])}</pre><div class="button-row">${['ris','bib','cff','txt'].map(x=>btn('citation','Download '+x.toUpperCase(),false,'CITATION.'+x,'download')).join('')}</div><p class="credits-copy">Cite the pipelines, individual tools and databases used in your analysis as well as Bactologix.</p><div class="button-row">${btn('citation','HybAs AWARE citation',false,'CITATION.HybAs.cff')}${btn('citation','BaSIS AWARE citation',false,'CITATION.BaSIS.cff')}${btn('citation','GeneScope / MICP Scope citation',false,'CITATION.GeneScope.cff')}</div><p class="credits-copy">Pipeline downloads are general software citations. For a publication, record the exact pipeline version and commit used in your run.</p><p class="credits-copy"><a href="https://github.com/crackberryq/Bactologix" target="_blank" rel="noopener noreferrer">Bactologix on GitHub ↗</a> · MIT license · v${e(S.version)}</p>`;}
-$('#modal-root').innerHTML=`<div class="modal-shade"><section class="modal ${wide?'':'narrow'} ${m.kind==='report'?'report-modal':m.kind==='cleanup-preview'?'cleanup-drawer':['new-run','edit-run'].includes(m.kind)?'run-draft-modal':m.kind==='run'?'saved-run-modal':['isolate','isolate-export-receipt'].includes(m.kind)?'isolate-modal':m.kind==='isolate-folders'?'isolate-folder-modal':''}" data-modal-kind="${e(m.kind)}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-head"><div><h2 id="modal-title">${e(title)}</h2><p>${e(desc)}</p></div><button class="icon-btn" data-action="close" aria-label="Close dialog">${icon('close')}</button></div><div class="modal-body">${body}<div id="action-error" class="error" role="alert">${e(U.error||'')}</div></div><div class="modal-foot"><small>${['new-run','edit-run'].includes(m.kind)?'Draft not saved yet':m.kind==='run'?'Saved run · changes create a revision':m.kind==='download-database'?'Starts only when you confirm':m.kind==='apply-databases'?'Creates a new draft · original kept':m.kind==='isolate'?'Original inputs and results stay in place':'Local workspace'}</small><div class="button-row">${btn('close','Close')}${foot}</div></div></section></div>`;
+$('#modal-root').innerHTML=`<div class="modal-shade"><section class="modal ${wide?'':'narrow'} ${m.kind==='report'?'report-modal':m.kind==='cleanup-preview'?'cleanup-drawer':['new-run','edit-run'].includes(m.kind)?'run-draft-modal':m.kind==='run'?'saved-run-modal':['isolate','isolate-export-receipt'].includes(m.kind)?'isolate-modal':m.kind==='isolate-folders'?'isolate-folder-modal':m.kind==='notifications'?'notification-modal':''}" data-modal-kind="${e(m.kind)}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-head"><div><h2 id="modal-title">${e(title)}</h2><p>${e(desc)}</p></div><button class="icon-btn" data-action="close" aria-label="Close dialog">${icon('close')}</button></div><div class="modal-body">${body}<div id="action-error" class="error" role="alert">${e(U.error||'')}</div></div><div class="modal-foot"><small>${['new-run','edit-run'].includes(m.kind)?'Draft not saved yet':m.kind==='run'?'Saved run · changes create a revision':m.kind==='download-database'?'Starts only when you confirm':m.kind==='apply-databases'?'Creates a new draft · original kept':m.kind==='isolate'?'Original inputs and results stay in place':'Local workspace'}</small><div class="button-row">${btn('close','Close')}${foot}</div></div></section></div>`;
 $('.app-shell').setAttribute('inert','');
 if(m.kind==='report'&&U.report?.id===m.id){const f=document.createElement('iframe');f.title=U.report.name;f.setAttribute('sandbox','allow-scripts allow-downloads allow-modals');f.referrerPolicy='no-referrer';f.className='html-report-frame';f.srcdoc=reportDocument(U.report.base64);$('#report-frame-container').append(f);}
 if(m.kind==='support')syncSupport();
@@ -1005,7 +1108,7 @@ if(m.kind==='cleanup-preview')syncCleanupConfirmation();
 if(m.kind==='isolate')syncIsolateExport();
 renderBusy();
 if(keepIsolatePosition){const body=$('.modal-body');if(body)body.scrollTop=priorBodyScroll||0;const graph=$('.isolate-graph-scroll');if(graph&&priorGraphScroll){graph.scrollTop=priorGraphScroll.top;graph.scrollLeft=priorGraphScroll.left;}}
-if(priorFocus){const target=priorFocus.id?$$('.isolate-modal [id],.isolate-folder-modal [id]').find(n=>n.id===priorFocus.id):$$('.isolate-modal [data-action],.isolate-folder-modal [data-action]').find(n=>n.dataset.action===priorFocus.action&&n.dataset.id===priorFocus.key&&n.getAttribute('aria-label')===priorFocus.label);if(target&&!target.disabled)target.focus({preventScroll:true});}
+if(priorFocus){const target=priorFocus.id?$$('.isolate-modal [id],.isolate-folder-modal [id],.notification-modal [id]').find(n=>n.id===priorFocus.id):$$('.isolate-modal [data-action],.isolate-folder-modal [data-action],.notification-modal [data-action]').find(n=>n.dataset.action===priorFocus.action&&n.dataset.id===priorFocus.key&&n.getAttribute('aria-label')===priorFocus.label);if(target&&!target.disabled)target.focus({preventScroll:true});}
 }
 function sampleImportPreview(){
  const d=U.sampleImport;if(!d)return '<p class="padded">Preview the table to review resolved folders and row errors.</p>';
@@ -1139,6 +1242,15 @@ else if(action==='inspect-local'){U.localInstall=null;request('inspect_installat
 else if(action==='connect-local'){if(!U.localInstall?.supported)return;request('connect_installation',{tool:id,path:v('existing-source'),commit:U.localInstall.commit,runner_mode:v('existing-env-choice')?'existing':'managed',controller:v('existing-env-choice')?v('existing-controller'):'',rule_cache:v('existing-cache')});}
 else if(action==='preview-report-refresh'){U.refreshPlan=null;modal('report-refresh',id);request('preview_report_refresh',{id});}
 else if(action==='confirm-report-refresh'){const p=U.refreshPlan;if(p?.available)request('regenerate_report',{id:p.run_id,evidence_sha256:p.evidence_sha256,renderer_sha256:p.renderer_sha256});}
+else if(action==='notifications'){U.notificationError='';for(const key of ['jobs','review','updates','auto_update_checks'])delete U.drafts['notifications-'+key];modal('notifications');}
+else if(action==='notification-open')requestNotificationOpen(S.notifications?.items.find(item=>item.id===id));
+else if(action==='notification-read')request('mark_notifications_read',{ids:[id]});
+else if(action==='notifications-read-all')request('mark_notifications_read',{all:true});
+else if(action==='notifications-save')request('save_notification_settings',Object.fromEntries(['jobs','review','updates','auto_update_checks'].map(key=>[key,!!val('notifications-'+key,S.notifications?.settings?.[key]!==false)])));
+else if(action==='notifications-check-updates')request('check_notification_updates');
+else if(action==='notifications-desktop-on'){enableDesktopNotifications();refreshNotificationControls();}
+else if(action==='notifications-desktop-off'){desktopNotificationState().enabled=false;saveDesktopNotificationState();U.notificationError='';refreshNotificationControls();}
+else if(action==='notifications-test')showDesktopNotification({id:'test',title:'Test alert',body:'Desktop notifications are available while Bactologix is open.'},true);
 else if(action==='app-updates'){modal('app-update');if(!S.app_update.catalog)request('refresh_app_releases');}
 else if(action==='refresh-app-releases')request('refresh_app_releases');
 else if(action==='refresh-reference-databases'){request('refresh_reference_databases');}
@@ -1429,6 +1541,7 @@ if(response.database_check){const c=response.database_check,t=c.tool;dbState(t).
 if(response.database_saved){clearDatabases(response.database_saved);}
 if(response.discovery)U.discovery=response.discovery;if(response.local_envs)U.localEnvs=response.local_envs;if(response.local_install){U.localInstall=response.local_install;setDraft('existing-source',response.local_install.path);setDraft('existing-cache',response.local_install.rule_cache);}if(response.detail)U.detail=response.detail;if(response.identification){U.identification=response.identification;setDraft('identification-mode',response.identification.mode);setDraft('identification-taxid',response.identification.taxid);setDraft('identification-candidate',response.identification.taxid);}if(response.sample_import){U.toast=null;U.sampleImport=response.sample_import;U.importText=U.importRequestText;}if(response.comparison)U.comparison=response.comparison;if(response.compatibility)U.compatibility=response.compatibility;if(response.storage)U.storage=response.storage;if(response.results)U.results=response.results;if(response.methods)U.methods=response.methods;if(response.log)U.log=response.log;if(response.usage)U.usage=response.usage;if(response.support&&U.modal?.kind==='support'){U.support=response.support;setDraft('support-text',response.support.text);setDraft('support-reviewed',false);}if(response.report)U.report=response.report;if(response.download)download(response.download.name,response.download.base64?Uint8Array.from(atob(response.download.base64),c=>c.charCodeAt(0)):response.download.text,response.download.type);if(response.ok&&['create_runs','revise_run'].includes(U.requestOrigin?.kind))clearWizard();if(response.ok&&!response.keep_modal&&!backgroundResponse)U.modal=null;if(response.navigate){if(response.navigate==='jobs'&&U.requestOrigin?.kind==='workflow'&&U.requestOrigin.view==='run'&&U.view==='run'&&U.requestOrigin.runId===U.runId){U.runDetailTab='activity';writeRoute(true);}else{U.view=response.navigate;writeRoute();}}if(response.open_run){U.runDetailTab='overview';U.revision=null;U.revisionConfig=null;U.modal=null;U.view='run';U.runId=response.open_run;writeRoute(true);}}
 const reportFolderMessage=event=>{const f=$('.html-report-frame');if(f&&event.source===f.contentWindow&&event.data?.kind==='bactologix-open-report-folder'&&U.report&&!U.report.workstation)request('open_report_folder',{id:U.report.id,run_id:U.report.run_id});};
+window.addEventListener('storage',notificationStorageChanged);
 window.addEventListener('message',reportFolderMessage);
 window.addEventListener('resize',syncNavigation);window.addEventListener('beforeunload',beforeUnload);window.addEventListener('popstate',routeChanged);window.addEventListener('hashchange',routeChanged);
 root.addEventListener('click',click);root.addEventListener('input',onInput);root.addEventListener('change',onChange);root.addEventListener('keydown',keydown);
@@ -1448,9 +1561,15 @@ if(newResponse&&U.requestOrigin?.kind==='open_isolate_folder'){
   (target||$('.modal [data-action="close"]'))?.focus({preventScroll:true});
  }
 }
+if(newResponse&&['mark_notifications_read','save_notification_settings','check_notification_updates'].includes(U.requestOrigin?.kind)&&U.modal?.kind==='notifications')$('.modal [data-action="close"]')?.focus({preventScroll:true});
+if(newResponse&&U.requestOrigin?.kind==='claim_desktop_notifications'&&response.ok){for(const item of response.notification_delivery||[])showDesktopNotification(item);}
+if(newResponse&&U.notificationOpen&&U.requestOrigin?.kind==='mark_notifications_read'){
+ const chosen=U.notificationOpen;U.notificationOpen=null;if(response.ok)openNotificationTarget(chosen.target);
+}
 if(newResponse&&response.message)toast(response.message,!response.ok);else renderToast();
 if(newResponse&&U.queuedRequest){const queued=U.queuedRequest;U.queuedRequest=null;request(queued.kind,queued.payload);}
-const dispose=()=>{window.removeEventListener('message',reportFolderMessage);window.removeEventListener('resize',syncNavigation);window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('popstate',routeChanged);window.removeEventListener('hashchange',routeChanged);clearTimeout(pollTimer);clearTimeout(toastTimer);root.removeEventListener('click',click);root.removeEventListener('input',onInput);root.removeEventListener('change',onChange);root.removeEventListener('keydown',keydown);};
+claimDesktopNotifications();
+const dispose=()=>{window.removeEventListener('storage',notificationStorageChanged);window.removeEventListener('message',reportFolderMessage);window.removeEventListener('resize',syncNavigation);window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('popstate',routeChanged);window.removeEventListener('hashchange',routeChanged);clearTimeout(pollTimer);clearTimeout(toastTimer);root.removeEventListener('click',click);root.removeEventListener('input',onInput);root.removeEventListener('change',onChange);root.removeEventListener('keydown',keydown);};
 root._dispose=dispose;
 return dispose;
 }
