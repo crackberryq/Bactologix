@@ -295,10 +295,14 @@
     ],
     "micpscope": [
       "b47b16c286051ec841e7cdb593350004eb028475",
-      "f46cc9feeb30cd89b36876b7d341ed6750e19ce3"
+      "f46cc9feeb30cd89b36876b7d341ed6750e19ce3",
+      "92ea05df6e9c156ecba13315993d4cd12142fcfc",
+      "28bf38c44eb07fe8e4865f67d59ef6b4028f51dc"
     ],
     "hybas": [
-      "a99e00b041a184f36cfdf8a2ab5b61f0f255a02d"
+      "a99e00b041a184f36cfdf8a2ab5b61f0f255a02d",
+      "87c1ab81c8652bd10db47954193e27ad802cfc86",
+      "585abb34ed4401da64b37a9fd629ba8adc236396"
     ]
   },
   "source_overrides": {
@@ -309,12 +313,27 @@
             "scope": "amrfinder-review"
           }
         }
+      },
+      "749e178cc8c1f74b1997e11eca0a624822f92aee": {
+        "deep": {
+          "aware": {
+            "scope": "amrfinder-review"
+          }
+        }
+      },
+      "7c293d36a633a726424d544c6ffc39824537ebe4": {
+        "deep": {
+          "aware": {
+            "scope": "amrfinder-review"
+          }
+        }
       }
     }
   },
   "saved_settings_sources": {
     "hybas": [
-      "08c315479f5493ce0b1f44ba26da3c7f2e0d748b"
+      "08c315479f5493ce0b1f44ba26da3c7f2e0d748b",
+      "79c5b7f342e02bd5b60bf7847fc5f4fb441e1fd4"
     ]
   }
 }

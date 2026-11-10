@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bactologix"
-version = "0.1.0a96.dev1"
+version = "0.1.0a98.dev1"
 description = "A local workspace for HybAs, BaSIS and GeneScope"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -20,7 +20,10 @@ CONFIG_PATHS = {'hybas': 'config.example.yaml', 'basis': 'config.yaml',
 HYBAS_PROFILES = {
     '780ee7086c15c49f2825800ec463327f009f14a6': 'hybas9',
     'a99e00b041a184f36cfdf8a2ab5b61f0f255a02d': 'hybas9',
+    '87c1ab81c8652bd10db47954193e27ad802cfc86': 'hybas9',
+    '585abb34ed4401da64b37a9fd629ba8adc236396': 'hybas9',
     '08c315479f5493ce0b1f44ba26da3c7f2e0d748b': 'hybas10',
+    '79c5b7f342e02bd5b60bf7847fc5f4fb441e1fd4': 'hybas10',
 }
 
 

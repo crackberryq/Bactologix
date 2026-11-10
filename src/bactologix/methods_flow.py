@@ -155,7 +155,8 @@ def _genescope(b, cfg):
 
 def _hybas(b, cfg):
     mode = b.run.get('sample', {}).get('mode')
-    if b.run.get('commit') == '08c315479f5493ce0b1f44ba26da3c7f2e0d748b' or cfg.get('input_manifest'):
+    if b.run.get('commit') in {'08c315479f5493ce0b1f44ba26da3c7f2e0d748b',
+                               '79c5b7f342e02bd5b60bf7847fc5f4fb441e1fd4'} or cfg.get('input_manifest'):
         b.warnings.append('Experimental library topology is not inferred from filenames or regular HybAs defaults. A bound controller trace is required for its rule/file diagram.')
         _unresolved(b, 'Experimental HybAs dependencies not recorded')
         for tool in [b.evidence.get('decisions', {}).get('assembler'), *b.evidence.get('decisions', {}).get('executed_stages', [])]:
@@ -212,7 +213,9 @@ def _hybas(b, cfg):
         reports.append(b.step('multiqc', 'multiqc', reports[:], 'Aggregated QC report'))
     if _bool(cfg.get('run_prokka')):
         reports.append(b.step('prokka', 'prokka', [final], 'Prokka annotation / GFF / protein FASTA'))
-    if b.run.get('commit') == 'a99e00b041a184f36cfdf8a2ab5b61f0f255a02d':
+    if b.run.get('commit') in {'a99e00b041a184f36cfdf8a2ab5b61f0f255a02d',
+                               '87c1ab81c8652bd10db47954193e27ad802cfc86',
+                               '585abb34ed4401da64b37a9fd629ba8adc236396'}:
         b.step('hybas-report', 'report', [final, *reports], 'HybAs report and retained metadata', 'HybAs report renderer')
     b.warnings.append('Polishing arrows show configured dependencies, not a claim every requested stage ran. Native skip/reuse records are labelled separately.')
 
