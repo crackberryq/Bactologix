@@ -14,8 +14,8 @@ Keep Bactologix open or minimized for desktop alerts and update checks. No backg
 
 ## Update availability
 
-The app checks in the background on startup when due and periodically while open. The default interval is 12 hours. **Check updates now** requests a fresh check. Network failures are shown with the last successful check; a failure is not reported as proof that software is up to date.
+The app checks in the background on startup when due and periodically while open. The default interval is 12 hours. **Check for updates** requests a fresh check. Network failures are shown with the last successful check; a failure is not reported as proof that software is up to date.
 
-Application updates must match the current regular/Dev channel and be newer than the running/installed version. Pipeline alerts require a reviewed compatible release and evidence that it is ahead of the active installed commit. Unknown or divergent source relationships are not labelled updates. Checks do not install software or change existing runs, environments or configurations.
+Application updates must match the current regular/Dev channel and be newer than the running/installed version. Pipeline alerts require a reviewed compatible release or development snapshot and evidence that it is ahead of the active installed commit. Unknown or divergent source relationships are not labelled updates. Checks do not install software or change existing runs, environments or configurations.
 
 Automatic checks can be disabled in the notification center. For offline deployments and automated tests, set `BACTOLOGIX_UPDATE_CHECKS=0` before launching Bactologix. Local job/review notifications continue to work.
