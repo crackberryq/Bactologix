@@ -269,7 +269,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             assert not child['dry_run_ok']
             assert Store(workspace).get('runs', parent['id'])['config'] == parent['config']
             page.get_by_role('button', name='Methods & citation', exact=True).click()
-            expect(page.locator('.methods-prose')).to_contain_text('Illumina-only input')
+            expect(page.locator('.methods-prose')).to_contain_text('paired Illumina reads')
             expect(page.locator('.methods-status')).to_contain_text('Planned methods')
             capture('run-methods')
             with page.expect_download() as methods_download:

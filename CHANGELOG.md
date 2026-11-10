@@ -1,3 +1,10 @@
+## 0.1.0a99.dev1 — 2026-11-10 · Alpha · Run-specific Methods narratives
+
+- Lead Methods with a continuous, run-specific account of input preparation, tools, processing and outputs across HybAs, BaSIS and GeneScope. Place saved settings and reviewed source arguments beside their corresponding tool steps.
+- Distinguish configured steps, controller-reported rules, native execution, skipped stages and reused results. Report recorded Racon stages separately from requested rounds; preserve incomplete and historical evidence qualifications.
+- Add a Methods-only text download and include it in the reproducibility ZIP. Keep the run diagram, complete settings and detailed evidence as supporting material.
+- Do not infer unrecorded tool defaults, historical versions or scientific validation. Refreshing Methods does not rerun analyses or change pipeline algorithms, thresholds or retained outputs.
+
 ## 0.1.0a98.dev1 — 2026-11-10 · Alpha · Preserve engineering research outputs
 
 - Retain native results, intermediate files, failed products and earlier attempts across HybAs, BaSIS and GeneScope.
