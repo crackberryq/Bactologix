@@ -1,6 +1,7 @@
-## 0.1.0a97.dev1 — 2026-11-10 · Alpha · Preserve engineering research outputs
+## 0.1.0a98.dev1 — 2026-11-10 · Alpha · Preserve engineering research outputs
 
 - Retain native results, intermediate files, failed products and earlier attempts across HybAs, BaSIS and GeneScope.
+- Include the corrected Conda-compatible runtime guards and HybAs Snakemake version evidence, verified through native Conda controller tests.
 - Use reviewed per-job archive adapters in current pipeline versions. Older frozen workflows receive verified independent output snapshots before execution; preservation failure stops launch. Registered original inputs remain references.
 - Keep incomplete and temporary-marked workflow products. Preserve replaced checkpoint contents and failed staging copies.
 - Add All tool outputs, analysis folders, run files, native retained histories and prior snapshots. Isolate exports include these histories. Storage removal remains an explicit reviewed action.

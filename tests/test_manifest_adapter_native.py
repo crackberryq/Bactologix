@@ -12,8 +12,8 @@ import yaml
 from bactologix import manifest_inputs
 from bactologix.catalog import PIPELINES
 from bactologix.runs import create_run, check_run_files
+from bactologix import release_contract
 from bactologix.store import Store
-from test_manifest_inputs import approve
 
 
 @pytest.mark.parametrize('endpoint', ['assembly', 'aware'])
@@ -25,12 +25,19 @@ def test_manifest_native_dag(tmp_path, platform, chemistry, short, pause, endpoi
         pytest.skip('Immutable v2 checkout not supplied')
     source = Path(supplied).resolve()
     commit = subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'],text=True).strip()
-    assert commit == '08c315479f5493ce0b1f44ba26da3c7f2e0d748b'
+    registry = json.loads((Path(__file__).parents[1] / 'src/bactologix/data/development-v1.json').read_text())
+    preferred = [row for row in registry['builds'] if row['tool'] == 'hybas' and row.get('preferred')]
+    assert len(preferred) == 1
+    review = preferred[0]
+    assert commit == review['commit']
+    assert not subprocess.check_output(['git', '-C', str(source), 'status', '--porcelain'], text=True).strip()
+    assert release_contract.reason('hybas', review) is None
     store = Store(tmp_path/'workspace')
     installed = {'id':'v2','tool':'hybas','source':str(source),'controller':sys.prefix,'ready':True,
                  'version':{'commit':commit,'ref':'v2 software test'}}
     store.put('installs','v2',installed);store.put('settings','active-hybas','v2')
-    approve(store, installed)
+    store.put('release_approvals', 'hybas:' + commit, review)
+    release_contract.preflight(store, 'hybas', commit, source)
     reads = tmp_path/'long.fq';reads.write_text('@read\nACGT\n+\nIIII\n')
     lib={'library_id':'long','platform':platform,'read_groups':[{'read_group_id':'a','run_id':'run1','reads':str(reads)}]}
     if chemistry:lib['chemistry']=chemistry
