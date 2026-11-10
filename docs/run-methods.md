@@ -70,3 +70,7 @@ not scientific validation or a safety assessment.
 Review unresolved versions, database identities and citations before publication.
 Exports can contain sample identifiers and local paths. Refreshing Methods does
 not execute the analysis or install software.
+
+Use the [validation baseline procedure](validation-baseline.md) to archive these
+exports with the actual resolved environments and database/model identities from
+your validation run. Methods evidence does not itself establish analytical validity.
