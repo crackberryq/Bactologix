@@ -1,3 +1,9 @@
+## 0.1.0a95 — 2026-11-10 · Alpha · Notifications and update availability
+
+- Add a persistent notification center for job outcomes, identification review and available application/pipeline updates. Distinguish validation, execution and paused-for-review outcomes; keep failed-job details in the log.
+- Offer opt-in desktop alerts with browser permission and an in-app fallback. Prevent repeat delivery attempts across tabs and restarts, with separate preferences and history for each workspace.
+- Check update availability in the background while the application is open, with offline status, bounded requests and regular/Dev channel separation. Installation remains an explicit choice.
+
 ## 0.1.0a94 — 2026-11-10 · Alpha · Sample-aware setup review
 
 - Add a Setup adviser in new-run Settings and Review. Check registered input availability and explain polishing routes for exact reviewed HybAs versions; show pipeline-specific annotation and evidence guidance for BaSIS and GeneScope.

@@ -1,3 +1,9 @@
+## 0.1.0a95 notifications
+
+- Notification fixtures cover historical baselines, job/review distinctions, retention, resolved alerts, category preferences and concurrent desktop claims. Generic desktop text omits sample names, paths and raw error details.
+- Update-check fixtures cover bounded asynchronous requests, workspace leases, channel separation, validated releases, ancestry, stale caches and offline/error handling. No analysis or installation jobs are launched by availability checks.
+- Browser acceptance covers the notification center, explicit permission requests, denial/unsupported fallback, duplicate prevention, navigation and mobile/keyboard access. Browser tests simulate the operating-system delivery boundary; workstation notification permissions remain user-controlled.
+
 ## 0.1.0a94 setup adviser
 
 - Source fixtures verify exact clean commit identity and bounded committed-template reads without running pipeline code. Missing, dirty, stale and unsupported sources remain unverified.
