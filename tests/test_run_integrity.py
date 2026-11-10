@@ -67,6 +67,7 @@ class Execution:
         self.store, self.job, self.fail = store, job, fail
         self.commands = []
     def write(self, message): pass
+    def check_cancel(self): pass
     def command(self, argv, **kwargs):
         self.commands.append(argv)
         if self.fail:

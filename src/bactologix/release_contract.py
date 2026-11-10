@@ -40,6 +40,12 @@ def reason(tool, row):
     for path, digest in hashes.items():
         if Path(path).is_absolute() or '..' in Path(path).parts or not re.fullmatch('[0-9a-f]{64}', str(digest)):
             return 'Release contract contains invalid file checksums.'
+    retention = row.get('output_retention')
+    if retention is not None:
+        if (not isinstance(retention, dict) or retention.get('interface') != 1
+                or retention.get('strategy') != 'archive-before-replace'
+                or not isinstance(retention.get('helper'), str) or retention['helper'] not in hashes):
+            return 'Release contract lacks a checked output-preservation adapter.'
     followup = row.get('followup')
     if followup is not None:
         if (tool != 'basis' or not isinstance(followup, dict)

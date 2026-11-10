@@ -1,11 +1,11 @@
-# Bactologix 0.1.0a96 — Alpha
+# Bactologix 0.1.0a97 — Alpha
 
 This regular alpha adds verified isolate export and recorded analysis history,
 alongside reviewed storage cleanup and the pre-beta evidence-integrity fixes. It remains separate from Bactologix Dev: regular
 installation and updates reject development releases. See [report evidence integrity](docs/report-evidence-integrity.md) for
 sample attribution, diagnostic report states and assessment coverage.
 
-**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a96/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
+**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a97/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
@@ -792,3 +792,7 @@ their original source and behavior; select the updated pipeline for new drafts.
 Manual TaxIDs must be resolvable from this run's Kraken report. Database/input
 identity records SHA-256 content fingerprints for new drafts (legacy drafts retain size/mtime checks); saved classification evidence additionally uses
 SHA-256 checksums.
+
+### Generated output preservation
+
+Open **Results & downloads → All tool outputs** to browse native products, intermediate files and retained histories. See [Output preservation](docs/output-preservation.md). Research records are retained until explicitly removed through reviewed storage controls.

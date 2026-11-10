@@ -569,7 +569,8 @@ def command(store, run, action):
             "--snakefile", str(folder / "workflow" / entry),
             "--directory", str(directory), "--configfile", str(folder / "config.yaml"),
             "--cores", str(run["cores"]), "--resources", "mem_mb=" + str(run["memory_mb"]), "kraken_jobs=1",
-            "--use-conda", "--conda-prefix", run.get("rule_cache") or str(store.home / "envs" / run["tool"]), "--rerun-incomplete"]
+            "--use-conda", "--conda-prefix", run.get("rule_cache") or str(store.home / "envs" / run["tool"]),
+            "--rerun-incomplete", "--keep-incomplete", "--notemp"]
     if run.get("variant_entry"):
         argv.append("all")
     if action == "dry-run":
@@ -618,6 +619,8 @@ def execute_workflow(ctx):
     ctx.write('Input identity: ' + input_identity(run) + '. Content fingerprints, where recorded, were rechecked before launch.')
     if payload['action'] == 'run':
         ctx.write('Environment policy: reuse matching installed environments only; automatic installation and repair are disabled.')
+        from .output_retention import preserve
+        preserve(ctx, run)  # Stop on preservation failure before replacing any output.
     if payload["action"] == "dry-run":
         run["dry_run_ok"] = False
     elif payload["action"] == "run":
