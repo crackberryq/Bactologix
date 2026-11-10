@@ -13,6 +13,7 @@ HYBAS_REGULAR = frozenset({
     'a99e00b041a184f36cfdf8a2ab5b61f0f255a02d',
     '87c1ab81c8652bd10db47954193e27ad802cfc86',
     '585abb34ed4401da64b37a9fd629ba8adc236396',
+    '5db662262962bc822f2fe501234d15b882d5b042',
 })
 HYBAS_DEV = frozenset({
     '08c315479f5493ce0b1f44ba26da3c7f2e0d748b',

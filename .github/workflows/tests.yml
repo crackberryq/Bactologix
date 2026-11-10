@@ -80,7 +80,7 @@ jobs:
         include:
           - tool: hybas
             repository: crackberryq/Bactomics_HybAs
-            commit: 585abb34ed4401da64b37a9fd629ba8adc236396
+            commit: 5db662262962bc822f2fe501234d15b882d5b042
           - tool: basis
             repository: crackberryq/Bactomics_BaSIS
             commit: 7c293d36a633a726424d544c6ffc39824537ebe4

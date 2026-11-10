@@ -89,3 +89,46 @@ def test_discovery_does_not_approve_mismatched_release(tmp_path, monkeypatch, ch
     monkeypatch.setattr(catalog,'api',lambda path:{'content':base64.b64encode(json.dumps({'schema_version':1,'releases':[r]}).encode()).decode()})
     rc.refresh(store,'basis')
     assert not catalog.supported('basis',r['commit'],store)
+
+
+def test_hybas_retention_release_refresh_replaces_source_only_state(tmp_path, monkeypatch):
+    """The published 9.0.6 approval upgrades the cached picker and UI state."""
+    from bactologix.ui_backend import dispatch, snapshot
+
+    old_commit = '585abb34ed4401da64b37a9fd629ba8adc236396'
+    new_commit = '5db662262962bc822f2fe501234d15b882d5b042'
+    old_tag, new_tag = 'hybas-v9.0.5-AWARE', 'hybas-v9.0.6-AWARE'
+    registry = json.loads((Path(__file__).parents[1] / 'compatibility/releases-v1.json').read_text())
+    reviews = {row['commit']: row for row in registry['releases'] if row['tool'] == 'hybas'}
+    rows = [
+        {'id': 'release:' + tag, 'kind': 'release', 'ref': tag, 'name': tag,
+         'commit': commit, 'prerelease': True, 'publishedAt': published}
+        for tag, commit, published in [
+            (old_tag, old_commit, '2026-11-10T13:41:04Z'),
+            (new_tag, new_commit, '2026-11-10T19:47:49Z'),
+        ]
+    ]
+    store = Store(tmp_path)
+    store.put('release_approvals', 'hybas:' + old_commit, reviews[old_commit])
+    cached_rows = copy.deepcopy(rows)
+    cached_rows[1]['compatibility_reason'] = 'No tested compatible contract for this commit; source download only.'
+    store.put('catalog', 'hybas', {'live': True, 'checkedAt': 'before-app-update', 'versions': cached_rows})
+    assert not catalog.supported('hybas', new_commit, store)
+    assert catalog.versions(store, 'hybas')['recommended_release'] == old_tag
+
+    monkeypatch.setattr(catalog, 'fetch_versions', lambda tool: {
+        'live': True, 'checkedAt': 'after-app-update', 'versions': copy.deepcopy(rows)})
+    monkeypatch.setattr(catalog, 'api', lambda path: {
+        'content': base64.b64encode(json.dumps(registry).encode()).decode()})
+    result = dispatch(store, 'refresh_versions', {'tool': 'hybas'})
+    assert result['refreshed_catalog'] == 'hybas'
+    assert catalog.supported('hybas', new_commit, store)
+    assert store.get('release_approvals', 'hybas:' + old_commit) == reviews[old_commit]
+    assert catalog.versions(store, 'hybas')['recommended_release'] == new_tag
+
+    state = snapshot(store)['catalogs']['hybas']
+    selected = next(row for row in state['versions'] if row['commit'] == new_commit)
+    assert state['recommended_release'] == new_tag
+    assert selected['supported'] is True
+    assert selected['compatibility_reason'] == 'Reviewed adapter contract v1; source preflight required.'
+    assert 'source download only' not in selected['compatibility_reason']

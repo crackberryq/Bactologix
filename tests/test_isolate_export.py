@@ -81,6 +81,28 @@ def test_complete_copy_has_verified_manifest_relative_index_and_retains_original
     assert export.receipt(setup.store, result['id']) == result
 
 
+
+def test_native_retained_artifacts_and_failed_process_streams_are_verified_and_preserved(setup):
+    native = setup.report.parent / 'work/native-retained/session/events'
+    originals = {
+        file(native / 'removed/files/iteration_1.bam', b'retained binary\x00\xff'): b'retained binary\x00\xff',
+        file(native / 'failed/stdout.bin', b'partial output\n'): b'partial output\n',
+        file(native / 'failed/stderr.bin', b'failed tool details\n'): b'failed tool details\n',
+        file(native / 'failed/manifest.json', b'{"state":"complete","returncode":1}'): b'{"state":"complete","returncode":1}',
+    }
+    preview = plan(setup)
+    result = run(setup, preview)
+    destination = Path(result['destination'])
+    manifest = json.loads((destination / 'manifest.json').read_text())
+    copied = {row['relative']: row for row in manifest['files']}
+    run_root = setup.report.parents[2]
+    for source, expected in originals.items():
+        relative = 'analyses/run-one/' + source.relative_to(run_root).as_posix()
+        assert (destination / relative).read_bytes() == source.read_bytes() == expected
+        assert copied[relative]['sha256'] == hashlib.sha256(expected).hexdigest()
+    assert result['verification'] == 'verified-local'
+
+
 def test_staged_input_links_are_copied_once_with_resolvable_aliases(setup):
     first = setup.report.parent / 'reads.fastq'
     second = setup.report.parent / 'nested/another-read-link.fastq'

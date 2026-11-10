@@ -796,3 +796,5 @@ SHA-256 checksums.
 ### Generated output preservation
 
 Open **Results & downloads → All tool outputs** to browse native products, intermediate files and retained histories. See [Output preservation](docs/output-preservation.md). Research records are retained until explicitly removed through reviewed storage controls.
+
+Before testing a fixed release combination, follow the [validation baseline procedure](docs/validation-baseline.md). Record the actual environments, input identities and database/model identities used by each run.

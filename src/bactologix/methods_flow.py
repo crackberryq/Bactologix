@@ -227,7 +227,8 @@ def _hybas(b, cfg):
         reports.append(b.step('prokka', 'prokka', [final], 'Prokka annotation / GFF / protein FASTA'))
     if b.run.get('commit') in {'a99e00b041a184f36cfdf8a2ab5b61f0f255a02d',
                                '87c1ab81c8652bd10db47954193e27ad802cfc86',
-                               '585abb34ed4401da64b37a9fd629ba8adc236396'}:
+                               '585abb34ed4401da64b37a9fd629ba8adc236396',
+                               '5db662262962bc822f2fe501234d15b882d5b042'}:
         b.step('hybas-report', 'report', [final, *reports], 'HybAs report and retained metadata', 'HybAs report renderer')
     b.warnings.append('Polishing arrows show configured dependencies, not a claim every requested stage ran. Native skip/reuse records are labelled separately.')
 
