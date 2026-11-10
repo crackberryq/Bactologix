@@ -11,6 +11,8 @@ from bactologix.store import Store
 
 
 RELEASES = [
+    ('hybas', '0d334449d69fe2208b79affad2f5162ac801be05',
+     '7cbd29d942a3d70bc1f6c7be176a75ce4bb7f2a8'),
     ('hybas', '79c5b7f342e02bd5b60bf7847fc5f4fb441e1fd4',
      '0d334449d69fe2208b79affad2f5162ac801be05'),
     ('hybas', '585abb34ed4401da64b37a9fd629ba8adc236396',

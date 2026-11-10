@@ -519,9 +519,10 @@ def build(store, run):
                         'Updating Bactologix cannot reconstruct a missing historical version; the currently installed '
                         'Snakemake version is not substituted. New executions can record their own controller version.')
     warnings.append('Review database release dates, model identities and tool/database citations before submission. A directory name alone is not a database version.')
+    from .methods_narrative import allocation
     intro = (f"This run was configured as a sequence of computational steps orchestrated with Snakemake through Bactologix. "
              f"The workflow implementation was {PIPELINES[run['tool']]['name']} (source commit {run['commit']}). "
-             f"The saved computing allocation was {run['cores']} CPU cores and {run['memory_mb']} MB RAM.")
+             + allocation(run, explicit))
     parameters = []
     supplied = dict(_flatten(explicit))
     for key, value in _flatten(effective):

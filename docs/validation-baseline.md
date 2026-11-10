@@ -8,14 +8,14 @@ another combination.
 
 ## Dev source baseline
 
-This document records the **Bactologix 0.1.0a100.dev1** development baseline.
+This document records the **Bactologix 0.1.0a101.dev1** development baseline.
 Record the installed application version and the exact commit resolved by its
 published release tag in your validation record. Keep Dev testing separate from
 [the current-channel baseline](https://github.com/crackberryq/Bactologix/blob/main/docs/validation-baseline.md).
 
 | Pipeline | Dev source candidate |
 | --- | --- |
-| HybAs | 10.0.0a3 — `0d334449d69fe2208b79affad2f5162ac801be05` |
+| HybAs | 10.0.0a4 — `7cbd29d942a3d70bc1f6c7be176a75ce4bb7f2a8` |
 | BaSIS | 0.4.0a8 — `7c293d36a633a726424d544c6ffc39824537ebe4` |
 | GeneScope | 0.1.0a18 — `28bf38c44eb07fe8e4865f67d59ef6b4028f51dc` |
 
@@ -34,6 +34,8 @@ install the intended pipeline and create a new run to test this candidate.
    outputs, acceptance criteria and comparison method before running. Record
    platform, resources and any limits on the tested scope. File counts alone do
    not establish completeness or analytical correctness.
+   Record physical RAM and any explicit [disk-swap allowance](swap-memory.md)
+   separately; the scheduler budget is not measured memory consumption.
 2. Preserve the new run's exact source, frozen configuration and input content
    identities. Methods records `source_commit`, `config_sha256`, `workflow_sha256`
    and available `input_snapshots`. Legacy file size/mtime records do not establish

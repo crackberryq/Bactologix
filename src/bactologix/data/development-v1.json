@@ -5,11 +5,69 @@
     {
       "tool": "hybas",
       "repository": "crackberryq/Bactomics_HybAs",
+      "commit": "7cbd29d942a3d70bc1f6c7be176a75ce4bb7f2a8",
+      "tag": "v10.0.0a4",
+      "channel": "prerelease",
+      "development": true,
+      "preferred": true,
+      "name": "HybAs 10 Dev \u2014 explicit swap scheduling (10.0.0a4)",
+      "adapter_interface": 1,
+      "configuration_schema": "hybas-v2",
+      "entry_points": {
+        "workflow": "Hybas.smk",
+        "environment": "environment.yaml"
+      },
+      "runner": {
+        "python": "3.11",
+        "snakemake": "9.27.1"
+      },
+      "tested": true,
+      "test_run": "https://github.com/crackberryq/Bactomics_HybAs/actions/runs/42904624504",
+      "files_sha256": {
+        "Hybas.smk": "838ee6b0eeb28e36c118e59ad79ab958a6c3b412cc792c3d53fa2ed7befa81bc",
+        "app/aware-outputs.json": "d87e9d3fde8ad0da952b7e2b086ad89d215d6e41e7620c2030aa5b32b4ae12d2",
+        "environment.yaml": "ed63888a900d10441146f3652e038f0b19db533f8615c84f02ef43b80ff28b90",
+        "workflow/lib/artifact_retention.py": "bb0ae36e5c201f600a24cb127b2db823a11b0a04ac0a13d7b47d0e7691ae6645",
+        "workflow/lib/aware_bundle.py": "35e309b6bb330f16bd79bf2910ef3f05962978e83289e5485fa9ed09a8570203",
+        "workflow/lib/aware_modes.py": "f03012ea2983cfba79acd7834bcfb48a3104f55d903b37ec028f8dae2cfcea46",
+        "workflow/lib/aware_preservation.py": "76dc0b22fcfb974349abc9d7dc41de1dcd512a38f873ec84069080a9b190ce7c",
+        "workflow/lib/aware_statistics.py": "a7dee6fc9ef10ef71146ba7f4ec793bf58ceefea2a199d18befb84ac19b3195c",
+        "workflow/lib/busco_retention.py": "502e42657be3101957f83421ce9837b4db4f75788bed7d6dd3816f2c7a18daf2",
+        "workflow/lib/computational.py": "103ed6a5f85a13ba2abfd5081926627bc0b4da63c7074fe32304cdfd508b86e8",
+        "workflow/lib/flye_retention.py": "9f91f8079e7d5345654f25217442e98bb402f706c2d22325e2dbbb8c2e4d2c16",
+        "workflow/lib/hybas_report.py": "29eaecff360164645721737f0792cb44e46439c7957fdeb462e4b7e4f22eb9aa",
+        "workflow/lib/library_inputs.py": "11c78ce773b4109d00f071f760467c46aaf1af0382d1945f08cc6fb100008517",
+        "workflow/lib/long_reads.py": "e16b5b068d1ecffdebd57bdc5156a75a4bfa70f6116896a4a8783e8e11a4cb7f",
+        "workflow/lib/medaka_stage.py": "70f7b04da9b1a96639a0cdd31622752827703dbc12d3db5ca757b1732193e4c3",
+        "workflow/lib/native_output_retention.py": "a246533d971bd4dad359f66a74b3a2a21da51489752714c7971d4f1363f23c92",
+        "workflow/lib/resource_identity.py": "0395c027995eb3d7a6c9029d5e078451f0a5c6dac81ff55b1de207760cee8d9b",
+        "workflow/lib/settings.py": "c113398d370afdc7400ce93fd6962894802a37243689d8b08c9668b664e484bc",
+        "workflow/lib/workflow_support.py": "c955c299d04aa85ad423c2a680d7e4c6e82853aa3c2e1e0186bfd52445df8eab",
+        "workflow/scripts/hybas_research_report.py": "6d26b487817e82b42e4059cd2c7265f7842e4e768cd6eeebd57b197ffbed5267"
+      },
+      "database_downloads": 1,
+      "validation_scope": "Software regression and adapter contracts; analytical validation remains pending.",
+      "tested_source_commit": "7263d984e121348f11faf7539a2a177cb510d724",
+      "tested_source_tree": "bc3cf1da167ce2cdfc3e89a21b5b73a2219135c6",
+      "output_retention": {
+        "interface": 1,
+        "strategy": "archive-before-replace",
+        "helper": "workflow/lib/artifact_retention.py"
+      },
+      "compute_memory": {
+        "interface": 1,
+        "swap_policy": "physical_ram_plus_explicit_swap_v1",
+        "helper": "workflow/lib/settings.py"
+      }
+    },
+    {
+      "tool": "hybas",
+      "repository": "crackberryq/Bactomics_HybAs",
       "commit": "0d334449d69fe2208b79affad2f5162ac801be05",
       "tag": "v10.0.0a3",
       "channel": "prerelease",
       "development": true,
-      "preferred": true,
+      "preferred": false,
       "name": "HybAs 10 Dev \u2014 native output retention (10.0.0a3)",
       "adapter_interface": 1,
       "configuration_schema": "hybas-v2",

@@ -59,11 +59,15 @@ def test_wsl_detection_honors_affinity_and_memory_limit(tmp_path, monkeypatch):
     monkeypatch.setattr(h.os, 'sched_getaffinity', lambda _: set(range(8)))
     monkeypatch.setattr(h.platform, 'release', lambda: 'microsoft-standard-WSL2')
     monkeypatch.setattr(h, 'cgroup_limits', lambda: {'cores': 4, 'total_mb': 4096, 'available_mb': 2048})
+    paging = h.paging_limits(tmp_path, '')
+    monkeypatch.setattr(h, 'paging_limits', lambda: paging)
     monkeypatch.setattr(h, 'gpu_inventory', lambda: {'cards': []})
     monkeypatch.setattr(h, '_read', lambda path: 'MemTotal: 16777216 kB\nMemAvailable: 8388608 kB\nSwapTotal: 2097152 kB' if path == '/proc/meminfo' else '')
     info = h.detect(tmp_path)
     assert info['wsl'] and info['cpu']['available'] == 4
-    assert info['memory'] == {'total_mb': 4096, 'available_mb': 2048, 'swap_mb': 2048}
+    assert info['memory'] == {'total_mb': 4096, 'available_mb': 2048, 'swap_mb': 2048,
+                              'swap_available_mb': None, 'combined_total_mb': 6144,
+                              'combined_available_mb': None}
 
 
 def test_cuda_driver_and_toolkit_are_distinct_and_optional(monkeypatch):

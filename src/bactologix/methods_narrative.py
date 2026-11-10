@@ -15,6 +15,7 @@ EXPERIMENTAL_HYBAS = {
     '08c315479f5493ce0b1f44ba26da3c7f2e0d748b',
     '79c5b7f342e02bd5b60bf7847fc5f4fb441e1fd4',
     '0d334449d69fe2208b79affad2f5162ac801be05',
+    '7cbd29d942a3d70bc1f6c7be176a75ce4bb7f2a8',
 }
 
 
@@ -24,6 +25,22 @@ def _bool(value):
 
 def _text(value):
     return UNKNOWN if value is None or str(value).strip().lower() in {'', 'unknown', 'unavailable', 'na', 'n/a'} else str(value)
+
+
+def allocation(run, cfg):
+    """Describe frozen scheduling choices without claiming observed memory use."""
+    from .compute_memory import policy
+    limits = policy(run, config=cfg)
+    sentence = ('The saved allocation was ' + _text(run.get('cores')) + ' CPU cores and '
+                + _text(run.get('memory_mb')) + ' MB RAM; this is the workflow allocation, not measured per-tool resource use.')
+    if limits['swap_mb']:
+        sentence += (f" An additional {limits['swap_mb']} MB disk-swap allowance was configured, "
+                     f"giving a requested total scheduler budget of {limits['scheduler_mb']} MB. "
+                     'The allowance does not establish actual swap consumption or increase physical RAM; '
+                     'individual tool memory settings remain separately recorded. '
+                     'The native workflow may further reduce the RAM portion; its resolved-settings record '
+                     'and log identify the effective scheduler budget.')
+    return sentence
 
 
 def _incomplete(row, evidence):
@@ -133,8 +150,7 @@ class _Narrator:
         action = 'was used through Bactologix to coordinate the computational workflow' if self.doc.get('completed') or self.doc.get('runtime_evidence') or self.doc.get('stage_narrative') else 'was selected in Bactologix for the computational workflow'
         sentence = (name + ' ' + action + ' for sample ' + _text(self.run.get('sample', {}).get('id'))
                     + ' (run ' + _text(self.run.get('id')) + '; source commit ' + _text(self.run.get('commit')) + ').')
-        sentence += (' The saved allocation was ' + _text(self.run.get('cores')) + ' CPU cores and '
-                     + _text(self.run.get('memory_mb')) + ' MB RAM; this is the workflow allocation, not measured per-tool resource use.')
+        sentence += ' ' + allocation(self.run, self.cfg)
         controller = self.software.get('snakemake', {})
         runtime = self.doc.get('runtime_evidence') or {}
         if runtime.get('versions', {}).get('snakemake'):

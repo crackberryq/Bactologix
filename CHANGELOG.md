@@ -1,3 +1,11 @@
+## 0.1.0a101.dev1 — 2026-11-10 · Alpha · Explicit disk-swap scheduling
+
+- Add a per-run disk-swap allowance separate from physical RAM. A revision preserves the original run, and physical-RAM presets and individual tool memory settings retain their existing behavior.
+- Check currently available Linux/WSL swap and reported container limits before validation and execution, with system headroom and clear capacity errors. Keep the native workflow reservation guard and single concurrent Kraken job limit.
+- Record the allowance and combined scheduler budget in frozen settings, launch logs and Methods. These are configured limits, not measurements of actual RAM or swap use.
+- Recognize the reviewed HybAs 10.0.0a4 swap interface. Its native Auto resolver keeps physical-RAM limits separate from the additional scheduler allowance; older Dev sources require a new run with the updated pipeline for swap support.
+- Keep reference databases, scientific thresholds and retained outputs unchanged. Disk paging can substantially slow execution; available capacity is not a completion guarantee.
+
 ## 0.1.0a100.dev1 — 2026-11-10 · Alpha · Native output retention and validation baseline
 
 - Recognize the reviewed HybAs 10.0.0a3 native-retention source while preserving earlier approvals, saved runs, Methods settings and processing diagrams.

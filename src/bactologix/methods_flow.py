@@ -163,7 +163,8 @@ def _hybas(b, cfg):
     mode = b.run.get('sample', {}).get('mode')
     if b.run.get('commit') in {'08c315479f5493ce0b1f44ba26da3c7f2e0d748b',
                                '79c5b7f342e02bd5b60bf7847fc5f4fb441e1fd4',
-                               '0d334449d69fe2208b79affad2f5162ac801be05'} or cfg.get('input_manifest'):
+                               '0d334449d69fe2208b79affad2f5162ac801be05',
+                               '7cbd29d942a3d70bc1f6c7be176a75ce4bb7f2a8'} or cfg.get('input_manifest'):
         b.warnings.append('Experimental library topology is not inferred from filenames or regular HybAs defaults. A bound controller trace is required for its rule/file diagram.')
         _unresolved(b, 'Experimental HybAs dependencies not recorded')
         for tool in [b.evidence.get('decisions', {}).get('assembler'), *b.evidence.get('decisions', {}).get('executed_stages', [])]:

@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import shutil
 
-from . import hardware
+from . import compute_memory, hardware
 from .runs import parse_config
 from .store import now
 
@@ -64,6 +64,7 @@ def destinations(run, action='run'):
 def budget(run, info):
     """Report oversubscription; never rewrite a frozen configuration or tune thresholds."""
     cores, memory = run['cores'], run['memory_mb']
+    scheduling = compute_memory.policy(run)['scheduler_mb']
     issues = []
     available_cpu = info['cpu']['available']
     total, available = info['memory']['total_mb'], info['memory']['available_mb']
@@ -97,8 +98,9 @@ def budget(run, info):
         if isinstance(deep, dict) and deep.get('enabled') is True:
             limits.append(('deep.memory_mb', deep.get('memory_mb'), 1))
     for name, value, scale in limits:
-        if isinstance(value, (int, float)) and not isinstance(value, bool) and value * scale > memory:
-            issues.append(f'{name} ({value}) exceeds the {memory:,} MB run budget. Review this limit in a revised draft.')
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value * scale > scheduling:
+            issues.append(f'{name} ({value}) exceeds the {scheduling:,} MB scheduling budget. Review this limit in a revised draft.')
+    issues.extend(compute_memory.capacity_issues(run, info))
     return issues
 
 
@@ -111,6 +113,7 @@ def panel(store, run):
     low = [x for x in locations if x['free_mb'] is not None and x['free_mb'] < 5120]
     info = hardware.inventory(store)
     warnings = budget(run, info)
+    memory_blockers = compute_memory.capacity_issues(run, info)
     def row(key, title, state, text, level, **extra):
         return dict(id=key, title=title, state=state, text=text, level=level, checked_at=checked_at, **extra)
     rows = [row('destinations', 'Output permissions', 'Needs attention' if invalid else 'Permissions checked',
@@ -121,14 +124,15 @@ def panel(store, run):
                 (' '.join(f"{x['label']}: {x['free_mb'] / 1024:.1f} GB free." for x in measured) if measured else 'Disk space could not be checked for these destinations.') +
                 ' Output, temporary-file and database growth cannot be predicted here. Below 5 GB is a warning, not an analysis size estimate.',
                 'error' if full else 'warning' if low else 'info' if measured else 'pending', action='paths'),
-            row('resources', 'CPU and RAM budget', 'Review budget' if warnings else 'Within detected capacity',
-                ' '.join(warnings) if warnings else f"{run['cores']} CPU threads / {run['memory_mb']:,} MB. Tool requirements and concurrent memory use still apply.",
-                'warning' if warnings else 'info', action='budget', inventory_checked_at=info['checked_at'])]
+            row('resources', 'CPU and memory budget', 'Review budget' if warnings else 'Within detected capacity',
+                f"{run['cores']} CPU threads. " + compute_memory.summary(run) + (' ' + ' '.join(warnings) if warnings else
+                ' Tool requirements and concurrent memory use still apply.'),
+                'error' if memory_blockers else 'warning' if warnings else 'info', action='budget', inventory_checked_at=info['checked_at'])]
     rows[-1]['checked_at'] = info['checked_at']
-    return {'rows': rows, 'destinations': locations, 'blocked': bool(invalid or full)}
+    return {'rows': rows, 'destinations': locations, 'blocked': bool(invalid or full or memory_blockers)}
 
 
-def assert_launch(run, action):
+def assert_launch(run, action, store=None):
     # Rechecked when queued AND when the worker starts; warnings do not prevent dry-runs.
     problems = []
     for item in destinations(run, action):
@@ -138,3 +142,10 @@ def assert_launch(run, action):
             problems.append(item['label'] + ': less than 1 MB free disk space. ' + item['path'])
     if problems:
         raise ValueError('Pre-run checks: ' + ' '.join(problems) + ' Restore access/free space, then refresh run checks.')
+    if action in {'dry-run', 'run'} and compute_memory.policy(run)['swap_mb']:
+        # Refresh at both queue submission and worker launch; a prior capacity
+        # observation does not reserve memory while a run is waiting.
+        info = hardware.inventory(store, refresh=True) if store is not None else hardware.detect(Path(run['folder']))
+        problems = compute_memory.capacity_issues(run, info)
+        if problems:
+            raise ValueError('Pre-run memory checks: ' + ' '.join(problems))

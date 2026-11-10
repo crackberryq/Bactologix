@@ -5,7 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from . import run_config
+from . import compute_memory, run_config
 from .runs import check_run_files, create_run, current_controller, tree_digest
 
 
@@ -38,7 +38,7 @@ def signature(run):
 def editor(store, rid):
     run = source(store, rid)
     return {'edit_run': {k: run[k] for k in ('id', 'tool', 'sample', 'label', 'cores', 'memory_mb')}
-            | {'signature': signature(run)}, 'run_config': run_config.editor(run['tool'], run['config']),
+            | {'signature': signature(run), 'swap_mb': compute_memory.policy(run)['swap_mb']}, 'run_config': run_config.editor(run['tool'], run['config']),
             'run_config_view': 'settings', 'keep_modal': True}
 
 
@@ -72,6 +72,8 @@ def _apply(store, payload):
         text = run_config.compile_config(parent['tool'], config['text'], config.get('changes'))
     else:
         text = payload['text']  # Compatibility with older application clients.
+    if 'swap_mb' in payload:
+        text = compute_memory.with_swap(text, payload['swap_mb'])
     if payload.get('variant') and parent['tool'] == 'basis':
         # Results belong to the new run, even when the parent used a shared
         # external payload store. Database/resource paths remain unchanged.
