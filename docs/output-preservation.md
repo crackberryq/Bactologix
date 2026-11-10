@@ -31,8 +31,18 @@ files with destination verification. Source files remain. A local copy does not
 confirm a SharePoint upload. Use **Storage** for deliberate, reviewed removal
 after transfer. Research outputs are never automatically deleted to free space.
 
-Tool-supported retention flags are enabled where available. Third-party programs
-may create internal scratch files they delete without a supported keep option;
-pipeline documentation identifies known limits. In-memory states are not recorded.
+Tool-supported retention flags are enabled where available. Current HybAs
+9.0.6-AWARE additionally preserves reviewed BUSCO Python-managed analysis
+artifacts and logs before deletion or replacement. BUSCO per-job stdout/stderr
+is saved separately for successful and failed attempts. Visible `native-retained/` directories hold these files and their
+receipts. Use **Run files & tool history** to inspect the retained files alongside
+each run's native outputs.
+
+This capture does not include every private scratch file: native SAMtools and
+other compiled programs can delete their own spill files internally. Streams,
+kernel scratch and in-memory states are not recorded. Pipeline documentation
+identifies the reviewed versions, captured artifacts and remaining limits.
 Updating cannot recover files deleted by older versions. Preserving stage files
-does not itself compute per-stage quality or annotation measurements.
+does not itself compute per-stage quality or annotation measurements. Use the
+[validation baseline procedure](validation-baseline.md) to test retention against
+your expected artifact list and preserve the actual run identities.
