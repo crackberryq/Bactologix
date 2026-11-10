@@ -1,11 +1,11 @@
-# Bactologix 0.1.0a95 — Alpha
+# Bactologix 0.1.0a96 — Alpha
 
 This regular alpha adds verified isolate export and recorded analysis history,
 alongside reviewed storage cleanup and the pre-beta evidence-integrity fixes. It remains separate from Bactologix Dev: regular
 installation and updates reject development releases. See [report evidence integrity](docs/report-evidence-integrity.md) for
 sample attribution, diagnostic report states and assessment coverage.
 
-**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a95/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
+**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a96/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
@@ -421,6 +421,8 @@ NVIDIA results as unknown availability, including on WSL.
 ### Run-specific Methods exports
 
 Open a saved run and choose **Methods**, or use **Results → Methods & downloads**.
+The view explicitly identifies the combined pipeline as experimental and scientifically unvalidated. It explains tool roles, inputs, outputs and evidence for this run. See [Run Methods and data-flow diagrams](docs/run-methods.md).
+
 Review the generated prose, then download plain text, Markdown, printable HTML,
 or a reproducibility ZIP. The ZIP includes the frozen run YAML, settings with
 their origin, source/configuration hashes, retained execution metadata and
