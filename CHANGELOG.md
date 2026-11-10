@@ -1,3 +1,10 @@
+## 0.1.0a100.dev1 — 2026-11-10 · Alpha · Native output retention and validation baseline
+
+- Recognize the reviewed HybAs 10.0.0a3 native-retention source while preserving earlier approvals, saved runs, Methods settings and processing diagrams.
+- Preserve reviewed Flye/BUSCO Python-managed analysis artifacts and logs before deletion or replacement. BUSCO per-job stdout/stderr is retained for successful and failed attempts; native compiled-program spill files and in-memory states remain outside this capture.
+- Document an exact source baseline and the separate requirement to freeze actual validation-run environments, inputs and database/model identities. Software acceptance does not establish analytical validation.
+- Install the updated pipeline and create a new run to use its native retention. Existing frozen workflows and previously deleted files are unchanged.
+
 ## 0.1.0a99.dev1 — 2026-11-10 · Alpha · Run-specific Methods narratives
 
 - Lead Methods with a continuous, run-specific account of input preparation, tools, processing and outputs across HybAs, BaSIS and GeneScope. Place saved settings and reviewed source arguments beside their corresponding tool steps.

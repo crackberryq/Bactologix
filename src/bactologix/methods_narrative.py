@@ -14,6 +14,7 @@ UNKNOWN = 'Not recorded'
 EXPERIMENTAL_HYBAS = {
     '08c315479f5493ce0b1f44ba26da3c7f2e0d748b',
     '79c5b7f342e02bd5b60bf7847fc5f4fb441e1fd4',
+    '0d334449d69fe2208b79affad2f5162ac801be05',
 }
 
 

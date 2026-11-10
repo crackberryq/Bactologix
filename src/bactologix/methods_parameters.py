@@ -13,10 +13,12 @@ HYBAS_REGULAR = frozenset({
     'a99e00b041a184f36cfdf8a2ab5b61f0f255a02d',
     '87c1ab81c8652bd10db47954193e27ad802cfc86',
     '585abb34ed4401da64b37a9fd629ba8adc236396',
+    '5db662262962bc822f2fe501234d15b882d5b042',
 })
 HYBAS_DEV = frozenset({
     '08c315479f5493ce0b1f44ba26da3c7f2e0d748b',
     '79c5b7f342e02bd5b60bf7847fc5f4fb441e1fd4',
+    '0d334449d69fe2208b79affad2f5162ac801be05',
 })
 GENESCOPE = frozenset({
     'af9502c3040258a69b1efc662a6f11b95e46b729',

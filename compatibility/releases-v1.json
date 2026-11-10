@@ -651,6 +651,47 @@
         "strategy": "archive-before-replace",
         "helper": "workflow/lib/artifact_retention.py"
       }
+    },
+    {
+      "tool": "hybas",
+      "repository": "crackberryq/Bactomics_HybAs",
+      "commit": "5db662262962bc822f2fe501234d15b882d5b042",
+      "tag": "hybas-v9.0.6-AWARE",
+      "channel": "prerelease",
+      "adapter_interface": 1,
+      "configuration_schema": "hybas-v1",
+      "entry_points": {
+        "workflow": "Hybas.smk",
+        "environment": "environment.yaml"
+      },
+      "runner": {
+        "python": "3.11",
+        "snakemake": "9.6.2"
+      },
+      "tested": true,
+      "test_run": "https://github.com/crackberryq/Bactomics_HybAs/actions/runs/42887345791",
+      "files_sha256": {
+        "Hybas.smk": "05e57ac58a0e15e3922a853a8a093fa431cac9669c7450d6b7c6de351af6364d",
+        "app/identification-review.json": "be6c01ea49ea9dea400257926372eba923997366d8b49ac9145eae6fab688ff7",
+        "environment.yaml": "2cbeada5188a7661ac91eb031551347ea2fba7b5d615c2efbfd4f339f12f950d",
+        "workflow/lib/artifact_retention.py": "bb0ae36e5c201f600a24cb127b2db823a11b0a04ac0a13d7b47d0e7691ae6645",
+        "workflow/lib/busco_retention.py": "502e42657be3101957f83421ce9837b4db4f75788bed7d6dd3816f2c7a18daf2",
+        "workflow/lib/hybas_report.py": "1705f9525ba4ce00d0c7dd4b945c4eb93d94d9601a9229def489c32fac72a5cc",
+        "workflow/lib/hybas_report_assets.py": "f56c515f6777b188ab7ed77e0bfa710556d486b66b58ae7baa5dbb34a8588dfc",
+        "workflow/lib/identification_review.py": "4ba217ebaf1a427b30d78b6f784a1f56e74d73e78b24f929233530b1a6e27f56",
+        "workflow/lib/medaka_stage.py": "b2a408b9afaca42f2294fcc42d3eaf8013e924a6fbe875b465fca5a409ea9b06",
+        "workflow/lib/native_output_retention.py": "a246533d971bd4dad359f66a74b3a2a21da51489752714c7971d4f1363f23c92",
+        "workflow/lib/resource_identity.py": "0395c027995eb3d7a6c9029d5e078451f0a5c6dac81ff55b1de207760cee8d9b",
+        "workflow/lib/workflow_support.py": "b0a17029380d7cedda3680cc42bde453a649285b13444a350c9b1f72b7e75990"
+      },
+      "validation_scope": "Software regression and adapter contracts; analytical validation remains pending.",
+      "tested_source_commit": "5db662262962bc822f2fe501234d15b882d5b042",
+      "tested_source_tree": "8ed5952c41d5495eb764f8beca61a324b6d2f442",
+      "output_retention": {
+        "interface": 1,
+        "strategy": "archive-before-replace",
+        "helper": "workflow/lib/artifact_retention.py"
+      }
     }
   ]
 }

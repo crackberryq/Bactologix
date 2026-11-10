@@ -11,6 +11,10 @@ from bactologix.store import Store
 
 
 RELEASES = [
+    ('hybas', '79c5b7f342e02bd5b60bf7847fc5f4fb441e1fd4',
+     '0d334449d69fe2208b79affad2f5162ac801be05'),
+    ('hybas', '585abb34ed4401da64b37a9fd629ba8adc236396',
+     '5db662262962bc822f2fe501234d15b882d5b042'),
     ('hybas', '08c315479f5493ce0b1f44ba26da3c7f2e0d748b',
      '79c5b7f342e02bd5b60bf7847fc5f4fb441e1fd4'),
     ('hybas', 'a99e00b041a184f36cfdf8a2ab5b61f0f255a02d',
@@ -55,6 +59,11 @@ def test_preservation_release_retains_configured_methods_and_tool_flow(tmp_path,
     assert not any('No verified Methods template' in warning for warning in updated['warnings'])
     assert updated['paragraphs'] == [paragraph.replace(previous, current) for paragraph in earlier['paragraphs']]
     assert updated['parameters'] == earlier['parameters']
+    assert updated['narrative'] == {
+        **earlier['narrative'],
+        'paragraphs': [paragraph.replace(previous, current)
+                       for paragraph in earlier['narrative']['paragraphs']],
+    }
     assert updated['flow']['tool_steps'] == earlier['flow']['tool_steps']
     assert updated['flow']['edges'] == earlier['flow']['edges']
     assert updated['source_commit'] == current

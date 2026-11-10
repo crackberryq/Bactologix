@@ -5,12 +5,64 @@
     {
       "tool": "hybas",
       "repository": "crackberryq/Bactomics_HybAs",
+      "commit": "0d334449d69fe2208b79affad2f5162ac801be05",
+      "tag": "v10.0.0a3",
+      "channel": "prerelease",
+      "development": true,
+      "preferred": true,
+      "name": "HybAs 10 Dev \u2014 native output retention (10.0.0a3)",
+      "adapter_interface": 1,
+      "configuration_schema": "hybas-v2",
+      "entry_points": {
+        "workflow": "Hybas.smk",
+        "environment": "environment.yaml"
+      },
+      "runner": {
+        "python": "3.11",
+        "snakemake": "9.27.1"
+      },
+      "tested": true,
+      "test_run": "https://github.com/crackberryq/Bactomics_HybAs/actions/runs/42885754685",
+      "files_sha256": {
+        "Hybas.smk": "f54057773a1437f7403fbef43dbecebe080e7c388c7b2060944164edba60c107",
+        "app/aware-outputs.json": "d87e9d3fde8ad0da952b7e2b086ad89d215d6e41e7620c2030aa5b32b4ae12d2",
+        "environment.yaml": "ed63888a900d10441146f3652e038f0b19db533f8615c84f02ef43b80ff28b90",
+        "workflow/lib/artifact_retention.py": "bb0ae36e5c201f600a24cb127b2db823a11b0a04ac0a13d7b47d0e7691ae6645",
+        "workflow/lib/aware_bundle.py": "35e309b6bb330f16bd79bf2910ef3f05962978e83289e5485fa9ed09a8570203",
+        "workflow/lib/aware_modes.py": "f03012ea2983cfba79acd7834bcfb48a3104f55d903b37ec028f8dae2cfcea46",
+        "workflow/lib/aware_preservation.py": "76dc0b22fcfb974349abc9d7dc41de1dcd512a38f873ec84069080a9b190ce7c",
+        "workflow/lib/aware_statistics.py": "a7dee6fc9ef10ef71146ba7f4ec793bf58ceefea2a199d18befb84ac19b3195c",
+        "workflow/lib/busco_retention.py": "502e42657be3101957f83421ce9837b4db4f75788bed7d6dd3816f2c7a18daf2",
+        "workflow/lib/computational.py": "103ed6a5f85a13ba2abfd5081926627bc0b4da63c7074fe32304cdfd508b86e8",
+        "workflow/lib/flye_retention.py": "9f91f8079e7d5345654f25217442e98bb402f706c2d22325e2dbbb8c2e4d2c16",
+        "workflow/lib/hybas_report.py": "29eaecff360164645721737f0792cb44e46439c7957fdeb462e4b7e4f22eb9aa",
+        "workflow/lib/library_inputs.py": "11c78ce773b4109d00f071f760467c46aaf1af0382d1945f08cc6fb100008517",
+        "workflow/lib/long_reads.py": "e16b5b068d1ecffdebd57bdc5156a75a4bfa70f6116896a4a8783e8e11a4cb7f",
+        "workflow/lib/medaka_stage.py": "70f7b04da9b1a96639a0cdd31622752827703dbc12d3db5ca757b1732193e4c3",
+        "workflow/lib/native_output_retention.py": "a246533d971bd4dad359f66a74b3a2a21da51489752714c7971d4f1363f23c92",
+        "workflow/lib/resource_identity.py": "0395c027995eb3d7a6c9029d5e078451f0a5c6dac81ff55b1de207760cee8d9b",
+        "workflow/lib/workflow_support.py": "094518f06c025ab60d424eb4d590c2ec2032850c7590ecc60efc76a314f99ca7",
+        "workflow/scripts/hybas_research_report.py": "6d26b487817e82b42e4059cd2c7265f7842e4e768cd6eeebd57b197ffbed5267"
+      },
+      "database_downloads": 1,
+      "validation_scope": "Software regression and adapter contracts; analytical validation remains pending.",
+      "tested_source_commit": "10864bd3548162baaaccffbb0da9aa08f660054b",
+      "tested_source_tree": "2c976b28cce10bc08899de601ebab79242632d37",
+      "output_retention": {
+        "interface": 1,
+        "strategy": "archive-before-replace",
+        "helper": "workflow/lib/artifact_retention.py"
+      }
+    },
+    {
+      "tool": "hybas",
+      "repository": "crackberryq/Bactomics_HybAs",
       "commit": "79c5b7f342e02bd5b60bf7847fc5f4fb441e1fd4",
       "tag": "hybas-dev-79c5b7f3",
       "channel": "prerelease",
       "development": true,
-      "preferred": true,
-      "name": "HybAs 10 Dev — output preservation on native Conda",
+      "preferred": false,
+      "name": "HybAs 10 Dev \u2014 output preservation on native Conda",
       "adapter_interface": 1,
       "configuration_schema": "hybas-v2",
       "entry_points": {
@@ -131,7 +183,7 @@
       },
       "development": true,
       "preferred": true,
-      "name": "BaSIS Dev — output preservation on native Conda"
+      "name": "BaSIS Dev \u2014 output preservation on native Conda"
     },
     {
       "tool": "micpscope",
@@ -181,7 +233,7 @@
       },
       "development": true,
       "preferred": true,
-      "name": "GeneScope Dev — output preservation on native Conda"
+      "name": "GeneScope Dev \u2014 output preservation on native Conda"
     },
     {
       "tool": "basis",
@@ -262,7 +314,7 @@
       },
       "development": true,
       "preferred": false,
-      "name": "BaSIS Dev — preserve generated data (a7)"
+      "name": "BaSIS Dev \u2014 preserve generated data (a7)"
     },
     {
       "tool": "micpscope",
@@ -312,7 +364,7 @@
       },
       "development": true,
       "preferred": false,
-      "name": "GeneScope Dev — preserve generated data (a17)"
+      "name": "GeneScope Dev \u2014 preserve generated data (a17)"
     },
     {
       "tool": "micpscope",
@@ -347,7 +399,7 @@
       "validation_scope": "Software regression and adapter contracts; analytical validation remains pending.",
       "development": true,
       "preferred": false,
-      "name": "GeneScope Dev — shared integrity fixes"
+      "name": "GeneScope Dev \u2014 shared integrity fixes"
     },
     {
       "tool": "basis",
@@ -400,7 +452,7 @@
       "validation_scope": "Software regression and adapter contracts; analytical validation remains pending.",
       "development": true,
       "preferred": false,
-      "name": "BaSIS Dev — shared integrity fixes"
+      "name": "BaSIS Dev \u2014 shared integrity fixes"
     },
     {
       "tool": "hybas",
@@ -410,7 +462,7 @@
       "channel": "prerelease",
       "development": true,
       "preferred": false,
-      "name": "HybAs 10 Dev — evidence integrity",
+      "name": "HybAs 10 Dev \u2014 evidence integrity",
       "adapter_interface": 1,
       "configuration_schema": "hybas-v2",
       "entry_points": {
@@ -485,7 +537,7 @@
       },
       "development": true,
       "preferred": false,
-      "name": "BaSIS Dev — annotation integrity",
+      "name": "BaSIS Dev \u2014 annotation integrity",
       "database_downloads": 1,
       "validation_scope": "Software regression and adapter contracts; analytical validation remains pending."
     },
@@ -520,7 +572,7 @@
       },
       "development": true,
       "preferred": false,
-      "name": "GeneScope Dev — evidence integrity",
+      "name": "GeneScope Dev \u2014 evidence integrity",
       "validation_scope": "Software regression and adapter contracts; analytical validation remains pending."
     },
     {
@@ -531,7 +583,7 @@
       "channel": "prerelease",
       "development": true,
       "preferred": false,
-      "name": "HybAs 10 Dev — AWARE+",
+      "name": "HybAs 10 Dev \u2014 AWARE+",
       "adapter_interface": 1,
       "configuration_schema": "hybas-v2",
       "entry_points": {
