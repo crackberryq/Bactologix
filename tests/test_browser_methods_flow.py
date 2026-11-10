@@ -88,13 +88,18 @@ def test_run_specific_methods_diagram_tools_and_readonly_exports(workspace, run)
         expect(first).to_contain_text('Inputs')
         expect(first).to_contain_text('Outputs')
         assert graph.locator('.methods-flow-figure svg, .methods-flow-scroll svg').count() == 0, 'The generated SVG must remain isolated as an image.'
-        for label, fmt in [('Diagram SVG', 'svg'), ('Diagram JSON', 'json'), ('Reproducibility ZIP', 'zip')]:
+        for label, fmt in [('Methods only', 'manuscript'), ('Diagram SVG', 'svg'), ('Diagram JSON', 'json'), ('Reproducibility ZIP', 'zip')]:
             with page.expect_download() as event:
                 page.get_by_role('button', name=label, exact=True).click()
                 request, _ = respond(page, workspace, 'download_methods')
             assert request['payload'] == {'id': run['id'], 'format': fmt}
             downloaded = Path(event.value.path())
-            if fmt == 'svg':
+            if fmt == 'manuscript':
+                text = downloaded.read_text()
+                assert text.startswith('Methods\n') and run['sample']['id'] in text
+                assert 'Settings supplement' not in text
+                assert 'scientific validation' in text
+            elif fmt == 'svg':
                 assert '<svg' in downloaded.read_text() and run['id'] in downloaded.read_text()
             elif fmt == 'json':
                 assert json.loads(downloaded.read_text())['run_id'] == run['id']
@@ -141,7 +146,7 @@ def test_legacy_unknown_source_keeps_limits_and_escapes_methods_fields(workspace
         doc = result['methods']
         doc['validation_status'] += ' ' + injected
         doc['flow']['caption'] += ' ' + injected
-        doc['paragraphs'].append(injected)
+        doc['narrative']['paragraphs'].append(injected)
         doc['software'] = [row for row in doc['software'] if row['tool'] != 'snakemake'] + [
             {'tool': 'snakemake', 'label': 'Snakemake', 'version': '9.6.2-display-fixture',
              'scope': 'Display fixture only; no runtime claim. ' + injected}]

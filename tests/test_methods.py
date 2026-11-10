@@ -284,6 +284,8 @@ def test_aware_methods_only_describe_finished_stage(workspace,run):
     root=stage_bundle(run)
     doc=methods.build(workspace,run);prose='\n'.join(doc['paragraphs'])
     assert doc['completed_stage']=='aware'
+    narrative=methods.download(workspace,run,'manuscript')['text']
+    assert 'TaxID 22' in narrative and 'Unicycler' not in narrative and 'QUAST' not in narrative
     assert 'TaxID 22' in prose and 'TaxID 11' in prose
     assert '95% Wilson' in prose and '200 stratified' in prose
     assert 'QUAST' not in prose and 'Unicycler' not in prose and 'BUSCO' not in prose
@@ -304,6 +306,8 @@ def test_identification_methods_exclude_filtering_claims(workspace,run):
     run['identification']=dict(state='awaiting_review',evidence_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
     doc=methods.build(workspace,run)
     assert doc['completed_stage']=='identification'
+    narrative=methods.download(workspace,run,'manuscript')['text']
+    assert 'Kraken2 identification completed' in narrative and 'Unicycler' not in narrative
     assert 'filtering not established' in doc['state']
     assert 'QUAST' not in '\n'.join(doc['paragraphs'])
     path.write_text('{}')

@@ -2,6 +2,7 @@
 from collections import defaultdict, deque
 import hashlib
 import html
+import re
 import textwrap
 
 CAPTION = ('This composite workflow is not scientifically validated. Configured dependencies and '
@@ -21,6 +22,7 @@ TASKS = {
  'racon': ('Racon', 'Compute consensus updates from reads and alignments.', 'Apply requested polishing rounds; improvement is not assumed.'),
  'medaka': ('Medaka', 'Apply the selected model to consensus polishing.', 'Produce the configured consensus; model suitability requires review.'),
  'bwa': ('BWA', 'Index an assembly and align short reads.', 'Provide short-read alignments to Polypolish.'),
+ 'samtools': ('SAMtools', 'Index sequence files and process alignment files and counts.', 'Prepare mapping QC and distinguish mapped alignments from an empty polishing input.'),
  'polypolish': ('Polypolish', 'Update assembly consensus using short-read alignments.', 'Apply configured polishing; correctness needs independent assessment.'),
  'quast': ('QUAST', 'Calculate assembly quality statistics.', 'Describe assembly characteristics without certifying biological accuracy.'),
  'busco': ('BUSCO', 'Assess markers against the selected lineage dataset.', 'Estimate marker completeness and duplication within dataset limits.'),
@@ -112,8 +114,12 @@ class _Builder:
         decisions = self.evidence.get('decisions', {})
         if tool in decisions.get('skipped_stages', {}):
             status, evidence = 'skipped', 'Retained native skip record: ' + _text(decisions['skipped_stages'][tool])
-        elif tool in decisions.get('executed_stages', []):
+        elif tool in decisions.get('executed_stages', []) or (tool == 'racon' and any(
+                re.fullmatch(r'racon[1-9][0-9]*', str(stage)) for stage in decisions.get('executed_stages', []))):
             status, evidence = 'reported_executed', 'Retained native polishing summary; individual command I/O not recorded'
+            if tool == 'racon':
+                evidence += '; recorded stages: ' + ', '.join(str(stage) for stage in decisions.get('executed_stages', [])
+                    if re.fullmatch(r'racon[1-9][0-9]*', str(stage)))
         return self.add(key, label or title, 'tool', tool=tool, what=what, why=why, status=status,
             status_label=STATUS[status], evidence=evidence, version=software.get('version', 'Not recorded'),
             version_scope=software.get('scope', 'Version not recorded'))
@@ -202,9 +208,15 @@ def _hybas(b, cfg):
         assembly = b.step('medaka', 'medaka', [assembly, processed[-1]], 'Medaka-stage assembly')
     if short and polish == 'tripolish' and _bool(cfg.get('run_polypolish')):
         mapped = b.step('short-alignments', 'bwa', [assembly, processed[0]], 'Short-read alignments for Polypolish')
+        paired = b.step('paired-mapping-qc', 'bwa', [assembly, processed[0]], 'Paired short-read QC alignments', 'BWA · separate paired mapping QC')
+        b.lookup['paired-mapping-qc'].update(what='Align paired short reads to the pre-Polypolish assembly for mapping QC.',
+            why='Provide a separate reporting branch; Polypolish uses the separate-mate alignments.')
+        reports.append(b.step('alignment-qc', 'samtools', [paired], 'Sorted/indexed alignment files and QC counts'))
         assembly = b.step('polypolish', 'polypolish', [assembly, mapped], 'Polypolish-stage assembly')
-    final = b.add('final-assembly', 'Final assembly selection / length-filtered FASTA')
+    final = b.add('final-assembly', 'Final assembly selection / copied FASTA')
     b.edge(assembly, final)
+    reports.append(b.step('sequence-statistics', 'seqkit', list(dict.fromkeys([*raw, *selected.values(), *processed, final])),
+                          'Read-stage and assembly sequence statistics'))
     reports.append(b.step('quast', 'quast', [final], 'QUAST assembly statistics'))
     if _bool(cfg.get('run_busco')):
         lineage = b.add('busco-lineage', 'Selected BUSCO lineage dataset')
@@ -299,7 +311,7 @@ def _trace(b, trace):
         node['rule'], node['job_id'] = row['rule'], identity
         node['declared_inputs'], node['declared_outputs'] = row.get('inputs', [])[:32], row.get('outputs', [])[:32]
         status = {'completed':'rule_completed', 'failed':'rule_failed'}.get(row.get('status'), 'rule_reported')
-        if node['status'] not in {'reused', 'skipped', 'reported_incomplete'}:
+        if node['status'] not in {'reused', 'skipped', 'reported_incomplete', 'failed', 'blocked'}:
             node['status'], node['status_label'] = status, STATUS[status]
         node['evidence'] += '; bound controller record: ' + _text(row.get('status')) + '. Rule completion does not prove every internal tool executed.'
         jobs.append((key, row))

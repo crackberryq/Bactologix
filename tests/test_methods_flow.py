@@ -58,6 +58,10 @@ def test_hybas_qc_branches_and_independent_final_assembly_assessments():
     assert ('prokka-output', 'multiqc') not in links(g)
     assert ('racon-output', 'medaka') in links(g)
     assert ('medaka-output', 'short-alignments') in links(g)
+    assert ('medaka-output', 'paired-mapping-qc') in links(g)
+    assert ('paired-mapping-qc-output', 'alignment-qc') in links(g)
+    assert ('alignment-qc-output', 'polypolish') not in links(g)
+    assert ('final-assembly', 'sequence-statistics') in links(g)
 
 
 @pytest.mark.parametrize('mode,absent', [('illumina_only', {'filtlong','medaka','racon'}), ('ont_only', {'fastp','polypolish','bwa'})])
@@ -110,6 +114,25 @@ def test_retrospective_versions_do_not_become_execution_and_reuse_is_explicit():
     node = nodes(graph(args))['amrfinder']
     assert node['status'] == 'configured'
     assert node['version'] == '99.1' and 'unverified' in node['version_scope']
+
+
+def test_native_racon_round_identifiers_are_retained_without_claiming_requested_rounds():
+    args = fixture('hybas', polish_mode='racon', racon_rounds=4)
+    args[1]['evidence']['decisions']['executed_stages'] = ['racon1', 'racon2', 'not-racon3', 'racon0']
+    node = nodes(graph(args))['racon']
+    assert node['status'] == 'reported_executed'
+    assert 'recorded stages: racon1, racon2' in node['evidence']
+    assert 'not-racon3' not in node['evidence'] and 'racon0' not in node['evidence']
+    args[1]['evidence_origin'] = 'Legacy output metadata read at export'
+    assert nodes(graph(args))['racon']['status'] == 'configured'
+
+
+@pytest.mark.parametrize('status', ['failed', 'blocked'])
+def test_native_failure_is_not_hidden_by_completed_wrapper_rule(status):
+    args = fixture('basis', modules={'amrfinder':{'enabled':True}})
+    args[1]['evidence']['records'] = [{'module':'amrfinder', 'execution_status':status}]
+    trace_doc(args, [job('a', 'amrfinder', ['/input'], ['/output'])])
+    assert graph(args)['tool_steps'][0]['status'] == status
 
 
 def test_unknown_or_experimental_source_cannot_borrow_regular_hybas_route():
