@@ -216,7 +216,7 @@ def dispatch(store, kind, p):
             return notifications.claim_desktop(store, p)
         started = update_checks.tick(store, force=True)
         return {'message': 'Checking update availability in the background.' if started else 'A check is already running, was requested recently, or is disabled for this session.', 'keep_modal': True}
-    isolate_readonly = isolate_actions.ACTIONS - {'preview_isolate_export', 'start_isolate_export'}
+    isolate_readonly = (isolate_actions.ACTIONS - {'preview_isolate_export', 'start_isolate_export'}) | {'inspect_output_files', 'open_output_folder'}
     if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "inspect_storage_cleanup", "inspect_storage_cleanup_receipt", "download_storage", "inspect_compatibility", "download_compatibility", "compare_saved_runs", "download_comparison", "preview_samples", "refresh_app_releases", "cancel_job"} | isolate_readonly:
         updates.assert_current(store)
         if updates.status(store)["active_job"]:
@@ -553,6 +553,15 @@ def dispatch(store, kind, p):
         return {'download': storage.download(store), 'keep_modal': True}
     if kind == 'inspect_results':
         return {'results': results.inspect(store, p.get('id')), 'keep_modal': True}
+    if kind in {'inspect_output_files', 'open_output_folder'}:
+        from . import output_inventory
+        if kind == 'inspect_output_files':
+            return {'output_files': output_inventory.inspect(store, p.get('id'), p.get('relative', ''),
+                        p.get('snapshot', ''), p.get('page', 0)), 'keep_modal': True}
+        from .launcher import open_folder
+        path = output_inventory.folder(store, p.get('id'), p.get('relative', ''), p.get('snapshot', ''))
+        opened = open_folder(path)
+        return {'message': 'Requested the file manager on the computer running Bactologix: ' + opened, 'keep_modal': True}
     if kind == 'open_report_folder':
         from .launcher import open_folder
         if p.get('run_id'):

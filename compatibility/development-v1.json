@@ -5,6 +5,56 @@
     {
       "tool": "micpscope",
       "repository": "crackberryq/Bactomics_GeneScope",
+      "commit": "92ea05df6e9c156ecba13315993d4cd12142fcfc",
+      "tag": "genescope-dev-92ea05df",
+      "channel": "prerelease",
+      "adapter_interface": 1,
+      "configuration_schema": "micpscope-v1",
+      "entry_points": {
+        "workflow": "MICPscope.smk",
+        "environment": "environment.yml"
+      },
+      "runner": {
+        "python": "3.11",
+        "snakemake": "9.6.2"
+      },
+      "tested": true,
+      "test_run": "https://github.com/crackberryq/Bactomics_GeneScope/actions/runs/42817720725",
+      "files_sha256": {
+        "MICPscope.smk": "854d95d758686735f4b24bf8a752c1433eba286d7a703ed4cb0e23cb3e2d0f32",
+        "environment.yml": "5511d8e96980fd36304699f1b2c456d5a4f71038dd5b8aeca3c9d12712fbe772",
+        "GeneScope.smk": "345dbc3e87729cf97df576deffeebd7ec8188ff89d39647018f0fa6d31ae4b7f",
+        "src/micpscope/application.py": "4bd4b01b66b5772aa8f2f8dfdaeff4353df9400e3d33a1502d74e14a9529c081",
+        "src/micpscope/reference.py": "20a8d06ddccc0cce85ceb2f6b4e1793f6dee353bfe09f7cfa1de6f356e244e25",
+        "src/micpscope/context.py": "d77a75bf69ffabb5d1b75203994682fae6e7b243382cf5801a7d28f501d60ba1",
+        "src/micpscope/report.py": "8d4a07c19b387deb85cab21c8dbcb5b0ff7582b34c4f692785c936dabde91dc0",
+        "src/micpscope/explorer.py": "c05ed91dfbf5b5828b12baa71da64cde44da8f85cc51588e3e2000a0f18c932d",
+        "database_builder/references/micp-starter.yaml": "f356229387b4be3831b6870e0e1f3d001a35f27006cb953e9c50d909c6a3c756",
+        "src/micpscope/__init__.py": "feff88a9382a1490b3d13c28001b95cad70ea14996b5ddd1a5b39b3c9f143e20",
+        "src/micpscope/artifact_retention.py": "687435db73e0f3e61e7cf3af43cc306ba74fef15571de6bba4cd5add8e996d1e",
+        "src/micpscope/retention.py": "865f616eeb199d09d3606afc4020c917fc72e848590f5b345c8c0fcc00a4303d",
+        "DatabaseBuilder.smk": "70179078ac60e2a544068d58d9f146dfbfb843cfb86d18a59e40c550ae926f49",
+        "scripts/index_database.py": "3072542c5e54e4ee8005063d794f56467c6d72c12f394fe3be27ed1a5750bb3f",
+        "scripts/properties.py": "1c8539815e799f001c0ec320d8566b5f9fa1c13d445ef4ee98f7c3752508c862",
+        "scripts/report.py": "ee08d73954456626b4138a30ceb10ed9932e1f52bc52211dcdf58804c0301167",
+        "database_builder/build.py": "abbac181843d18a3b31a1713fc2c6c4d77909140aca1dae19a5c239810a1fdf9",
+        "database_builder/downloads.py": "c789b032aa9a149b96af0c684660cb13bc38e5b3ea5b85e10afc1275827471a6"
+      },
+      "validation_scope": "Software regression and adapter contracts; analytical validation remains pending.",
+      "tested_source_commit": "f6673a5b8b4079219be9af46cbd5f124c06ba9c1",
+      "tested_source_tree": "3f13561a374d475f918e3af82509d3ada75831ab",
+      "output_retention": {
+        "interface": 1,
+        "strategy": "archive-before-replace",
+        "helper": "src/micpscope/artifact_retention.py"
+      },
+      "development": true,
+      "preferred": true,
+      "name": "GeneScope Dev \u2014 preserve generated data (a17)"
+    },
+    {
+      "tool": "micpscope",
+      "repository": "crackberryq/Bactomics_GeneScope",
       "commit": "f46cc9feeb30cd89b36876b7d341ed6750e19ce3",
       "tag": "genescope-dev-f46cc9fe",
       "channel": "prerelease",
@@ -34,7 +84,7 @@
       },
       "validation_scope": "Software regression and adapter contracts; analytical validation remains pending.",
       "development": true,
-      "preferred": true,
+      "preferred": false,
       "name": "GeneScope Dev \u2014 shared integrity fixes"
     },
     {
