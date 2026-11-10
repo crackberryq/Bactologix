@@ -17,6 +17,8 @@ MANAGED = {
     'basis': {'bactomics_root', 'samples', 'isolates', 'isolate', 'threads', 'memory_mb',
               'execution.cores', 'execution.memory_mb'},
 }
+for _managed in MANAGED.values():
+    _managed.add('bactologix_compute.swap_mb')
 OPTIONS = {
     'micpscope': {},
     'hybas': {'kraken_decision_mode': ['off', 'manual', 'auto', 'aware'],
@@ -25,6 +27,7 @@ OPTIONS = {
               'deep.aware.preset': ['auto-strict', 'auto-medium', 'auto-loose']},
 }
 LABELS = {
+    'bactologix_compute.swap_mb': 'Additional swap allowance (MB)',
     'kraken_review_before_filtering': 'Pause after identification',
     'run_kraken': 'Run Kraken2', 'kraken_decision_mode': 'Kraken decision mode',
     'run_busco': 'Run BUSCO', 'run_prokka': 'Run Prokka', 'run_multiqc': 'Run MultiQC',
@@ -35,6 +38,7 @@ LABELS = {
     'deep.aware.enabled': 'Enable BaSIS AWARE', 'deep.aware.preset': 'AWARE preset',
 }
 HELP = {
+    'bactologix_compute.swap_mb': 'Managed in Customize compute resources. Adds a scheduler allowance without increasing tool-specific memory settings.',
     'kraken_review_before_filtering': 'Stop after Kraken, review the report, then finalize the target and continue. Requires a compatible HybAs version.',
     'run_kraken': 'Switching off also sets the decision mode to Off. Switching on from Off selects AWARE.',
     'kraken_decision_mode': 'Off skips Kraken. Manual, Auto and AWARE enable it. The pipeline keeps its existing decision rules.',
@@ -214,6 +218,8 @@ def compile_config(tool, text, changes=None):
 
 def validate(tool, text):
     cfg = parse_config(text)
+    from .compute_memory import allowance
+    allowance(cfg)
     from .hardware import workflow_environment
     workflow_environment(cfg)
     if tool == 'hybas':

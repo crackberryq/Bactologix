@@ -20,7 +20,7 @@ from .runs import (absolute_path, clone_runs, command, create_run,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
 from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, storage_cleanup, compatibility, comparisons, sample_imports
-from . import setup_state, assessment
+from . import setup_state, assessment, compute_memory
 from . import isolate_actions
 from . import reference_catalog
 from . import database_builder, followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
@@ -120,6 +120,7 @@ def snapshot(store):
         checked = dry_run_current(store, run)
         status = run_status(run, jobs, checked)
         runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant", "identification")} | {
+            "swap_mb": compute_memory.allowance(cfg),
             "status": status, "assessment": assessment.summary(store, run), "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
             "kraken_mode": "off" if cfg.get("run_kraken") is False else kraken_mode,
             "can_micp_handoff": run["tool"] == "hybas" and status == "completed",
@@ -497,6 +498,9 @@ def dispatch(store, kind, p):
                 raise ValueError("The run configuration belongs to another pipeline. Review its settings again.")
             text = run_config.compile_config(tool, config["text"], config.get("changes"))
             run_config.validate(tool, text)
+        if 'swap_mb' in p:
+            text = compute_memory.with_swap(text, p['swap_mb'])
+        compute_memory.policy({'memory_mb': memory}, parse_config(text))
         made = []
         for sample in samples:
             try:
@@ -510,6 +514,11 @@ def dispatch(store, kind, p):
         return response
     if kind == "inspect_run":
         run = copy.deepcopy(_item(store, "runs", p.get("id")))
+        run['swap_mb'] = compute_memory.policy(run)['swap_mb']
+        if run['swap_mb']:
+            # This is the explicit Refresh checks path. Background snapshots
+            # retain the ordinary inventory cache and never trigger probes.
+            hardware.inventory(store, refresh=True)
         run["database_paths"] = database_runs.paths(store, run)
         run["readiness"] = readiness.panel(store, run)
         run["settings"] = run_config.editor(run["tool"], run["config"])

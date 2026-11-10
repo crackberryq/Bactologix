@@ -120,7 +120,7 @@ def test_preservation_failure_stops_worker_before_invocation(attempt, monkeypatc
     from bactologix import runs
     ctx, run, output = attempt
     run.update(tool='hybas', sample={'id': 'sample'}, commit='a' * 40, workflow_sha256='b' * 64,
-               config='threads: 1', completed='earlier success')
+               config='threads: 1', cores=1, memory_mb=2048, completed='earlier success')
     ctx.job['payload'] = {'run_id': run['id'], 'action': 'run'}
     ctx.command = lambda *a, **kw: pytest.fail('Workflow must not start after preservation fails')
     monkeypatch.setattr(runs, 'validate_launch', lambda *a, **kw: run)

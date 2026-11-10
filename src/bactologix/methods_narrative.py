@@ -25,6 +25,20 @@ def _text(value):
     return UNKNOWN if value is None or str(value).strip().lower() in {'', 'unknown', 'unavailable', 'na', 'n/a'} else str(value)
 
 
+def allocation(run, cfg):
+    """Describe frozen scheduling choices without claiming observed memory use."""
+    from .compute_memory import policy
+    limits = policy(run, config=cfg)
+    sentence = ('The saved allocation was ' + _text(run.get('cores')) + ' CPU cores and '
+                + _text(run.get('memory_mb')) + ' MB RAM; this is the workflow allocation, not measured per-tool resource use.')
+    if limits['swap_mb']:
+        sentence += (f" An additional {limits['swap_mb']} MB disk-swap allowance was configured, "
+                     f"giving a total scheduler budget of {limits['scheduler_mb']} MB. "
+                     'The allowance does not establish actual swap consumption or increase physical RAM; '
+                     'individual tool memory settings remain separately recorded.')
+    return sentence
+
+
 def _incomplete(row, evidence):
     native = evidence.get('native_run', {}).get('incomplete_modules', [])
     return (row.get('complete') is False or row.get('scope_incomplete') or row.get('upstream_incomplete')
@@ -132,8 +146,7 @@ class _Narrator:
         action = 'was used through Bactologix to coordinate the computational workflow' if self.doc.get('completed') or self.doc.get('runtime_evidence') or self.doc.get('stage_narrative') else 'was selected in Bactologix for the computational workflow'
         sentence = (name + ' ' + action + ' for sample ' + _text(self.run.get('sample', {}).get('id'))
                     + ' (run ' + _text(self.run.get('id')) + '; source commit ' + _text(self.run.get('commit')) + ').')
-        sentence += (' The saved allocation was ' + _text(self.run.get('cores')) + ' CPU cores and '
-                     + _text(self.run.get('memory_mb')) + ' MB RAM; this is the workflow allocation, not measured per-tool resource use.')
+        sentence += ' ' + allocation(self.run, self.cfg)
         controller = self.software.get('snakemake', {})
         runtime = self.doc.get('runtime_evidence') or {}
         if runtime.get('versions', {}).get('snakemake'):

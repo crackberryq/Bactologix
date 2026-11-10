@@ -8,7 +8,7 @@ another combination.
 
 ## Current source candidate
 
-This baseline covers **Bactologix 0.1.0a100 (current)**. Record the installed
+This baseline covers **Bactologix 0.1.0a101 (current)**. Record the installed
 application version and the exact commit resolved by its published release tag
 in your validation record. Dev remains a separate installation and validation
 baseline; consult [dual-channel testing](dual-channel-testing.md) and the
@@ -38,6 +38,8 @@ install the intended pipeline and create a new run to test this candidate.
    outputs, acceptance criteria and comparison method before running. Record
    platform, resources and any limits on the tested scope. File counts alone do
    not establish completeness or analytical correctness.
+   Record physical RAM and any explicit [disk-swap allowance](swap-memory.md)
+   separately; the scheduler budget is not measured memory consumption.
 2. Preserve the new run's exact source, frozen configuration and input content
    identities. Methods records `source_commit`, `config_sha256`, `workflow_sha256`
    and available `input_snapshots`. Legacy file size/mtime records do not establish
