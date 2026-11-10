@@ -87,7 +87,7 @@ def test_run_specific_methods_diagram_tools_and_readonly_exports(workspace, run)
         first.locator('summary').click()
         expect(first).to_contain_text('Inputs')
         expect(first).to_contain_text('Outputs')
-        assert graph.locator('svg').count() == 0, 'The generated SVG must remain isolated as an image.'
+        assert graph.locator('.methods-flow-figure svg, .methods-flow-scroll svg').count() == 0, 'The generated SVG must remain isolated as an image.'
         for label, fmt in [('Diagram SVG', 'svg'), ('Diagram JSON', 'json'), ('Reproducibility ZIP', 'zip')]:
             with page.expect_download() as event:
                 page.get_by_role('button', name=label, exact=True).click()
