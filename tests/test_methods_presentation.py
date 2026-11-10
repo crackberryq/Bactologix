@@ -24,6 +24,11 @@ def test_all_pipeline_exports_are_explicit_experimental_run_descriptions(workspa
     before = copy.deepcopy(workspace.jobs())
     doc = methods.build(workspace, selected)
     assert doc['paragraphs'][0] == methods.VALIDATION_STATUS
+    assert doc['narrative']['paragraphs'][0].startswith(doc['pipeline'])
+    narrative = methods.download(workspace, selected, 'manuscript')['text']
+    assert selected['sample']['id'] in narrative
+    assert 'Settings supplement' not in narrative and 'What:' not in narrative
+    assert 'scientific validation' in narrative
     assert 'scientific validation' in doc['validation_status']
     assert 'has not been established' in doc['validation_status']
     assert doc['flow']['run_id'] == selected['id']
@@ -35,8 +40,10 @@ def test_all_pipeline_exports_are_explicit_experimental_run_descriptions(workspa
         result = methods.download(workspace, selected, format)['text']
         assert 'scientific validation' in result and 'has not been established' in result
         assert 'Inputs' in result and 'Outputs' in result
+        assert result.index(doc['narrative']['paragraphs'][0].split(' (')[0]) < result.index('Run data flow')
     archive = zipfile.ZipFile(io.BytesIO(base64.b64decode(methods.download(workspace, selected, 'zip')['base64'])))
-    assert {'methods-flow.svg', 'methods-flow.json', 'methods-provenance.json'} <= set(archive.namelist())
+    assert {'methods-narrative.txt', 'methods-flow.svg', 'methods-flow.json', 'methods-provenance.json'} <= set(archive.namelist())
+    assert archive.read('methods-narrative.txt').decode() == narrative
     flow = json.loads(archive.read('methods-flow.json'))
     assert flow['run_id'] == selected['id'] and flow['config_sha256'] == selected['config_sha256']
     assert '<svg' in archive.read('methods.html').decode()

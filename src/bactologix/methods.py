@@ -301,7 +301,7 @@ def _hybas(cfg, run):
             paragraphs.append('The saved polishing mode was ' + _value(cfg['polish_mode']) + '. Requested settings are provided in the supplement; they do not establish which stages executed.')
         return paragraphs, ['snakemake']
     mode = run['sample']['mode']
-    paragraphs, tools = [], ['snakemake', 'unicycler', 'quast']
+    paragraphs, tools = [], ['snakemake', 'unicycler', 'quast', 'seqkit']
     paragraphs.append('The workflow was configured for ' + {'hybrid': 'hybrid Illumina and Oxford Nanopore',
         'ont_only': 'Oxford Nanopore-only', 'illumina_only': 'Illumina-only'}.get(mode, mode) +
         ' input. Assembly was configured with Unicycler and assembly quality assessment with QUAST.')
@@ -323,13 +323,13 @@ def _hybas(cfg, run):
     if mode in {'hybrid', 'ont_only'} and polish != 'none':
         stages += [f"Racon ({cfg['racon_rounds']} rounds)"] if cfg['racon_rounds'] else []
         if cfg['racon_rounds']:
-            tools.append('racon')
+            tools += ['minimap2', 'racon']
         if polish in {'medaka', 'tripolish'}:
             stages.append('Medaka')
             tools.append('medaka')
     if mode in {'hybrid', 'illumina_only'} and polish == 'tripolish' and cfg['run_polypolish']:
         stages.append('Polypolish')
-        tools.append('polypolish')
+        tools += ['bwa', 'samtools', 'polypolish']
     paragraphs.append('The requested polishing mode was ' + polish + '; compatible planned stages were ' +
                       (', '.join(stages) if stages else 'none') + '. Executed or skipped stages are reported separately when recorded.')
     if 'medaka' in tools:
@@ -602,11 +602,13 @@ def build(store, run):
         'parameters': parameters, 'warnings': list(dict.fromkeys(warnings)), 'evidence_origin': origin,
         'evidence': evidence, 'supplemental_evidence': recovery, 'runtime_evidence': runtime,
         'citation_url': f"https://github.com/{PIPELINES[run['tool']]['repo']}/tree/{run['commit']}"}
-    from . import methods_flow
+    from . import methods_flow, methods_narrative
     document['flow'] = methods_flow.build(run, document, effective, known_source=known)
     document['flow_svg'] = methods_flow.svg(document['flow']).decode('utf-8')
     document['workflow_steps'] = document['flow']['tool_steps']
-    document['warnings'] = list(dict.fromkeys([*document['warnings'], *document['flow'].get('warnings', [])]))
+    document['narrative'] = methods_narrative.build(run, document, effective, known_source=known)
+    document['warnings'] = list(dict.fromkeys([*document['warnings'], *document['flow'].get('warnings', []),
+                                             *document['narrative'].get('warnings', [])]))
     document['text'] = render_text(document)
     return document
 
@@ -643,10 +645,15 @@ def render_text(doc, markdown=False):
                         'Supplemental metadata status: ' + recovered['status']]
         supplemental += ['Supplemental output SHA256: ' + f['sha256']
                          for f in recovered.get('evidence', {}).get('files', [])]
-    lines = [('## ' if markdown else '') + 'Methods', '', *[p + '\n' for p in doc['paragraphs']],
+    narrative = doc.get('narrative', {})
+    lines = [('## ' if markdown else '') + 'Methods', '',
+             *[p + '\n' for p in narrative.get('paragraphs', doc['paragraphs'])],
+             heading('Methods evidence and validation'), '',
+             narrative.get('status', ''), doc['validation_status'], '',
              *_flow_lines(doc, markdown),
              heading('Export status and review'), '', doc['state'] + ' · ' + doc['id'],
              'Evidence source: ' + doc['evidence_origin'], *['- ' + w for w in doc['warnings']], '',
+             heading('Configuration and evidence notes'), '', *[p + '\n' for p in doc['paragraphs']],
              heading('Recorded execution'), '', *doc['execution'], '', heading('Software versions'), '',
              *[f"{r.get('label', r['tool'])}: {r['version']} ({r['scope']})" for r in doc['software']], '',
              heading('Database identities'), '', *(doc.get('databases') or ['No additional database identity metadata is recorded.']), '',
@@ -662,7 +669,7 @@ def render_text(doc, markdown=False):
 
 
 def _html(doc):
-    body = ''.join('<p>' + html.escape(p) + '</p>' for p in doc['paragraphs'])
+    body = ''.join('<p>' + html.escape(p) + '</p>' for p in doc.get('narrative', {}).get('paragraphs', doc['paragraphs']))
     esc = lambda value: html.escape(str(value), quote=True)
     steps = ''.join('<tr><th scope="row">' + esc(row['label']) + '<br><small>' + esc(row.get('status_label', row['status'])) + '</small></th>'
                     '<td>' + esc(row['what']) + '<p><strong>Purpose:</strong> ' + esc(row['why']) + '</p></td>'
@@ -677,15 +684,25 @@ def _html(doc):
     return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
             '<title>Methods — ' + html.escape(doc['id']) + '</title><style>body{font:16px/1.6 system-ui;max-width:1100px;margin:40px auto;padding:0 24px;color:#172b30}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.5 monospace}h1{font-size:28px}.diagram,.table-wrap{overflow:auto}svg{max-width:100%;height:auto}.full-size .diagram{max-height:85vh}.full-size svg{max-width:none}summary{cursor:pointer;padding:12px 0}.diagram:focus{outline:2px solid #16786d}table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid #d5dfdf;padding:12px;vertical-align:top;text-align:left;overflow-wrap:anywhere}td p{margin-bottom:0}@media print{.full-size{display:none}body{margin:0}tr{break-inside:avoid}.diagram,.table-wrap{overflow:visible}}</style>'
             '<h1>Methods</h1><p><strong>' + html.escape(doc['state']) + '</strong> · ' + html.escape(doc['id']) + '</p>' + body +
-            flow +
+            '<section aria-label="Methods evidence and validation"><h2>Methods evidence and validation</h2><p>' +
+            esc(doc.get('narrative', {}).get('status', '')) + '</p><p>' + esc(doc['validation_status']) + '</p></section>' + flow +
             '<h2>Review and reproducibility supplement</h2><pre>' + html.escape(doc['text'].split('Export status and review\n', 1)[1]) + '</pre></html>')
 
 
+def render_manuscript(doc):
+    """Readable Methods only; retain evidence qualifiers inside each paragraph."""
+    narrative = doc.get('narrative', {})
+    return ('Methods\n\n' + '\n\n'.join(narrative.get('paragraphs', doc['paragraphs'])) +
+            '\n\n' + narrative.get('status', '') + '\n' + doc['validation_status'] + '\n')
+
+
 def download(store, run, format):
-    if format not in {'txt', 'md', 'html', 'zip', 'svg', 'json'}:
-        raise ValueError('Choose Text, Markdown, HTML, SVG, diagram JSON or the reproducibility ZIP.')
+    if format not in {'txt', 'md', 'html', 'zip', 'svg', 'json', 'manuscript'}:
+        raise ValueError('Choose Methods only, Text, Markdown, HTML, SVG, diagram JSON or the reproducibility ZIP.')
     doc = build(store, run)
     name = run['id'] + '-methods.' + format
+    if format == 'manuscript':
+        return {'name': run['id'] + '-methods-narrative.txt', 'text': render_manuscript(doc), 'type': 'text/plain'}
     if format in {'svg', 'json'}:
         return {'name': run['id'] + '-methods-flow.' + format,
                 'text': doc['flow_svg'] if format == 'svg' else json.dumps(doc['flow'], indent=2, ensure_ascii=False) + '\n',
@@ -695,6 +712,7 @@ def download(store, run, format):
         return {'name': name, 'text': text, 'type': {'txt': 'text/plain', 'md': 'text/markdown', 'html': 'text/html'}[format]}
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('methods-narrative.txt', render_manuscript(doc))
         archive.writestr('methods.txt', doc['text'])
         archive.writestr('methods.md', render_text(doc, True))
         archive.writestr('methods.html', _html(doc))

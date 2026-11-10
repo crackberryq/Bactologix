@@ -421,7 +421,7 @@ NVIDIA results as unknown availability, including on WSL.
 ### Run-specific Methods exports
 
 Open a saved run and choose **Methods**, or use **Results → Methods & downloads**.
-The view explicitly identifies the combined pipeline as experimental and scientifically unvalidated. It explains tool roles, inputs, outputs and evidence for this run. See [Run Methods and data-flow diagrams](docs/run-methods.md).
+The view explicitly identifies the combined pipeline as experimental and scientifically unvalidated. It leads with a run-specific Methods narrative including tools and recorded or source-defined settings, followed by its diagram and evidence. Use **Methods only** to download the narrative or the full exports for supporting material. See [Run Methods and data-flow diagrams](docs/run-methods.md).
 
 Review the generated prose, then download plain text, Markdown, printable HTML,
 or a reproducibility ZIP. The ZIP includes the frozen run YAML, settings with
