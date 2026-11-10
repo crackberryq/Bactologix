@@ -74,7 +74,7 @@ def test_reviewed_sources_describe_configuration_without_claiming_execution(work
     genescope['commit'] = commit
     doc = methods.build(workspace, genescope)
     assert doc['state'] == 'Planned methods'
-    assert not any('No verified Methods template' in warning for warning in doc['warnings'])
+    assert not any('No source-matched workflow description' in warning for warning in doc['warnings'])
     assert 'DIAMOND' in doc['text'] and 'configured' in doc['text']
     assert '12 CPU cores and 28672 MB' in doc['text']
     settings = {row['setting']: row for row in doc['parameters']}
@@ -98,7 +98,7 @@ def test_unreviewed_source_cannot_borrow_template(workspace, genescope, change):
     else:
         Path(genescope['folder'], 'workflow/Hybas.smk').write_text('changed source\n')
     doc = methods.build(workspace, genescope)
-    assert any('No verified Methods template' in warning for warning in doc['warnings'])
+    assert any('No source-matched workflow description' in warning for warning in doc['warnings'])
     assert all(row['origin'] == 'Saved run' for row in doc['parameters'])
     assert 'Biopython' not in '\n'.join(doc['paragraphs'])
     assert 'DIAMOND' not in '\n'.join(doc['paragraphs'])
