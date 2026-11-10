@@ -1,3 +1,10 @@
+## 0.1.0a96.dev1 run Methods and data flow
+
+- Runtime regressions cover later controller changes, failed/interrupted invocations, immutable observation identity, malformed traces, historical version gaps and partial rule capture. Sample-free native workflows check dependency declarations, completed rule events and a second invocation with no work.
+- Source-matched diagram fixtures cover pipeline branches, optional steps, inherited results, unknown sources and partial evidence. Recorded scheduler edges describe declared input/output dependencies, not observed file bytes or every executable inside a rule.
+- Browser acceptance covers the explicit unvalidated-pipeline notice, controller version scope, tool roles, accessible diagrams and SVG/JSON/ZIP downloads. Snakemake 9.27.1 execution is exercised in the Dev controller matrix in addition to the regular controller checks.
+- These checks validate software provenance and presentation. They do not establish scientific performance or reconstruct missing historical execution records.
+
 ## 0.1.0a95.dev1 notifications
 
 - Notification fixtures cover historical baselines, job/review distinctions, retention, resolved alerts, category preferences and concurrent desktop claims. Generic desktop text omits sample names, paths and raw error details.

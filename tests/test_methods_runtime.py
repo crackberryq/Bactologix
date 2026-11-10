@@ -91,6 +91,8 @@ def test_actual_invocation_versions_are_bound_and_survive_environment_and_file_r
     shutil.rmtree(Path(launch['path']).parent)
     monkeypatch.setattr(native, 'read', lambda *a: pytest.fail('No file probe during export'))
     run['controller'] = '/a/newly/installed/controller'
+    # Later validation/preparation changes last_controller, not this receipt.
+    run['last_controller'] = '/a/replacement/runner/used/for/later/validation'
     assert runtime.evidence(store, run, jid) == got
 
 
@@ -159,15 +161,14 @@ def test_bad_receipt_context_does_not_change_workflow_outcome(attempt, fake_cont
     assert runtime.evidence(store, run, jid) is None
 
 
-@pytest.mark.parametrize('change', ['nonce', 'job', 'run', 'config', 'source', 'inputs', 'controller', 'status', 'versions'])
+@pytest.mark.parametrize('change', ['nonce', 'job', 'run', 'config', 'source', 'inputs', 'producing_controller', 'status', 'versions'])
 def test_saved_identity_conflicts_cannot_supply_versions(attempt, fake_controller, change):
     store, run, jid = attempt
     observe(attempt, fake_controller)
-    if change in {'config', 'source', 'inputs', 'controller'}:
+    if change in {'config', 'source', 'inputs'}:
         if change == 'config': run['config_sha256'] = 'f' * 64
         if change == 'source': run['commit'] = 'f' * 40
         if change == 'inputs': run['inputs'][0]['sha256'] = 'f' * 64
-        if change == 'controller': run['last_controller'] = '/another/controller'
     else:
         receipt = store.get(runtime.RECEIPT, jid)
         start = receipt['observations']['started']
@@ -176,8 +177,102 @@ def test_saved_identity_conflicts_cannot_supply_versions(attempt, fake_controlle
         if change == 'run': receipt['run_id'] = 'run-another'
         if change == 'status': receipt['observations']['finished']['exit_code'] = 7
         if change == 'versions': start['versions']['snakemake'] = 'invented'
+        if change == 'producing_controller': start['controller'] = '/another/controller'
         store.put(runtime.RECEIPT, jid, receipt)
     assert runtime.evidence(store, run, jid) is None
+    assert runtime.evidence(store, run, jid, include_incomplete=True) is None
+
+
+@pytest.mark.parametrize('outcome,job_status,expected,exit_code', [
+    ('7', 'failed', 'failed', 7),
+    ('kill', 'interrupted', 'interrupted', None),
+    ('0', 'cancelled', 'cancelled', 0),
+])
+def test_explicit_incomplete_view_retains_observed_version_without_claiming_success(
+        attempt, fake_controller, outcome, job_status, expected, exit_code):
+    store, run, jid = attempt
+    observe(attempt, fake_controller, outcome)
+    store.update_job(jid, status=job_status)
+    observed = runtime.evidence(store, run, jid, include_incomplete=True)
+    assert observed['versions']['snakemake'] == '9.6.2-observed-fixture'
+    assert observed['status'] == expected and observed['exit_code'] == exit_code
+    assert (observed['finished_at'] is None) == (outcome == 'kill')
+    assert 'successful completion and individual step execution are not established' in observed['scopes']['snakemake']
+    assert runtime.evidence(store, run, jid) is None
+
+
+def test_legacy_run_does_not_infer_runtime_from_installed_version(attempt, monkeypatch):
+    store, run, jid = attempt
+    store.update_job(jid, status='succeeded')
+    monkeypatch.setattr(native, 'read', lambda *a: pytest.fail('No retrospective version probe'))
+    assert runtime.evidence(store, run, jid, include_incomplete=True) is None
+
+
+def test_incomplete_version_rejects_conflicting_finish_and_changed_start(attempt, fake_controller):
+    store, run, jid = attempt
+    observe(attempt, fake_controller, '7')
+    store.update_job(jid, status='failed')
+    saved = store.get(runtime.RECEIPT, jid)
+    changed = copy.deepcopy(saved)
+    changed['observations']['finished']['nonce'] = 'foreign attempt'
+    store.put(runtime.RECEIPT, jid, changed)
+    assert runtime.evidence(store, run, jid, include_incomplete=True) is None
+    # A missing finish permits only a separately valid, bound start record.
+    changed = copy.deepcopy(saved)
+    del changed['observations']['finished']
+    changed['observations']['started']['context_sha256'] = 'f' * 64
+    store.put(runtime.RECEIPT, jid, changed)
+    assert runtime.evidence(store, run, jid, include_incomplete=True) is None
+
+
+def test_start_only_versions_require_matching_capture_hash(attempt, fake_controller):
+    store, run, jid = attempt
+    observe(attempt, fake_controller, 'kill')
+    store.update_job(jid, status='interrupted')
+    saved = store.get(runtime.RECEIPT, jid)
+    assert runtime.evidence(store, run, jid, include_incomplete=True)['versions']['snakemake']
+    changed = copy.deepcopy(saved)
+    changed['observations']['started']['versions']['snakemake'] = 'invented'
+    store.put(runtime.RECEIPT, jid, changed)
+    assert runtime.evidence(store, run, jid, include_incomplete=True) is None
+    del saved['observation_sha256']
+    store.put(runtime.RECEIPT, jid, saved)
+    assert runtime.evidence(store, run, jid, include_incomplete=True) is None
+
+
+def test_legacy_completed_runtime_receipt_remains_readable_without_new_capture_hashes(attempt, fake_controller):
+    store, run, jid = attempt
+    observe(attempt, fake_controller)
+    saved = store.get(runtime.RECEIPT, jid)
+    del saved['observation_sha256']
+    store.put(runtime.RECEIPT, jid, saved)
+    assert runtime.evidence(store, run, jid)['versions']['snakemake'] == '9.6.2-observed-fixture'
+
+
+@pytest.mark.parametrize('valid', [True, False])
+def test_rule_trace_is_bound_to_captured_invocation_and_cannot_replace_versions(attempt, fake_controller, valid):
+    store, run, jid = attempt
+    launch = runtime.prepare(store, run, store.job(jid))
+    assert invoke(fake_controller, launch).returncode == 0
+    path = Path(launch['path']).with_name('finished.json')
+    finished = json.loads(path.read_bytes())
+    trace = {'schema': 1, 'observer': 'snakemake-structured-log', 'coverage': 'captured',
+             'truncated': False, 'jobs': [], 'warnings': []}
+    if not valid:
+        trace['observer'] = 'unbound external output'
+    finished['rule_trace'] = trace
+    path.write_bytes(native.encoded(finished))
+    runtime.finish(store, run, jid, launch, succeeded=True)
+    observed = runtime.evidence(store, run, jid)
+    assert observed['versions']['snakemake'] == '9.6.2-observed-fixture'
+    if valid:
+        assert observed['rule_trace'] == trace
+    else:
+        assert 'rule_trace' not in observed and 'rule data flow is unavailable' in observed['warnings'][0]
+    saved = store.get(runtime.RECEIPT, jid)
+    saved['observations']['finished']['rule_trace']['coverage'] = 'partial'
+    store.put(runtime.RECEIPT, jid, saved)
+    assert runtime.evidence(store, run, jid) is None, 'Changed trace must not bypass its capture hash'
 
 
 @pytest.mark.parametrize('state', ['failed', 'cancelled'])
@@ -225,9 +320,11 @@ def test_linked_runtime_directory_is_not_followed(attempt, tmp_path):
     assert list(target.iterdir()) == []
 
 
-def test_real_sample_free_snakemake_invocation(attempt, tmp_path):
+@pytest.mark.parametrize('pipeline', ['hybas', 'basis', 'micpscope'])
+def test_real_sample_free_snakemake_invocation(attempt, tmp_path, pipeline):
     snakemake = pytest.importorskip('snakemake')
     store, run, jid = attempt
+    run['tool'] = pipeline
     launch = runtime.prepare(store, run, store.job(jid))
     snakefile = tmp_path / 'Empty.smk'
     snakefile.write_text('rule all:\n    input: []\n')
@@ -294,13 +391,15 @@ def test_methods_document_and_zip_preserve_actual_invocation_without_inventing_s
         assert 'Snakemake 9.6.2-observed-fixture' in doc['text']
         assert 'Controller Python ' + sys.version.split()[0] in doc['text']
         assert 'No per-step execution metadata is available' in doc['text']
-        assert 'not individual rule execution' in doc['text']
+        assert 'individual steps require their own evidence' in doc['text']
         assert not doc['evidence']['records'] and not doc['evidence']['decisions']
     else:
         assert process.returncode == 7 and doc['state'] == 'Incomplete execution'
-        assert doc['runtime_evidence'] is None
-        assert '9.6.2-observed-fixture' not in doc['text']
-        assert 'Workflow controller invocation was recorded' not in doc['text']
+        assert doc['runtime_evidence']['status'] == 'failed'
+        assert doc['runtime_evidence']['exit_code'] == 7
+        assert '9.6.2-observed-fixture' in doc['text']
+        assert 'outcome=failed' in doc['text']
+        assert not doc['completed']
     artifact = methods.download(store, run, 'zip')
     with zipfile.ZipFile(io.BytesIO(base64.b64decode(artifact['base64']))) as archive:
         provenance = json.loads(archive.read('methods-provenance.json'))
@@ -313,7 +412,8 @@ def test_methods_document_and_zip_preserve_actual_invocation_without_inventing_s
             for name in ('methods.txt', 'methods.md', 'methods.html'):
                 text = archive.read(name).decode()
                 assert '9.6.2-observed-fixture' in text and 'Controller Python' in text
-                assert 'not individual rule execution' in text
+                assert 'individual steps require their own evidence' in text
         else:
-            assert b'9.6.2-observed-fixture' not in archive.read('methods.txt')
+            exported = archive.read('methods.txt')
+            assert b'9.6.2-observed-fixture' in exported and b'outcome=failed' in exported
     assert store.get(runtime.RECEIPT, jid) == saved

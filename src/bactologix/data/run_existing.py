@@ -16,7 +16,7 @@ def main():
     except Exception as exc:
         raise SystemExit('Bactologix environment guard failed: ' + str(exc)) from exc
     from snakemake.cli import main as snakemake_main
-    observer, receipt = None, None
+    observer, receipt, trace, trace_logger = None, None, None, None
     if os.environ.get('BACTOLOGIX_RUNTIME_CONTEXT'):
         try:
             from snakemake import __version__ as snakemake_version
@@ -24,9 +24,23 @@ def main():
             receipt = observer['begin'](snakemake_version)
         except Exception as exc:
             print('Controller runtime observation unavailable: ' + str(exc), file=sys.stderr)
+        if receipt is not None:
+            try:
+                from snakemake.logging import logger as trace_logger
+                trace = runpy.run_path(str(Path(__file__).parent / 'run_trace.py'))['Observer']()
+                trace_logger.addFilter(trace)
+            except Exception as exc:
+                trace = None
+                print('Controller rule observation unavailable: ' + str(exc), file=sys.stderr)
     sys.argv = sys.argv[1:]
     def finish(error=None):
         if receipt is not None:
+            if trace is not None:
+                try:
+                    trace_logger.removeFilter(trace)
+                    receipt['rule_trace'] = trace.snapshot()
+                except Exception as exc:
+                    print('Controller rule observation unavailable: ' + str(exc), file=sys.stderr)
             try:
                 observer['finish'](receipt, error)
             except Exception as exc:
