@@ -35,7 +35,7 @@ def capacity(store, monkeypatch):
                       'combined_available_mb': 530720}
     monkeypatch.setattr(hardware, 'inventory', lambda store, refresh=False: copy.deepcopy(info))
     store.put('resource_defaults', 'hybas', {'cores': 12, 'memory_mb': 28672, 'preset': 'custom'})
-    store.put('configs', 'hybas', 'run_kraken: false\nkraken_decision_mode: off\npolish_mode: none\nassembly_mem_mb: 8192\npolishing_mem_mb: 4096\nspades_memory_gb: 8\n')
+    store.put('configs', 'hybas', 'run_kraken: false\nkraken_decision_mode: "off"\npolish_mode: none\nassembly_mem_mb: 8192\npolishing_mem_mb: 4096\nspades_memory_gb: 8\n')
 
 
 def capture(page, name):
