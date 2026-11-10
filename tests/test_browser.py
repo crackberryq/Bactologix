@@ -2499,6 +2499,20 @@ def test_reviewed_sample_import_preview_staleness_and_commit(tmp_path):
         browser.close()
 
 
+def assert_workspace_fits_viewport(page, context):
+    """Report the responsible layout when a header or page overflows."""
+    bounds = page.locator('.bacto-root').evaluate("""node => ({
+        viewport: innerWidth,
+        width: node.scrollWidth,
+        overflow: [...node.querySelectorAll('*')].map(el => {
+            const rect = el.getBoundingClientRect();
+            return {element: el.tagName + '.' + el.className,
+                    left: rect.left, right: rect.right, width: rect.width};
+        }).filter(rect => rect.width && rect.right > innerWidth + 1).slice(0, 8)
+    })""")
+    assert bounds['width'] <= bounds['viewport'] + 1, f'{context}: {bounds}'
+
+
 def test_responsive_navigation_and_workspace_tools(tmp_path):
     from playwright.sync_api import sync_playwright, expect
     from bactologix.ui_backend import dispatch, snapshot
@@ -2521,9 +2535,17 @@ def test_responsive_navigation_and_workspace_tools(tmp_path):
                     if req and req['kind'] == 'inspect_compatibility':
                         result = {'id': req['id'], 'ok': True, **dispatch(store, req['kind'], req['payload'])}
                         page.evaluate('({r,s})=>{Object.assign(window.acceptanceWorkspace,s);window.acceptanceRender(r)}', {'r': result, 's': snapshot(store)})
-                assert page.locator('.bacto-root').evaluate('(el) => el.scrollWidth <= innerWidth+1')
+                assert_workspace_fits_viewport(page, f'{width}px, {name}')
                 for tab in page.locator('.setup-tabs button').all():
                     expect(tab).to_be_visible()
+            expect(page.get_by_role('button', name='Notifications', exact=True)).to_be_visible()
+            page.locator('.workspace-tools > summary').click()
+            menu = page.locator('.workspace-tools-menu')
+            expect(menu).to_be_visible()
+            bounds = menu.bounding_box()
+            assert bounds and bounds['x'] >= -1 and bounds['x'] + bounds['width'] <= width + 1, (width, bounds)
+            assert_workspace_fits_viewport(page, f'{width}px, workspace tools open')
+            page.locator('.workspace-tools > summary').click()
         toggle = page.get_by_role('button', name='Open navigation', exact=True)
         expect(page.locator('.sidebar')).to_be_hidden()
         toggle.click()
@@ -3032,7 +3054,7 @@ def test_beta_navigation_purpose_and_empty_inputs(tmp_path):
             page.set_viewport_size({'width': width, 'height': 900})
             expect(purpose).to_be_visible()
             expect(page.get_by_role('button', name='Continue to inputs', exact=True)).to_be_visible()
-            assert page.locator('.bacto-root').evaluate('(node) => node.scrollWidth <= innerWidth + 1')
+            assert_workspace_fits_viewport(page, f'{width}px, purpose selection')
         page.get_by_role('button', name='Continue to inputs', exact=True).click()
         request = page.evaluate('window.acceptanceEvents.at(-1).value')
         assert request['kind'] == 'run_config_editor'

@@ -383,7 +383,7 @@ td{padding:18px 20px;line-height:1.55}
 .topbar{padding:16px 32px;min-height:76px;gap:16px;background:#fff}
 .breadcrumbs{font-size:14px;color:var(--muted)}
 .breadcrumbs strong{font-weight:600;color:var(--ink)}
-.top-actions{gap:12px;flex-wrap:wrap;justify-content:flex-end}
+.top-actions{gap:12px;min-width:0;max-width:100%;flex-shrink:1;flex-wrap:wrap;justify-content:flex-end}
 .top-actions .btn{font-size:13px}
 .channel-badge{display:inline-flex;align-items:center;min-height:30px;padding:5px 10px;border-radius:6px;background:#e5f4ef;color:#245e50;font-size:11px;font-weight:750;letter-spacing:.5px;white-space:nowrap}
 .channel-badge.dev,.channel-badge.experimental{background:#fff1d1;color:#80530a}
@@ -552,7 +552,9 @@ td{padding:18px 20px;line-height:1.55}
 }
 @media(max-width:600px){
  main{padding:24px 16px}.topbar{padding:12px 16px}.top-actions{justify-content:flex-start;gap:8px}
- .top-actions>.workspace-tools{flex:0 1 auto}.top-actions>.btn{flex:0 1 auto}
+ .top-actions>.workspace-tools{flex:0 1 auto;position:static}.top-actions>.btn{flex:0 1 auto}
+ /* A wrapped tools button may start a row; anchor its menu inside the header. */
+ .workspace-tools-menu{right:16px;top:calc(100% + 8px)}
  .workspace-identity{max-width:100%;font-size:13px}.channel-badge{font-size:10px;padding:5px 8px}
  .header-activity{font-size:13px}.breadcrumbs{font-size:13px}
  h1{font-size:26px}.subtitle{font-size:14px}.page-heading{gap:16px}
@@ -602,3 +604,50 @@ td{padding:18px 20px;line-height:1.55}
 .registered-samples .sample-folder-action{margin-top:0}.sample-input-location{margin-top:14px;font-size:12px}.sample-input-location>summary{cursor:pointer;color:var(--muted);min-height:30px;padding:5px 0}.sample-input-location p{margin-top:8px;overflow-wrap:anywhere}.isolate-folder-modal .modal-body{min-width:0}.isolate-folder-labels{display:grid;gap:12px;overflow-wrap:anywhere}.isolate-folder-labels small{display:block;color:var(--muted);margin-top:5px}.isolate-folder-choices .path-cell{margin:14px 0;overflow-wrap:anywhere;word-break:break-word}.isolate-folder-choices .inline-info{margin-bottom:14px}.isolate-folder-choices .btn{min-height:44px;max-width:100%;white-space:normal}
 .registered-samples>.table-wrap{width:100%;min-width:0;max-width:100%;overflow-x:auto}.registered-samples>.table-wrap>table{min-width:960px;table-layout:fixed}.registered-samples th:nth-child(1){width:16%}.registered-samples th:nth-child(2){width:14%}.registered-samples th:nth-child(3){width:32%}.registered-samples th:nth-child(4){width:38%}.registered-samples .sample-folder-action>.btn{min-width:166px;white-space:nowrap;overflow-wrap:normal}.registered-samples .isolate-row-actions .btn{flex-shrink:0;white-space:nowrap;overflow-wrap:normal}.registered-samples .isolate-row-actions .table-actions{justify-content:flex-start}.registered-samples .isolate-row-actions .quiet{white-space:nowrap}
 @media(min-width:701px) and (max-width:900px){.isolate-history-intro{gap:16px}.isolate-history-intro>.button-row{width:300px}.isolate-export-form>.form-grid{grid-template-columns:minmax(0,1fr)}.isolate-export-form .folder-address{grid-column:1/-1}}
+
+/* Persistent notification centre and optional desktop alerts. */
+.notification-bell {position:relative;gap:7px;padding-inline:11px;flex:none}
+.notification-bell .icon {width:19px;height:19px}
+.notification-bell-label {font-size:12px}
+.notification-count {display:inline-flex;min-width:19px;height:19px;padding:0 5px;align-items:center;justify-content:center;border-radius:999px;background:#167b70;color:#fff;font-size:11px;font-weight:750;line-height:1}
+.notification-modal {max-width:850px}
+.notification-center {display:grid;gap:18px;min-width:0}
+.notification-center h3 {margin:0 0 6px;font-size:15px}
+.notification-center p {margin:5px 0 10px;line-height:1.55}
+.notification-overview,.notification-update-status {display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.notification-overview>div,.notification-update-status>div {min-width:0}
+.notification-desktop {padding:18px;border:1px solid #d9e7e3;background:#f3f8f6;border-radius:12px}
+.notification-desktop .inline-info {margin-bottom:0}
+.notification-preferences {border:1px solid #dde6e3;border-radius:10px;padding:14px 16px}
+.notification-preferences>summary {cursor:pointer;font-weight:650;color:#23433d}
+.notification-choice-grid {display:grid;grid-template-columns:1fr 1fr;gap:14px 20px;margin:17px 0}
+.notification-choice-grid .check-field {margin:0;align-items:flex-start}
+.notification-preferences .inline-info {margin-bottom:0}
+.notification-update-status {padding:16px;border:1px solid #e0e7e4;border-radius:10px;background:#fff}
+.notification-update-status p {font-size:12px;color:#61746e;margin-bottom:0;overflow-wrap:anywhere}
+.notification-update-errors {flex-basis:100%;font-size:13px;padding:12px;border-radius:8px;background:#fff5e4;color:#72531f}
+.notification-update-errors ul {margin:8px 0;padding-left:18px;overflow-wrap:anywhere}
+.notification-list {display:grid;gap:10px;min-width:0}
+.notification-item {padding:16px;border:1px solid #dde6e3;border-radius:10px;background:#fff;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center}
+.notification-item.is-unread {border-left:4px solid #269480;background:#f7fbf9;padding-left:13px}
+.notification-item.is-read {color:#596d66}
+.notification-item-title {display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.notification-item-title h3 {margin:0}
+.notification-item p {font-size:13px;overflow-wrap:anywhere;margin-bottom:7px}
+.notification-item small {font-size:11px;color:#6f817b;overflow-wrap:anywhere}
+.notification-item .button-row {max-width:170px;justify-content:flex-end}
+.notification-empty {padding:34px 18px;text-align:center;border:1px dashed #cfddd7;border-radius:12px;color:#61746e}
+@media(max-width:1200px){.notification-bell-label{display:none}}
+@media(max-width:600px){
+ .notification-bell{padding:8px;min-width:37px;min-height:37px}
+ .notification-bell .notification-count{min-width:17px;height:17px;padding:0 4px;font-size:10px}
+ .notification-center{gap:14px}
+ .notification-choice-grid{grid-template-columns:1fr}
+ .notification-item{grid-template-columns:minmax(0,1fr);padding:14px}
+ .notification-item .button-row{max-width:none;justify-content:flex-start}
+ .notification-desktop,.notification-update-status{padding:14px}
+ .notification-overview,.notification-update-status{gap:10px}
+ .notification-center .btn{white-space:normal;overflow-wrap:anywhere}
+}
+.notification-item .notification-context {font-size:12px;font-weight:600;color:#405f55;margin:6px 0}
+.notification-history-note {font-size:12px;color:#697d74;margin:0}

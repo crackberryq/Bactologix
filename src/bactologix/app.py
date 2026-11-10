@@ -30,5 +30,9 @@ def on_action():
     if request:
         handle_request(store, request, st.session_state)
 
-workspace_component()(key="workspace-ui", data={"workspace": snapshot(store), "response": st.session_state.get("ui-response")},
+workspace_state = snapshot(store)
+if not workspace_state['app_update']['active_job'] and not workspace_state['app_update']['restart_required']:
+    from bactologix import update_checks
+    update_checks.tick(store)
+workspace_component()(key="workspace-ui", data={"workspace": workspace_state, "response": st.session_state.get("ui-response")},
                       on_action_change=on_action, width="stretch", height="content")
