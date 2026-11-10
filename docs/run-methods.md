@@ -1,10 +1,29 @@
 # Run-specific Methods and data flow
 
 Open a saved run and select **Methods & citation**, then **Generate Methods** or
-**Refresh Methods**. The view explains this run's tools, purpose, inputs, outputs,
-versions and evidence. The combined pipelines are experimental: scientific
+**Refresh Methods**. The view leads with a continuous Methods narrative for the
+selected run, followed by its diagram and supporting evidence. The combined pipelines are experimental: scientific
 validation for their intended application has not been established. Published
 evidence about an individual tool does not validate the assembled workflow.
+
+## Methods narrative
+
+The narrative follows the reviewed processing route and the available execution
+records. HybAs describes read preparation, assembly, polishing and subsequent
+assessment; BaSIS describes the selected modules and any separate follow-up;
+GeneScope describes its selected reference search and sequence-property analysis.
+Independent module or QC branches are not described as a single serial tool chain.
+
+Saved thresholds and explicit arguments from the exact reviewed workflow appear
+beside their tool. Requested polishing rounds and models remain distinct from
+recorded stages and effective models. Internal tool defaults that were not saved
+are identified as missing; the exporter does not substitute today's defaults.
+All frozen configuration values remain available in the settings supplement.
+
+A configured step is described as configured. Attributable native records can
+support reported execution, reuse or skips, while controller events establish
+rule-level outcomes only. Older runs with incomplete records remain qualified
+drafts. Review the narrative against retained logs before using it in a paper.
 
 ## Snakemake versions
 
@@ -38,6 +57,9 @@ not scientific validation or a safety assessment.
 
 ## Downloads
 
+- **Methods only:** narrative text with its evidence qualifications and validation
+  note; also included as `methods-narrative.txt` in the ZIP.
+- **Full text / Markdown:** narrative and complete supporting material.
 - **Diagram SVG:** scalable figure for documents and printing.
 - **Diagram JSON:** nodes, dependencies, identity and evidence labels.
 - **Printable HTML:** Methods, diagram, tool explanations and reproducibility
