@@ -339,6 +339,12 @@ function storagePage(){
 
 function resultFileState(row){return ({available:'Available',missing:'Not present',empty:'Empty file',too_large:'Open original on disk',unavailable:'Unavailable or linked file'})[row.state]||'Unknown';}
 function resultBytes(n){return n==null?'':n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':(n/1048576).toFixed(1)+' MB';}
+function requestOutputFiles(kind,payload){
+ // Busy controls lose focus before the response replaces the dialog contents.
+ const active=parentElement.activeElement||document.activeElement;
+ U.outputFilesFocus=U.modal?.kind==='output-files'?{modalId:U.modal.id,elementId:active?.id,action:active?.dataset.action,key:active?.dataset.id,label:active?.getAttribute('aria-label')}:null;
+ request(kind,payload);
+}
 function outputFilesPanel(id){
  const d=U.outputFiles?.id===id?U.outputFiles:null;
  if(!d)return '<p role="status">Loading this output directory…</p>';
@@ -1156,7 +1162,7 @@ function safeURL(url){try{const u=new URL(url);return u.protocol==='https:'&&u.h
 function filterVersions(){const q=val('version-search').toLowerCase(),c=val('version-channel','all');for(const row of $$('.version-choice')){row.hidden=(val('release-channel','prerelease')==='stable'&&(row.dataset.versionPrerelease==='true'||row.dataset.versionKind!=='release'))||!row.dataset.versionName.includes(q)||(c!=='all'&&row.dataset.versionKind!==c);const radio=row.querySelector('input');if(row.hidden&&radio.checked){radio.checked=false;U.drafts['version-'+U.modal.id]='';}}const chosen=S.catalogs[U.modal.id].versions.find(x=>x.id===val('version-'+U.modal.id));const button=$('[data-action="install-version"]');if(button){button.disabled=!chosen;button.textContent=!chosen?'Choose a version':chosen.supported?'Download and set up':'Download source only';}}
 
 async function change(event){const t=event.target;if(t.id&&t.type!=='file'){U.drafts[t.id]=t.type==='checkbox'?t.checked:t.value;}
-if(t.id==='output-snapshot'&&U.modal?.kind==='output-files'){U.outputFiles=null;request('inspect_output_files',{id:U.modal.id,snapshot:t.value});renderModal();return;}
+if(t.id==='output-snapshot'&&U.modal?.kind==='output-files'){U.outputFiles=null;requestOutputFiles('inspect_output_files',{id:U.modal.id,snapshot:t.value});renderModal();return;}
 if(t.id==='isolate-export-kind'){renderModal();return;}
 if(t.id==='isolate-export-destination'){syncIsolateExport();return;}
 if(t.id==='identification-mode'){renderModal();return;}
@@ -1448,12 +1454,12 @@ else if(action==='scan-storage')request('scan_storage',{revision:U.storage?.revi
 else if(action==='download-storage')request('download_storage');
 else if(action==='storage-review')navigate(id);
 else if(action==='refresh-results')request('inspect_results',{id});
-else if(action==='output-files'){U.outputFiles=null;setDraft('output-snapshot','');modal('output-files',id);request('inspect_output_files',{id});}
-else if(action==='open-analysis-folder')request('open_output_folder',{id});
-else if(action==='browse-output-folder'&&U.modal?.kind==='output-files')request('inspect_output_files',{id:U.modal.id,relative:id,snapshot:U.outputFiles?.snapshot||''});
-else if(action==='output-page'&&U.outputFiles)request('inspect_output_files',{id:U.outputFiles.id,relative:U.outputFiles.relative,snapshot:U.outputFiles.snapshot,page:Number(id)});
-else if(action==='refresh-output-files'&&U.modal?.kind==='output-files')request('inspect_output_files',{id:U.modal.id,relative:U.outputFiles?.relative||'',snapshot:U.outputFiles?.snapshot||val('output-snapshot',''),page:U.outputFiles?.page||0});
-else if(action==='open-output-folder'&&U.outputFiles)request('open_output_folder',{id:U.outputFiles.id,relative:U.outputFiles.relative,snapshot:U.outputFiles.snapshot});
+else if(action==='output-files'){U.outputFiles=null;setDraft('output-snapshot','');modal('output-files',id);requestOutputFiles('inspect_output_files',{id});}
+else if(action==='open-analysis-folder')requestOutputFiles('open_output_folder',{id});
+else if(action==='browse-output-folder'&&U.modal?.kind==='output-files')requestOutputFiles('inspect_output_files',{id:U.modal.id,relative:id,snapshot:U.outputFiles?.snapshot||''});
+else if(action==='output-page'&&U.outputFiles)requestOutputFiles('inspect_output_files',{id:U.outputFiles.id,relative:U.outputFiles.relative,snapshot:U.outputFiles.snapshot,page:Number(id)});
+else if(action==='refresh-output-files'&&U.modal?.kind==='output-files')requestOutputFiles('inspect_output_files',{id:U.modal.id,relative:U.outputFiles?.relative||'',snapshot:U.outputFiles?.snapshot||val('output-snapshot',''),page:U.outputFiles?.page||0});
+else if(action==='open-output-folder'&&U.outputFiles)requestOutputFiles('open_output_folder',{id:U.outputFiles.id,relative:U.outputFiles.relative,snapshot:U.outputFiles.snapshot});
 else if(action==='result-config')request('download_result',{id,format:'config'});
 else if(action==='result-manifest')request('download_result',{id,format:'manifest'});
 else if(action==='open-result-report'){U.report=null;modal('report',id);request('open_result_report',{id:U.runId,report_id:id});}
@@ -1578,6 +1584,13 @@ if(newResponse&&['inspect_setup_advice','apply_setup_advice'].includes(U.request
 }
 if(newResponse&&(response.cleanup_plan||response.cleanup_receipt))$('.modal [data-action="close"]')?.focus();
 if(newResponse&&response.isolate_folder_choices)($('.isolate-folder-modal [data-action="open-isolate-analysis"]:not(:disabled)')||$('.isolate-folder-modal [data-action="close"]'))?.focus({preventScroll:true});
+if(newResponse&&['inspect_output_files','open_output_folder'].includes(U.requestOrigin?.kind)){
+ const saved=U.outputFilesFocus;U.outputFilesFocus=null;
+ if(saved&&U.modal?.kind==='output-files'&&U.modal.id===saved.modalId){
+  const target=saved.elementId?$$('.modal [id]').find(n=>n.id===saved.elementId):$$('.modal [data-action]').find(n=>n.dataset.action===saved.action&&n.dataset.id===saved.key&&n.getAttribute('aria-label')===saved.label);
+  (target&&!target.disabled?target:$('#output-snapshot:not(:disabled)')||$('.modal [data-action="close"]'))?.focus({preventScroll:true});
+ }
+}
 if(newResponse&&U.requestOrigin?.kind==='open_isolate_folder'){
  // The busy state disables the opener before renderModal can capture focus.
  // Restore it after the response so keyboard navigation remains in the dialog.
