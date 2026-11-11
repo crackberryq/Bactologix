@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import json
 
-from . import run_config
+from . import hardware, run_config
 from .databases import revision
 from .runs import template
+from .storage_guard import activity
 
 
 def edit(store, tool, payload, save=False):
@@ -24,12 +25,13 @@ def edit(store, tool, payload, save=False):
     if save or payload.get('validate'):
         run_config.validate(tool, text)
     if save:
-        with store.connect() as db:
+        with activity(store), store.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             row = db.execute("SELECT body FROM items WHERE kind='configs' AND id=?", (tool,)).fetchone()
             actual = json.loads(row[0]) if row else run_config.defaults(store, tool)
             if revision(actual) != expected:
                 raise ValueError('Saved defaults changed while you were editing. Download your edits or reload saved defaults before saving.')
+            hardware.sync_config_defaults(db, tool, text)
             db.execute("INSERT INTO items VALUES ('configs',?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body",
                        (tool, json.dumps(text)))
         expected = revision(text)

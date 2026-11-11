@@ -572,9 +572,9 @@ Compatible snapshots remain selectable even after a branch moves. Unsupported do
 
 ## PC capacity and power presets
 
-Open **Install & update → PC capacity**. Detection reports resources visible to the Linux process, including WSL/container limits, logical/physical CPU counts where available, RAM and available memory, swap, workspace disk space, NVIDIA GPUs/VRAM and driver/toolkit details. **Detect again** refreshes the snapshot. NVIDIA's driver CUDA capability is separate from the `nvcc` toolkit version; neither guarantees compatibility with a tool environment. PCI graphics information is included when `lspci` is available. Probes time out and unavailable information is labelled.
+Open **Pipelines & databases → Compute & CUDA**, or **Guided setup → PC capacity**. Detection reports resources visible to the Linux process, including WSL/container limits, logical/physical CPU counts where available, RAM and available memory, swap, workspace disk space, NVIDIA GPUs/VRAM and driver/toolkit details. **Detect again** refreshes the snapshot. NVIDIA's driver CUDA capability is separate from the `nvcc` toolkit version; neither guarantees compatibility with a tool environment. PCI graphics information is included when `lspci` is available. Probes time out and unavailable information is labelled.
 
-Choose one pipeline or both, then **Use High power**, **Use Medium**, or **Use Low**. These buttons save resource values in the default YAML and in the CPU/RAM budgets used by future run drafts. High uses all available CPU threads (up to 512). RAM starts from the lower of total capacity and currently available RAM, reserves at least 1 GB or 5% of capacity, and rounds down to whole GB within the app limit of 2,000,000 MB. Medium uses half the threads and 60% of that RAM budget; Low uses a quarter of the threads and 30%, with a 1 GB minimum when available. The UI shows the exact budget before applying it.
+Choose one pipeline or **All pipelines**, then **Use Full power**, **Use Moderate**, or **Use Low**. These buttons save resource values in the default YAML and in the CPU/RAM budgets used by future run drafts. Full power uses all available CPU threads (up to 512). RAM starts from the lower of total capacity and currently available RAM, reserves at least 1 GB or 5% of capacity, and rounds down to whole GB within the app limit of 2,000,000 MB. Moderate uses half the threads and 60% of that RAM budget; Low uses a quarter of the threads and 30%, with a 1 GB minimum when available. The UI shows the exact budget before applying it.
 
 Presets set execution budgets; they do not guarantee full utilization or that every database/tool will fit. HybAs assembly, SPAdes and polishing budgets are aligned with the selected RAM. Existing database-derived requirements, GPU settings, enabled tools and scientific thresholds are preserved. GPU details are informational: there is no generic CUDA toggle that makes every tool GPU-capable. Saved runs keep their original configuration; **Edit run settings** creates a revised draft when needed. Ordinary Configuration edits made in another window are protected by revision checks.
 
@@ -626,11 +626,12 @@ URLs contain only the page, run ID and section, not configuration or input paths
 
 ## Run checks and environment availability
 
-Runs can use an explicit additional disk-swap allowance under **Customize compute
-resources**. Physical RAM and swap are shown separately, and current capacity is
-rechecked before validation and execution. Existing runs keep their saved policy;
-editing creates a revision. See [swap memory](docs/swap-memory.md) for capacity,
-performance and provenance details.
+Save an explicit additional disk-swap allowance in each pipeline's **Default
+compute resources**. New runs inherit that pipeline's setting; **Customize compute
+resources** can change or disable it for one run. Physical RAM and swap are shown
+separately, and current capacity is rechecked before validation and execution.
+Existing runs keep their saved policy; editing creates a revision. See
+[swap memory](docs/swap-memory.md) for capacity, performance and provenance details.
 
 Saved-run **Overview → Run checks** separates inputs/saved files, pipeline/runner setup, native validation, frozen database paths and tool environment availability. The panel reports the scope and time of each check. **Runner set up** on an installation card refers to the runner only; it does not mean every analysis tool or database is ready. **Validate run** performs the native dry-run. Saved database paths remain visible under **Databases**, independently of later default changes.
 

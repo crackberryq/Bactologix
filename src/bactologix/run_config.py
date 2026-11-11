@@ -78,7 +78,7 @@ HELP = {
     'aware_statistics': 'Report assignment-support intervals and resampling stability, not the probability of correct identification.',
     'aware_reclassify_derived': 'Derived samples reuse verified retained reads and skip Kraken by default. Enable to apply the selected Kraken settings again.',
 
-    'bactologix_compute.swap_mb': 'Managed in Customize compute resources. Adds a scheduler allowance without increasing tool-specific memory settings.',
+    'bactologix_compute.swap_mb': 'Set in pipeline compute defaults, with per-run overrides in Customize compute resources. Adds a scheduler allowance without increasing tool-specific memory settings.',
     'kraken_review_before_filtering': 'Stop after Kraken, review the report, then finalize the target and continue. Requires a compatible HybAs version.',
     'run_kraken': 'Switching off also sets the decision mode to Off. Switching on from Off selects AWARE.',
     'kraken_decision_mode': 'Off skips Kraken. Manual, Auto and AWARE enable it. The pipeline keeps its existing decision rules.',

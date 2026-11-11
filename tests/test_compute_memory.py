@@ -170,6 +170,33 @@ def test_create_payload_is_run_local_and_does_not_change_defaults(workspace, ins
     assert len(workspace.all('runs')) == 1
 
 
+def test_saved_pipeline_allowance_freezes_into_new_draft_and_never_rewrites_old_run(workspace, installation, sample, monkeypatch):
+    info = host() | {'id': 'fixture'}
+    monkeypatch.setattr(hardware, 'inventory', lambda store, refresh=False: info)
+    workspace.put('configs', 'hybas', 'assembly_mem_mb: 8192\nspades_memory_gb: 8\n')
+    parent = create_run(workspace, 'hybas', sample, workspace.get('configs', 'hybas'), 12, 28672)
+    parent_files = {p: p.read_bytes() for p in Path(parent['folder']).rglob('*') if p.is_file()}
+    dispatch(workspace, 'save_compute_defaults', {'tool': 'hybas', 'cores': 12, 'memory_mb': 28672,
+        'gpu_mode': 'cpu', 'swap_mb': 98304, 'revisions': hardware.panel(workspace)['revisions'],
+        'hardware_id': info['id']})
+    saved_config = workspace.get('configs', 'hybas')
+    response = dispatch(workspace, 'create_runs', {'tool': 'hybas', 'ids': [sample['id']]})
+    child = workspace.get('runs', response['open_run'])
+    assert memory.policy(child) == {'ram_mb': 28672, 'swap_mb': 98304, 'scheduler_mb': 126976}
+    frozen = yaml.safe_load(Path(child['folder'], 'config.yaml').read_text())
+    assert frozen['bactologix_compute'] == {'gpu_mode': 'cpu', 'swap_mb': 98304}
+    assert frozen['assembly_mem_mb'] == 28672 and frozen['spades_memory_gb'] == 28
+    # A run-specific disable does not change the pipeline's saved preference.
+    disabled = dispatch(workspace, 'create_runs', {'tool': 'hybas', 'ids': [sample['id']], 'swap_mb': 0})
+    assert memory.policy(workspace.get('runs', disabled['open_run']))['swap_mb'] == 0
+    assert workspace.get('configs', 'hybas') == saved_config
+    # Revising the old run retains its own RAM-only policy despite the new default.
+    revised = dispatch(workspace, 'revise_run', request(workspace, parent))
+    assert memory.policy(workspace.get('runs', revised['open_run']))['swap_mb'] == 0
+    assert workspace.get('runs', parent['id']) == parent
+    assert all(path.read_bytes() == data for path, data in parent_files.items())
+
+
 def test_explicit_refresh_checks_rechecks_recovered_capacity(workspace, installation, sample, monkeypatch):
     run = create_run(workspace, 'hybas', sample, memory.with_swap('{}', 98304), 12, 28672)
     actual = host(0)
