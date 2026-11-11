@@ -50,7 +50,8 @@ function editSavedRun(id,variant=false){
 }
 function beforeUnload(event){draftInputs();persistWizard();if(U.wizardStorageError&&U.wizard){event.preventDefault();event.returnValue='';}}
 restoreWizard();
-let pollTimer, toastTimer;
+let pollTimer, toastTimer, progressTimer;
+const snapshotReceivedAt=performance.now();
 const navs=[['overview','Home','home'],['samples','Samples','samples'],['runs','Runs','play'],['reports','Results & reports','file'],['comparisons','Comparisons','compare'],['install','Pipelines & databases','resources'],['storage','Storage','folder'],['configure','Settings','config']];
 const btn=(action,label,primary=false,id='',ico='',disabled=false)=>`<button type="button" class="btn${primary?' primary':''}" data-action="${action}" data-id="${e(id)}" ${disabled?'disabled':''}>${ico?icon(ico):''}${e(label)}</button>`;
 const quiet=(action,label,id='')=>`<button type="button" class="quiet" data-action="${action}" data-id="${e(id)}">${e(label)} ${icon('arrow')}</button>`;
@@ -136,9 +137,59 @@ function syncComputeBudget(prefix){
 }
 function krakenLabel(r){return r.tool==='hybas'?({off:'Off',manual:'Manual',auto:'Auto',aware:'AWARE'}[r.kraken_mode]||r.kraken_mode||'Pipeline default'):'—';}
 function readMode(mode){return ({hybrid:'Hybrid',illumina_only:'Illumina only',ont_only:'ONT only'}[mode]||String(mode).replaceAll('_',' '));}
+function currentTaskCounts(j,forRun=false){
+ const t=j.telemetry,p=t?.progress;
+ return j.kind==='workflow'&&['run','continue'].includes(j.payload?.action)&&t?.id===j.id&&(!forRun&&t.run_id==null||t.run_id===j.payload.run_id)&&t.action===j.payload.action&&p?.source==='workflow log'&&Number.isInteger(p.completed)&&Number.isInteger(p.total)&&p.total>0&&p.completed>=0&&p.completed<=p.total?p:null;
+}
+function progressFresh(j){
+ if(j.status!=='running'||!navigator.onLine||performance.now()-snapshotReceivedAt>15000)return false;
+ const t=j.telemetry;if(!t)return true;
+ // The server checks collector timestamps; browser and server clocks can differ.
+ return t.live===true;
+}
+function runProgress(r,compact=false){
+ // Jobs are newest first. Never carry an earlier attempt's counts into a retry.
+ const j=latestRunJob(r);
+ if(!j||!['queued','running'].includes(j.status))return '';
+ const queued=j.status==='queued',fresh=progressFresh(j),counts=!queued?currentTaskCounts(j,true):null;
+ const action=j.kind==='workflow_unlock'?'Unlocking workflow':({'dry-run':'Validating setup',prepare:'Preparing environments',run:'Run / resume',continue:'Continuing run','check-environments':'Checking environments'})[j.payload.action]||'Workflow';
+ const status=runProgressStatus(j);
+ const detail=queued?'Waiting to start':counts?`${counts.completed} / ${counts.total} tasks in current plan`:'Task count not reported yet';
+ const label=`${r.label}: ${status}. ${action}. ${!queued&&!fresh?'Last reported: ':''}${detail}`;
+ const measured=counts?`<progress aria-label="${e(label)}" value="${counts.completed}" max="${counts.total}"></progress>`:`<div class="run-progress-track${!queued&&fresh&&!j.cancel?' is-moving':''}" ${queued?'aria-hidden="true"':`role="progressbar" aria-label="${e(label)}"`}><span></span></div>`;
+ return `<div class="run-progress${compact?' run-progress-compact':''}${!queued&&!fresh?' is-stale':''}" data-run-progress="${e(r.id)}" data-compact="${compact}" data-progress-state="${e(status)}"><div class="run-progress-label"><strong>${e(status)}${compact?'':' · '+e(action)}</strong><span>${!queued&&!fresh?'Last reported · ':''}${e(detail)}</span></div>${measured}${!compact&&counts?.dynamic_plan?'<small>Checkpoints can change the task total.</small>':''}</div>`;
+}
+function latestRunJob(r){return r?S.jobs.find(j=>['workflow','workflow_unlock'].includes(j.kind)&&j.payload?.run_id===r.id):null;}
+function runControls(r){
+ const j=latestRunJob(r);if(!j||!['queued','running'].includes(j.status))return '';
+ const queued=j.status==='queued',execution=j.kind==='workflow'&&['run','continue'].includes(j.payload.action),locked=!!S.queue?.update_active;
+ const stop=j.cancel?'Stopping…':queued?'Cancel queued '+(execution?'run':'task'):'Stop '+(execution?'run':'task');
+ return `<section class="run-controls" aria-label="Run controls"><div class="button-row">${btn('cancel-job',stop,false,j.id,'stop',!!j.cancel)}${btn('job-log','View log',false,j.id,'file')}${queued?btn(j.held?'release-job':'hold-job',j.held?'Release hold':'Hold job',false,j.id,'',locked):''}${S.queue?btn(S.queue.paused?'resume-queue':'pause-queue',S.queue.paused?'Resume queue':S.jobs.some(j=>j.status==='running')?'Pause queue after current job':'Pause queue',false,'','',locked):''}</div>${S.queue?'<p>Stopping keeps saved outputs and logs. Pausing the queue lets the current job keep running; waiting jobs will not start.</p>':''}</section>`;
+}
+function refreshProgress(){
+ // Only the small indicators change when a connection stops delivering snapshots.
+ for(const node of $$('[data-run-progress]')){const r=runBy(node.dataset.runProgress),j=latestRunJob(r);if(r&&j&&node.dataset.progressState!==runProgressStatus(j))node.outerHTML=runProgress(r,node.dataset.compact==='true');}
+ for(const node of $$('[data-job-progress]')){const j=node.closest('.usage-detail')&&U.usage?.id===node.dataset.jobProgress?usageJob(U.usage):S.jobs.find(j=>j.id===node.dataset.jobProgress);if(j&&node.dataset.live!==String(progressFresh(j))){node.outerHTML=jobTelemetry(j);}}
+}
+function backgroundPosition(){
+ const active=parentElement.activeElement||document.activeElement;
+ const key=node=>node?[node.tagName,node.id,node.dataset.action,node.dataset.id,node.dataset.nav,node.getAttribute('href'),node.getAttribute('aria-label'),node.tagName==='SUMMARY'?node.textContent:null].join('\u0000'):null;
+ const focusable='button,a,input,textarea,select,summary,[tabindex]';
+ const focused=root.contains(active)?{key:key(active),index:$$(focusable).filter(node=>key(node)===key(active)).indexOf(active),start:active.selectionStart,end:active.selectionEnd}:null;
+ const details=$$('#main details').map(node=>({key:key(node.querySelector('summary')),open:node.open}));
+ const scrollers=[];let node=root;
+ while(node){if(node.scrollHeight>node.clientHeight||node.scrollWidth>node.clientWidth)scrollers.push({node,top:node.scrollTop,left:node.scrollLeft});node=node.parentElement||node.getRootNode()?.host;}
+ const x=window.scrollX,y=window.scrollY;
+ return ()=>{
+  for(const saved of details){const summary=$$('#main details>summary').find(node=>key(node)===saved.key);if(summary)summary.parentElement.open=saved.open;}
+  if(focused){const target=$$(focusable).filter(node=>key(node)===focused.key)[focused.index];if(target&&!target.disabled){target.focus({preventScroll:true});if(focused.start!=null&&target.setSelectionRange)target.setSelectionRange(focused.start,focused.end);}}
+  for(const saved of scrollers){saved.node.scrollTop=saved.top;saved.node.scrollLeft=saved.left;}
+  window.scrollTo(x,y);
+ };
+}
 function runTable(runs,checks=false,archived=false,context='runs'){
  if(!runs.length)return empty(archived?'No archived runs.':'No runs in this list.',archived?'Archived runs retain their saved configuration and outputs.':'Change the filters or create a run draft.',!archived?btn('new-run','Create run drafts',true):'');
- return `<div class="table-wrap"><table><thead><tr>${checks?'<th>Select</th>':''}<th>Saved run</th><th>Kraken mode</th><th>Polishing</th><th>Execution</th><th>Assessment coverage</th><th>Actions</th></tr></thead><tbody>${runs.map(r=>`<tr data-run-row="${e(r.id)}">${checks?`<td><input type="checkbox" data-select="${e(r.id)}" aria-label="Select ${e(r.label)}" ${U.selected.includes(r.id)?'checked':''}></td>`:''}<td><a class="sample-name" href="#runs/${encodeURIComponent(r.id)}/overview" data-action="run-detail" data-id="${e(r.id)}">${e(r.label)}</a><span class="secondary-line">${e(r.sample.id)} · ${e(S.pipelines[r.tool].name)}</span><span class="secondary-line run-identity">${e(r.id)}</span></td><td>${badge(krakenLabel(r),r.kraken_mode==='off'?'off':'')}</td><td>${e(r.strategy)}</td><td>${r.archived?badge('Archived'):statusBadge(r.status)}</td><td>${assessmentBadge(r.assessment)}</td><td><div class="table-actions">${context==='parent'?btn('create-variant','Use as parent',false,r.id,'branch',r.busy):quiet('run-detail','Open run',r.id)}${r.identification?.state==='awaiting_review'?btn('review-identification','Review identification',true,r.id,'check',r.archived||r.busy):''}${context==='runs'?(r.archived?btn('restore-run','Restore',false,r.id,'arrow'):btn('archive-run','Archive',false,r.id,'folder',r.busy)):''}</div></td></tr>`).join('')}</tbody></table></div>`;
+ return `<div class="table-wrap"><table><thead><tr>${checks?'<th>Select</th>':''}<th>Saved run</th><th>Kraken mode</th><th>Polishing</th><th>Execution</th><th>Assessment coverage</th><th>Actions</th></tr></thead><tbody>${runs.map(r=>`<tr data-run-row="${e(r.id)}">${checks?`<td><input type="checkbox" data-select="${e(r.id)}" aria-label="Select ${e(r.label)}" ${U.selected.includes(r.id)?'checked':''}></td>`:''}<td><a class="sample-name" href="#runs/${encodeURIComponent(r.id)}/overview" data-action="run-detail" data-id="${e(r.id)}">${e(r.label)}</a><span class="secondary-line">${e(r.sample.id)} · ${e(S.pipelines[r.tool].name)}</span><span class="secondary-line run-identity">${e(r.id)}</span>${runProgress(r,true)}</td><td>${badge(krakenLabel(r),r.kraken_mode==='off'?'off':'')}</td><td>${e(r.strategy)}</td><td>${r.archived?badge('Archived'):statusBadge(r.status)}</td><td>${assessmentBadge(r.assessment)}</td><td><div class="table-actions">${context==='parent'?btn('create-variant','Use as parent',false,r.id,'branch',r.busy):quiet('run-detail','Open run',r.id)}${r.identification?.state==='awaiting_review'?btn('review-identification','Review identification',true,r.id,'check',r.archived||r.busy):''}${context==='runs'?(r.archived?btn('restore-run','Restore',false,r.id,'arrow'):btn('archive-run','Archive',false,r.id,'folder',r.busy)):''}</div></td></tr>`).join('')}</tbody></table></div>`;
 }
 
 function pipelineRows(){return Object.keys(S.pipelines).map(t=>{const i=activeInstall(t)||S.installs.find(x=>x.tool===t);return `<div class="pipeline-row"><div class="pipeline-logo ${t}">${t==='hybas'?'H':t==='basis'?'B':'G'}</div><div class="pipeline-info"><strong>${S.pipelines[t].name}</strong><small>${e(i?.version.ref||'Choose a version to get started')}</small></div>${badge(i?.setup_state||'Not installed',i?.ready?'green':'amber')}</div>`;}).join('');}
@@ -263,7 +314,7 @@ function runPage(){
  const reportActions=report?`<div class="result-primary-actions">${btn('open-result-report','Open '+report.name,true,report.id,'external')}${btn('result-report','Download report',false,report.id,'download')}</div>`:'';
  if(!r)return heading('RUNS','Run not found.','This run is not registered in the current workspace.',btn('go-runs','Back to runs',true));
  return `<div class="run-page-back">${quiet('go-runs','Back to runs')}</div>`+heading('SAVED RUN',e(r.label),e(r.sample.id)+' · '+e(S.pipelines[r.tool].name)+' · '+e(r.id),report?reportActions:r.run_type==='followup'?'':btn('use-run-databases','Use saved databases',false,r.id,'resources',r.busy||r.archived)+btn('edit-run-settings','Edit settings',false,r.id,'config',r.busy||r.archived||!d))+
- `${r.archived?`<section class="card padded archived-run-notice" aria-label="Archived run"><h2>This run is archived</h2><p>Restore it to the current run list to review recovery actions. Files, saved settings and workflow locks are retained.</p>${btn('restore-run','Restore run',true,r.id,'arrow')}</section>`:''}<section class="card run-workspace" aria-label="Saved run workspace">${d?renderSavedRun(r,d):U.error?empty('Run details could not be loaded.','Review the message above and try again.',btn('run-detail','Retry',true,r.id)):'<div class="padded" role="status">Loading saved run settings…</div>'}</section>`;
+ runProgress(r)+runControls(r)+`${r.archived?`<section class="card padded archived-run-notice" aria-label="Archived run"><h2>This run is archived</h2><p>Restore it to the current run list to review recovery actions. Files, saved settings and workflow locks are retained.</p>${btn('restore-run','Restore run',true,r.id,'arrow')}</section>`:''}<section class="card run-workspace" aria-label="Saved run workspace">${d?renderSavedRun(r,d):U.error?empty('Run details could not be loaded.','Review the message above and try again.',btn('run-detail','Retry',true,r.id)):'<div class="padded" role="status">Loading saved run settings…</div>'}</section>`;
 }
 function runActivity(r){
  const jobs=S.jobs.filter(j=>j.payload.run_id===r.id);
@@ -430,9 +481,9 @@ function usageNumber(value,digits=1){return Number.isFinite(value)?value.toLocal
 function usageMeasure(value,unit){return Number.isFinite(value)?usageNumber(value)+unit:'Unavailable';}
 function usageDuration(value){if(!Number.isFinite(value))return 'Unavailable';const s=Math.floor(Math.max(0,value));return s>=3600?Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m':s>=60?Math.floor(s/60)+'m '+s%60+'s':s+'s';}
 function jobTelemetry(j){
- const t=j.telemetry;if(!t)return '';const p=t.progress||{},running=j.status==='running',live=t.live;
- const counts=Number.isInteger(p.completed)&&Number.isInteger(p.total)&&p.total>0;
- return `<div class="job-progress" data-job-progress="${e(j.id)}"><div class="usage-inline"><span>Elapsed <strong>${usageDuration(t.elapsed_s)}</strong></span><span>${live?'CPU now':'Observed CPU'} <strong>${live?usageMeasure(t.latest?.cpu_percent,'%'):usageMeasure(t.samples?t.observed_cpu_s:null,' s')}</strong></span><span>Peak sampled RAM <strong>${usageMeasure(t.peak_rss_mb,' MiB')}</strong></span>${running?badge(live?'Receiving updates':'Updates paused',live?'green':'amber'):''}</div>${counts?`<div class="task-progress"><label>${p.completed} / ${p.total} tasks in current plan <span>${usageNumber(p.percent)}%</span></label><progress aria-label="Tasks in current plan" value="${p.completed}" max="${p.total}"></progress></div>`:p.source==='workflow log'?'<small>Task count not reported yet.</small>':''}${p.active_rules?.length?`<p class="usage-step">${live?'Active steps':'Last reported steps'}: <strong>${p.active_rules.map(e).join(', ')}</strong>${p.active_count>p.active_rules.length?' · '+p.active_count+' active tasks at last update':''}</p>`:live&&t.command_name?`<p class="usage-step">Command: <strong>${e(t.command_name)}</strong></p>`:''}${p.dynamic_plan?'<small>Checkpoints can change the task total.</small>':''}${t.incomplete||t.observer_errors?'<small class="usage-warning">Partial record — observation ended unexpectedly or some updates failed.</small>':''}${t.stale?'<small class="usage-warning">Showing the last saved measurements. Open the log to check the job.</small>':''}</div>`;
+ const t=j.telemetry;if(!t)return '';const p=t.progress||{},running=j.status==='running',live=progressFresh(j);
+ const counts=currentTaskCounts(j);
+ return `<div class="job-progress" data-job-progress="${e(j.id)}" data-live="${live}"><div class="usage-inline"><span>Elapsed <strong>${usageDuration(t.elapsed_s)}</strong></span><span>${live?'CPU now':'Observed CPU'} <strong>${live?usageMeasure(t.latest?.cpu_percent,'%'):usageMeasure(t.samples?t.observed_cpu_s:null,' s')}</strong></span><span>Peak sampled RAM <strong>${usageMeasure(t.peak_rss_mb,' MiB')}</strong></span>${running?badge(live?'Receiving updates':'Updates paused',live?'green':'amber'):''}</div>${counts?`<div class="task-progress"><label>${p.completed} / ${p.total} tasks in current plan <span>${usageNumber(100*p.completed/p.total)}%</span></label><progress aria-label="Tasks in current plan" value="${p.completed}" max="${p.total}"></progress></div>`:p.source==='workflow log'?'<small>Task count not reported yet.</small>':''}${p.active_rules?.length?`<p class="usage-step">${live?'Active steps':'Last reported steps'}: <strong>${p.active_rules.map(e).join(', ')}</strong>${p.active_count>p.active_rules.length?' · '+p.active_count+' active tasks at last update':''}</p>`:live&&t.command_name?`<p class="usage-step">Command: <strong>${e(t.command_name)}</strong></p>`:''}${p.dynamic_plan?'<small>Checkpoints can change the task total.</small>':''}${t.incomplete||t.observer_errors?'<small class="usage-warning">Partial record — observation ended unexpectedly or some updates failed.</small>':''}${running&&!live?'<small class="usage-warning">Showing the last saved measurements. Open the log to check the job.</small>':''}</div>`;
 }
 function usageButton(j){return j.telemetry?btn('job-usage','Resource use',false,j.id,'cpu'):'';}
 function usageChart(points,metric,title,unit){
@@ -444,8 +495,10 @@ function usageChart(points,metric,title,unit){
  const bars=buckets.filter(p=>Number.isFinite(p.value)).map(p=>{const x=48+408*p.start/end,w=Math.max(1,408*(p.end-p.start)/end),height=114*p.value/peak;return `<rect x="${x.toFixed(2)}" y="${(140-height).toFixed(2)}" width="${w.toFixed(2)}" height="${Math.max(1,height).toFixed(2)}" opacity="${p.missing?'.45':'.85'}"><title>${e(usageDuration(p.start)+'–'+usageDuration(p.end)+': '+usageNumber(p.value)+' '+unit+(p.missing?' (partial readings)':''))}</title></rect>`;}).join('');
  return `<section class="usage-chart"><h3>${e(title)}</h3><svg viewBox="0 0 470 175" role="img" aria-label="${e(title+' over elapsed job time; peak '+usageNumber(Math.max(...values))+' '+unit)}"><text x="4" y="20">${e(usageNumber(peak))}</text><text x="4" y="140">0</text><path d="M48 24V140H456"/><g>${bars}</g><text x="48" y="161">0s</text><text x="456" y="161" text-anchor="end">${e(usageDuration(end))}</text></svg><small>${metric==='cpu'?'Observed CPU per interval; 100% = one logical CPU.':'Peak process RSS sum per interval, in MiB.'} Faded bars contain missing readings.</small></section>`;
 }
+function runProgressStatus(j){return j.status==='queued'?(j.held?'Held':S.queue?.paused?'Queue paused':'Queued'):j.cancel?'Stopping':!navigator.onLine?'Offline · last saved status':!progressFresh(j)?'Updates paused':'Running';}
+function usageJob(data){const t=data.summary,saved=S.jobs.find(j=>j.id===data.id);return {...saved,id:data.id,kind:saved?.kind||t.kind,payload:saved?.payload||{action:t.action,run_id:t.run_id},status:saved?.status||t.job_status,telemetry:t};}
 function usageDetail(data){
- const t=data.summary,j={id:data.id,status:t.job_status,telemetry:t};
+ const t=data.summary,j=usageJob(data);
  return `<div class="usage-detail">${statusBadge(t.job_status)}${jobTelemetry(j)}<p class="inline-info">Recorded for this job attempt only. A resumed run gets its own record.</p><div class="usage-charts">${usageChart(data.points,'cpu','CPU use (%)','%')}${usageChart(data.points,'ram','Sampled RAM (MiB)','MiB')}</div><div class="usage-facts"><div><span>Observed CPU time</span><strong>${usageMeasure(t.samples?t.observed_cpu_s:null,' s')}</strong></div><div><span>Usable / unavailable samples</span><strong>${usageNumber(t.samples,0)} / ${usageNumber(t.unavailable_samples,0)}</strong></div><div><span>Configured run budget</span><strong>${Number.isFinite(t.budget?.cores)?usageNumber(t.budget.cores,0)+' cores · '+usageNumber(t.budget.memory_mb,0)+' MB':'Not a saved run'}</strong></div><div><span>Recorded platform</span><strong>${e(t.system)} · ${e(t.architecture)}</strong></div></div><p class="secondary-line">Summary updated ${e(t.updated_at)}<br>Charts saved ${e(data.history_updated_at||'not yet')} · ${t.history_compacted?'History combined into intervals':'Charts saved at most every 30 seconds and at command completion'}</p>${t.partial_process_tree?notice('Some processes could not be read','CPU and RAM values describe only the observed processes.',true):''}${t.progress?.log_gap?notice('Some log output was skipped','The displayed task counts and steps may be incomplete.',true):''}<details class="config-section"><summary>Measurement scope & provenance</summary><div class="padded"><ul>${(t.notes||[]).map(n=>`<li>${e(n)}</li>`).join('')}</ul><p>Bactologix ${e(t.app_version)} · Python ${e(t.python)}</p>${t.pipeline?`<p>Pipeline: ${e(S.pipelines[t.pipeline]?.name||t.pipeline)}</p><p class="path-cell">Source commit: ${e(t.commit||'Unavailable')}<br>Configuration SHA-256: ${e(t.config_sha256||'Unavailable')}<br>Workflow SHA-256: ${e(t.workflow_sha256||'Unavailable')}</p>`:''}</div></details></div>`;
 }
 
@@ -1573,6 +1626,7 @@ if(!U.routeInitialized){U.routeInitialized=true;readRoute();}
 const response=data.response;
 const newResponse=response&&response.id!==U.handled;
 const backgroundResponse=U.background;
+const restoreBackgroundPosition=backgroundResponse?backgroundPosition():null;
 // Preserve drafts before rendering a new server snapshot.
 draftInputs();
 const adviceResponseCurrent=newResponse&&!!U.setupAdviceRequest&&U.setupAdviceRequest.kind===U.requestOrigin?.kind&&U.setupAdviceRequest.context===setupAdviceContext();
@@ -1638,11 +1692,14 @@ if(response.database_check){const c=response.database_check,t=c.tool;dbState(t).
 if(response.database_saved){clearDatabases(response.database_saved);}
 if(response.discovery)U.discovery=response.discovery;if(response.local_envs)U.localEnvs=response.local_envs;if(response.local_install){U.localInstall=response.local_install;setDraft('existing-source',response.local_install.path);setDraft('existing-cache',response.local_install.rule_cache);}if(response.detail)U.detail=response.detail;if(response.identification){U.identification=response.identification;setDraft('identification-mode',response.identification.mode);setDraft('identification-taxid',response.identification.taxid);setDraft('identification-candidate',response.identification.taxid);}if(response.sample_import){U.toast=null;U.sampleImport=response.sample_import;U.importText=U.importRequestText;}if(response.comparison)U.comparison=response.comparison;if(response.compatibility)U.compatibility=response.compatibility;if(response.storage)U.storage=response.storage;if(response.results)U.results=response.results;if(response.output_files){U.outputFiles=response.output_files;setDraft('output-snapshot',response.output_files.snapshot);}if(response.methods)U.methods=response.methods;if(response.log)U.log=response.log;if(response.usage)U.usage=response.usage;if(response.support&&U.modal?.kind==='support'){U.support=response.support;setDraft('support-text',response.support.text);setDraft('support-reviewed',false);}if(response.report)U.report=response.report;if(response.download)download(response.download.name,response.download.base64?Uint8Array.from(atob(response.download.base64),c=>c.charCodeAt(0)):response.download.text,response.download.type);if(response.ok&&['create_runs','revise_run'].includes(U.requestOrigin?.kind))clearWizard();if(response.ok&&!response.keep_modal&&!backgroundResponse)U.modal=null;if(response.navigate){if(response.navigate==='jobs'&&U.requestOrigin?.kind==='workflow'&&U.requestOrigin.view==='run'&&U.view==='run'&&U.requestOrigin.runId===U.runId){U.runDetailTab='activity';writeRoute(true);}else{U.view=response.navigate;writeRoute();}}if(response.open_run){U.runDetailTab='overview';U.revision=null;U.revisionConfig=null;U.modal=null;U.view='run';U.runId=response.open_run;writeRoute(true);}}
 const reportFolderMessage=event=>{const f=$('.html-report-frame');if(f&&event.source===f.contentWindow&&event.data?.kind==='bactologix-open-report-folder'&&U.report&&!U.report.workstation)request('open_report_folder',{id:U.report.id,run_id:U.report.run_id});};
+window.addEventListener('online',refreshProgress);window.addEventListener('offline',refreshProgress);
+if(S.jobs.some(j=>j.status==='running'))progressTimer=setInterval(refreshProgress,1000);
 window.addEventListener('storage',notificationStorageChanged);
 window.addEventListener('message',reportFolderMessage);
 window.addEventListener('resize',syncNavigation);window.addEventListener('beforeunload',beforeUnload);window.addEventListener('popstate',routeChanged);window.addEventListener('hashchange',routeChanged);
 root.addEventListener('click',click);root.addEventListener('input',onInput);root.addEventListener('change',onChange);root.addEventListener('keydown',keydown);
 render();
+restoreBackgroundPosition?.();
 if(newResponse&&['inspect_setup_advice','apply_setup_advice'].includes(U.requestOrigin?.kind)){
  if(wizardKind()==='new-run')($('[data-setup-advice-heading]')||$('[data-action="review-setup"]'))?.focus({preventScroll:true});
  U.setupAdviceRequest=null;
@@ -1673,7 +1730,7 @@ if(newResponse&&U.notificationOpen&&U.requestOrigin?.kind==='mark_notifications_
 if(newResponse&&response.message)toast(response.message,!response.ok);else renderToast();
 if(newResponse&&U.queuedRequest){const queued=U.queuedRequest;U.queuedRequest=null;request(queued.kind,queued.payload);}
 claimDesktopNotifications();
-const dispose=()=>{window.removeEventListener('storage',notificationStorageChanged);window.removeEventListener('message',reportFolderMessage);window.removeEventListener('resize',syncNavigation);window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('popstate',routeChanged);window.removeEventListener('hashchange',routeChanged);clearTimeout(pollTimer);clearTimeout(toastTimer);root.removeEventListener('click',click);root.removeEventListener('input',onInput);root.removeEventListener('change',onChange);root.removeEventListener('keydown',keydown);};
+const dispose=()=>{clearInterval(progressTimer);window.removeEventListener('online',refreshProgress);window.removeEventListener('offline',refreshProgress);window.removeEventListener('storage',notificationStorageChanged);window.removeEventListener('message',reportFolderMessage);window.removeEventListener('resize',syncNavigation);window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('popstate',routeChanged);window.removeEventListener('hashchange',routeChanged);clearTimeout(pollTimer);clearTimeout(toastTimer);root.removeEventListener('click',click);root.removeEventListener('input',onInput);root.removeEventListener('change',onChange);root.removeEventListener('keydown',keydown);};
 root._dispose=dispose;
 return dispose;
 }
