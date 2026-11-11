@@ -1,3 +1,10 @@
+## 0.1.0a103.dev1 — 2026-11-11 · Alpha · Pipeline compute defaults and archived-run recovery
+
+- Save an independent disk-swap allowance in each pipeline's compute setup. New drafts inherit that default; per-run edits can change or disable it. Saved runs and revisions retain their own policy, and physical RAM remains separate from swap.
+- Preserve swap, GPU policy and other compute settings when applying CPU/RAM power presets. Keep YAML defaults and displayed compute settings consistent, with atomic saves and existing cleanup protections.
+- Add direct restoration from archived Storage entries and cleanup previews. Restoration cancels the cleanup preview, returns the run to its Activity page, and preserves every file and native lock. Archived failed-job recovery guides users to restore before checking the workflow lock.
+- Cover default inheritance, per-run overrides, locked-run restoration and desktop/mobile controls with regression tests. These application changes do not alter pipeline source versions or analytical parameters.
+
 ## 0.1.0a102.dev1 — 2026-11-11 · Alpha · Preserve memory settings during workflow unlock
 
 - Keep the saved scheduler memory budget, including an explicit disk-swap allowance, when invoking native workflow unlock. This prevents a lower workflow-profile default from rejecting maintenance before the lock can be released.

@@ -2,6 +2,12 @@
 
 Use **Check workflow lock** on the failed job, review the result, and choose **Unlock workflow** when enabled. This runs native Snakemake `--unlock` using the frozen run's runner, workflow and configuration. It does not start an analysis. The queue remains paused after unlocking; review the run before resuming.
 
+If the run is archived, restore it first using **Runs → Archived → Restore** or
+**Restore run** in Storage. Restoration is available even when native locks
+remain. It changes visibility only; the lock and all saved data stay intact until
+the separate guarded unlock operation succeeds. Permanent cleanup is not needed
+to restore or unlock a run.
+
 ## Memory settings during unlock
 
 Starting with Bactologix 0.1.0a102 (0.1.0a102.dev1 for Dev), native unlock keeps

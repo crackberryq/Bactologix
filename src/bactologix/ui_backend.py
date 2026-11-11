@@ -19,6 +19,7 @@ from .runs import (absolute_path, clone_runs, command, create_run,
                    parse_config, register_sample, remove_sample, archive_runs, reports, template, validate_launch,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
+from .storage_guard import activity
 from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, storage_cleanup, compatibility, comparisons, sample_imports
 from . import setup_state, assessment, compute_memory
 from . import isolate_actions
@@ -262,7 +263,8 @@ def dispatch(store, kind, p):
         return {'message': 'Hardware detection refreshed.', 'keep_modal': True}
     if kind == 'save_compute_defaults':
         return hardware.apply_custom(store, _tool(p), p.get('cores'), p.get('memory_mb'), p.get('gpu_mode'),
-                                     p.get('revisions'), p.get('hardware_id'))
+                                     p.get('revisions'), p.get('hardware_id'),
+                                     **({'swap_mb': p['swap_mb']} if 'swap_mb' in p else {}))
     if kind == 'apply_resource_preset':
         return hardware.apply_preset(store, p.get('preset'), p.get('tools'), p.get('revisions'), p.get('hardware_id'))
     if kind == "refresh_app_releases":
@@ -463,7 +465,11 @@ def dispatch(store, kind, p):
             text = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
             parse_config(text)
         if kind == "save_config":
-            store.put("configs", tool, text)
+            with activity(store), store.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                hardware.sync_config_defaults(db, tool, text)
+                db.execute("INSERT INTO items VALUES ('configs',?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body",
+                           (tool, json.dumps(text)))
         return {"message": "Defaults saved for future drafts." if kind == "save_config" else "Configuration validated." if kind == "inspect_config" else "Setting applied to the draft; save when ready.",
                 "config": {"tool": tool, "text": text, "fields": configuration_fields(tool, text)}, "keep_modal": True}
     if kind == "edit_run_settings":

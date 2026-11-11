@@ -53,7 +53,7 @@ def require_adapter(store, tool, commit, config, source):
 
 
 def with_swap(text, value):
-    """Set only the run-local scheduler allowance, preserving all tool limits."""
+    """Set only the configured scheduler allowance, preserving all tool limits."""
     from .runs import parse_config
     cfg = parse_config(text)
     allowance(cfg)  # Do not overwrite a malformed saved policy silently.

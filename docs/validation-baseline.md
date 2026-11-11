@@ -8,7 +8,7 @@ another combination.
 
 ## Dev source baseline
 
-This document records the **Bactologix 0.1.0a102.dev1** development baseline.
+This document records the **Bactologix 0.1.0a103.dev1** development baseline.
 Record the installed application version and the exact commit resolved by its
 published release tag in your validation record. Keep Dev testing separate from
 [the current-channel baseline](https://github.com/crackberryq/Bactologix/blob/main/docs/validation-baseline.md).
