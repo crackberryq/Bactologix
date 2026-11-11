@@ -1,10 +1,10 @@
-include README.md VALIDATION.md CITATION.cff CHANGELOG.md LICENSE
+include README.md VALIDATION.md CITATION.cff CHANGELOG.md LICENSE .gitattributes
 recursive-include tests *.py
 recursive-include scripts *.py *.json
-recursive-include scripts/windows *.ps1 *.cmd *.vbs
+recursive-include scripts/windows *.ps1 *.cmd *.vbs *.cs *.manifest
 include docs/windows-desktop.txt docs/isolate-export.md
 include docs/development-install.txt docs/DEVELOPMENT.md docs/PREBETA_FIXES.md docs/report-evidence-integrity.md
-include tests/windows_desktop.ps1
+include tests/windows_desktop.ps1 tests/windows_executable.ps1
 include tests/windows_development.ps1
 recursive-include src/bactologix/data *
 recursive-include src/bactologix/ui *
