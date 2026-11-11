@@ -146,7 +146,7 @@ def test_pipeline_swap_default_in_setup_and_independent_run_overrides(workspace,
         page.on('pageerror', lambda error: errors.append(str(error)))
         render_component(page, workspace)
         page.get_by_role('link', name='Pipelines & databases', exact=True).click()
-        page.locator('[data-action="setup-step"][data-id="capacity"]').click()
+        page.locator('.setup-steps [data-action="setup-step"][data-id="capacity"]').click()
         toggle = page.locator('#compute-swap-enabled-hybas')
         expect(toggle).not_to_be_checked()
         toggle.check()
@@ -221,7 +221,8 @@ def test_yaml_default_save_refreshes_compute_controls(workspace, installation, s
         page.get_by_role('link', name='Settings', exact=True).click()
         respond(page, workspace, 'default_config_editor')
         expect(page.locator('#compute-swap-enabled-hybas')).not_to_be_checked()
-        page.get_by_role('button', name='Full YAML', exact=True).click()
+        page.locator('.defaults-editor [data-action="guided-run-tab"][data-id="advanced"]').click()
+        page.locator('.defaults-editor').get_by_role('button', name='Full YAML', exact=True).click()
         respond(page, workspace, 'default_config_editor')
         config = yaml.safe_load(workspace.get('configs', 'hybas'))
         config['bactologix_compute'] = {'swap_mb': 65536, 'gpu_mode': 'cpu'}
