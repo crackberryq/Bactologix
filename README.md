@@ -5,7 +5,7 @@ alongside reviewed storage cleanup and the pre-beta evidence-integrity fixes. It
 installation and updates reject development releases. See [report evidence integrity](docs/report-evidence-integrity.md) for
 sample attribution, diagnostic report states and assessment coverage.
 
-**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a97/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
+**Windows desktop setup:** download [Bactologix-Setup.exe](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a104/Bactologix-Setup.exe) and open it normally. The branded setup guides you through Ubuntu, Conda, the application and desktop shortcuts. Internet access is needed for required downloads. Existing runs and environments are retained. A ZIP remains available for manual setup; see [Windows setup](docs/windows-desktop.txt).
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 

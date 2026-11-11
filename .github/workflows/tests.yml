@@ -178,10 +178,40 @@ jobs:
         if: always()
         with:
           name: windows-installer-preview
-          path: windows-setup-preview.png
+          path: windows-setup-*.png
+  windows-installer:
+    name: Build and check single-file Windows installer
+    needs: [tests]
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages-python-3.11
+          path: dist
+      - name: Compile reviewed Windows setup executable
+        shell: powershell
+        run: |
+          python scripts/build_windows_executable.py --commit $env:GITHUB_SHA --output dist
+          if ($LASTEXITCODE -ne 0) { throw "Windows installer build failed" }
+      - name: Verify native executable without installing software
+        shell: powershell
+        run: ./tests/windows_executable.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-package
+          if-no-files-found: error
+          path: |
+            dist/Bactologix*-Setup.exe
+            dist/Bactologix*-Setup.build.json
+            dist/Bactologix*-Windows.zip
   publish:
     name: Publish checked application release
-    needs: [tests, nearbeta-contracts, browser, environment-deployment, windows-desktop]
+    needs: [tests, nearbeta-contracts, browser, environment-deployment, windows-desktop, windows-installer]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
@@ -197,6 +227,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: packages-python-3.11
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer-package
           path: dist
       - name: Install the tested wheel
         run: python -m pip install dist/*.whl

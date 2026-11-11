@@ -127,3 +127,14 @@ def test_temporary_draft_url_cannot_point_to_another_repository(publication):
     state['release']['assets'][0]['browser_download_url'] = 'https://github.com/other/repo/releases/download/untagged-123abc/wheel.whl'
     with pytest.raises(ValueError, match='updater would reject'):
         publisher.verify_assets(state['release'], list(dist.iterdir()), VERSION)
+
+
+def test_windows_release_requires_native_executable_receipt(publication):
+    root, dist, state = publication
+    (root / 'scripts/windows').mkdir(parents=True)
+    source = Path(__file__).parents[1] / 'scripts/build_windows_executable.py'
+    (root / 'scripts/build_windows_executable.py').write_bytes(source.read_bytes())
+    (dist / 'Bactologix-Windows.zip').write_bytes(b'inert ZIP fixture')
+    with pytest.raises(ValueError, match='executable, build receipt and ZIP'):
+        publisher.publish(root, dist, COMMIT)
+    assert not any(method in {'POST', 'PATCH'} for _, method, _ in state['calls'])

@@ -1,6 +1,8 @@
 BACTOLOGIX FOR WINDOWS (alpha)
 
-1. Extract Bactologix-Windows.zip fully, then double-click Bactologix-Setup.cmd.
+1. Download Bactologix-Setup.exe from the official GitHub release and double-click it
+   normally (not Run as administrator). Choose Start setup on the welcome screen.
+   The ZIP remains a manual fallback: extract it fully and open Bactologix-Setup.cmd.
 2. Setup checks Ubuntu, installs/reuses Conda and the Bactomics environment,
    updates the application, and creates the branded Bactologix desktop shortcut.
 3. On a PC without WSL/Ubuntu, Setup offers to install the required Windows
@@ -33,7 +35,7 @@ saved run and review its log/readiness before continuing; an interrupted step
 may need to run again. Arbitrary file corruption is not automatically repaired.
 An unexpected desktop-supervisor loss requests cancellation after 30 seconds.
 
-The shortcut and app share the same b-dot logo. Windows .cmd files themselves
+The executable, shortcut and app share the same b-dot logo. Windows .cmd files themselves
 have a generic system icon; use the desktop shortcut for the branded icon.
 The shortcut uses Windows Script Host to avoid a console flash. If your Windows
 policy disables it, run Bactologix.ps1 with PowerShell or use the normal Ubuntu
@@ -60,4 +62,22 @@ restarting, use that shortcut under your original Windows account. Ubuntu must
 start successfully before application installation can proceed. Installation
 errors now include captured WSL diagnostics; setup-windows.log is stored under
 %LOCALAPPDATA%\Bactologix. Replace old extracted installer files with the new
-Windows ZIP; updating only the Linux application does not replace that ZIP.
+Windows installer; updating only the Linux application does not replace the
+Windows setup or launcher files.
+
+Single-file setup (a104)
+The EXE contains the reviewed Windows setup files, bootstrap and graphics. Internet
+access is still needed for components and Python dependencies. Regular setup selects
+a checksum-verified published current application release when installing; the EXE's
+version identifies setup, not a guarantee of the later selected app version.
+The separate Dev installer includes its exact Dev application wheel.
+
+Named steps show the current operation without claiming a download percentage.
+Welcome, progress, restart, error and completion screens keep the next action clear.
+Setup logs remain accessible when a step needs attention. Only fixed Windows feature
+commands request administrator permission; the main installer runs under your account.
+
+Build receipts bind the executable to its source commit, payload and channel.
+Current builds are unsigned; no Authenticode publisher certificate is attached.
+Use the official release and review Windows' publisher prompt according to your
+organization's policy. Existing workspaces and results are preserved.

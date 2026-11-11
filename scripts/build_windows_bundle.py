@@ -10,10 +10,12 @@ def build(root, destination):
     files['install_bactologix.py'] = root / 'scripts/install_bactologix.py'
     files['README.txt'] = root / 'docs/windows-desktop.txt'
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(destination, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+    with zipfile.ZipFile(destination, 'w', compression=zipfile.ZIP_STORED) as archive:
         for name, path in sorted(files.items()):
             info = zipfile.ZipInfo('Bactologix/' + name, date_time=(2026, 1, 1, 0, 0, 0))
-            info.compress_type = zipfile.ZIP_DEFLATED
+            info.create_system = 3
+            info.external_attr = 0o100644 << 16
+            info.compress_type = zipfile.ZIP_STORED
             archive.writestr(info, path.read_bytes())
     return destination
 
