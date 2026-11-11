@@ -97,11 +97,12 @@ def workspace_label():
 
 
 def snapshot(store):
-    from . import notifications
+    from . import disk_pause, notifications
     from .queue import reconcile_interrupted
     reconcile_interrupted(store)
     records = {r['id']: r for r in store.all('job_telemetry') if isinstance(r, dict) and 'id' in r}
     jobs = [{**j, "guidance": readiness.job_guidance(store, j),
+             "disk_safety": disk_pause.snapshot(store, j['id']),
              "telemetry": telemetry.view(records.get(j['id']), j)} for j in store.jobs()]
     app_update = updates.status(store)
     queue_state = store.queue_snapshot()
@@ -678,6 +679,12 @@ def dispatch(store, kind, p):
     if kind == "recover_jobs":
         launch_worker(store)
         return {"message": "Worker requested; active jobs retain their lock. Pauses and holds remain in effect. Recovered interruptions pause the queue for review."}
+    if kind == "resume_disk_paused_job":
+        from . import disk_pause
+        if set(p) != {"job_id", "generation"}:
+            raise ValueError("Select the current storage pause before resuming.")
+        disk_pause.request_resume(store, p["job_id"], p["generation"])
+        return {"message": "Resume requested. Storage will be checked again before the run continues."}
     if kind == "cancel_job":
         from .queue import reconcile_interrupted
         recovered = reconcile_interrupted(store)
