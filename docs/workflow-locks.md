@@ -2,6 +2,21 @@
 
 Use **Check workflow lock** on the failed job, review the result, and choose **Unlock workflow** when enabled. This runs native Snakemake `--unlock` using the frozen run's runner, workflow and configuration. It does not start an analysis. The queue remains paused after unlocking; review the run before resuming.
 
+## Memory settings during unlock
+
+Starting with Bactologix 0.1.0a102 (0.1.0a102.dev1 for Dev), native unlock keeps
+this run's saved scheduling resources, including any explicit disk-swap
+allowance. Workflows can check their resource declarations while parsing the
+unlock request. Dropping those settings could otherwise load a lower profile
+default and fail before unlocking. Passing the saved budget does not allocate
+that memory or execute analysis tools.
+
+This change does not establish that a particular lock is stale. Use the guarded
+**Check workflow lock** review first. If it reports an active process or cannot
+verify ownership, wait or investigate that message; do not remove lock files
+manually. After a successful unlock, review the saved run, resume the queue when
+ready, and use **Run / resume**. Original outputs and frozen settings are kept.
+
 ## Protected systemd PAM helpers
 
 On Ubuntu/WSL, `(sd-pam)` can have the same real, effective and saved UID as the application while denying access to its working directory. A process-inspection permission error does not itself establish ownership of a Snakemake lock.
