@@ -54,12 +54,16 @@ if not hasattr(backend, "_polling_test_original"):
 # These tests must not contact release services or start a software worker.
 update_checks.tick = lambda store: None
 runpy.run_path({str(app)!r}, run_name="__main__")
-st.write("Native host sentinel")
 @st.dialog("Native host dialog")
 def native_dialog():
     st.write("Native dialog content remains visible")
-if st.button("Open native host dialog"):
-    native_dialog()
+# The app owns a fixed sidebar. Put the independent native test controls in
+# the content area instead of behind that sidebar at the page's left edge.
+_, native_controls = st.columns([1, 3])
+with native_controls:
+    st.write("Native host sentinel")
+    if st.button("Open native host dialog"):
+        native_dialog()
 ''')
     with socket.socket() as listener:
         listener.bind(('127.0.0.1', 0))
@@ -201,7 +205,11 @@ def test_slow_background_refresh_keeps_workspace_readable_and_interactive(pollin
 def test_workspace_opacity_fix_preserves_native_dialog_and_disconnect(polling_host):
     from playwright.sync_api import sync_playwright, expect
 
-    store, _, url, proc = polling_host
+    store, job, url, proc = polling_host
+    # Check native controls without racing the four-second running-job poll.
+    # The explicit refresh below then creates the real pending callback used
+    # for the disconnect check; the first test covers automatic polling.
+    store.update_job(job, status='succeeded')
     with sync_playwright() as p:
         executable = os.environ.get('BACTOLOGIX_BROWSER_EXECUTABLE')
         browser = p.chromium.launch(headless=True, **({'executable_path': executable} if executable else {}))
@@ -215,6 +223,7 @@ def test_workspace_opacity_fix_preserves_native_dialog_and_disconnect(polling_ho
         expect(dialog.get_by_text('Native dialog content remains visible')).to_be_visible()
         page.keyboard.press('Escape')
         expect(dialog).to_have_count(0)
+        page.get_by_role('button', name='Refresh workspace', exact=True).click()
         request = request_started(store)
         assert request['kind'] == 'refresh'
         host = page.locator('.st-key-workspace-ui[data-testid="stElementContainer"]')
