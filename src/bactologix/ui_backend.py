@@ -19,8 +19,10 @@ from .runs import (absolute_path, clone_runs, command, create_run,
                    parse_config, register_sample, remove_sample, archive_runs, reports, template, validate_launch,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier
-from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, compatibility, comparisons, sample_imports
-from . import setup_state
+from .storage_guard import activity
+from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, storage_cleanup, compatibility, comparisons, sample_imports
+from . import setup_state, assessment, compute_memory
+from . import isolate_actions
 from . import reference_catalog
 from . import database_builder, followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
@@ -95,6 +97,7 @@ def workspace_label():
 
 
 def snapshot(store):
+    from . import notifications
     from .queue import reconcile_interrupted
     reconcile_interrupted(store)
     records = {r['id']: r for r in store.all('job_telemetry') if isinstance(r, dict) and 'id' in r}
@@ -105,7 +108,9 @@ def snapshot(store):
     # pip briefly replaces package data. Keep the already-rendered workspace
     # available until restart instead of reading those files during replacement.
     if (app_update["active_job"] or app_update["restart_required"]) and store.home in _SNAPSHOTS:
-        return {**copy.deepcopy(_SNAPSHOTS[store.home]), "jobs": jobs, "app_update": app_update, "queue": queue_state}
+        cached = copy.deepcopy(_SNAPSHOTS[store.home])
+        return {**cached, "jobs": jobs, "app_update": app_update, "queue": queue_state,
+                "notifications": notifications.panel(store, jobs, cached.get('runs', []))}
     runs = []
     archived = {r["id"] for r in store.all("run_visibility") if r.get("archived")}
     for run in store.all("runs"):
@@ -115,8 +120,9 @@ def snapshot(store):
         active = next((j for j in run_jobs if j["status"] in {"queued", "running"}), None)
         checked = dry_run_current(store, run)
         status = run_status(run, jobs, checked)
-        runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant", "identification")} | {
-            "aware_state": run.get("aware"), "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
+        runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant", "identification", "experimental")} | {
+            "swap_mb": compute_memory.allowance(cfg),
+            "aware_state": run.get("aware"), "status": status, "assessment": assessment.summary(store, run), "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
             "kraken_mode": "off" if cfg.get("run_kraken") is False else kraken_mode,
             "can_micp_handoff": run["tool"] == "hybas" and status == "completed",
             "can_followup": followup.available(run, store) and status == "completed",
@@ -130,14 +136,24 @@ def snapshot(store):
         catalogs[tool] = versions(store, tool)
         for version in catalogs[tool]["versions"]:
             version["supported"] = supported(tool, version["commit"], store)
-    result = {"version": __version__, "workspace": str(store.home), "workspace_label": workspace_label(), "doctor": doctor(store),
+    coverage = {run["id"]: run["assessment"] for run in runs}
+    report_rows = []
+    for report in reports(store):
+        # Refreshed editions retain their own evidence-time coverage, not the
+        # current output directory's possibly newer assessment.
+        if not report.get("refresh") and report.get("run") in coverage:
+            report = {**report, "assessment": coverage[report["run"]]}
+        report_rows.append(report)
+    result = {"channel": store.channel, "application_title": "Bactologix Dev" if store.channel == "dev" else "Bactologix", "version": __version__, "workspace": str(store.home), "workspace_label": workspace_label(), "doctor": doctor(store),
+            "notifications": notifications.panel(store, jobs, runs),
             "setup_overview": {t: setup_state.overview(store, t) for t in PIPELINES},
             "pipelines": PIPELINES, "installs": [installation_status(i, jobs, store) for i in store.all("installs")],
             "app_update": app_update, "hardware": hardware.panel(store), "workstation_checks": workstation.history(store),
             "resource_defaults": {t: hardware.run_defaults(store, t) for t in PIPELINES},
             "active": {t: store.get("settings", "active-" + t) for t in PIPELINES},
             "catalogs": catalogs, "samples": store.all("samples"), "runs": runs,
-            "jobs": jobs, "queue": queue_state, "reports": reports(store), "configs": configs,
+            "isolate_exports": isolate_actions.export_history(store),
+            "jobs": jobs, "queue": queue_state, "reports": report_rows, "configs": configs,
             "fields": {t: configuration_fields(t, configs[t]) for t in PIPELINES},
             "databases": {t: databases.panel(store, t) for t in PIPELINES},
             "reference_databases": reference_catalog.choices(store),
@@ -145,7 +161,7 @@ def snapshot(store):
             "database_builder": {"available": database_builder.available(store), "starter": database_builder.starter(store), "builds": store.all("database_builds")},
             "database_downloads": [{**d, "job_status": next((j["status"] for j in jobs if j["id"] == d.get("job")), d.get("status"))}
                                    for d in store.all("database_downloads")],
-            "download_options": {t: {"available": maintenance.download_supported(store.get("installs", store.get("settings", "active-" + t))),
+            "download_options": {t: {"available": maintenance.download_supported(store.get("installs", store.get("settings", "active-" + t)), store),
                                       "parent": str(store.home / "resources")}
                                  for t in PIPELINES},
             "citations": {f.name: f.read_text() for f in DATA.glob("CITATION.*")}}
@@ -189,10 +205,26 @@ def dispatch(store, kind, p):
     """Only named UI commands are allowed. Browser-supplied objects are not trusted."""
     if not isinstance(p, dict):
         raise ValueError("Invalid action payload")
-    if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "download_storage", "inspect_compatibility", "download_compatibility", "compare_saved_runs", "download_comparison", "preview_samples", "refresh_app_releases", "cancel_job"}:
+    if kind in {'mark_notifications_read', 'save_notification_settings', 'claim_desktop_notifications', 'check_notification_updates'}:
+        from . import notifications, update_checks
+        if kind == 'mark_notifications_read':
+            return notifications.mark_read(store, p)
+        if kind == 'save_notification_settings':
+            return notifications.configure(store, p)
+        if kind == 'claim_desktop_notifications':
+            # Reconcile outcomes before claiming so resolved review/update
+            # alerts cannot be delivered from an old browser snapshot.
+            notifications.panel(store)
+            return notifications.claim_desktop(store, p)
+        started = update_checks.tick(store, force=True)
+        return {'message': 'Checking update availability in the background.' if started else 'A check is already running, was requested recently, or is disabled for this session.', 'keep_modal': True}
+    isolate_readonly = (isolate_actions.ACTIONS - {'preview_isolate_export', 'start_isolate_export'}) | {'inspect_output_files', 'open_output_folder'}
+    if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "inspect_storage_cleanup", "inspect_storage_cleanup_receipt", "download_storage", "inspect_compatibility", "download_compatibility", "compare_saved_runs", "download_comparison", "preview_samples", "refresh_app_releases", "cancel_job"} | isolate_readonly:
         updates.assert_current(store)
         if updates.status(store)["active_job"]:
             raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
+    if kind in isolate_actions.ACTIONS:
+        return isolate_actions.dispatch(store, kind, p, enqueue)
     if kind == 'restart_as_browser':
         from .desktop import request_browser
         if request_browser(store):
@@ -231,7 +263,8 @@ def dispatch(store, kind, p):
         return {'message': 'Hardware detection refreshed.', 'keep_modal': True}
     if kind == 'save_compute_defaults':
         return hardware.apply_custom(store, _tool(p), p.get('cores'), p.get('memory_mb'), p.get('gpu_mode'),
-                                     p.get('revisions'), p.get('hardware_id'))
+                                     p.get('revisions'), p.get('hardware_id'),
+                                     **({'swap_mb': p['swap_mb']} if 'swap_mb' in p else {}))
     if kind == 'apply_resource_preset':
         return hardware.apply_preset(store, p.get('preset'), p.get('tools'), p.get('revisions'), p.get('hardware_id'))
     if kind == "refresh_app_releases":
@@ -244,6 +277,8 @@ def dispatch(store, kind, p):
         release = next((r for r in catalog.get("releases", []) if r["id"] == p.get("release_id") and r["version"] == p.get("version")), None)
         if not release or not release["available"]:
             raise ValueError("Refresh the releases and select an available Bactologix wheel.")
+        if not updates.channel_accepts(release["version"]):
+            raise ValueError("Choose an application release from this installation channel.")
         if release["version"] == __version__:
             raise ValueError("You are already running this Bactologix version.")
         launcher = updates.restart_control.current_launcher(store)
@@ -430,7 +465,11 @@ def dispatch(store, kind, p):
             text = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
             parse_config(text)
         if kind == "save_config":
-            store.put("configs", tool, text)
+            with activity(store), store.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                hardware.sync_config_defaults(db, tool, text)
+                db.execute("INSERT INTO items VALUES ('configs',?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body",
+                           (tool, json.dumps(text)))
         return {"message": "Defaults saved for future drafts." if kind == "save_config" else "Configuration validated." if kind == "inspect_config" else "Setting applied to the draft; save when ready.",
                 "config": {"tool": tool, "text": text, "fields": configuration_fields(tool, text)}, "keep_modal": True}
     if kind == "edit_run_settings":
@@ -440,6 +479,11 @@ def dispatch(store, kind, p):
             variants.eligible(store, _item(store, 'runs', p.get('id')))
             response['edit_run']['variant'] = True
         return response
+    if kind in {"inspect_setup_advice", "apply_setup_advice"}:
+        from . import setup_advice
+        if kind == "apply_setup_advice":
+            return setup_advice.apply(store, p)
+        return {"setup_advice": setup_advice.review(store, p), "keep_modal": True}
     if kind == "run_config_editor":
         tool = _tool(p)
         text = p.get("text", run_config.defaults(store, tool))
@@ -449,7 +493,7 @@ def dispatch(store, kind, p):
         if p.get("validate"):
             run_config.validate(tool, text)
         view = p.get("view", "settings")
-        if view not in {"samples", "settings", "yaml", "review"}:
+        if view not in {"purpose", "samples", "settings", "yaml", "review"}:
             raise ValueError("Choose a run configuration view.")
         return {"run_config": run_config.editor(tool, text), "run_config_view": view, "keep_modal": True,
                 "message": "Run settings checked. The native dry-run is still required." if p.get("validate") else ""}
@@ -467,6 +511,9 @@ def dispatch(store, kind, p):
                 raise ValueError("The run configuration belongs to another pipeline. Review its settings again.")
             text = run_config.compile_config(tool, config["text"], config.get("changes"))
             run_config.validate(tool, text)
+        if 'swap_mb' in p:
+            text = compute_memory.with_swap(text, p['swap_mb'])
+        compute_memory.policy({'memory_mb': memory}, parse_config(text))
         made = []
         for sample in samples:
             try:
@@ -480,6 +527,11 @@ def dispatch(store, kind, p):
         return response
     if kind == "inspect_run":
         run = copy.deepcopy(_item(store, "runs", p.get("id")))
+        run['swap_mb'] = compute_memory.policy(run)['swap_mb']
+        if run['swap_mb']:
+            # This is the explicit Refresh checks path. Background snapshots
+            # retain the ordinary inventory cache and never trigger probes.
+            hardware.inventory(store, refresh=True)
         run["database_paths"] = database_runs.paths(store, run)
         run["readiness"] = readiness.panel(store, run)
         run["settings"] = run_config.editor(run["tool"], run["config"])
@@ -497,14 +549,34 @@ def dispatch(store, kind, p):
         doc = compatibility.panel(store)
         return {'compatibility': doc, 'download': compatibility.export(doc), 'keep_modal': True}
     if kind == 'inspect_storage':
-        return {'storage': storage.panel(store), 'keep_modal': True}
+        return {'storage': storage.panel(store), 'storage_cleanup': storage_cleanup.panel(store), 'keep_modal': True}
+    if kind == 'inspect_storage_cleanup':
+        return {'storage_cleanup': storage_cleanup.panel(store), 'keep_modal': True}
+    if kind == 'inspect_storage_cleanup_receipt':
+        return {'cleanup_receipt': storage_cleanup.receipt(store, p.get('id')), 'keep_modal': True}
+    if kind == 'preview_storage_cleanup':
+        return {'cleanup_plan': storage_cleanup.preview(store, p.get('targets')), 'keep_modal': True}
+    if kind == 'execute_storage_cleanup':
+        jid = storage_cleanup.request(store, p.get('plan_id'), p.get('signature'),
+                                      p.get('confirmation'), p.get('acknowledged'))
+        return {'storage_cleanup': storage_cleanup.panel(store), 'job_id': jid,
+                'message': 'Storage cleanup queued. Follow its progress and receipt on this page.'}
     if kind == 'scan_storage':
         storage.scan(store, p.get('revision'), p.get('include_external', False))
-        return {'storage': storage.panel(store), 'message': 'Storage measurement saved. Review its scope and limits.', 'keep_modal': True}
+        return {'storage': storage.panel(store), 'storage_cleanup': storage_cleanup.panel(store), 'message': 'Storage measurement saved. Review its scope and limits.', 'keep_modal': True}
     if kind == 'download_storage':
         return {'download': storage.download(store), 'keep_modal': True}
     if kind == 'inspect_results':
         return {'results': results.inspect(store, p.get('id')), 'keep_modal': True}
+    if kind in {'inspect_output_files', 'open_output_folder'}:
+        from . import output_inventory
+        if kind == 'inspect_output_files':
+            return {'output_files': output_inventory.inspect(store, p.get('id'), p.get('relative', ''),
+                        p.get('snapshot', ''), p.get('page', 0)), 'keep_modal': True}
+        from .launcher import open_folder
+        path = output_inventory.folder(store, p.get('id'), p.get('relative', ''), p.get('snapshot', ''))
+        opened = open_folder(path)
+        return {'message': 'Requested the file manager on the computer running Bactologix: ' + opened, 'keep_modal': True}
     if kind == 'open_report_folder':
         from .launcher import open_folder
         if p.get('run_id'):

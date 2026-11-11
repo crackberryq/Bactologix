@@ -18,6 +18,7 @@ import yaml
 from .local import local_path, environment_paths
 from .runs import parse_config, template
 from .store import now
+from .storage_guard import mutation
 
 MAX_DIRS = 5000
 MAX_ENTRIES = 3000
@@ -375,6 +376,9 @@ def inspect(store, tool, key, value, cfg=None):
 
 
 def _roots(store, tool, cfg, extra):
+    if store.channel == "dev":
+        from .channels import owned
+        return [owned(store, extra, "Database scan folder")] if extra else [store.home / "resources", store.home / "envs"]
     roots = []
     if extra:
         chosen = local_path(extra)
@@ -538,6 +542,7 @@ def _hybas_layout(store, paths, lineage):
     return root
 
 
+@mutation
 def save(store, tool, changes, expected_revision):
     if not isinstance(changes, dict) or not changes:
         raise ValueError("Choose or check a database location first.")
@@ -551,6 +556,9 @@ def save(store, tool, changes, expected_revision):
         _spec(tool, key)
         if value is not None and (not isinstance(value, str) or not value.strip()):
             raise ValueError("Choose a folder or explicitly reset this resource to pipeline defaults.")
+        if value is not None:
+            from .channels import owned
+            owned(store, value, "Database/model")
         checked[key] = inspect(store, tool, key, value, cfg) if value is not None else None
     if tool == "hybas":
         paths = _hybas_paths(store, cfg)

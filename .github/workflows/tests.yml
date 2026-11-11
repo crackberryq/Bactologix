@@ -1,7 +1,7 @@
 name: Software and adapter checks
 on:
   push:
-    branches: [main]
+    branches: [main, development]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -63,6 +63,7 @@ jobs:
         run: |
           python -m build
           python scripts/build_windows_bundle.py
+          python scripts/build_development_bundle.py
           python -m pip install --force-reinstall --no-deps dist/*.whl
           python -m pip check
           python -m bactologix.cli --version
@@ -83,13 +84,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: crackberryq/Bactomics_HybAs
-          ref: 7f077556453df058b1dff5826bc7d0536b83e039
+          ref: 7cbd29d942a3d70bc1f6c7be176a75ce4bb7f2a8
           path: upstream-hybas-v2
       - run: python -m pip install . pytest 'snakemake==9.27.1'
       - name: Validate frozen manifest native DAGs
         env:
           BACTOLOGIX_HYBAS_V2_SOURCE: ${{ github.workspace }}/upstream-hybas-v2
-        run: python -m pytest -q tests/test_manifest_inputs.py tests/test_manifest_adapter_native.py
+        run: python -m pytest -q tests/test_manifest_inputs.py tests/test_manifest_adapter_native.py tests/test_run_trace.py tests/test_methods_runtime.py tests/test_workflow_unlock.py
 
   browser:
     runs-on: ubuntu-latest
@@ -113,11 +114,12 @@ jobs:
       - name: Real browser to Streamlit checks
         env:
           BACTOLOGIX_BROWSER_TESTS: '1'
+          BACTOLOGIX_UPDATE_CHECKS: '0'
           BACTOLOGIX_UI_PREVIEWS: ui-previews
           BACTOLOGIX_HYBAS_SOURCE: ${{ github.workspace }}/upstream-hybas
         run: |
           python -m pytest -q tests/test_browser.py::test_reference_starter_default_edit_restore_and_build
-          python -m pytest -q tests/test_browser.py -k 'not test_reference_starter_default_edit_restore_and_build'
+          python -m pytest -q tests/test_browser.py tests/test_browser_isolate.py tests/test_browser_adviser.py tests/test_browser_notifications.py tests/test_browser_methods_flow.py tests/test_browser_output_inventory.py tests/test_browser_swap.py tests/test_browser_restore.py tests/test_browser_run_progress.py tests/test_browser_polling_host.py -k 'not test_reference_starter_default_edit_restore_and_build'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -153,15 +155,86 @@ jobs:
       - name: Windows launcher, installer rendering and browser ownership
         shell: powershell
         run: ./tests/windows_desktop.ps1
+      - name: Independent Dev launcher and bundled payload
+        shell: powershell
+        run: ./tests/windows_development.ps1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-installer-preview
-          path: windows-setup-preview.png
+          path: windows-setup-*.png
+  development-contracts:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - tool: hybas
+            repo: crackberryq/Bactomics_HybAs
+            commit: 7cbd29d942a3d70bc1f6c7be176a75ce4bb7f2a8
+          - tool: basis
+            repo: crackberryq/Bactomics_BaSIS
+            commit: 7c293d36a633a726424d544c6ffc39824537ebe4
+          - tool: micpscope
+            repo: crackberryq/Bactomics_GeneScope
+            commit: 28bf38c44eb07fe8e4865f67d59ef6b4028f51dc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          ref: ${{ matrix.commit }}
+          path: development-source
+      - run: python -m pip install . pytest biopython==1.86
+      - name: Verify exact Dev source and adapter contract
+        env:
+          BACTOLOGIX_DEV_SOURCE: ${{ github.workspace }}/development-source
+          BACTOLOGIX_DEV_TOOL: ${{ matrix.tool }}
+        run: python -m pytest tests/test_development_channel.py -q -k dev_source_contract
+      - name: Verify saved report refresh against the exact Dev renderer
+        env:
+          BACTOLOGIX_MICPSCOPE_SOURCE: ${{ matrix.tool == 'micpscope' && format('{0}/development-source', github.workspace) || '' }}
+          BACTOLOGIX_BASIS_SOURCE: ${{ matrix.tool == 'basis' && format('{0}/development-source', github.workspace) || '' }}
+          BACTOLOGIX_HYBAS_REPORT_SOURCE: ${{ matrix.tool == 'hybas' && format('{0}/development-source', github.workspace) || '' }}
+        run: python -m pytest tests/test_report_refresh.py -q
+  windows-installer:
+    name: Build and check single-file Windows installer
+    needs: [tests]
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages-python-3.11
+          path: dist
+      - name: Compile reviewed Windows setup executable
+        shell: powershell
+        run: |
+          $wheel = @(Get-ChildItem dist -Filter "bactologix-*.whl")
+          if ($wheel.Count -ne 1) { throw "Exactly one checked wheel is required" }
+          python scripts/build_windows_executable.py --channel dev --wheel $wheel.FullName --commit $env:GITHUB_SHA --output dist
+          if ($LASTEXITCODE -ne 0) { throw "Windows installer build failed" }
+      - name: Verify native executable without installing software
+        shell: powershell
+        run: ./tests/windows_executable.ps1 -Channel dev
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-package
+          if-no-files-found: error
+          path: |
+            dist/Bactologix*-Setup.exe
+            dist/Bactologix*-Setup.build.json
+            dist/Bactologix*-Windows.zip
   publish:
     name: Publish checked application release
-    needs: [tests, browser, environment-deployment, windows-desktop, hybas-v2-adapter]
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: [tests, browser, environment-deployment, windows-desktop, hybas-v2-adapter, development-contracts, windows-installer]
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -176,6 +249,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: packages-python-3.11
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer-package
           path: dist
       - name: Install the tested wheel
         run: python -m pip install dist/*.whl

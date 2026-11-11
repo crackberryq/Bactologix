@@ -80,9 +80,13 @@ def test_completion_snapshot_survives_output_changes_and_failed_resume(workspace
     (root / 'tool_versions.tsv').write_text('tool\tversion\nunicycler\t99.9\n')
     doc = methods.build(workspace, run)
     assert doc['state'] == 'Completed workflow' and doc['evidence_origin'] == 'Completion-time snapshot'
-    assert 'unicycler 0.5.1' in '\n'.join(doc['paragraphs'])
+    software = {row['tool']: row for row in doc['software']}
+    assert software['unicycler']['version'] == '0.5.1'
+    assert 'environment package' in software['unicycler']['scope']
+    assert 'unicycler 0.5.1' not in '\n'.join(doc['paragraphs'])
     assert '99.9' not in doc['text']
-    assert not any(x['tool'] == 'busco' for x in doc['software'])
+    assert software['busco']['version'] == '5.8.2'
+    assert 'execution not established' in software['busco']['scope']
     workspace.update_job(jid, status='failed')
     failed = methods.build(workspace, run)
     assert failed['state'] == 'Incomplete execution'
@@ -113,7 +117,7 @@ def test_unknown_source_never_borrows_current_defaults(workspace, run):
     run['commit'] = 'f' * 40
     doc = methods.build(workspace, run)
     assert all(p['origin'] == 'Saved run' for p in doc['parameters'])
-    assert not doc['software']
+    assert [(row['tool'], row['version']) for row in doc['software']] == [('snakemake', methods.UNKNOWN)]
 
 
 def test_previous_basis_release_retains_equivalent_methods_defaults(run, monkeypatch):
@@ -164,15 +168,17 @@ def test_basis_success_can_have_incomplete_scope(workspace, run, monkeypatch):
     run['completed'] = '2026-10-27T12:00:00+00:00'
     root = Path(run['output'], 'safety')
     root.mkdir()
-    (root / 'evidence.json').write_text(json.dumps({'run': {'completeness': 'incomplete'},
+    (root / 'evidence.json').write_text(json.dumps({'schema_version': 'basis-report-1',
+        'run': {'completeness': 'incomplete', 'report_view': 'screening'},
+        'samples': [{'sample_id': run['sample']['id']}], 'deep_records': [],
         'records': [{'sample_id': run['sample']['id'], 'module': 'amrfinder', 'execution_status': 'completed', 'tool_version': '4.0'},
-                    {'sample_id': run['sample']['id'], 'module': 'icescreen', 'execution_status': 'not_assessed', 'reason': 'scope_unavailable'},
-                    {'sample_id': 'another', 'module': 'rgi', 'execution_status': 'completed'}]}))
+                    {'sample_id': run['sample']['id'], 'module': 'icescreen', 'execution_status': 'not_assessed', 'reason': 'scope_unavailable'}]}))
     doc = methods.build(workspace, run)
     assert 'Native report scope: incomplete' in doc['execution']
-    assert 'completion of AMRFinderPlus.' in doc['text']
-    assert 'ICEScreen' not in next(p for p in doc['paragraphs'] if 'retained module records' in p)
-    assert any('different sample identity' in w for w in doc['warnings'])
+    completion = next(p for p in doc['paragraphs'] if 'mark these modules complete' in p)
+    assert 'AMRFinderPlus.' in completion and 'ICEScreen' not in completion
+    assert 'execution attribution unverified' in completion
+    assert any('incomplete requested scope' in w for w in doc['warnings'])
 
 
 def test_replaced_followup_cannot_borrow_another_runs_outputs(workspace, run, monkeypatch):
@@ -236,7 +242,7 @@ def test_worker_captures_after_success_and_capture_failure_is_nonfatal(workspace
     monkeypatch.setattr('bactologix.engine.find_conda', lambda s: '/fixture/conda')
     lines = []
     ctx = SimpleNamespace(store=workspace, job={'id': 'job-fixture', 'payload': {'run_id': run['id'], 'action': 'run'}},
-                          write=lines.append, command=lambda *a, **kw: None)
+                          write=lines.append, command=lambda *a, **kw: None, check_cancel=lambda: None)
     execute_workflow(ctx)
     receipt = workspace.get('methods_evidence', run['id'])
     assert receipt['completed'] == workspace.get('runs', run['id'])['completed']
@@ -244,6 +250,7 @@ def test_worker_captures_after_success_and_capture_failure_is_nonfatal(workspace
     def failed_capture(*a):
         raise OSError('metadata unavailable')
     monkeypatch.setattr(methods, 'capture', failed_capture)
+    ctx.job['id'] = 'job-fixture-next-attempt'
     execute_workflow(ctx)
     assert workspace.get('runs', run['id'])['completed']
     assert any('Methods metadata could not be captured' in line for line in lines)
@@ -255,7 +262,7 @@ def test_methods_with_real_pinned_source(tmp_path, tool):
     store, run = setup_run(tmp_path, tool)
     doc = methods.build(store, run)
     assert methods.DEFAULTS['sources'][tool] == run['commit']
-    assert not any('No verified Methods template' in w for w in doc['warnings'])
+    assert not any('No source-matched workflow description' in w for w in doc['warnings'])
     assert ('Unicycler' if tool == 'hybas' else 'AMRFinderPlus') in '\n'.join(doc['paragraphs'])
     # Check native per-run CPU semantics, not only the presence of a UI field.
     if tool == 'basis':
@@ -277,6 +284,8 @@ def test_aware_methods_only_describe_finished_stage(workspace,run):
     root=stage_bundle(run)
     doc=methods.build(workspace,run);prose='\n'.join(doc['paragraphs'])
     assert doc['completed_stage']=='aware'
+    narrative=methods.download(workspace,run,'manuscript')['text']
+    assert 'TaxID 22' in narrative and 'Unicycler' not in narrative and 'QUAST' not in narrative
     assert 'TaxID 22' in prose and 'TaxID 11' in prose
     assert '95% Wilson' in prose and '200 stratified' in prose
     assert 'QUAST' not in prose and 'Unicycler' not in prose and 'BUSCO' not in prose
@@ -297,6 +306,8 @@ def test_identification_methods_exclude_filtering_claims(workspace,run):
     run['identification']=dict(state='awaiting_review',evidence_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
     doc=methods.build(workspace,run)
     assert doc['completed_stage']=='identification'
+    narrative=methods.download(workspace,run,'manuscript')['text']
+    assert 'Kraken2 identification completed' in narrative and 'Unicycler' not in narrative
     assert 'filtering not established' in doc['state']
     assert 'QUAST' not in '\n'.join(doc['paragraphs'])
     path.write_text('{}')

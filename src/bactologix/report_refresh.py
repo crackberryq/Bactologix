@@ -33,8 +33,13 @@ def inspect(store, rid, own_job=None):
     if not run:
         raise ValueError('Choose an existing run.')
     plan = {'run_id': rid, 'available': False, 'mode': 'unavailable', 'reasons': [], 'notes': [],
-            'analysis_version': run.get('version', run.get('commit', 'Not recorded')),
-            'analysis_commit': run.get('commit'), 'tool': run['tool']}
+            'analysis_version': 'Not recorded',
+            'analysis_commit': None, 'selected_run_commit': run.get('commit'), 'tool': run['tool']}
+    executions = [j for j in store.jobs() if j['kind'] == 'workflow' and j['payload'].get('run_id') == rid
+                  and j['payload'].get('action') in {'run', 'continue'}]
+    latest = executions[0] if executions else None
+    plan.update(analysis_status=latest['status'] if latest else 'unknown',
+                analysis_job_id=latest['id'] if latest else None)
     if run['tool'] not in {'micpscope', 'basis', 'hybas'}:
         plan['reasons'].append('This pipeline does not have a supported saved-data refresh adapter.')
         return plan
@@ -68,7 +73,7 @@ def inspect(store, rid, own_job=None):
         if tool == 'micpscope':
             if not isinstance(doc, dict) or doc.get('schema_version') != '1.3' or not isinstance(doc.get('proteins'), list) or not isinstance(doc.get('provenance'), dict):
                 raise ValueError('Unsupported GeneScope results schema; no report was changed.')
-            plan['analysis_version'] = doc.get('software_version', plan['analysis_version'])
+            plan['analysis_version'] = doc.get('software_version') or plan['analysis_version']
             if not doc.get('context', {}).get('features'):
                 plan['notes'].append('No saved gene coordinates: the genome explorer cannot show gene locations. Adding coordinates requires a separate analysis step.')
             if not doc.get('reference_search'):
@@ -85,11 +90,33 @@ def inspect(store, rid, own_job=None):
         else:
             if not isinstance(doc, dict) or doc.get('schema_version') != 'basis-report-1' or not isinstance(doc.get('run'), dict) or any(not isinstance(doc.get(k), list) for k in ('samples', 'records', 'deep_records')):
                 raise ValueError('Unsupported BaSIS evidence schema; no report was changed.')
-            plan['analysis_version'] = doc['run'].get('version', plan['analysis_version'])
+            plan['analysis_version'] = doc['run'].get('version') or plan['analysis_version']
             plan['notes'].append('Tree and genome panels use saved evidence and available artifacts. Refresh cannot generate a missing tree or restore missing source files.')
+        from .evidence_identity import validate_native
+        from .report_evidence import binding
+        from .assessment import summary as assessment_summary
+        plan['native_identity'] = validate_native(run, doc)
+        plan['evidence_identity'] = binding(store, run, relative, sha, executions)
+        plan['analysis_commit'] = plan['evidence_identity']['commit']
+        plan['assessment'] = assessment_summary(store, run)
+        for identity in (doc.get('bactologix'), (doc.get('provenance') or {}).get('bactologix')):
+            if isinstance(identity, dict) and identity.get('job_id'):
+                job = next((j for j in executions if j['id'] == identity['job_id']), None)
+                if not job or (plan['evidence_identity']['job_id'] and job['id'] != plan['evidence_identity']['job_id']):
+                    raise ValueError('Saved evidence Bactologix attempt identity does not match the recorded evidence.')
+        if plan['evidence_identity']['state'] == 'unverified':
+            plan['notes'].append('Evidence attribution is unverified: no matching content-bound execution receipt establishes its producing attempt, source or configuration. The selected run source is not asserted as the evidence source.')
+        else:
+            plan['notes'].append('The evidence checksum matches content created or changed during the recorded execution attempt. This records an observed association, not proof of a native producer or scientific completeness.')
+        if plan['native_identity']['missing']:
+            plan['notes'].append('Unavailable identity checks: ' + ', '.join(plan['native_identity']['missing']) + '.')
+        if latest and plan['evidence_identity']['job_id'] and latest['id'] != plan['evidence_identity']['job_id']:
+            plan['notes'].append('Saved evidence matches an earlier attempt. The latest execution status is shown separately; refreshing does not repair a failed or incomplete analysis.')
+        if plan['analysis_status'] != 'succeeded':
+            plan['notes'].append('Latest computational execution: ' + plan['analysis_status'] + '. Diagnostic rendering does not mark the analysis successful.')
         preflight(store, tool, plan['renderer_commit'], item['source'])
         plan.update(evidence_sha256=sha, renderer_sha256=renderer_identity(item['source'], tool), available=True, mode='report-only')
-    except (OSError, ValueError, TypeError, KeyError) as exc:
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
         plan['reasons'].append('Saved-data refresh unavailable: ' + str(exc))
     plan['notes'].append('No new database search, threshold change, prediction or native analysis will run. Reporting summaries may be recalculated from saved evidence.')
     return plan
@@ -108,7 +135,8 @@ def execute(ctx):
     from .engine import find_conda
     plan = ctx.job['payload']
     current = inspect(ctx.store, plan['run_id'], ctx.job['id'])
-    keys = ('evidence_sha256', 'renderer_sha256', 'renderer_commit', 'installation', 'source', 'controller')
+    keys = ('evidence_sha256', 'renderer_sha256', 'renderer_commit', 'installation', 'source', 'controller',
+            'analysis_status', 'analysis_job_id', 'evidence_identity', 'native_identity', 'assessment')
     if not current['available'] or any(current.get(k) != plan.get(k) for k in keys):
         raise ValueError('Evidence or renderer changed since preview. Review and request a new report refresh.')
     run = ctx.store.get('runs', plan['run_id'])
@@ -127,6 +155,9 @@ def execute(ctx):
                  str(snapshot), str(plan_file), str(folder / 'edition')], cwd=folder)
     if digest(plan['evidence'])[1] != sha or renderer_identity(plan['source'], plan['tool']) != plan['renderer_sha256']:
         raise ValueError('Source data or renderer changed while rendering. Output retained for diagnostics, not registered as a completed edition.')
+    final = inspect(ctx.store, plan['run_id'], ctx.job['id'])
+    if not final['available'] or any(final.get(k) != plan.get(k) for k in keys):
+        raise ValueError('Evidence or execution state changed while rendering. Review and request a new report refresh.')
     output = folder / 'edition' / 'report.html'
     if not output.is_file() or not output.stat().st_size:
         raise ValueError('Renderer did not produce a report.')
@@ -137,6 +168,8 @@ def execute(ctx):
     ctx.store.put('report_refreshes', ctx.job['id'], record)
     ctx.store.put('reports', ctx.job['id'], {'id': ctx.job['id'], 'name': 'Refreshed report · ' + str(plan['renderer_version']),
                   'path': str(output), 'sample': run['sample']['id'], 'run': run['id'], 'run_status': 'Report-only',
+                  'analysis_status': plan['analysis_status'], 'analysis_job_id': plan['analysis_job_id'],
+                  'render_status': 'completed', 'assessment': plan['assessment'], 'evidence_identity': plan['evidence_identity'],
                   'refresh': True, 'analysis_version': plan['analysis_version'], 'renderer_version': plan['renderer_version'],
                   'producing_job': ctx.job['id']})
     ctx.write('New report edition saved: ' + str(output))

@@ -40,6 +40,20 @@ def reason(tool, row):
     for path, digest in hashes.items():
         if Path(path).is_absolute() or '..' in Path(path).parts or not re.fullmatch('[0-9a-f]{64}', str(digest)):
             return 'Release contract contains invalid file checksums.'
+    retention = row.get('output_retention')
+    if retention is not None:
+        if (not isinstance(retention, dict) or retention.get('interface') != 1
+                or retention.get('strategy') != 'archive-before-replace'
+                or not isinstance(retention.get('helper'), str) or retention['helper'] not in hashes):
+            return 'Release contract lacks a checked output-preservation adapter.'
+    compute = row.get('compute_memory')
+    if compute is not None:
+        expected = {'interface': 1, 'swap_policy': 'physical_ram_plus_explicit_swap_v1',
+                    'helper': 'workflow/lib/settings.py'}
+        if (tool != 'hybas' or row.get('configuration_schema') != 'hybas-v2'
+                or not isinstance(compute, dict) or compute != expected
+                or type(compute.get('interface')) is not int or expected['helper'] not in hashes):
+            return 'Release contract lacks a checked swap-scheduling adapter.'
     followup = row.get('followup')
     if followup is not None:
         if (tool != 'basis' or not isinstance(followup, dict)
@@ -62,6 +76,9 @@ def reason(tool, row):
 def approval(store, tool, commit):
     if store is None:
         return None
+    if store.channel == 'dev':
+        from .dev_catalog import approval as dev_approval
+        return dev_approval(store, tool, commit)
     row = store.get('release_approvals', tool + ':' + commit)
     return row if row and not reason(tool, row) else None
 
@@ -72,6 +89,9 @@ def equivalent_contract(left, right):
 
 
 def refresh(store, tool):
+    if store.channel == "dev":
+        from .dev_catalog import refresh as dev_refresh
+        return dev_refresh(store, tool)
     from .catalog import api, fetch_versions
     # Commit the new catalogue only after both requests and validation succeed.
     catalog = fetch_versions(tool)
@@ -105,7 +125,7 @@ def preflight(store, tool, commit, source):
     if not row:
         from .catalog import PIPELINES
         spec = PIPELINES[tool]
-        if commit in [spec['commit'], *spec.get('previous_commits', [])]:
+        if store.channel != "dev" and commit in [spec['commit'], *spec.get('previous_commits', [])]:
             return  # Existing releases retain their legacy adapter checks.
         raise ValueError('This commit has no compatible reviewed release contract.')
     root = Path(source).resolve()

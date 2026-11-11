@@ -16,6 +16,8 @@ from .store import identifier, now
 from . import __version__
 
 
+from .storage_guard import mutation
+
 def parse_config(text):
     if len(text.encode()) > 2 * 1024 * 1024:
         raise ValueError("Configuration exceeds 2 MB")
@@ -52,6 +54,7 @@ def absolute_path(value):
     return path
 
 
+@mutation
 def register_sample(store, sid, path, mode="hybrid"):
     valid_id(sid)
     folder = absolute_path(path)
@@ -72,6 +75,7 @@ def register_sample(store, sid, path, mode="hybrid"):
     return row
 
 
+@mutation
 def remove_sample(store, sid, expected):
     """Unregister a sample and archive its idle runs without changing run records or files."""
     if not isinstance(sid, str) or not isinstance(expected, dict):
@@ -116,6 +120,7 @@ def _set_archive(db, rid, archived, reason):
                (rid, json.dumps(body)))
 
 
+@mutation
 def archive_runs(store, ids, archived=True):
     """Change list visibility atomically; frozen provenance, reports and files are retained."""
     if not isinstance(ids, list) or not ids or len(ids) > 500 or any(not isinstance(rid, str) for rid in ids):
@@ -139,15 +144,48 @@ def import_samples(store, text):
     return commit(store, text)
 
 
+def _fingerprint(path):
+    """Stream a file once and reject replacement or mutation during the read."""
+    digest = hashlib.sha256()
+    with path.open('rb') as handle:
+        before = os.fstat(handle.fileno())
+        for block in iter(lambda: handle.read(1024 * 1024), b''):
+            digest.update(block)
+        after = os.fstat(handle.fileno())
+    current = path.stat()
+    def identity(stat):
+        return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+    if identity(before) != identity(after) or identity(after) != identity(current):
+        raise ValueError('Input changed while its content was being checked: ' + str(path))
+    return {'path': str(path), 'size': after.st_size, 'mtime_ns': after.st_mtime_ns,
+            'sha256': digest.hexdigest()}
+
+
 def snapshot_files(paths):
     result = []
     for path in sorted(set(Path(p).resolve() for p in paths)):
-        stat = path.stat()
-        result.append({"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns})
+        result.append(_fingerprint(path))
     return result
 
 
-def check_inputs(run):
+def matching_inputs(expected, current):
+    """Match every recorded field; a legacy record makes no content assertion."""
+    if len(expected) != len(current):
+        return False
+    indexed = {row['path']: row for row in current}
+    if len(indexed) != len(current) or {row['path'] for row in expected} != set(indexed):
+        return False
+    return all(row['path'] in indexed and all(indexed[row['path']].get(key) == value
+               for key, value in row.items()) for row in expected)
+
+
+def input_identity(run):
+    return ('SHA-256 content fingerprints' if run.get('inputs') and
+            all(row.get('sha256') for row in run['inputs']) else
+            'legacy file size/mtime only; original content identity unverified')
+
+
+def check_inputs(run, full=True):
     for expected in run["inputs"]:
         path = Path(expected["path"])
         try:
@@ -156,6 +194,11 @@ def check_inputs(run):
             raise ValueError("Input is no longer accessible: " + str(path)) from exc
         if stat.st_size != expected["size"] or stat.st_mtime_ns != expected["mtime_ns"]:
             raise ValueError("Input changed since this draft was created: " + str(path) + ". Create a new draft.")
+        if 'sha256' in expected:
+            if not isinstance(expected['sha256'], str) or not re.fullmatch(r'[0-9a-f]{64}', expected['sha256']):
+                raise ValueError('Input content identity is invalid. Create a new draft: ' + str(path))
+            if full and not matching_inputs([expected], [_fingerprint(path)]):
+                raise ValueError('Input changed since this draft was created (SHA-256 content mismatch): ' + str(path) + '. Create a new draft.')
 
 
 def input_layout(output, tool):
@@ -201,7 +244,7 @@ def sample_sheet(sample, tool, output):
     return handle.getvalue()
 
 
-def check_run_files(run):
+def check_run_files(run, full=True):
     if run["tool"] == "micpscope":
         from .micp_handoff import database_identity, digest
         cfg = parse_config(run["config"])
@@ -223,7 +266,7 @@ def check_run_files(run):
     if hashlib.sha256((folder / "config.yaml").read_bytes()).hexdigest() != run["config_sha256"]:
         raise ValueError("Saved configuration changed. Create a new draft for changed settings.")
     if run.get("run_type") == "followup":
-        check_inputs(run)
+        check_inputs(run, full=full)
         if input_layout(run["output"], run["tool"]) != run["input_layout"]:
             raise ValueError("Staged screening inputs changed")
         for expected in run["followup_sources"]:
@@ -236,7 +279,7 @@ def check_run_files(run):
         raise ValueError("Saved sample sheet changed. Create a new draft.")
     from .manifest_inputs import verify as verify_manifest
     verify_manifest(run)
-    check_inputs(run)
+    check_inputs(run, full=full)
     expected = run.get("input_layout")
     if expected is None:
         # Older drafts have resolved source identities but no staged-link manifest.
@@ -403,6 +446,7 @@ def bind_paths(cfg, tool, store, installed):
     return cfg
 
 
+@mutation
 def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, parent=None, label=None, installation=None, expected_inputs=None, register=True):
     spec = PIPELINES[tool]
     install_id = installation or store.get("settings", "active-" + tool)
@@ -417,7 +461,13 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
     cores, memory_mb = int(cores), int(memory_mb)
     if cores < 1 or memory_mb < 512:
         raise ValueError("Choose at least one core and 512 MB memory")
+    from .channels import validate_resources
+    validate_resources(store, parse_config(config_text))
     cfg = bind_paths(parse_config(config_text), tool, store, installed)
+    validate_resources(store, cfg)
+    from .compute_memory import policy, require_adapter as require_memory_adapter
+    policy({'memory_mb': memory_mb}, cfg)
+    require_memory_adapter(store, tool, installed['version']['commit'], cfg, installed['source'])
     if tool == "hybas":
         from .aware_modes import resolve
         cfg = resolve(cfg)
@@ -457,7 +507,7 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         shutil.copytree(source, folder / "workflow", ignore=shutil.ignore_patterns(".git", ".snakemake", "__pycache__", "*.pyc"))
         output = folder / "outputs" / sample["id"]
         inputs = stage_inputs(sample, tool, output)
-        if expected_inputs is not None and inputs != expected_inputs:
+        if expected_inputs is not None and not matching_inputs(expected_inputs, inputs):
             raise ValueError("Original inputs differ from the parent run. Register changed data as a new run, not a comparison variant.")
         if tool != "hybas" or cfg.get("threads") != "auto":
             cfg["threads"] = cores
@@ -489,7 +539,7 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
                "config": text, "submitted": config_text, "config_sha256": hashlib.sha256(text.encode()).hexdigest(),
                "workflow_sha256": tree_digest(folder / "workflow"), "inputs": inputs, "input_layout": input_layout(output, tool), "cores": cores, "memory_mb": memory_mb,
                "parent": parent, "label": label or sample["id"], "created": now(), "dry_run_ok": False,
-               "bactologix_version": __version__,
+               "bactologix_version": __version__, "application_channel": store.channel,
                "experimental": tool == "hybas" and (Path(installed["source"]) / "app/aware-outputs.json").is_file(),
                "reuse": "input-files-only; workflow outputs are independent"}
         if frozen_manifest:
@@ -503,6 +553,7 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         raise
 
 
+@mutation
 def clone_runs(store, parent_id, aware_free=False, strategies=None):
     parent = store.get("runs", parent_id)
     if not parent or parent["tool"] != "hybas":
@@ -537,6 +588,8 @@ def validate_launch(store, rid, action, check_busy=True):
     current_controller(store, run)
     from .release_contract import preflight
     preflight(store, run["tool"], run["commit"], Path(run["folder"]) / "workflow")
+    from .compute_memory import require_adapter as require_memory_adapter
+    require_memory_adapter(store, run['tool'], run['commit'], parse_config(run['config']), Path(run['folder']) / 'workflow')
     if not supported(run["tool"], run["commit"], store):
         raise ValueError("This source version has no reviewed execution adapter")
     if action == "continue" and not (run.get("identification", {}).get("decision_path") or run.get("aware", {}).get("continuation_path")):
@@ -547,12 +600,14 @@ def validate_launch(store, rid, action, check_busy=True):
         raise ValueError("A successful native dry-run with the current runner is required before preparing tools or running")
     check_run_files(run)
     from .preflight import assert_launch
-    assert_launch(run, "run" if action == "continue" else action)
+    assert_launch(run, "run" if action == "continue" else action, store=store)
     return run
 
 
 def command(store, run, action):
     from .engine import find_conda
+    from .compute_memory import policy, require_adapter as require_memory_adapter
+    require_memory_adapter(store, run['tool'], run['commit'], parse_config(run['config']), Path(run['folder']) / 'workflow')
     conda = find_conda(store)
     if not conda:
         raise ValueError("Conda is missing")
@@ -566,8 +621,9 @@ def command(store, run, action):
     argv = [conda, "run", "--no-capture-output", "-p", current_controller(store, run), "snakemake",
             "--snakefile", str(folder / "workflow" / entry),
             "--directory", str(directory), "--configfile", str(folder / "config.yaml"),
-            "--cores", str(run["cores"]), "--resources", "mem_mb=" + str(run["memory_mb"]), "kraken_jobs=1",
-            "--use-conda", "--conda-prefix", run.get("rule_cache") or str(store.home / "envs" / run["tool"]), "--rerun-incomplete"]
+            "--cores", str(run["cores"]), "--resources", "mem_mb=" + str(policy(run)['scheduler_mb']), "kraken_jobs=1",
+            "--use-conda", "--conda-prefix", run.get("rule_cache") or str(store.home / "envs" / run["tool"]),
+            "--rerun-incomplete", "--keep-incomplete", "--notemp"]
     if run.get("variant_entry"):
         argv.append("all")
     if action == "dry-run":
@@ -623,9 +679,13 @@ def execute_workflow(ctx):
             raise ValueError('Continuation needs tool environments: ' + ', '.join(missing) + '. Use Install environments, then Continue run.')
         payload['action'] = 'run'
     ctx.write("Run " + run["id"] + " · source " + run["commit"])
-    ctx.write("Input identity uses file size/mtime checks. Workflow provenance may add content checksums.")
+    from .compute_memory import summary as memory_summary
+    ctx.write('Compute policy: ' + memory_summary(run))
+    ctx.write('Input identity: ' + input_identity(run) + '. Content fingerprints, where recorded, were rechecked before launch.')
     if payload['action'] == 'run':
         ctx.write('Environment policy: reuse matching installed environments only; automatic installation and repair are disabled.')
+        from .output_retention import preserve
+        preserve(ctx, run)  # Stop on preservation failure before replacing any output.
     if payload["action"] == "dry-run":
         run["dry_run_ok"] = False
     elif payload["action"] == "run":
@@ -637,14 +697,28 @@ def execute_workflow(ctx):
     store.put("runs", run["id"], run)
     from . import results
     results.observe(ctx, run, 'before')
+    runtime, invocation_succeeded = None, False
     try:
         from .hardware import workflow_environment
         extra_env = workflow_environment(parse_config(run['config']))
         ctx.write('GPU policy: ' + ('CPU only (CUDA devices hidden)' if extra_env else 'Native tool settings; existing CUDA visibility preserved'))
+        if payload['action'] == 'run':
+            try:
+                from . import methods_runtime
+                runtime = methods_runtime.prepare(store, run, ctx.job)
+                extra_env = dict(extra_env or {}, **runtime['environment'])
+            except Exception as exc:
+                ctx.write('Controller runtime observation unavailable: ' + str(exc))
         kwargs = {"extra_env": extra_env} if extra_env else {}
         ctx.command(command(store, run, payload["action"]), cwd=Path(run["folder"]) / "workflow", **kwargs)
+        invocation_succeeded = True
     finally:
         results.observe(ctx, run, 'after')
+        if runtime is not None:
+            try:
+                methods_runtime.finish(store, run, ctx.job['id'], runtime, succeeded=invocation_succeeded)
+            except Exception as exc:
+                ctx.write('Controller runtime observation unavailable: ' + str(exc))
     run["last_action"] = payload["action"]
     if payload["action"] == "dry-run":
         run["dry_run_ok"] = True

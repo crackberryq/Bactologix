@@ -1,3 +1,71 @@
+## 0.1.0a96.dev1 run Methods and data flow
+
+- Runtime regressions cover later controller changes, failed/interrupted invocations, immutable observation identity, malformed traces, historical version gaps and partial rule capture. Sample-free native workflows check dependency declarations, completed rule events and a second invocation with no work.
+- Source-matched diagram fixtures cover pipeline branches, optional steps, inherited results, unknown sources and partial evidence. Recorded scheduler edges describe declared input/output dependencies, not observed file bytes or every executable inside a rule.
+- Browser acceptance covers the explicit unvalidated-pipeline notice, controller version scope, tool roles, accessible diagrams and SVG/JSON/ZIP downloads. Snakemake 9.27.1 execution is exercised in the Dev controller matrix in addition to the regular controller checks.
+- These checks validate software provenance and presentation. They do not establish scientific performance or reconstruct missing historical execution records.
+
+## 0.1.0a95.dev1 notifications
+
+- Notification fixtures cover historical baselines, job/review distinctions, retention, resolved alerts, category preferences and concurrent desktop claims. Generic desktop text omits sample names, paths and raw error details.
+- Update-check fixtures cover bounded asynchronous requests, workspace leases, channel separation, validated releases, ancestry, stale caches and offline/error handling. No analysis or installation jobs are launched by availability checks.
+- Browser acceptance covers the notification center, explicit permission requests, denial/unsupported fallback, duplicate prevention, navigation and mobile/keyboard access. Browser tests simulate the operating-system delivery boundary; workstation notification permissions remain user-controlled.
+
+## 0.1.0a94.dev1 setup adviser
+
+- Source fixtures verify exact clean commit identity and bounded committed-template reads without running pipeline code. Missing, dirty, stale and unsupported sources remain unverified.
+- Adviser fixtures check input availability, source-specific route explanations, mixed inputs, unknown values, explicit draft-only application and stale preview rejection. These checks validate software behavior, not biological performance or optimal parameter values.
+- Browser acceptance covers review, explicit application, edits that invalidate advice, recovered drafts and mobile/keyboard access. Existing pipeline, Windows, package and regression checks remain release gates.
+
+## 0.1.0a93.dev1 isolate folder routing
+
+- Routing checks cover a single output, multiple pipelines, shared follow-ups, absent outputs, unlinked same-name samples and revalidation when a folder is selected. Caller-supplied paths do not determine the target.
+- Browser acceptance covers the Samples action, folder selection, explicitly labelled original inputs and keyboard/mobile controls. Existing application, pipeline, Windows and deployment checks remain release gates.
+
+## 0.1.0a92.dev1 all-pipeline Methods audit
+
+- Collector fixtures cover positive sample identity, conflicting input/source/configuration identities, large reports, complete-file checksums, malformed metadata, unsafe paths and concurrent replacements.
+- Methods regressions distinguish requested/effective models, environment inventories/runtime measurements, reused results/new execution, incomplete scope, unknown source templates and retrospective metadata. Original snapshots remain immutable.
+- Runtime receipt tests execute a sample-free Snakemake workflow and exercise failure, interruption, identity/nonce/path conflicts, immutable storage and completion-capture ordering. Export does not probe current environments or infer individual rule execution.
+- Regular and development application, browser, Windows, package and exact pipeline contract checks remain release gates. These checks establish software evidence behaviour, not biological performance.
+
+
+## 0.1.0a91.dev1 GeneScope Methods recovery
+
+- Metadata-reader fixtures cover valid results larger than 8 MB, complete-file checksums, trailing corruption, duplicate identity fields, bounded nesting/scalars, symlinks and concurrent file changes.
+- Recovery fixtures distinguish positively matched successful attempts, legacy unverified outputs, unchanged pre-existing outputs and conflicting identities/checksums. Immutable completion and per-attempt snapshots remain unchanged.
+- Methods/export regression coverage checks source-specific defaults, retained unknown versions, failed retries, inspection and portable downloads. No per-step history is fabricated from result metadata.
+- Regular and development application, browser, Windows, package and exact pipeline contract checks remain release gates. These checks validate export behavior, not biological performance.
+
+
+## 0.1.0a90.dev1 isolate export and history
+
+- Disposable filesystem fixtures cover exact isolate lineage, archived analyses, shared follow-ups, external inputs, unrelated-record exclusion, and immutable per-attempt evidence.
+- Real worker integration copies a synthetic isolate with all three linked pipelines, verifies package checksums and local links, and confirms that original files remain unchanged.
+- Export regressions include stale previews, unavailable files, changed historical input hashes, unavailable Methods, unsafe links, destination substitution, insufficient space, cancellation and interrupted copies. Verification and historical completeness are distinct receipt fields.
+- History fixtures cover failed attempts, checks versus execution, mismatched evidence, missing legacy steps and portable SVG/PDF/JSON/HTML outputs. Vector rendering is visually reviewed; native tool execution order is not invented.
+- Regular and Dev regression suites, Chromium/Streamlit acceptance, Windows desktop, package/environment deployment and exact pipeline contracts remain release gates. Physical USB disconnection, filesystem-specific limits and completed SharePoint cloud synchronization require workstation acceptance; no cloud verification is claimed.
+- This release adds data management and recorded provenance. It does not change scientific algorithms or provide sample-specific polishing recommendations.
+
+## 0.1.0a88.dev1 interface preparation
+
+- Regression coverage includes purpose-first setup, selection without sample unregistration, run revision/recovery, independent execution/coverage presentation, keyboard/mobile navigation, storage filtering and exact cleanup confirmation.
+- Cleanup recovery has explicit regression cases for interrupted, failed, receipt-less and recovery-job attempts.
+- Node-backed storage tests exercise filtering, hidden selections, dependencies and unknown measurements. Chromium/Streamlit acceptance, Windows desktop, package deployment and all three pipeline contracts remain mandatory CI release gates.
+- No scientific settings or pipeline algorithms are changed. Novice usability sessions and physical workstation acceptance remain separate beta qualification tasks.
+
+
+## 0.1.0a87.dev1 storage management
+
+- Full isolated local regression suite: 888 passed, 109 skipped. Browser and upstream-dependent cases are exercised by the required CI jobs.
+- Shared cleanup modules and regression fixtures match regular 0.1.0a87. Tests cover explicit deletion confirmation, retained dependencies, managed ownership, stale previews, related-workspace locks, hard links, symbolic links, partial cleanup recovery and bounded preview manifests.
+- Dev-specific checks preserve independent workspace and environment ownership, guard manifest/AWARE registration during cleanup, and retain the original regular-workspace discovery paths when Dev redirects XDG directories. The focused discovery, ownership and mutation suite passed 14 tests.
+- Storage estimates include nested output locations. Chromium acceptance covers confirmation, cancellation, exact removal scope, receipt rendering and nested size estimates. Windows desktop, environment deployment and pipeline contract CI remain publication gates for the final commit.
+
+Only disposable fixtures were deleted during development. This release does not
+change scientific pipeline algorithms or establish physical Windows/WSL disk
+compaction behavior.
+
 ## 0.1.0a85 workspace presentation
 
 - UI bridge, Methods, and package checks: 31 passed, 2 skipped.

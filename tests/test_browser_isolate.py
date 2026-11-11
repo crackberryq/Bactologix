@@ -1,0 +1,382 @@
+"""Chromium acceptance for portable isolate exports and recorded history."""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import xml.etree.ElementTree as ET
+
+import pytest
+
+from test_browser import render_component
+from test_isolate_integration import (assert_portable_export, finish_workers,
+                                     isolate_fixture, original_bytes,
+                                     tracked_worker, wait_for_export)
+
+pytestmark = pytest.mark.skipif(os.environ.get('BACTOLOGIX_BROWSER_TESTS') != '1',
+                                reason='Enable the browser acceptance job to run Chromium')
+
+
+def responder(page, store):
+    from bactologix.ui_backend import dispatch, snapshot
+
+    def respond(kind):
+        request = page.evaluate('window.acceptanceEvents.at(-1).value')
+        assert request['kind'] == kind
+        result = dispatch(store, kind, request['payload'])
+        page.evaluate('''({response, workspace}) => {
+            Object.assign(window.acceptanceWorkspace, workspace);
+            window.acceptanceRender(response);
+        }''', {'response': {'id': request['id'], 'ok': True, **result},
+               'workspace': snapshot(store)})
+        return result
+
+    return respond
+
+
+def capture(page, name):
+    destination = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+    if destination:
+        folder = Path(destination)
+        folder.mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=str(folder / (name + '.png')), full_page=True)
+
+
+def assert_compact_isolate_tabs(dialog):
+    """Keep all three sections visible in one usable row at every viewport."""
+    tabs = dialog.locator('[data-action="isolate-tab"]')
+    boxes = tabs.evaluate_all('''buttons => buttons.map(button => {
+        const rect = button.getBoundingClientRect();
+        return {label: button.textContent.trim(), x: rect.x, y: rect.y,
+                right: rect.right, width: rect.width, height: rect.height};
+    })''')
+    assert len(boxes) == 3, boxes
+    assert max(box['y'] for box in boxes) - min(box['y'] for box in boxes) <= 2, boxes
+    assert all(44 <= box['height'] <= 64 for box in boxes), boxes
+    assert all(box['width'] >= 70 for box in boxes), boxes
+    assert all(left['right'] <= right['x'] + 1 for left, right in zip(boxes, boxes[1:])), boxes
+
+
+def assert_readable_sample_actions(row):
+    """Prevent narrow table cells from turning action labels into letter columns."""
+    actions = row.locator('[data-action="open-isolate-folder"], '
+                          '[data-action="isolate-details"], [data-action="isolate-export"]')
+    sizes = actions.evaluate_all('''buttons => buttons.map(button => {
+        const rect = button.getBoundingClientRect();
+        return {label: button.textContent.trim(), width: rect.width, height: rect.height,
+                contentWidth: button.scrollWidth, availableWidth: button.clientWidth};
+    })''')
+    assert len(sizes) == 3, sizes
+    assert all(size['width'] >= 110 and 30 <= size['height'] <= 76 for size in sizes), sizes
+    assert all(size['contentWidth'] <= size['availableWidth'] + 1 for size in sizes), sizes
+
+
+def test_isolate_history_links_evidence_downloads_and_mobile_keyboard(tmp_path, monkeypatch):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix import launcher
+    from bactologix.ui_backend import snapshot
+    fixture = isolate_fixture(tmp_path)
+    store = fixture['store']
+    before = original_bytes(fixture)
+    jobs_before = store.jobs()
+    opened = []
+    monkeypatch.setattr(launcher, 'open_folder', lambda path: opened.append(str(path)) or str(path))
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(page, store)
+        respond = responder(page, store)
+        page.get_by_role('link', name='Samples', exact=True).click()
+        row = page.locator('[data-sample-row="isolate-07"]')
+        expect(row.get_by_role('button', name='Open input folder', exact=True)).to_have_count(0)
+        expect(page.get_by_role('columnheader', name='Isolate files', exact=True)).to_be_visible()
+        assert not row.locator('.sample-input-location').evaluate('(el) => el.open')
+        folder_trigger = row.get_by_role('button', name='Open isolate folder', exact=True)
+        expect(folder_trigger).to_have_class('btn primary')
+        folder_trigger.focus()
+        page.keyboard.press('Enter')
+        assert page.evaluate('window.acceptanceEvents.at(-1).value.payload') == {
+            'id': fixture['sample']['id'], 'kind': 'analysis'}
+        choices = respond('open_isolate_folder')['isolate_folder_choices']
+        assert len(choices['folders']) == 3
+        assert opened == []
+        folders = page.get_by_role('dialog', name='Isolate folders · isolate-07', exact=True)
+        expect(folders).to_be_visible()
+        expect(folders.locator('[data-isolate-folder]')).to_have_count(3)
+        expect(folders.get_by_role('button', name='Open analysis folder', exact=True).first).to_be_focused()
+        expect(folders).to_contain_text('run-export-hybas <fixture>')
+        expect(folders).not_to_contain_text('run-unrelated-same-name')
+        assert folders.locator('fixture').count() == 0
+        basis_folder = folders.locator('[data-isolate-folder="run-export-basis"]')
+        expect(basis_folder).to_contain_text('Archived')
+        expect(basis_folder).to_contain_text(fixture['basis']['output'])
+        capture(page, 'isolate-folder-choices-desktop')
+        basis_folder.get_by_role('button', name='Open analysis folder', exact=True).focus()
+        page.keyboard.press('Enter')
+        assert page.evaluate('window.acceptanceEvents.at(-1).value.payload') == {
+            'id': fixture['sample']['id'], 'kind': 'run', 'run_id': fixture['basis']['id']}
+        respond('open_isolate_folder')
+        assert opened == [fixture['basis']['output']]
+        expect(basis_folder.get_by_role('button', name='Open analysis folder', exact=True)).to_be_focused()
+        page.keyboard.press('Escape')
+        expect(folders).to_have_count(0)
+        expect(folder_trigger).to_be_focused()
+        trigger = row.get_by_role('button', name='Analysis & history', exact=True)
+        trigger.focus()
+        page.keyboard.press('Enter')
+        result = respond('isolate_details')['isolate']
+        assert {r['id'] for r in result['runs']} == {fixture[k]['id'] for k in ('hybas', 'basis', 'genescope')}
+        dialog = page.get_by_role('dialog', name='Isolate · isolate-07', exact=True)
+        expect(dialog).to_be_visible()
+        assert_compact_isolate_tabs(dialog)
+        expect(dialog.locator('[data-isolate-run]')).to_have_count(3)
+        expect(dialog.locator('[data-isolate-run="run-unrelated-same-name"]')).to_have_count(0)
+        expect(dialog).to_contain_text(str(fixture['original']))
+        expect(dialog.locator('[data-isolate-run="run-export-basis"]')).to_contain_text('Archived')
+        expect(dialog).to_contain_text('run-export-hybas <fixture>')
+        assert dialog.locator('fixture').count() == 0  # Labels remain text, not inserted markup.
+        dialog.get_by_role('button', name='Open input folder', exact=True).click()
+        assert page.evaluate('window.acceptanceEvents.at(-1).value.payload') == {
+            'id': fixture['sample']['id'], 'kind': 'inputs'}
+        respond('open_isolate_folder')
+        assert opened == [fixture['basis']['output'], str(fixture['original'])]
+        expect(dialog.get_by_role('button', name='Open input folder', exact=True)).to_be_focused()
+        capture(page, 'isolate-files-desktop')
+        dialog.get_by_role('button', name='Sample history', exact=True).click()
+        expect(dialog.get_by_role('group', name='Sample history diagram', exact=True)).to_be_visible()
+        limitations = dialog.locator('.isolate-history-view > details.isolate-warnings')
+        expect(limitations).to_have_count(1)
+        expect(limitations.locator('summary')).to_contain_text('History limitations')
+        assert not limitations.evaluate('(el) => el.open')
+        graph = result['history']
+        assert any(n['status'] == 'failed' for n in graph['nodes'])
+        assert any(n['status'] in {'unknown', 'not_recorded', 'planned'} for n in graph['nodes'])
+        selectable = dialog.locator('[data-action="isolate-node"]').last
+        selectable.focus()
+        page.keyboard.press('Enter')
+        expect(selectable).to_have_attribute('aria-pressed', 'true')
+        expect(dialog.get_by_role('region', name='Selected history step', exact=True)).to_contain_text(selectable.get_attribute('data-id'))
+        for fmt, label in [('svg', 'Download SVG'), ('pdf', 'Download PDF'), ('json', 'Download JSON'), ('html', 'Offline HTML')]:
+            with page.expect_download() as exported:
+                dialog.get_by_role('button', name=label, exact=True).click()
+                respond('download_isolate_history')
+            content = Path(exported.value.path()).read_bytes()
+            if fmt == 'svg':
+                assert ET.fromstring(content).tag.endswith('svg')
+            elif fmt == 'pdf':
+                assert content.startswith(b'%PDF-') and b'%%EOF' in content
+            elif fmt == 'json':
+                exported_graph = json.loads(content)
+                assert {n['id'] for n in exported_graph['nodes']} == {n['id'] for n in graph['nodes']}
+            else:
+                assert b'<html' in content.lower() and b'isolate-07' in content
+        capture(page, 'isolate-history-desktop')
+        page.set_viewport_size({'width': 390, 'height': 844})
+        expect(dialog).to_be_visible()
+        assert_compact_isolate_tabs(dialog)
+        assert not limitations.evaluate('(el) => el.open')
+        assert dialog.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
+        capture(page, 'isolate-history-mobile')
+        dialog.get_by_role('button', name='Close dialog', exact=True).click()
+        expect(dialog).to_have_count(0)
+        expect(trigger).to_be_focused()
+        assert_readable_sample_actions(row)
+        capture(page, 'isolate-sample-actions-mobile')
+        assert store.jobs() == jobs_before
+        assert original_bytes(fixture) == before
+        # A registration for the other input location selects its single saved
+        # output, despite sharing a name with the earlier linked analyses.
+        store.put('samples', fixture['sample']['id'], {
+            **fixture['sample'], 'path': fixture['unrelated']['sample']['path']})
+        page.evaluate('''workspace => {
+            Object.assign(window.acceptanceWorkspace, workspace);
+            window.acceptanceRender(null);
+        }''', snapshot(store))
+        row.get_by_role('button', name='Open isolate folder', exact=True).click()
+        direct = respond('open_isolate_folder')
+        assert 'isolate_folder_choices' not in direct
+        assert opened[-1] == fixture['unrelated']['output']
+        expect(page.get_by_role('dialog')).to_have_count(0)
+        assert store.jobs() == jobs_before
+        assert original_bytes(fixture) == before
+        assert not errors, errors
+        browser.close()
+
+
+def test_isolate_export_previews_then_copies_and_shows_verified_local_receipt(tmp_path, monkeypatch):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import snapshot
+    fixture = isolate_fixture(tmp_path)
+    store = fixture['store']
+    before = original_bytes(fixture)
+    destination = tmp_path / 'SharePoint synced folder'
+    destination.mkdir()
+    other_destination = tmp_path / 'other destination'
+    other_destination.mkdir()
+    jobs_before = {job['id'] for job in store.jobs()}
+    children = tracked_worker(monkeypatch)
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            render_component(page, store)
+            respond = responder(page, store)
+            page.get_by_role('link', name='Samples', exact=True).click()
+            page.locator('[data-sample-row="isolate-07"]').get_by_role('button', name='Export isolate', exact=True).click()
+            respond('isolate_details')
+            dialog = page.get_by_role('dialog', name='Isolate · isolate-07', exact=True)
+            assert_compact_isolate_tabs(dialog)
+            copy_button = dialog.get_by_role('button', name='Copy & verify', exact=True)
+            expect(copy_button).to_be_disabled()
+            dialog.get_by_label('Destination folder', exact=True).fill(str(destination))
+            dialog.get_by_label('Destination type', exact=True).select_option('sharepoint_sync')
+            expect(dialog).to_contain_text('Local verification and cloud sync are separate')
+            dialog.get_by_role('button', name='Preview export', exact=True).click()
+            first_plan = respond('preview_isolate_export')['isolate_export_plan']
+            assert first_plan['can_export'], first_plan
+            expect(copy_button).to_be_enabled()
+            expect(dialog.get_by_role('region', name='Reviewed isolate export', exact=True)).to_contain_text(first_plan['destination'])
+            assert not list(destination.iterdir())
+            assert {job['id'] for job in store.jobs()} == jobs_before
+            assert original_bytes(fixture) == before
+            # Changing a reviewed destination requires another explicit preview.
+            dialog.get_by_label('Destination folder', exact=True).fill(str(other_destination))
+            expect(copy_button).to_be_disabled()
+            expect(dialog).to_contain_text('Destination changed')
+            dialog.get_by_role('button', name='Preview export', exact=True).click()
+            plan = respond('preview_isolate_export')['isolate_export_plan']
+            assert plan['id'] != first_plan['id']
+            expect(copy_button).to_be_enabled()
+            capture(page, 'isolate-export-review-desktop')
+            page.set_viewport_size({'width': 390, 'height': 844})
+            assert_compact_isolate_tabs(dialog)
+            assert dialog.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
+            expect(copy_button).to_be_visible()
+            capture(page, 'isolate-export-review-mobile')
+            copy_button.click()
+            result = respond('start_isolate_export')
+            job_id = result['job_id']
+            expect(dialog).to_have_count(0)
+            wait_for_export(store, job_id)
+            receipt = store.get('isolate_export_receipts', job_id)
+            assert_portable_export(fixture, receipt)
+            assert not list(destination.iterdir())
+            assert original_bytes(fixture) == before
+            page.evaluate('''workspace => {
+                Object.assign(window.acceptanceWorkspace, workspace);
+                window.acceptanceRender(null);
+            }''', snapshot(store))
+            page.set_viewport_size({'width': 1440, 'height': 1100})
+            page.get_by_role('link', name='Samples', exact=True).click()
+            row = page.locator('[data-isolate-export="' + job_id + '"]')
+            row.get_by_role('button', name='View export receipt', exact=True).click()
+            respond('isolate_export_receipt')
+            receipt_dialog = page.get_by_role('dialog', name='Isolate export receipt', exact=True)
+            expect(receipt_dialog).to_contain_text('SHA-256 verified')
+            expect(receipt_dialog).to_contain_text('Cloud upload is not verified')
+            expect(receipt_dialog).to_contain_text('Original files have not been deleted')
+            expect(receipt_dialog.get_by_role('button', name='Open destination folder', exact=True)).to_be_enabled()
+            capture(page, 'isolate-export-receipt-desktop')
+            assert not errors, errors
+            browser.close()
+    finally:
+        finish_workers(children)
+
+
+def test_missing_scope_and_unverified_attempt_are_visible_without_copying(tmp_path, monkeypatch):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix import launcher
+    from bactologix.runs import register_sample
+    from bactologix.ui_backend import snapshot
+    from bactologix.store import now
+    fixture = isolate_fixture(tmp_path)
+    store = fixture['store']
+    empty_inputs = tmp_path / 'inputs without saved analyses'
+    empty_inputs.mkdir()
+    register_sample(store, 'not-run-yet', str(empty_inputs), 'illumina_only')
+    opened = []
+    monkeypatch.setattr(launcher, 'open_folder', lambda path: opened.append(str(path)) or str(path))
+    unavailable = Path(fixture['genescope']['output'])
+    (unavailable / 'descriptor-result.txt').unlink()
+    unavailable.rmdir()
+    before = original_bytes(fixture)
+    destination = tmp_path / 'selected destination'
+    destination.mkdir()
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 390, 'height': 844})
+        render_component(page, store)
+        respond = responder(page, store)
+        page.get_by_role('button', name='Open navigation', exact=True).click()
+        page.get_by_role('link', name='Samples', exact=True).click()
+        empty_trigger = page.locator('[data-sample-row="not-run-yet"]').get_by_role('button', name='Open isolate folder', exact=True)
+        empty_trigger.click()
+        assert respond('open_isolate_folder')['isolate_folder_choices']['folders'] == []
+        empty_dialog = page.get_by_role('dialog', name='Isolate folders · not-run-yet', exact=True)
+        expect(empty_dialog).to_contain_text('No saved analysis folders are recorded')
+        expect(empty_dialog.get_by_role('button', name='Open analysis folder', exact=True)).to_have_count(0)
+        expect(empty_dialog.get_by_role('button', name='Open input folder', exact=True)).to_have_count(0)
+        expect(empty_dialog.get_by_role('button', name='Close dialog', exact=True)).to_be_focused()
+        assert opened == []
+        page.keyboard.press('Escape')
+        expect(empty_trigger).to_be_focused()
+        page.locator('[data-sample-row="isolate-07"]').get_by_role('button', name='Open isolate folder', exact=True).click()
+        choices = respond('open_isolate_folder')['isolate_folder_choices']
+        assert len(choices['folders']) == 3
+        folders = page.get_by_role('dialog', name='Isolate folders · isolate-07', exact=True)
+        unavailable_row = folders.locator('[data-isolate-folder="run-export-genescope"]')
+        expect(unavailable_row.get_by_role('button', name='Open analysis folder', exact=True)).to_be_disabled()
+        expect(unavailable_row).to_contain_text('Folder unavailable')
+        expect(unavailable_row).to_contain_text(str(unavailable))
+        assert folders.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
+        folders.get_by_role('button', name='Close', exact=True).focus()
+        page.keyboard.press('Tab')
+        expect(folders.get_by_role('button', name='Close dialog', exact=True)).to_be_focused()
+        page.keyboard.press('Shift+Tab')
+        expect(folders.get_by_role('button', name='Close', exact=True)).to_be_focused()
+        capture(page, 'isolate-folder-choices-mobile')
+        page.keyboard.press('Escape')
+        assert opened == []
+        page.locator('[data-sample-row="isolate-07"]').get_by_role('button', name='Export isolate', exact=True).click()
+        respond('isolate_details')
+        dialog = page.get_by_role('dialog', name='Isolate · isolate-07', exact=True)
+        dialog.get_by_label('Destination folder', exact=True).fill(str(destination))
+        dialog.get_by_role('button', name='Preview export', exact=True).click()
+        plan = respond('preview_isolate_export')['isolate_export_plan']
+        assert plan['scope_status'] == 'partial'
+        assert str(unavailable) in plan['missing']
+        expect(dialog).to_contain_text('Partial scope · review unavailable items')
+        expect(dialog).to_contain_text(str(unavailable))
+        assert not list(destination.iterdir())
+        assert original_bytes(fixture) == before
+        capture(page, 'isolate-export-partial-scope-mobile')
+        dialog.get_by_role('button', name='Close dialog', exact=True).click()
+        # Persisted interrupted attempts may have no copy receipt at all. The
+        # UI must still expose them without inventing successful verification.
+        jid = store.submit('isolate_export', {'plan_id': plan['id'], 'token': plan['token']})
+        store.update_job(jid, status='interrupted', finished=now(), error='Process stopped before copying began.')
+        page.evaluate('''workspace => {
+            Object.assign(window.acceptanceWorkspace, workspace);
+            window.acceptanceRender(null);
+        }''', snapshot(store))
+        page.locator('[data-isolate-export="' + jid + '"]').get_by_role('button', name='View export receipt', exact=True).click()
+        result = respond('isolate_export_receipt')['isolate_export_receipt']
+        assert result['job_status'] == 'interrupted'
+        assert result['verification'] != 'verified-local'
+        receipt = page.get_by_role('dialog', name='Isolate export receipt', exact=True)
+        expect(receipt).to_contain_text('Incomplete')
+        expect(receipt).to_contain_text('Keep the original files')
+        expect(receipt).to_contain_text('No copy receipt is available')
+        expect(receipt).not_to_contain_text('SHA-256 verified')
+        assert receipt.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
+        assert not list(destination.iterdir())
+        assert original_bytes(fixture) == before
+        browser.close()

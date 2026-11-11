@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -61,18 +62,83 @@ def find_conda():
     return next((p for p in candidates if p and Path(p).is_file() and os.access(p, os.X_OK)), None)
 
 
+def release_asset(release):
+    tag = release.get('tag_name', '')
+    if tag.startswith('dev-v'):
+        version = tag.removeprefix('dev-v')
+        if not re.fullmatch(r'[0-9A-Za-z.]+\.dev[0-9]+', version):
+            return None
+        assets = [a for a in release.get('assets', []) if a.get('name') == f'Bactologix-Dev-{version}.whl']
+        return (assets[0], f'bactologix-{version}-py3-none-any.whl') if len(assets) == 1 else None
+    assets = [a for a in release.get('assets', []) if a.get('name', '').startswith('bactologix-') and a['name'].endswith('-py3-none-any.whl')]
+    return (assets[0], assets[0]['name']) if assets else None
+
+
 def select_release(rows, channel):
-    eligible = [r for r in rows if not r.get('draft') and (channel == 'prerelease' or not r.get('prerelease'))
-                and any(a['name'].startswith('bactologix-') and a['name'].endswith('-py3-none-any.whl') for a in r.get('assets', []))]
+    eligible = [r for r in rows if not r.get('draft') and (bool(re.search(r'\.dev[0-9]+$', r.get('tag_name',''))) == (channel == 'dev')) and (channel in {'prerelease','dev'} or not r.get('prerelease'))
+                and release_asset(r)]
     if not eligible:
         raise ValueError('No installable release in this channel. Alpha releases require --channel prerelease.')
     return max(eligible, key=lambda r: r.get('published_at') or '')
 
 
+def claim_dev_workspace(home):
+    home = Path(home)
+    marker = home / '.bactologix-channel.json'
+    if home.is_symlink():
+        raise ValueError('Dev workspace cannot be a symbolic link.')
+    if marker.exists():
+        if json.loads(marker.read_text()).get('channel') != 'dev':
+            raise ValueError('Dev workspace is already owned by another channel.')
+    else:
+        if (home / 'workspace.sqlite3').exists():
+            raise ValueError('Dev cannot adopt an existing workspace.')
+        home.mkdir(parents=True, exist_ok=True)
+        with marker.open('x') as stream:json.dump({'schema':1,'channel':'dev'},stream)
+
+
+def isolated_environment(home):
+    entries = {'CONDA_PKGS_DIRS':'cache/conda/pkgs','CONDA_ENVS_PATH':'envs',
+               'PIP_CACHE_DIR':'cache/pip','XDG_CACHE_HOME':'cache','XDG_CONFIG_HOME':'config',
+               'TMPDIR':'tmp','TMP':'tmp','TEMP':'tmp'}
+    for key, relative in entries.items():
+        path = home / relative
+        if not path.resolve().is_relative_to(home.resolve()):
+            raise ValueError('Dev storage escapes its workspace.')
+        path.mkdir(parents=True,exist_ok=True)
+        os.environ[key]=str(path)
+    condarc=home/'config/condarc'
+    if not condarc.resolve().is_relative_to(home.resolve()):raise ValueError('Dev Conda configuration escapes its workspace.')
+    if not condarc.exists():condarc.write_text('channels:\n  - conda-forge\n  - bioconda\nchannel_priority: strict\nauto_activate_base: false\n')
+    os.environ.update(CONDARC=str(condarc),PYTHONNOUSERSITE='1',BACTOLOGIX_CHANNEL='dev',BACTOLOGIX_DEV_HOME=str(home))
+    for key in ('PYTHONPATH','PYTHONHOME','PYTHONUSERBASE','CONDA_PREFIX','CONDA_DEFAULT_ENV','VIRTUAL_ENV','LD_LIBRARY_PATH','LD_PRELOAD'):
+        os.environ.pop(key,None)
+
+
+def bundled_dev_wheel(manifest):
+    import zipfile
+    import email
+    doc=json.loads(manifest.read_text())
+    name=doc.get('wheel','')
+    if not re.fullmatch(r'bactologix-[0-9A-Za-z.]+-py3-none-any.whl',name):
+        raise ValueError('Invalid Dev package filename.')
+    wheel=manifest.parent/name
+    if wheel.is_symlink() or hashlib.sha256(wheel.read_bytes()).hexdigest()!=doc.get('sha256'):
+        raise ValueError('Dev wheel checksum mismatch.')
+    with zipfile.ZipFile(wheel) as archive:
+        names=[n for n in archive.namelist() if n.endswith('.dist-info/METADATA')]
+        if len(names)!=1:raise ValueError('Invalid Dev wheel metadata.')
+        meta=email.message_from_bytes(archive.read(names[0]))
+    if meta.get('Name')!='bactologix' or not re.fullmatch(r'[0-9A-Za-z.]+\.dev[0-9]+',meta.get('Version','')):
+        raise ValueError('The bundled wheel is not a Bactologix development build.')
+    return wheel, 'v'+meta['Version']
+
+
 def main():
     global STATUS_FILE
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--channel', choices=['stable', 'prerelease'], default='prerelease', help='Default: prerelease while Bactologix is alpha')
+    parser.add_argument('--dev', action='store_true', help='Install independent Bactologix Dev, including its own Conda and workspace')
+    parser.add_argument('--channel', choices=['stable', 'prerelease','dev'], default='prerelease', help='Default: prerelease while Bactologix is alpha')
     parser.add_argument('--install-conda', action='store_true', help='Allow installation of checksum-verified Miniforge if Conda is missing')
     parser.add_argument('--check', action='store_true', help='Read-only prerequisite check; no downloads or installs')
     parser.add_argument('--no-launch', action='store_true')
@@ -80,6 +146,8 @@ def main():
     parser.add_argument('--result-file', help='Write the installed launcher paths as JSON')
     parser.add_argument('--upgrade-app', action='store_true', help='Update an existing application; preserve its workspace and pipeline installations')
     args = parser.parse_args()
+    if args.channel == 'dev': args.dev = True
+    if args.dev: args.channel = 'dev'
     STATUS_FILE = args.status_file
     progress(1, 'Checking Ubuntu', 'Operating system, disk space and existing Conda installation')
     if platform.system() != 'Linux':
@@ -89,8 +157,10 @@ def main():
         parser.error('Unsupported installer architecture: ' + arch)
     if os.geteuid() == 0:
         parser.error('Run as your regular Ubuntu user, without sudo.')
-    conda = find_conda()
-    root = Path.home() / '.local/share/bactomics'
+    dev_home = Path.home() / '.local/share/bactologix-dev'
+    root = Path.home() / ('.local/share/bactologix-dev-install' if args.dev else '.local/share/bactomics')
+    conda = str(dev_home / 'tools/miniforge/bin/conda') if args.dev else find_conda()
+    if args.dev and not Path(conda).is_file(): conda = None
     free = shutil.disk_usage(Path.home()).free
     print('System:', platform.platform(), '\nArchitecture:', arch, '\nConda:', conda or 'missing', '\nHome free space: %.1f GiB' % (free / 2**30))
     print('Pipeline environments and databases need additional space and are configured inside Bactologix.')
@@ -102,6 +172,11 @@ def main():
         parser.error('At least 3 GiB free home space is required for application setup; pipeline storage is additional.')
     if not conda and not args.install_conda:
         parser.error('Conda is missing. Rerun with --install-conda to install Miniforge, or install Conda yourself.')
+    if args.dev and root.is_symlink():
+        raise ValueError("Dev installation root cannot be a symbolic link.")
+    if args.dev:
+        claim_dev_workspace(dev_home)
+        isolated_environment(dev_home)
     root.mkdir(parents=True, exist_ok=True)
     lock = root / 'install.lock'
     try:
@@ -119,41 +194,59 @@ def main():
                 asset = next(a for a in release['assets'] if a['name'] == name)
                 installer = temp / name
                 download(asset, installer)
-                prefix = root / 'conda'
+                prefix = dev_home / 'tools/miniforge' if args.dev else root / 'conda'
+                if args.dev and not prefix.resolve().is_relative_to(dev_home.resolve()):
+                    raise ValueError('Dev Conda location escapes its workspace.')
+                prefix.parent.mkdir(parents=True, exist_ok=True)
                 if prefix.exists():
                     raise ValueError('Incomplete Conda location already exists; inspect it before retrying: ' + str(prefix))
                 run(['bash', installer, '-b', '-p', prefix], log)
                 conda = str(prefix / 'bin/conda')
             progress(3, 'Preparing Bactomics', 'Reusing the existing environment or creating it once')
-            envs = json.loads(run([conda, 'env', 'list', '--json'], log, capture=True))['envs']
-            known = {Path(p).name: p for p in envs}
-            prefix = known.get('bactomics') or known.get('bactomix')
-            if not prefix:
-                run([conda, 'create', '-n', 'bactomics', '--override-channels', '-c', 'conda-forge', 'python=3.11', 'pip', '-y'], log)
+            if args.dev:
+                prefix = root / 'app'
+                if prefix.exists():
+                    marker=prefix / '.bactologix-channel.json'
+                    if not marker.is_file() or json.loads(marker.read_text()).get('channel') != 'dev':
+                        raise ValueError('Dev application location is unmarked or belongs to another installation. Preserve it and inspect before retrying.')
+                else:
+                    run([conda, 'create', '-p', prefix, '--override-channels', '-c', 'conda-forge', 'python=3.11', 'pip', '-y'], log)
+                    (prefix / '.bactologix-channel.json').write_text(json.dumps({'schema':1,'channel':'dev'}))
+            else:
                 envs = json.loads(run([conda, 'env', 'list', '--json'], log, capture=True))['envs']
-                prefix = next(p for p in envs if Path(p).name == 'bactomics')
+                known = {Path(p).name: p for p in envs}
+                prefix = known.get('bactomics') or known.get('bactomix')
+                if not prefix:
+                    run([conda, 'create', '-n', 'bactomics', '--override-channels', '-c', 'conda-forge', 'python=3.11', 'pip', '-y'], log)
+                    envs = json.loads(run([conda, 'env', 'list', '--json'], log, capture=True))['envs']
+                    prefix = next(p for p in envs if Path(p).name == 'bactomics')
             python = Path(prefix) / 'bin/python'
             run([python, '-c', 'import sys; assert sys.version_info >= (3,11), "Python 3.11+ required"'], log)
             installed = run([python, '-c', 'import importlib.util; print(bool(importlib.util.find_spec("bactologix")))'], log, capture=True).strip()
             if installed == 'True' and not args.upgrade_app:
                 print('Existing Bactologix preserved. Use its in-app updater to change versions.')
-                command = Path(prefix) / 'bin/bactologix'
+                command = Path(prefix) / ('bin/bactologix-dev' if args.dev else 'bin/bactologix')
             else:
                 progress(4, 'Installing Bactologix', 'Discovering a published release and checking its download checksum')
-                rows = get_json('https://api.github.com/repos/crackberryq/Bactologix/releases?per_page=100')
-                release = select_release(rows, args.channel)
-                asset = next(a for a in release['assets'] if a['name'].startswith('bactologix-') and a['name'].endswith('-py3-none-any.whl'))
-                wheel = temp / asset['name']
-                download(asset, wheel)
+                bundled = Path(__file__).with_name('dev-package.json')
+                if args.dev and bundled.is_file():
+                    wheel, tag = bundled_dev_wheel(bundled)
+                    release = {'tag_name':tag}
+                else:
+                    rows = get_json('https://api.github.com/repos/crackberryq/Bactologix/releases?per_page=100')
+                    release = select_release(rows, args.channel)
+                    asset, wheel_name = release_asset(release)
+                    wheel = temp / wheel_name
+                    download(asset, wheel)
                 run([python, '-m', 'pip', 'install', '--upgrade', wheel], log)
                 run([python, '-m', 'pip', 'check'], log)
-                command = Path(prefix) / 'bin/bactologix'
+                command = Path(prefix) / ('bin/bactologix-dev' if args.dev else 'bin/bactologix')
                 print('Installed:', release['tag_name'], '\nLaunch:', command, '\nSetup log:', log)
             progress(5, 'Application ready', 'Your environments, databases and run folders are preserved')
             if args.result_file:
                 path = Path(args.result_file)
                 temporary = path.with_suffix('.tmp')
-                temporary.write_text(json.dumps({'python': str(python), 'command': str(command), 'log': str(log)}))
+                temporary.write_text(json.dumps({'python': str(python), 'command': str(command), 'log': str(log), 'channel':'dev' if args.dev else 'stable'}))
                 os.replace(temporary, path)
     finally:
         lock.rmdir()

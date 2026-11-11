@@ -3,6 +3,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import io
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -44,7 +45,7 @@ def publication(tmp_path, monkeypatch):
             state['release'].update(payload)
             if payload.get('draft') is False:
                 for asset in state['release']['assets']:
-                    asset['browser_download_url'] = f'https://github.com/{publisher.REPO}/releases/download/v{VERSION}/{asset["name"]}'
+                    asset['browser_download_url'] = f'https://github.com/{publisher.REPO}/releases/download/{state["release"]["tag_name"]}/{asset["name"]}'
         else:
             pytest.fail('Unexpected publication action')
         return copy.deepcopy(state['release'])
@@ -136,3 +137,90 @@ def test_canonical_alpha_release_name_and_notes(publication):
     assert state['release']['name'] == f'Bactologix {VERSION} — Alpha'
     assert state['release']['tag_name'] == 'v' + VERSION
     assert 'Canonical release notes.' in state['release']['body']
+
+
+@pytest.mark.parametrize('version,ref,accepted', [
+    ('99.0.0a1', 'refs/heads/main', True),
+    ('99.0.0a1.dev1', 'refs/heads/development', True),
+    ('99.0.0a1.dev1', 'refs/heads/main', False),
+    ('99.0.0a1', 'refs/heads/development', False),
+    ('99.0.0a1.dev1', 'refs/heads/feature/dev', False),
+    ('99.0.0a1', 'refs/tags/v99.0.0a1', False),
+    ('99.0.0a1', None, False),
+])
+def test_publication_requires_matching_branch_and_version(publication, version, ref, accepted):
+    root, _, state = publication
+    (root / 'pyproject.toml').write_text(f'[project]\nname="bactologix"\nversion="{version}"\n')
+    if accepted:
+        assert str(publisher.validate_publication_context(root, publisher.REPO, ref)) == version
+    else:
+        with pytest.raises(ValueError, match='must be published'):
+            publisher.validate_publication_context(root, publisher.REPO, ref)
+    with pytest.raises(ValueError, match='repository'):
+        publisher.validate_publication_context(root, 'another/repository', ref)
+    assert not state['calls']
+
+
+def test_dev_publication_cannot_be_selected_by_legacy_regular_installers(publication, tmp_path, monkeypatch):
+    from packaging.version import InvalidVersion, Version
+    from bactologix import updates
+    root, dist, state = publication
+    version = '99.0.0a1.dev1'
+    content = wheel_bytes(version)
+    (root / 'pyproject.toml').write_text(f'[project]\nname="bactologix"\nversion="{version}"\n')
+    (root / 'CHANGELOG.md').write_text(f'## {version} — Dev\n\nIndependent Dev release.\n')
+    (dist / f'bactologix-{version}-py3-none-any.whl').write_bytes(content)
+    (dist / f'bactologix-{version}.tar.gz').write_bytes(b'development source fixture')
+    (root / 'scripts/windows').mkdir(parents=True)
+    (dist / 'Bactologix-Windows.zip').write_bytes(b'regular installer must not be published')
+    (dist / 'Bactologix-Dev-Windows.zip').write_bytes(b'dev installer fixture')
+    # This test isolates asset naming; native payload/source verification has
+    # its own tests, including the exact Dev wheel and wrong-channel rejection.
+    (root / 'scripts/build_windows_executable.py').write_text(
+        "def verify_build(root, dist, commit, version, channel, wheel):\n"
+        "    assert channel == 'dev' and wheel.name == f'bactologix-{version}-py3-none-any.whl'\n"
+        "    return [dist / 'Bactologix-Dev-Setup.exe', dist / 'Bactologix-Dev-Setup.build.json']\n")
+    (dist / 'Bactologix-Dev-Setup.exe').write_bytes(b'inert native fixture')
+    (dist / 'Bactologix-Dev-Setup.build.json').write_text('{}')
+    record = publisher.publish(root, dist, COMMIT)
+    release = state['release']
+    assert release['tag_name'] == 'dev-v' + version
+    assert release['name'] == f'Bactologix Dev {version} — Development'
+    names = {asset['name'] for asset in release['assets']}
+    assert names == {f'Bactologix-Dev-{version}.whl', f'bactologix-{version}.tar.gz', 'Bactologix-Dev-Windows.zip', 'Bactologix-Dev-Setup.exe', 'Bactologix-Dev-Setup.build.json', 'SHA256SUMS'}
+    assert 'Bactologix-Windows.zip' not in names
+    # Frozen a85 updater tag parsing and installer wheel-asset eligibility.
+    with pytest.raises(InvalidVersion):
+        Version(release['tag_name'].removeprefix('v'))
+    assert not any(a['name'].startswith('bactologix-') and a['name'].endswith('-py3-none-any.whl') for a in release['assets'])
+    assert record['available'] and record['wheel_name'] == f'bactologix-{version}-py3-none-any.whl'
+    assert record['wheel_url'].endswith(f'/Bactologix-Dev-{version}.whl')
+    response = io.BytesIO(content); response.url = record['wheel_url']
+    monkeypatch.setattr(updates, 'urlopen', lambda *a, **k: response)
+    download = updates.download_wheel(record, tmp_path)
+    assert download.name == record['wheel_name'] and download.read_bytes() == content
+    assert updates.release_record({**release, 'tag_name': 'dev-v99.0.0a1'}) is None
+
+
+def test_dev_publication_requires_dev_bundle_even_if_regular_bundle_exists(publication):
+    root, dist, state = publication
+    version = '99.0.0a1.dev1'
+    (root / 'pyproject.toml').write_text(f'[project]\nname="bactologix"\nversion="{version}"\n')
+    (dist / f'bactologix-{version}-py3-none-any.whl').write_bytes(wheel_bytes(version))
+    (dist / f'bactologix-{version}.tar.gz').write_bytes(b'source')
+    (root / 'scripts/windows').mkdir(parents=True)
+    (dist / 'Bactologix-Windows.zip').write_bytes(b'regular installer')
+    with pytest.raises(ValueError, match='bundle is required'):
+        publisher.publish(root, dist, COMMIT)
+    assert all(method == 'GET' for _, method, _ in state['calls'])
+
+
+def test_windows_release_requires_native_executable_receipt(publication):
+    root, dist, state = publication
+    (root / 'scripts/windows').mkdir(parents=True)
+    source = Path(__file__).parents[1] / 'scripts/build_windows_executable.py'
+    (root / 'scripts/build_windows_executable.py').write_bytes(source.read_bytes())
+    (dist / 'Bactologix-Windows.zip').write_bytes(b'inert ZIP fixture')
+    with pytest.raises(ValueError, match='executable, build receipt and ZIP'):
+        publisher.publish(root, dist, COMMIT)
+    assert not any(method in {'POST', 'PATCH'} for _, method, _ in state['calls'])

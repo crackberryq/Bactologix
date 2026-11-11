@@ -22,9 +22,14 @@ def main():
     args = parser.parse_args()
     if bool(args.desktop_control) != bool(args.desktop_session):
         parser.error('Desktop control directory and session identity must be supplied together.')
+    from .channels import application_guard, current, environment
+    application_guard()
     home = workspace(args.home)
     os.environ["BACTOLOGIX_HOME"] = str(home)
     store = Store(home)
+    os.environ.update(environment(home))
+    if current() == "dev":
+        os.environ["BACTOLOGIX_DEV_HOME"] = str(home)
     from .engine import doctor, enqueue
     if args.command == "doctor":
         print(json.dumps(doctor(store), indent=2))

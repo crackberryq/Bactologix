@@ -81,8 +81,12 @@ def panel(store, run):
     checked_at = now()
     blocked = False
     try:
-        check_run_files(run)
-        row('inputs', 'Inputs and saved files', 'Unchanged', 'File sizes, timestamps and staged input links match this draft.', 'good', checked_at)
+        check_run_files(run, full=False)
+        from .runs import input_identity
+        row('inputs', 'Inputs and saved files', 'Unchanged',
+            'File metadata and staged links match this draft. Recorded identity: ' + input_identity(run) +
+            '. This quick check does not reread input content; recorded SHA-256 hashes are verified before launch or reuse.',
+            'info', checked_at)
     except (OSError, ValueError, KeyError) as exc:
         blocked = True
         row('inputs', 'Inputs and saved files', 'Needs attention', str(exc), 'error', checked_at)
@@ -135,6 +139,49 @@ def job_guidance(store, job):
         return None
     from .support import log_tail
     text, scope = log_tail(store, job['id'], max_bytes=24000)
+    if job.get('kind') == 'isolate_export':
+        receipt = store.get('isolate_export_receipts', job['id'])
+        return {
+            'title': 'Isolate export did not finish',
+            'text': ('Original files were retained. The destination may contain a partial package. '
+                     'Review the export receipt and create a new preview before trying again.' if receipt else
+                     'No export receipt is available for this attempt. Original files were retained. '
+                     'Open Samples and create a new export preview.'),
+            'category': 'isolate_export', 'run_id': None, 'step': None,
+            'receipt_id': job['id'] if receipt else None,
+            'action': 'isolate-export-receipt' if receipt else 'go-samples',
+            'evidence': str(job.get('error') or 'Export status: ' + job['status'])[:1200],
+            'confidence': 'Recorded interruption' if job['status'] == 'interrupted' else 'Recorded failure',
+            'scope': 'Copy and verification status; no source deletion or cloud-upload verification is implied.',
+            'log_status': scope['status'],
+        }
+    if job.get('kind') == 'storage_cleanup':
+        # A recovery job continues the original receipt rather than creating one
+        # with the new job ID. A failure before staging may have no receipt yet.
+        receipt = store.get('storage_cleanup_receipts', job['id'])
+        if not receipt:
+            receipt = next((row for row in store.all('storage_cleanup_receipts')
+                            if row.get('recovery_job') == job['id']), None)
+        if not receipt:
+            plan = store.get('storage_cleanup_plans', job['payload'].get('plan_id'), {})
+            candidates = plan.get('candidates', [])
+            if len(candidates) == 1 and candidates[0].get('kind') == 'cleanup_remaining':
+                receipt = store.get('storage_cleanup_receipts', candidates[0]['id'])
+        interrupted = job['status'] == 'interrupted'
+        return {
+            'title': 'Cleanup stopped' if interrupted else 'Cleanup did not finish',
+            'text': ('Some files may already be removed. Review the cleanup receipt for deleted and retained paths. '
+                     'Review the remaining items in Storage before choosing any further cleanup.' if receipt else
+                     'No cleanup receipt is available for this attempt. Review the job log and current items in Storage '
+                     'before choosing any further cleanup. Do not assume that the selected files were removed.'),
+            'category': 'storage_cleanup', 'run_id': None, 'step': None,
+            'receipt_id': receipt['id'] if receipt else None,
+            'action': 'cleanup-receipt' if receipt else 'go-storage',
+            'evidence': str(job.get('error') or 'The cleanup job was recorded as ' + job['status'] + '.')[:1200],
+            'confidence': 'Recorded interruption' if interrupted else 'Recorded failure',
+            'scope': 'Cleanup status and receipts describe this deletion attempt. Further cleanup requires a new review and confirmation.',
+            'log_status': scope['status'],
+        }
     # Match complete bounded lines only; shell commands and huge payloads are not evidence.
     lines = [line for line in text.splitlines() if not line.lstrip().startswith('$ ')]
     error = str(job.get('error') or '')[:2048]

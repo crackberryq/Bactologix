@@ -16,11 +16,14 @@ import xml.etree.ElementTree as ET
 import yaml
 
 from .catalog import PIPELINES
+from . import compute_memory
 from .databases import revision
 from .runs import parse_config, template
 from .store import now
+from .storage_guard import mutation
 
 _CACHE = {}
+_PRESERVE_SWAP = object()
 MIB = 1024 ** 2
 
 
@@ -47,8 +50,8 @@ def _positive(value):
         return None
 
 
-def cgroup_limits(root=Path('/sys/fs/cgroup'), membership=None):
-    """Account for ancestor limits, including namespaced cgroup mounts and v1."""
+def _cgroup_folders(root, membership=None):
+    """Visible controller ancestors, including a namespaced mount root."""
     membership = _read('/proc/self/cgroup') if membership is None else membership
     groups = [(root, root, 'v2')]
     for line in membership.splitlines():
@@ -67,29 +70,124 @@ def cgroup_limits(root=Path('/sys/fs/cgroup'), membership=None):
                     for name in {controller, controllers}:
                         base = root / name
                         groups.append((base, base / relative, controller))
-    quotas, totals, available, seen = [], [], [], set()
+    seen = set()
     for base, leaf, version in groups:
         for folder in (leaf, *leaf.parents):
             if not folder.is_relative_to(base) or (folder, version) in seen:
                 continue
             seen.add((folder, version))
-            if version == 'v2':
-                cpu = _read(folder / 'cpu.max').split()
-                limit = _positive(_read(folder / 'memory.max'))
-                usage = _read(folder / 'memory.current')
-            else:
-                cpu = [_read(folder / 'cpu.cfs_quota_us'), _read(folder / 'cpu.cfs_period_us')]
-                limit = _positive(_read(folder / 'memory.limit_in_bytes'))
-                usage = _read(folder / 'memory.usage_in_bytes')
-            if len(cpu) == 2 and _positive(cpu[0]) and _positive(cpu[1]):
-                quotas.append(max(1, int(cpu[0]) // int(cpu[1])))
-            if limit and limit < 2 ** 60:  # v1 uses a huge sentinel for unlimited.
-                totals.append(limit // MIB)
-                if usage.isdigit():
-                    available.append(max(0, limit - int(usage)) // MIB)
+            yield folder, version
+
+
+def cgroup_limits(root=Path('/sys/fs/cgroup'), membership=None):
+    """Account for ancestor limits, including namespaced cgroup mounts and v1."""
+    quotas, totals, available = [], [], []
+    for folder, version in _cgroup_folders(root, membership):
+        if version == 'v2':
+            cpu = _read(folder / 'cpu.max').split()
+            limit = _positive(_read(folder / 'memory.max'))
+            usage = _read(folder / 'memory.current')
+        else:
+            cpu = [_read(folder / 'cpu.cfs_quota_us'), _read(folder / 'cpu.cfs_period_us')]
+            limit = _positive(_read(folder / 'memory.limit_in_bytes'))
+            usage = _read(folder / 'memory.usage_in_bytes')
+        if len(cpu) == 2 and _positive(cpu[0]) and _positive(cpu[1]):
+            quotas.append(max(1, int(cpu[0]) // int(cpu[1])))
+        if limit and limit < 2 ** 60:  # v1 uses a huge sentinel for unlimited.
+            totals.append(limit // MIB)
+            if usage.isdigit():
+                available.append(max(0, limit - int(usage)) // MIB)
     return {'cores': min(quotas) if quotas else None,
             'total_mb': min(totals) if totals else None,
             'available_mb': min(available) if available else None}
+
+
+def _controller_value(path):
+    """An absent control is unrestricted; an unreadable one is unknown."""
+    try:
+        return path.read_text()[:262144].strip()
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeError):
+        return ''
+
+
+def paging_limits(root=Path('/sys/fs/cgroup'), membership=None):
+    """Read hard paging limits without conflating v1 memsw with v2 swap.
+
+    A None bound with known=True means no controller bound was present. An
+    unknown value must not authorize swap-backed scheduling. Zero is a real
+    limit. RAM presets deliberately retain their separate existing policy.
+    """
+    rows = {name: {'totals': [], 'available': [], 'total_known': True, 'available_known': True}
+            for name in ('ram', 'swap', 'combined')}
+    for folder, version in _cgroup_folders(root, membership):
+        controls = ([('ram', 'memory.max', 'memory.current'),
+                     ('swap', 'memory.swap.max', 'memory.swap.current')] if version == 'v2' else
+                    [('ram', 'memory.limit_in_bytes', 'memory.usage_in_bytes'),
+                     ('combined', 'memory.memsw.limit_in_bytes', 'memory.memsw.usage_in_bytes')]
+                    if version == 'memory' else [])
+        for name, limit_name, usage_name in controls:
+            row = rows[name]
+            raw = _controller_value(folder / limit_name)
+            if raw is None or (version == 'v2' and raw == 'max'):
+                continue
+            # Older v1 kernels expose a large PAGE_COUNTER_MAX sentinel.
+            if version == 'memory' and (raw == '-1' or (raw.isdigit() and int(raw) >= 2 ** 60)):
+                continue
+            if not raw.isdigit():
+                row['total_known'] = row['available_known'] = False
+                continue
+            limit = int(raw)
+            row['totals'].append(limit // MIB)
+            usage = _controller_value(folder / usage_name)
+            if limit == 0:
+                row['available'].append(0)
+            elif usage is None or not usage.isdigit():
+                row['available_known'] = False
+            else:
+                row['available'].append(max(0, limit - int(usage)) // MIB)
+    return {name: {'total_mb': min(row['totals']) if row['totals'] else None,
+                   'available_mb': min(row['available']) if row['available'] else None,
+                   'total_known': row['total_known'], 'available_known': row['available_known']}
+            for name, row in rows.items()}
+
+
+def _bounded_memory(value, limit, kind):
+    if value is None or not limit[kind + '_known']:
+        return None
+    ceiling = limit[kind + '_mb']
+    return min(value, ceiling) if ceiling is not None else value
+
+
+def paging_memory(mem, total, available, limits):
+    """Capacity visible to this Linux process, before application headroom.
+
+    SwapTotal is retained for display; only SwapFree can authorize new paging.
+    Combined capacity is always derived, even when there is no memsw limit, so
+    a None combined value consistently means that capacity is unverified.
+    """
+    swap_total = mem.get('SwapTotal')
+    swap_free = 0 if swap_total == 0 else mem.get('SwapFree')
+    if swap_total is None:
+        swap_free = None
+    elif swap_free is not None:
+        swap_free = min(swap_free, swap_total)
+    effective_total = _bounded_memory(swap_total, limits['swap'], 'total')
+    effective_free = _bounded_memory(swap_free, limits['swap'], 'available')
+    ram_total = _bounded_memory(total, limits['ram'], 'total')
+    ram_free = _bounded_memory(available, limits['ram'], 'available')
+    combined_total = (ram_total + effective_total
+                      if ram_total is not None and effective_total is not None else None)
+    combined_free = (ram_free + effective_free
+                     if ram_free is not None and effective_free is not None else None)
+    combined_total = _bounded_memory(combined_total, limits['combined'], 'total')
+    combined_free = _bounded_memory(combined_free, limits['combined'], 'available')
+    # A v1 memsw restriction constrains any new swap allocation as well as the
+    # sum. Do not subtract the RAM *limit*: memsw is not a swap-only quota.
+    effective_free = _bounded_memory(effective_free, limits['combined'], 'available')
+    return {'swap_mb': swap_total, 'swap_available_mb': effective_free,
+            'combined_total_mb': combined_total, 'combined_available_mb': combined_free}
 
 
 def gpu_inventory():
@@ -155,7 +253,8 @@ def detect(home):
               'wsl': 'microsoft' in platform.release().lower(),
               'cpu': {'model': model[1] if model else platform.machine(), 'logical': logical,
                       'physical': len(physical) or None, 'available': max(1, usable)},
-              'memory': {'total_mb': total, 'available_mb': available, 'swap_mb': mem.get('SwapTotal')},
+              'memory': {'total_mb': total, 'available_mb': available,
+                         **paging_memory(mem, total, available, paging_limits())},
               'disk': storage, 'gpu': gpu_inventory()}
     result['id'] = hashlib.sha256(json.dumps(result, sort_keys=True).encode()).hexdigest()
     return result
@@ -194,8 +293,28 @@ def presets(info):
 
 
 def run_defaults(store, tool):
-    saved = store.get('resource_defaults', tool)
-    return saved or {'cores': min(4, os.cpu_count() or 1), 'memory_mb': 16000, 'preset': 'custom'}
+    cfg = parse_config(store.get('configs', tool, template(tool)))
+    return _configured_defaults(tool, cfg, store.get('resource_defaults', tool))
+
+
+def _configured_defaults(tool, cfg, saved=None):
+    """YAML owns compute policy; budget records own the CPU/RAM allocation."""
+    budget = saved or {'cores': min(4, os.cpu_count() or 1), 'memory_mb': 16000, 'preset': 'custom'}
+    swap = compute_memory.allowance(cfg)
+    gpu = cfg.get('bactologix_compute', {}).get('gpu_mode', 'cpu' if tool == 'micpscope' else 'native')
+    return {**budget, 'swap_mb': swap, 'gpu_mode': gpu}
+
+
+def sync_config_defaults(db, tool, text):
+    """Validate a YAML save and refresh its budget metadata in the same transaction."""
+    cfg = parse_config(text)
+    row = db.execute("SELECT body FROM items WHERE kind='resource_defaults' AND id=?", (tool,)).fetchone()
+    values = _configured_defaults(tool, cfg, json.loads(row[0]) if row else None)
+    compute_memory.policy(values, cfg)
+    workflow_environment(cfg)
+    if row:
+        db.execute("UPDATE items SET body=? WHERE kind='resource_defaults' AND id=?",
+                   (json.dumps(values), tool))
 
 
 def panel(store):
@@ -220,7 +339,8 @@ def apply_preset(store, name, tools, expected, hardware_id):
     return _save_budget(store, tools, expected, info, selected)
 
 
-def _save_budget(store, tools, expected, info, selected, gpu_mode=None):
+@mutation
+def _save_budget(store, tools, expected, info, selected, gpu_mode=None, swap_mb=_PRESERVE_SWAP):
     name = selected['id']
     cores, memory = selected['cores'], selected['memory_mb']
     with store.connect() as db:
@@ -232,6 +352,10 @@ def _save_budget(store, tools, expected, info, selected, gpu_mode=None):
             if revision(text) != expected.get(tool):
                 raise ValueError('Saved defaults changed. Refresh and review them before applying a preset.')
             cfg = parse_config(text)
+            compute_memory.allowance(cfg)
+            if swap_mb is not _PRESERVE_SWAP:
+                cfg = parse_config(compute_memory.with_swap(text, swap_mb))
+            compute_memory.policy({'memory_mb': memory}, cfg)
             cfg['threads'] = cores
             if tool == 'hybas':
                 cfg.update(assembly_mem_mb=memory, spades_memory_gb=memory // 1024, polishing_mem_mb=memory)
@@ -242,8 +366,10 @@ def _save_budget(store, tools, expected, info, selected, gpu_mode=None):
                         raise ValueError('The execution settings must be a mapping.')
                     cfg['execution'].update(cores=cores, memory_mb=memory)
             if gpu_mode is not None:
-                cfg['bactologix_compute'] = {'gpu_mode': 'cpu' if tool == 'micpscope' else gpu_mode}
-            saved = {'cores': cores, 'memory_mb': memory, 'preset': name, 'gpu_mode': cfg.get('bactologix_compute', {}).get('gpu_mode', 'cpu' if tool == 'micpscope' else 'native'), 'applied_at': now(), 'hardware_id': info['id']}
+                cfg.setdefault('bactologix_compute', {})['gpu_mode'] = 'cpu' if tool == 'micpscope' else gpu_mode
+            workflow_environment(cfg)
+            saved = _configured_defaults(tool, cfg, {'cores': cores, 'memory_mb': memory, 'preset': name,
+                                                    'applied_at': now(), 'hardware_id': info['id']})
             for kind, value in [('configs', yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)), ('resource_defaults', saved)]:
                 db.execute('INSERT INTO items VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body',
                            (kind, tool, json.dumps(value)))
@@ -251,7 +377,7 @@ def _save_budget(store, tools, expected, info, selected, gpu_mode=None):
 
 
 
-def apply_custom(store, tool, cores, memory_mb, gpu_mode, expected, hardware_id):
+def apply_custom(store, tool, cores, memory_mb, gpu_mode, expected, hardware_id, swap_mb=_PRESERVE_SWAP):
     if tool not in PIPELINES or gpu_mode not in {'cpu', 'native'}:
         raise ValueError('Choose a pipeline and a supported GPU policy.')
     if tool == 'micpscope' and gpu_mode != 'cpu':
@@ -269,7 +395,7 @@ def apply_custom(store, tool, cores, memory_mb, gpu_mode, expected, hardware_id)
     if not 1 <= cpu <= high['cores'] or not 1024 <= ram <= high['memory_mb']:
         raise ValueError('Choose CPU and RAM within the detected Full power budget (including the system reserve).')
     selected = {'id': 'custom', 'label': 'Custom compute defaults', 'cores': cpu, 'memory_mb': ram}
-    return _save_budget(store, [tool], expected, info, selected, gpu_mode)
+    return _save_budget(store, [tool], expected, info, selected, gpu_mode, swap_mb)
 
 
 def workflow_environment(config):

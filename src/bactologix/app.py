@@ -5,13 +5,23 @@ from streamlit.components.v2 import component
 from bactologix.store import Store
 from bactologix.ui_backend import handle_request, snapshot
 
-st.set_page_config(page_title="Bactologix", page_icon=str(Path(__file__).parent / 'ui/brand.png'), layout="wide", initial_sidebar_state="collapsed")
+from bactologix.channels import title
+
+st.set_page_config(page_title=title(), page_icon=str(Path(__file__).parent / 'ui/brand.png'), layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""<style>
 header[data-testid="stHeader"], [data-testid="stSidebar"], #MainMenu, footer {display:none}
 .stApp {background:#f5f7f6}
 .block-container {padding:0!important;max-width:100%!important}
 [data-testid="stMainBlockContainer"] {padding:0!important}
 [data-testid="stVerticalBlock"] {gap:0}
+/* The custom workspace keeps its previous snapshot usable while a request runs.
+   Streamlit otherwise fades this one element (including its entire sidebar).
+   Keep native elements and disconnected/error states under Streamlit's control. */
+[data-testid="stApp"][data-test-connection-state="CONNECTED"]:is([data-test-script-state="running"], [data-test-script-state="rerunRequested"])
+  .st-key-workspace-ui[data-testid="stElementContainer"][data-stale="true"] {
+  opacity:1;
+  transition:none;
+}
 </style>""", unsafe_allow_html=True)
 
 @st.cache_resource
@@ -28,5 +38,9 @@ def on_action():
     if request:
         handle_request(store, request, st.session_state)
 
-workspace_component()(key="workspace-ui", data={"workspace": snapshot(store), "response": st.session_state.get("ui-response")},
+workspace_state = snapshot(store)
+if not workspace_state['app_update']['active_job'] and not workspace_state['app_update']['restart_required']:
+    from bactologix import update_checks
+    update_checks.tick(store)
+workspace_component()(key="workspace-ui", data={"workspace": workspace_state, "response": st.session_state.get("ui-response")},
                       on_action_change=on_action, width="stretch", height="content")

@@ -91,7 +91,9 @@ def browser_url(host, port):
 def free_port(host, requested=None):
     if requested is not None and not 1 <= requested <= 65535:
         raise ValueError('--port must be between 1 and 65535.')
-    for port in ([requested] if requested is not None else range(8501, 8521)):
+    from .channels import current
+    first = 8601 if current() == "dev" else 8501
+    for port in ([requested] if requested is not None else range(first, first + 20)):
         try:
             addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
             for family, socktype, protocol, _, address in addresses:
@@ -106,7 +108,7 @@ def free_port(host, requested=None):
             break
     if requested is not None:
         raise ValueError(f'Cannot listen on {host}:{requested}. Stop the app using it or omit --port to choose an available port.')
-    raise ValueError(f'No available port on {host} between 8501 and 8520. Check the address or choose --host / --port explicitly.')
+    raise ValueError(f'No available port on {host} in its channel range. Check the address or choose --host / --port explicitly.')
 
 
 def server_command(host, port, app=None):

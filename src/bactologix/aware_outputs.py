@@ -7,6 +7,7 @@ from pathlib import Path
 from .identification import sha
 from .hybas_manifest_schema import validate_manifest
 from .store import now, identifier
+from .storage_guard import mutation
 
 SCHEMA = 'hybas-aware-bundle-v1'
 
@@ -103,6 +104,7 @@ def review(path):
     return dict(path=str(path), token=token, rows=rows, parent=doc['isolate'], limitation=doc.get('limitation',''))
 
 
+@mutation
 def commit(store, path, token, selected):
     result = review(path)
     if result['token'] != token:
@@ -170,6 +172,7 @@ def arguments(run):
             'aware_assembly_continuation_sha256='+state['continuation_sha256']]
 
 
+@mutation
 def continue_assembly(store, rid, token):
     from .runs import parse_config, check_run_files, tree_digest
     run = store.get('runs', rid)
