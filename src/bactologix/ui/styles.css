@@ -668,3 +668,14 @@ td{padding:18px 20px;line-height:1.55}
 /* Directory browsing is requested explicitly; listings never infer completion. */
 .output-browser{min-width:0}.output-browser>.field{margin-bottom:16px}.output-browser-toolbar{margin:20px 0 12px}.output-browser-toolbar .path-cell{margin:12px 0;overflow-wrap:anywhere}.output-browser-table{max-width:100%;overflow:auto;border:1px solid #dbe5e3;border-radius:9px}.output-browser-table table{width:100%;border-collapse:collapse;text-align:left}.output-browser-table th,.output-browser-table td{padding:10px 14px;border-bottom:1px solid #e7eeeb;vertical-align:top}.output-browser-table th{font-size:12px;background:#f4f8f7}.output-browser-table td{font-size:13px;overflow-wrap:anywhere}.output-browser-table td:first-child{min-width:180px}.output-browser-table td:last-child{white-space:nowrap}.output-browser-table tr:last-child td{border-bottom:0}.output-browser-table .btn{white-space:normal;text-align:left;overflow-wrap:anywhere;min-width:0;max-width:100%}.output-browser-table .icon{flex-shrink:0}.output-browser-pagination{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin:14px 0 22px;font-size:12px;color:var(--muted)}.output-snapshot{border-top:1px solid #e7eeeb;padding:13px 0;overflow-wrap:anywhere}.output-snapshot p{font-size:12px;margin:6px 0}.output-browser select{max-width:100%}
 @media(max-width:600px){.output-browser-toolbar .button-row{align-items:stretch}.output-browser-toolbar .btn{flex:1;white-space:normal}.output-browser-table th,.output-browser-table td{padding:9px}.output-browser-pagination>.button-row{width:100%;justify-content:flex-end}}
+
+/* Saved compute defaults and reversible archive recovery. */
+.compute-pipeline-choice{max-width:420px;margin:24px 0 12px}
+.compute-default-swap{margin:22px 0;padding:18px;border:1px solid var(--border);border-radius:10px;background:#f8fbfa}
+.compute-default-swap .run-budget-grid{margin-top:18px}
+.compute-default-swap .settings-note{margin-top:10px}
+.cleanup-restore{padding:14px 16px;margin:0 0 14px;border:1px solid #bdd9d0;border-radius:8px;background:#f0f8f4;color:var(--ink)}
+.cleanup-restore .btn{margin-top:4px}
+.archived-run-notice{margin-bottom:20px}
+.archived-run-notice p{margin:10px 0 14px}
+@media(max-width:600px){.compute-defaults .card-head{flex-wrap:wrap}.compute-default-swap{padding:14px}.compute-default-swap .run-budget-grid{grid-template-columns:1fr}.compute-default-swap .check-field{align-items:flex-start}}

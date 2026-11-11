@@ -38,7 +38,7 @@ LABELS = {
     'deep.aware.enabled': 'Enable BaSIS AWARE', 'deep.aware.preset': 'AWARE preset',
 }
 HELP = {
-    'bactologix_compute.swap_mb': 'Managed in Customize compute resources. Adds a scheduler allowance without increasing tool-specific memory settings.',
+    'bactologix_compute.swap_mb': 'Set in pipeline compute defaults, with per-run overrides in Customize compute resources. Adds a scheduler allowance without increasing tool-specific memory settings.',
     'kraken_review_before_filtering': 'Stop after Kraken, review the report, then finalize the target and continue. Requires a compatible HybAs version.',
     'run_kraken': 'Switching off also sets the decision mode to Off. Switching on from Off selects AWARE.',
     'kraken_decision_mode': 'Off skips Kraken. Manual, Auto and AWARE enable it. The pipeline keeps its existing decision rules.',

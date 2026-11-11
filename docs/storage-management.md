@@ -4,6 +4,20 @@ Bactologix separates storage measurement from permanent cleanup. Open **Storage*
 to see the registered cleanup candidates. Opening the page does not start a drive
 scan or delete anything, and age alone never triggers deletion.
 
+## Restore an archived run
+
+Archiving hides a run while keeping its configuration, files and reports. Use
+**Runs → Archived → Restore**, or the **Restore run** action for an archived run
+in Storage or on its run page. Restoration only changes list visibility. It
+does not delete files, remove workflow locks, resume the queue or start analysis.
+
+If a permanent-cleanup preview reports a workflow lock, close the preview or use
+its separate restore action to bring the archived run back. Restore does not
+require unlocking first. Then open the failed job and use **Check workflow lock**.
+Unlock is available only when the ownership checks allow it; see
+[workflow lock recovery](workflow-locks.md). A blocked cleanup preview does not
+mean that the run has been deleted.
+
 ## Choose what to remove
 
 | Cleanup item | What it removes | What remains protected |

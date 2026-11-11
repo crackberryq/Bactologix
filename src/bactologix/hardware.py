@@ -16,11 +16,14 @@ import xml.etree.ElementTree as ET
 import yaml
 
 from .catalog import PIPELINES
+from . import compute_memory
 from .databases import revision
 from .runs import parse_config, template
 from .store import now
+from .storage_guard import mutation
 
 _CACHE = {}
+_PRESERVE_SWAP = object()
 MIB = 1024 ** 2
 
 
@@ -290,8 +293,28 @@ def presets(info):
 
 
 def run_defaults(store, tool):
-    saved = store.get('resource_defaults', tool)
-    return saved or {'cores': min(4, os.cpu_count() or 1), 'memory_mb': 16000, 'preset': 'custom'}
+    cfg = parse_config(store.get('configs', tool, template(tool)))
+    return _configured_defaults(tool, cfg, store.get('resource_defaults', tool))
+
+
+def _configured_defaults(tool, cfg, saved=None):
+    """YAML owns compute policy; budget records own the CPU/RAM allocation."""
+    budget = saved or {'cores': min(4, os.cpu_count() or 1), 'memory_mb': 16000, 'preset': 'custom'}
+    swap = compute_memory.allowance(cfg)
+    gpu = cfg.get('bactologix_compute', {}).get('gpu_mode', 'cpu' if tool == 'micpscope' else 'native')
+    return {**budget, 'swap_mb': swap, 'gpu_mode': gpu}
+
+
+def sync_config_defaults(db, tool, text):
+    """Validate a YAML save and refresh its budget metadata in the same transaction."""
+    cfg = parse_config(text)
+    row = db.execute("SELECT body FROM items WHERE kind='resource_defaults' AND id=?", (tool,)).fetchone()
+    values = _configured_defaults(tool, cfg, json.loads(row[0]) if row else None)
+    compute_memory.policy(values, cfg)
+    workflow_environment(cfg)
+    if row:
+        db.execute("UPDATE items SET body=? WHERE kind='resource_defaults' AND id=?",
+                   (json.dumps(values), tool))
 
 
 def panel(store):
@@ -315,7 +338,8 @@ def apply_preset(store, name, tools, expected, hardware_id):
     return _save_budget(store, tools, expected, info, selected)
 
 
-def _save_budget(store, tools, expected, info, selected, gpu_mode=None):
+@mutation
+def _save_budget(store, tools, expected, info, selected, gpu_mode=None, swap_mb=_PRESERVE_SWAP):
     name = selected['id']
     cores, memory = selected['cores'], selected['memory_mb']
     with store.connect() as db:
@@ -326,6 +350,10 @@ def _save_budget(store, tools, expected, info, selected, gpu_mode=None):
             if revision(text) != expected.get(tool):
                 raise ValueError('Saved defaults changed. Refresh and review them before applying a preset.')
             cfg = parse_config(text)
+            compute_memory.allowance(cfg)
+            if swap_mb is not _PRESERVE_SWAP:
+                cfg = parse_config(compute_memory.with_swap(text, swap_mb))
+            compute_memory.policy({'memory_mb': memory}, cfg)
             cfg['threads'] = cores
             if tool == 'hybas':
                 cfg.update(assembly_mem_mb=memory, spades_memory_gb=memory // 1024, polishing_mem_mb=memory)
@@ -336,8 +364,10 @@ def _save_budget(store, tools, expected, info, selected, gpu_mode=None):
                         raise ValueError('The execution settings must be a mapping.')
                     cfg['execution'].update(cores=cores, memory_mb=memory)
             if gpu_mode is not None:
-                cfg['bactologix_compute'] = {'gpu_mode': 'cpu' if tool == 'micpscope' else gpu_mode}
-            saved = {'cores': cores, 'memory_mb': memory, 'preset': name, 'gpu_mode': cfg.get('bactologix_compute', {}).get('gpu_mode', 'cpu' if tool == 'micpscope' else 'native'), 'applied_at': now(), 'hardware_id': info['id']}
+                cfg.setdefault('bactologix_compute', {})['gpu_mode'] = 'cpu' if tool == 'micpscope' else gpu_mode
+            workflow_environment(cfg)
+            saved = _configured_defaults(tool, cfg, {'cores': cores, 'memory_mb': memory, 'preset': name,
+                                                    'applied_at': now(), 'hardware_id': info['id']})
             for kind, value in [('configs', yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)), ('resource_defaults', saved)]:
                 db.execute('INSERT INTO items VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body',
                            (kind, tool, json.dumps(value)))
@@ -345,7 +375,7 @@ def _save_budget(store, tools, expected, info, selected, gpu_mode=None):
 
 
 
-def apply_custom(store, tool, cores, memory_mb, gpu_mode, expected, hardware_id):
+def apply_custom(store, tool, cores, memory_mb, gpu_mode, expected, hardware_id, swap_mb=_PRESERVE_SWAP):
     if tool not in PIPELINES or gpu_mode not in {'cpu', 'native'}:
         raise ValueError('Choose a pipeline and a supported GPU policy.')
     if tool == 'micpscope' and gpu_mode != 'cpu':
@@ -363,7 +393,7 @@ def apply_custom(store, tool, cores, memory_mb, gpu_mode, expected, hardware_id)
     if not 1 <= cpu <= high['cores'] or not 1024 <= ram <= high['memory_mb']:
         raise ValueError('Choose CPU and RAM within the detected Full power budget (including the system reserve).')
     selected = {'id': 'custom', 'label': 'Custom compute defaults', 'cores': cpu, 'memory_mb': ram}
-    return _save_budget(store, [tool], expected, info, selected, gpu_mode)
+    return _save_budget(store, [tool], expected, info, selected, gpu_mode, swap_mb)
 
 
 def workflow_environment(config):

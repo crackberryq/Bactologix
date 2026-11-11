@@ -5,7 +5,20 @@ workflow reservation can exceed the physical RAM budget even when Linux has
 enough active swap. A dry-run rejection of that reservation is not an observed
 out-of-memory failure.
 
-## Choose the allowance for a run
+## Save a pipeline default
+
+Open **Pipelines & databases → Compute & CUDA**, then select the pipeline under
+**Pipeline compute defaults**. Under **Default compute resources**, enable the
+disk-swap allowance, enter the additional MB and choose **Save compute defaults**. The same controls are available
+in **Settings** for the selected pipeline. Each pipeline keeps its own
+default; a new run starts with that pipeline's saved allowance.
+
+The initial default is off. CPU/RAM power presets preserve an explicitly saved
+swap allowance and continue to calculate physical-RAM budgets separately. Saving
+these settings does not create swap or reserve memory. Available capacity is
+checked again when a run is validated or executed.
+
+## Override the allowance for a run
 
 Open a new run or edit a saved run, then expand **Customize compute resources**.
 Keep the physical RAM budget appropriate for the RAM available inside Linux or
@@ -19,9 +32,10 @@ For example, a 28,672 MB RAM budget plus a 98,304 MB swap allowance gives a
 example requires enough currently available RAM and swap, including the system
 reserves checked at launch; it is not a universal recommended allocation.
 
-Swap is disabled for new runs unless explicitly selected. Existing saved runs
-retain their policy, and a revision inherits its parent's allowance until it is
-changed. An allowance is a scheduling choice, not a request to create a swap
+You can change the inherited allowance or turn it off for an individual run
+without changing the pipeline default. Existing saved runs retain their policy,
+and a revision inherits its parent's allowance until it is changed, even if the
+pipeline default has since changed. An allowance is a scheduling choice, not a request to create a swap
 file, a hard operating-system limit, or a measurement of actual memory use.
 
 ## What is checked
