@@ -341,6 +341,12 @@ public static class ControlFileFixture {
     Show-SetupOutcome $large 'error' 'Setup needs your attention' 'A long diagnostic must remain readable when the display scale is enlarged. The setup actions remain available below the scrollable content.' ('Example diagnostic. ' * 40)
     Fit-SetupWindow $large; Update-SetupLayout $large; [Windows.Forms.Application]::DoEvents()
     Save-SetupPreview $large 'enlarged'
+    foreach ($control in @($large.Content,$large.Scroll,$large.Actions)) {
+        $position = $large.Form.PointToClient($control.PointToScreen([Drawing.Point]::Empty))
+        $bounds = "type=$($control.GetType().Name) x=$($position.X) y=$($position.Y) size=$($control.Size); client=$($large.Form.ClientSize)"
+        Assert ($position.X -ge 0 -and $position.Y -ge 0 -and $position.X+$control.Width -le $large.Form.ClientSize.Width -and $position.Y+$control.Height -le $large.Form.ClientSize.Height) ('Enlarged setup container exceeded the viewport: ' + $bounds)
+    }
+    Assert ($large.Scroll.DisplayRectangle.Width -le $large.Scroll.ClientSize.Width) 'Enlarged setup content overflowed horizontally'
     foreach ($button in @($large.Primary,$large.Secondary,$large.Logs)) {
         $position = $large.Form.PointToClient($button.PointToScreen([Drawing.Point]::Empty))
         $bounds = "button='$($button.Text)' x=$($position.X) y=$($position.Y) width=$($button.Width) height=$($button.Height); client=$($large.Form.ClientSize); footer=$($large.Actions.Bounds)"

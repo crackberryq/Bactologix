@@ -359,10 +359,12 @@ function New-Progress([string]$Title) {
     $shell.Dock = 'Fill'; $shell.ColumnCount = 2; $shell.RowCount = 1; $shell.Margin = [Windows.Forms.Padding]::Empty
     $null = $shell.ColumnStyles.Add([Windows.Forms.ColumnStyle]::new('Absolute',230))
     $null = $shell.ColumnStyles.Add([Windows.Forms.ColumnStyle]::new('Percent',100))
+    $null = $shell.RowStyles.Add([Windows.Forms.RowStyle]::new('Percent',100))
     $form.Controls.Add($shell)
     $sidebar = New-Object Windows.Forms.TableLayoutPanel
     $sidebar.Dock = 'Fill'; $sidebar.BackColor = Setup-Color '#112F37'
     $sidebar.Padding = [Windows.Forms.Padding]::new(24,28,20,22); $sidebar.ColumnCount = 1; $sidebar.RowCount = 4
+    $null = $sidebar.ColumnStyles.Add([Windows.Forms.ColumnStyle]::new('Percent',100))
     $null = $sidebar.RowStyles.Add([Windows.Forms.RowStyle]::new('AutoSize'))
     $null = $sidebar.RowStyles.Add([Windows.Forms.RowStyle]::new('AutoSize'))
     $null = $sidebar.RowStyles.Add([Windows.Forms.RowStyle]::new('Percent',100))
@@ -404,6 +406,7 @@ function New-Progress([string]$Title) {
     $sidebar.Controls.Add($powered,0,3)
     $content = New-Object Windows.Forms.TableLayoutPanel
     $content.Dock = 'Fill'; $content.ColumnCount = 1; $content.RowCount = 2; $content.Padding = [Windows.Forms.Padding]::new(28,26,28,20)
+    $null = $content.ColumnStyles.Add([Windows.Forms.ColumnStyle]::new('Percent',100))
     $null = $content.RowStyles.Add([Windows.Forms.RowStyle]::new('Percent',100))
     $null = $content.RowStyles.Add([Windows.Forms.RowStyle]::new('AutoSize'))
     $shell.Controls.Add($content,1,0)
@@ -553,6 +556,7 @@ function Show-SetupOutcome($View, [string]$State, [string]$Title, [string]$Detai
     }
     if ($State -eq 'complete') { Set-SetupSteps $View 5; $View.Steps.Text = 'Application verified and desktop shortcut created.' }
     $View.Form.AcceptButton = if ($View.Primary.Visible) { $View.Primary } else { $View.Secondary }
+    $View.Form.ActiveControl = $View.Form.AcceptButton
     $View.Form.CancelButton = $View.Secondary
     if (-not $View.Form.Visible) { $View.Form.Show() }
     [Windows.Forms.Application]::DoEvents()
