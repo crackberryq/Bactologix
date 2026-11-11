@@ -51,7 +51,7 @@ function editSavedRun(id,variant=false){
 function beforeUnload(event){draftInputs();persistWizard();if(U.wizardStorageError&&U.wizard){event.preventDefault();event.returnValue='';}}
 restoreWizard();
 let pollTimer, toastTimer, progressTimer;
-const snapshotReceivedAt=Date.now();
+const snapshotReceivedAt=performance.now();
 const navs=[['overview','Home','home'],['samples','Samples','samples'],['runs','Runs','play'],['reports','Results & reports','file'],['comparisons','Comparisons','compare'],['install','Pipelines & databases','resources'],['storage','Storage','folder'],['configure','Settings','config']];
 const btn=(action,label,primary=false,id='',ico='',disabled=false)=>`<button type="button" class="btn${primary?' primary':''}" data-action="${action}" data-id="${e(id)}" ${disabled?'disabled':''}>${ico?icon(ico):''}${e(label)}</button>`;
 const quiet=(action,label,id='')=>`<button type="button" class="quiet" data-action="${action}" data-id="${e(id)}">${e(label)} ${icon('arrow')}</button>`;
@@ -137,21 +137,21 @@ function syncComputeBudget(prefix){
 }
 function krakenLabel(r){return r.tool==='hybas'?({off:'Off',manual:'Manual',auto:'Auto',aware:'AWARE'}[r.kraken_mode]||r.kraken_mode||'Pipeline default'):'—';}
 function readMode(mode){return ({hybrid:'Hybrid',illumina_only:'Illumina only',ont_only:'ONT only'}[mode]||String(mode).replaceAll('_',' '));}
-function currentTaskCounts(j){
+function currentTaskCounts(j,forRun=false){
  const t=j.telemetry,p=t?.progress;
- return j.kind==='workflow'&&['run','continue'].includes(j.payload?.action)&&t?.id===j.id&&t.run_id===j.payload.run_id&&t.action===j.payload.action&&p?.source==='workflow log'&&Number.isInteger(p.completed)&&Number.isInteger(p.total)&&p.total>0&&p.completed>=0&&p.completed<=p.total?p:null;
+ return j.kind==='workflow'&&['run','continue'].includes(j.payload?.action)&&t?.id===j.id&&(!forRun&&t.run_id==null||t.run_id===j.payload.run_id)&&t.action===j.payload.action&&p?.source==='workflow log'&&Number.isInteger(p.completed)&&Number.isInteger(p.total)&&p.total>0&&p.completed>=0&&p.completed<=p.total?p:null;
 }
 function progressFresh(j){
- if(j.status!=='running'||!navigator.onLine||Date.now()-snapshotReceivedAt>15000)return false;
+ if(j.status!=='running'||!navigator.onLine||performance.now()-snapshotReceivedAt>15000)return false;
  const t=j.telemetry;if(!t)return true;
- const age=Date.now()-Date.parse(t.updated_at);
- return t.live===true&&Number.isFinite(age)&&age>=0&&age<=15000;
+ // The server checks collector timestamps; browser and server clocks can differ.
+ return t.live===true;
 }
 function runProgress(r,compact=false){
  // Jobs are newest first. Never carry an earlier attempt's counts into a retry.
  const j=latestRunJob(r);
  if(!j||!['queued','running'].includes(j.status))return '';
- const queued=j.status==='queued',fresh=progressFresh(j),counts=!queued?currentTaskCounts(j):null;
+ const queued=j.status==='queued',fresh=progressFresh(j),counts=!queued?currentTaskCounts(j,true):null;
  const action=j.kind==='workflow_unlock'?'Unlocking workflow':({'dry-run':'Validating setup',prepare:'Preparing environments',run:'Run / resume',continue:'Continuing run','check-environments':'Checking environments'})[j.payload.action]||'Workflow';
  const status=runProgressStatus(j);
  const detail=queued?'Waiting to start':counts?`${counts.completed} / ${counts.total} tasks in current plan`:'Task count not reported yet';

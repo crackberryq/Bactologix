@@ -1,5 +1,6 @@
 """Browser regressions for local progress, using software-only job snapshots."""
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import pytest
 from bactologix.runs import create_run
@@ -26,20 +27,25 @@ def progress_page(tmp_path, installed):
         browser = p.chromium.launch(headless=True, executable_path=os.environ.get('BACTOLOGIX_BROWSER_EXECUTABLE'))
         page = browser.new_page(viewport={'width':1440,'height':1050})
         page.clock.install()
+        page.clock.pause_at(datetime.now(timezone.utc)+timedelta(seconds=1))
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
         render_component(page, store)
+        page.get_by_role('link',name='Runs',exact=True).click()
+        page.get_by_role('link',name='isolate0001 · assembly',exact=True).click()
         page.evaluate('''({rid,jid,detail})=>{
           const root=document.querySelector('#component-host').shadowRoot.querySelector('.bacto-root');
           window.progressState=root._workspaceState;
           window.progressDetail=detail.detail;
-          Object.assign(progressState,{view:'run',runId:rid,runDetailTab:'activity',detail:detail.detail});
           window.progressJob=acceptanceWorkspace.jobs.find(j=>j.id===jid);
           progressJob.status='running';
           acceptanceWorkspace.runs.find(r=>r.id===rid).status='running';
-          window.progressRerender=()=>acceptanceRender({id:Math.random().toString(),ok:true});
+          let reply=0;
+          window.progressRerender=()=>acceptanceRender({id:progressState.pending||'progress-fixture-'+(++reply),
+            ok:true,detail:progressDetail,keep_modal:true});
           progressRerender();
         }''', {'rid':run['id'],'jid':jid,'detail':detail})
+        page.locator('.primary-run-tabs [data-action="saved-run-tab"][data-id="activity"]').click()
         yield page
         assert errors == []
         browser.close()
@@ -62,6 +68,10 @@ def test_run_progress_counts_and_attempt_states(progress_page):
     expect(bar).to_contain_text('Task count not reported yet')
     assert bar.get_by_role('progressbar').get_attribute('aria-valuenow') is None
     assert bar.locator('.run-progress-track span').evaluate('n=>getComputedStyle(n).animationName')=='run-progress-stripes'
+    measured(page)
+    page.evaluate('progressJob.telemetry.run_id=null;progressRerender()')
+    expect(bar.locator('progress')).to_have_count(0)
+    expect(page.locator('.task-progress')).to_contain_text('3 / 12 tasks in current plan')
     measured(page)
     expect(bar).to_contain_text('3 / 12 tasks in current plan')
     expect(bar.locator('progress')).to_have_attribute('value','3')
@@ -109,12 +119,15 @@ def test_progress_freshness_motion_and_list(progress_page):
     page.context.set_offline(False)
     expect(bar).to_contain_text('Running')
     measured(page)
-    page.evaluate('progressJob.telemetry.updated_at=new Date(Date.now()-16000).toISOString()')
+    page.evaluate('progressJob.telemetry.live=false;progressRerender()')
     expect(bar).to_contain_text('Updates paused')
     expect(bar).to_contain_text('Last reported · 3 / 12 tasks in current plan')
     expect(page.locator('.job-progress')).not_to_contain_text('Receiving updates')
     expect(page.locator('.job-progress')).to_contain_text('Last reported steps')
     measured(page)
+    page.clock.set_system_time('2000-01-01T00:00:00Z')
+    expect(bar).to_contain_text('Running')
+    expect(page.locator('.job-progress')).to_contain_text('Receiving updates')
     page.clock.fast_forward(16000)
     expect(bar).to_contain_text('Updates paused')
     measured(page)
@@ -135,8 +148,9 @@ def test_background_progress_refresh_keeps_editing_context(progress_page):
     expect(search).to_have_value('isolate0001')
     assert search.evaluate('n=>[n.selectionStart,n.selectionEnd]')==[3,5]
     page.get_by_role('link',name='isolate0001 · assembly',exact=True).click()
-    page.evaluate("progressState.detail=progressDetail;progressState.runDetailTab='activity';progressRerender()")
-    details=page.locator('#main details').filter(has=page.get_by_text('Saved configuration',exact=True)).first
+    page.evaluate("progressRerender()")
+    page.locator('.primary-run-tabs [data-action="saved-run-tab"][data-id="activity"]').click()
+    details=page.locator('#main .saved-settings-nav')
     expect(details).to_have_count(1)
     details.evaluate('n=>n.open=true')
     details.locator('summary').focus()
@@ -174,6 +188,7 @@ def test_run_heading_stop_queue_controls_and_resource_counts(progress_page):
     page.evaluate('progressJob.cancel=1;progressRerender()')
     expect(controls.get_by_role('button',name='Stopping…',exact=True)).to_be_disabled()
     page.evaluate("progressJob.cancel=0;progressJob.status='queued';progressRerender()")
+    assert page.evaluate('progressState.pending') is None
     expect(controls.get_by_role('button',name='Cancel queued run',exact=True)).to_be_enabled()
     controls.get_by_role('button',name='Hold job',exact=True).click()
     request=page.evaluate('acceptanceEvents.at(-1).value')
