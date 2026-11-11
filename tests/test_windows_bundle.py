@@ -9,6 +9,7 @@ def test_windows_bundle_uses_the_app_icon_and_reviewed_installer(tmp_path):
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
     archive = module.build(root, tmp_path / 'desktop.zip')
     with zipfile.ZipFile(archive) as package:
+        assert all(entry.create_system == 3 and entry.date_time == (2026, 1, 1, 0, 0, 0) for entry in package.infolist())
         for name in ('brand.png','brand.ico'):
             assert package.read('Bactologix/'+name) == (root / 'src/bactologix/ui' / name).read_bytes()
         assert package.read('Bactologix/install_bactologix.py') == (root / 'scripts/install_bactologix.py').read_bytes()

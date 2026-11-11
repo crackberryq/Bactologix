@@ -1,0 +1,9 @@
+# Windows setup payloads and build receipts must match the Linux release source.
+/pyproject.toml text eol=lf
+/scripts/*.py text eol=lf
+/scripts/windows/*.ps1 text eol=lf
+/scripts/windows/*.cmd text eol=lf
+/scripts/windows/*.vbs text eol=lf
+/scripts/windows/*.cs text eol=lf
+/scripts/windows/*.manifest text eol=lf
+/docs/*.txt text eol=lf

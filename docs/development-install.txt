@@ -1,13 +1,15 @@
 BACTOLOGIX DEV — INDEPENDENT EXPERIMENTAL INSTALLATION
 
 Windows
-1. Extract this ZIP completely into a new folder.
-2. Double-click Bactologix-Dev-Setup.cmd.
+1. Download Bactologix-Dev-Setup.exe from the official Dev release and open it
+   normally, without Run as administrator. Choose Start setup on the welcome screen.
+2. For the ZIP fallback, extract it completely and open Bactologix-Dev-Setup.cmd.
 3. Setup installs its own Conda and application environment inside your Ubuntu/WSL account.
 4. If Windows requests a restart, use Continue Bactologix-Dev Setup afterwards.
 5. Start the new Bactologix-Dev desktop shortcut. Your ordinary Bactologix shortcut is separate.
 
-Keep the bundled wheel, dev-package.json and installer files together. Setup verifies the wheel checksum. The initial app comes from this exact bundle, not a moving branch or stable release. Internet access is needed for Conda, Python dependencies and subsequent pipeline/database downloads.
+The EXE carries the bundled wheel, dev-package.json and installer files together.
+For manual ZIP installation, keep these extracted files together. Setup verifies the wheel checksum. The initial app comes from this exact bundle, not a moving branch or stable release. Internet access is needed for Conda, Python dependencies and subsequent pipeline/database downloads.
 
 Linux / existing WSL
 From this extracted folder, run:
@@ -31,3 +33,13 @@ The Dev application only offers .dev application updates. Public Dev releases us
 Use independent Dev copies of databases and models. Stable environment/cache/database locations are rejected by Dev. Original sequencing/annotation input files may be selected by both apps; generated files belong to their respective workspaces. Never use your stable workspace as the Dev workspace.
 
 All development results are experimental. Software checks are distinct from analytical validation. This separation prevents accidental resource sharing; it is not an OS security sandbox. Both applications still share the computer's operating system and CPU/RAM/disk capacity. No remote access control or user tracking is enabled.
+
+Windows setup packaging (a104.dev1)
+Setup has branded welcome, progress, restart, error and completion screens. Open
+setup logs from the installer when a step needs attention. No analysis is started.
+Windows feature commands can request administrator permission; the main installer
+and Ubuntu registration run under your own account. Existing Dev workspaces remain.
+
+Build receipts bind the executable to its source commit, payload and channel.
+Current builds are unsigned; no Authenticode publisher certificate is attached.
+Review Windows' publisher prompt according to your organization's policy.
