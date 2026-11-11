@@ -8,7 +8,7 @@ another combination.
 
 ## Current source candidate
 
-This baseline covers **Bactologix 0.1.0a102 (current)**. Record the installed
+This baseline covers **Bactologix 0.1.0a103 (current)**. Record the installed
 application version and the exact commit resolved by its published release tag
 in your validation record. Dev remains a separate installation and validation
 baseline; consult [dual-channel testing](dual-channel-testing.md) and the
