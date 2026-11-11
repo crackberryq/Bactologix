@@ -408,7 +408,7 @@ function New-Progress([string]$Title) {
     $content.Dock = 'Fill'; $content.ColumnCount = 1; $content.RowCount = 2; $content.Padding = [Windows.Forms.Padding]::new(28,26,28,20)
     $null = $content.ColumnStyles.Add([Windows.Forms.ColumnStyle]::new('Percent',100))
     $null = $content.RowStyles.Add([Windows.Forms.RowStyle]::new('Percent',100))
-    $null = $content.RowStyles.Add([Windows.Forms.RowStyle]::new('AutoSize'))
+    $null = $content.RowStyles.Add([Windows.Forms.RowStyle]::new('Absolute',64))
     $shell.Controls.Add($content,1,0)
     $scroll = New-Object Windows.Forms.Panel
     $scroll.Dock = 'Fill'; $scroll.AutoScroll = $true; $scroll.Margin = [Windows.Forms.Padding]::Empty
@@ -438,7 +438,7 @@ function New-Progress([string]$Title) {
     $footer = New-SetupLabel 'Existing samples, runs, outputs and databases are retained.' 9
     $footer.ForeColor = Setup-Color '#526B70'; $body.Controls.Add($footer)
     $actions = New-Object Windows.Forms.FlowLayoutPanel
-    $actions.Dock = 'Fill'; $actions.AutoSize = $true; $actions.AutoSizeMode = 'GrowAndShrink'
+    $actions.Dock = 'Fill'; $actions.AutoSize = $false
     $actions.FlowDirection = 'RightToLeft'; $actions.WrapContents = $true
     $actions.Padding = [Windows.Forms.Padding]::new(0,14,0,0); $actions.Margin = [Windows.Forms.Padding]::Empty
     $primary = New-SetupButton 'Start setup' -Primary
@@ -477,11 +477,23 @@ function New-Progress([string]$Title) {
 }
 function Update-SetupLayout($View) {
     if (-not $View) { return }
-    # Constrain the footer's preferred width before the table measures its
-    # AutoSize row. Otherwise enlarged buttons can wrap below a one-row footer.
+    # WinForms can report a single-row preferred height for a wrapping footer.
+    # Allocate the actual button rows so all actions stay outside the scroll area.
     $actionWidth = [Math]::Max(1,$View.Content.ClientSize.Width-$View.Content.Padding.Horizontal)
     $View.Actions.MaximumSize = [Drawing.Size]::new($actionWidth,0)
-    $View.Actions.MinimumSize = [Drawing.Size]::new($actionWidth,0)
+    $availableWidth = [Math]::Max(1,$actionWidth-$View.Actions.Padding.Horizontal)
+    $rowWidth = 0; $rowHeight = 0; $footerHeight = $View.Actions.Padding.Vertical
+    foreach ($button in @($View.Primary,$View.Secondary,$View.Logs)) {
+        if (-not $button.Visible) { continue }
+        $preferred = $button.GetPreferredSize([Drawing.Size]::Empty)
+        $itemWidth = [Math]::Max($button.MinimumSize.Width,$preferred.Width)+$button.Margin.Horizontal
+        $itemHeight = [Math]::Max($button.MinimumSize.Height,$preferred.Height)+$button.Margin.Vertical
+        if ($rowWidth -gt 0 -and $rowWidth+$itemWidth -gt $availableWidth) {
+            $footerHeight += $rowHeight; $rowWidth = 0; $rowHeight = 0
+        }
+        $rowWidth += $itemWidth; $rowHeight = [Math]::Max($rowHeight,$itemHeight)
+    }
+    $View.Content.RowStyles[1].Height = $footerHeight+$rowHeight
     $width = [Math]::Max(260,$View.Scroll.ClientSize.Width-22)
     foreach ($control in @($View.Eyebrow,$View.Heading,$View.Detail,$View.Footer)) { $control.MaximumSize = [Drawing.Size]::new($width,0) }
     $View.StatusCard.Width = $width; $View.Diagnostic.Width = $width
@@ -517,6 +529,7 @@ function Set-SetupPhase($View, [string]$State) {
     $View.Footer.Text = if ($busy) { 'This can take several minutes. Keep this window open; downloads and checks may pause between updates.' } else { 'Existing samples, runs, outputs and databases are retained.' }
     Set-SetupSteps $View $View.ActiveStep
     if ($State -eq 'launcher') { $View.Steps.Text = 'Starting your saved workspace. Your existing data stays in place.' }
+    Update-SetupLayout $View
 }
 function Show-Stage($View, [string]$Title, [string]$Detail) {
     if ($View.State -notin @('working','launcher')) { Set-SetupPhase $View 'working' }
@@ -538,6 +551,7 @@ function Show-SetupWelcome($View) {
     $View.PrimaryAction = 'start'; $View.Secondary.Text = 'Close'
     $View.Form.AcceptButton = $View.Primary; $View.Form.CancelButton = $View.Secondary
     if (-not $View.Form.Visible) { $View.Form.Show() }
+    Update-SetupLayout $View
     [Windows.Forms.Application]::DoEvents()
 }
 function Show-SetupOutcome($View, [string]$State, [string]$Title, [string]$Detail, [string]$Diagnostic = '') {
@@ -559,6 +573,7 @@ function Show-SetupOutcome($View, [string]$State, [string]$Title, [string]$Detai
     $View.Form.ActiveControl = $View.Form.AcceptButton
     $View.Form.CancelButton = $View.Secondary
     if (-not $View.Form.Visible) { $View.Form.Show() }
+    Update-SetupLayout $View
     [Windows.Forms.Application]::DoEvents()
 }
 function Wait-SetupAction($View) {
