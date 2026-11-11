@@ -340,11 +340,13 @@ public static class ControlFileFixture {
     $large.Form.Scale([Drawing.SizeF]::new(1.5,1.5))
     Show-SetupOutcome $large 'error' 'Setup needs your attention' 'A long diagnostic must remain readable when the display scale is enlarged. The setup actions remain available below the scrollable content.' ('Example diagnostic. ' * 40)
     Fit-SetupWindow $large; Update-SetupLayout $large; [Windows.Forms.Application]::DoEvents()
+    Save-SetupPreview $large 'enlarged'
     foreach ($button in @($large.Primary,$large.Secondary,$large.Logs)) {
         $position = $large.Form.PointToClient($button.PointToScreen([Drawing.Point]::Empty))
-        Assert ($position.X -ge 0 -and $position.Y -ge 0 -and $position.X+$button.Width -le $large.Form.ClientSize.Width -and $position.Y+$button.Height -le $large.Form.ClientSize.Height) 'Enlarged setup actions were clipped'
+        $bounds = "button='$($button.Text)' x=$($position.X) y=$($position.Y) width=$($button.Width) height=$($button.Height); client=$($large.Form.ClientSize); footer=$($large.Actions.Bounds)"
+        Write-Output ('Enlarged layout: ' + $bounds)
+        Assert ($position.X -ge 0 -and $position.Y -ge 0 -and $position.X+$button.Width -le $large.Form.ClientSize.Width -and $position.Y+$button.Height -le $large.Form.ClientSize.Height) ('Enlarged setup actions were clipped: ' + $bounds)
     }
-    Save-SetupPreview $large 'enlarged'
     $large.Form.Hide(); $view.Form.Hide()
     # Exercise the setup coordinator independently from WSL or app installation.
     $uiFunctions = @('Show-SetupWelcome','Wait-SetupAction','Install-Desktop','Run-Desktop','Show-SetupOutcome')

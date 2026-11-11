@@ -320,7 +320,7 @@ function Read-Json([string]$Path) {
 function Setup-Color([string]$Hex) { return [Drawing.ColorTranslator]::FromHtml($Hex) }
 function New-SetupLabel([string]$Text, [single]$Size = 10, [switch]$Bold) {
     $label = New-Object Windows.Forms.Label
-    $label.AutoSize = $true; $label.Text = $Text; $label.Margin = [Windows.Forms.Padding]::new(0,0,0,12)
+    $label.AutoSize = $true; $label.UseMnemonic = $false; $label.Text = $Text; $label.Margin = [Windows.Forms.Padding]::new(0,0,0,12)
     $label.Font = [Drawing.Font]::new('Segoe UI',$Size,$(if ($Bold) { [Drawing.FontStyle]::Bold } else { [Drawing.FontStyle]::Regular }))
     $label.ForeColor = Setup-Color '#17363D'
     return $label
@@ -435,7 +435,8 @@ function New-Progress([string]$Title) {
     $footer = New-SetupLabel 'Existing samples, runs, outputs and databases are retained.' 9
     $footer.ForeColor = Setup-Color '#526B70'; $body.Controls.Add($footer)
     $actions = New-Object Windows.Forms.FlowLayoutPanel
-    $actions.Dock = 'Fill'; $actions.AutoSize = $true; $actions.FlowDirection = 'RightToLeft'; $actions.WrapContents = $true
+    $actions.Dock = 'Fill'; $actions.AutoSize = $true; $actions.AutoSizeMode = 'GrowAndShrink'
+    $actions.FlowDirection = 'RightToLeft'; $actions.WrapContents = $true
     $actions.Padding = [Windows.Forms.Padding]::new(0,14,0,0); $actions.Margin = [Windows.Forms.Padding]::Empty
     $primary = New-SetupButton 'Start setup' -Primary
     $secondary = New-SetupButton 'Close'
@@ -444,7 +445,7 @@ function New-Progress([string]$Title) {
     $view = [pscustomobject]@{
         Form=$form; Heading=$heading; Detail=$detail; Bar=$bar; Steps=$steps; Footer=$footer
         Eyebrow=$eyebrow; StatusCard=$status; StatusTitle=$statusTitle; Diagnostic=$diagnostic
-        Primary=$primary; Secondary=$secondary; Logs=$logs; Content=$content; Body=$body; Scroll=$scroll
+        Primary=$primary; Secondary=$secondary; Logs=$logs; Actions=$actions; Content=$content; Body=$body; Scroll=$scroll
         Sidebar=$sidebar; Brand=$brand; StepPanel=$stepPanel; StepLabels=$stepLabels; StepNumbers=$stepNumbers
         State='working'; ActiveStep=0; Outcome=$null; Action=$null; PrimaryAction='start'; AllowClose=$false; LogRoot=$script:Root; Picture=$picture
     }
@@ -473,6 +474,11 @@ function New-Progress([string]$Title) {
 }
 function Update-SetupLayout($View) {
     if (-not $View) { return }
+    # Constrain the footer's preferred width before the table measures its
+    # AutoSize row. Otherwise enlarged buttons can wrap below a one-row footer.
+    $actionWidth = [Math]::Max(1,$View.Content.ClientSize.Width-$View.Content.Padding.Horizontal)
+    $View.Actions.MaximumSize = [Drawing.Size]::new($actionWidth,0)
+    $View.Actions.MinimumSize = [Drawing.Size]::new($actionWidth,0)
     $width = [Math]::Max(260,$View.Scroll.ClientSize.Width-22)
     foreach ($control in @($View.Eyebrow,$View.Heading,$View.Detail,$View.Footer)) { $control.MaximumSize = [Drawing.Size]::new($width,0) }
     $View.StatusCard.Width = $width; $View.Diagnostic.Width = $width
