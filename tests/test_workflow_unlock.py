@@ -8,7 +8,9 @@ import sys
 from types import SimpleNamespace
 import psutil
 import pytest
+import yaml
 from bactologix import workflow_unlock as unlock
+from bactologix import runs
 from bactologix.store import Store
 from bactologix.runs import tree_digest
 from bactologix.ui_backend import dispatch
@@ -30,7 +32,7 @@ def locked(tmp_path, monkeypatch):
     run = {'id':'run-fixture','folder':str(directory.parent),'commit':'immutable-fixture','workflow_sha256':tree_digest(directory)}
     store.put('runs', run['id'], run)
     monkeypatch.setattr(unlock,'validate_launch',lambda *a,**k: copy.deepcopy(store.get('runs',run['id'])))
-    monkeypatch.setattr(unlock,'command',lambda *a: [sys.executable,'-m','snakemake','--snakefile',str(directory/'Snakefile'),'--directory',str(directory),'--configfile',str(config),'--dry-run','--forcerun','unwanted_analysis'])
+    monkeypatch.setattr(unlock,'command',lambda *a: [sys.executable,'-m','snakemake','--snakefile',str(directory/'Snakefile'),'--directory',str(directory),'--configfile',str(config),'--resources','mem_mb=16000','kraken_jobs=1','--dry-run','--forcerun','unwanted_analysis'])
     monkeypatch.setattr('bactologix.engine.launch_worker',lambda store: None)
     monkeypatch.setattr(unlock.psutil,'process_iter',lambda: [])
     return store,run,locks,output
@@ -63,6 +65,82 @@ def test_native_unlock_is_maintenance_only_and_keeps_queue_paused(locked,monkeyp
     queued=store.submit('smoke',{})
     assert store.claim() is None and store.job(queued)['status']=='queued'
     assert not unlock.preview(store,run['id'])['allowed']
+
+
+@pytest.mark.parametrize('ram_mb,swap_mb', [(28672, 98304), (131072, 0)])
+def test_native_unlock_keeps_saved_resources_over_profile_defaults(locked, monkeypatch, ram_mb, swap_mb):
+    """Unlock parses native guards but must never execute an analysis target."""
+    store, run, locks, output = locked
+    directory = Path(run['folder']) / 'workflow'
+    (directory / 'Hybas.smk').write_text('''
+budget = workflow.global_resources.get("mem_mb")
+budget = int(getattr(budget, "value", budget))
+if budget < config["reservation_mb"]:
+    raise ValueError(f"fixture reservation exceeds scheduler budget: {budget}")
+rule all:
+    input: "unexpected-analysis.txt"
+rule analysis:
+    output: "unexpected-analysis.txt"
+    shell: "echo should-never-run > {output}"
+''')
+    profile = directory / 'profiles/default'
+    profile.mkdir(parents=True)
+    (profile / 'config.yaml').write_text('resources:\n  mem_mb: 16000\n')
+    config = {'reservation_mb': 113868, 'assembly_mem_mb': 8192}
+    if swap_mb:
+        config['bactologix_compute'] = {'swap_mb': swap_mb}
+    frozen = yaml.safe_dump(config).encode()
+    (directory.parent / 'config.yaml').write_bytes(frozen)
+    run.update(tool='hybas', cores=12, memory_mb=ram_mb, config=frozen.decode(),
+               workflow_sha256=tree_digest(directory))
+    store.put('runs', run['id'], run)
+    original_run = copy.deepcopy(run)
+    monkeypatch.setattr(unlock, 'command', runs.command)
+    monkeypatch.setattr(runs, 'current_controller', lambda *_: sys.prefix)
+    monkeypatch.setattr('bactologix.engine.find_conda', lambda *_: '/fixture/conda')
+
+    def native(argv):
+        # Exercise the app-generated native argv without installing or invoking
+        # a Conda environment. The disposable workflow contains no real data.
+        start = argv.index('snakemake') + 1
+        return subprocess.run([sys.executable, '-m', 'snakemake', *argv[start:]],
+            cwd=directory, capture_output=True, text=True, timeout=60)
+
+    planned = unlock.details(store, run['id'])['command']
+    assert f'mem_mb={ram_mb + swap_mb}' in planned
+    assert 'kraken_jobs=1' in planned and planned[-1] == '--unlock'
+    assert planned[planned.index('--cores') + 1] == '1'
+    # The former unlock command omitted resources and loaded the 16,000 MB
+    # profile default. Prove that this prevents even maintenance from parsing.
+    legacy = planned[:]
+    start = legacy.index('--resources')
+    del legacy[start:legacy.index('--unlock')]
+    failed = native(legacy)
+    assert failed.returncode != 0
+    assert 'fixture reservation exceeds scheduler budget: 16000' in failed.stdout + failed.stderr
+    assert (locks / '0.input.lock').exists()
+    assert not (directory / 'unexpected-analysis.txt').exists()
+
+    plan = unlock.preview(store, run['id'])
+    assert plan['allowed']
+    jid = unlock.request(store, run['id'], plan['signature'])
+    job = store.claim()
+    assert job['id'] == jid
+    seen = []
+    def execute(argv, **kwargs):
+        seen.append(argv)
+        result = native(argv)
+        assert result.returncode == 0, result.stdout + result.stderr
+    with unlock.ownership(store):
+        unlock.execute(SimpleNamespace(store=store, job=job, write=lambda _: None, command=execute))
+    assert len(seen) == 1 and '--dry-run' not in seen[0] and '--forcerun' not in seen[0]
+    assert '--use-conda' not in seen[0] and '--rerun-incomplete' not in seen[0]
+    assert not locks.exists() or not list(locks.iterdir())
+    assert not (directory / 'unexpected-analysis.txt').exists()
+    assert output.read_text() == 'retained output'
+    assert (directory.parent / 'config.yaml').read_bytes() == frozen
+    assert store.get('runs', run['id']) == original_run
+    assert store.queue_snapshot()['paused']
 
 
 def test_live_lease_blocks_even_without_process_identity(locked):
