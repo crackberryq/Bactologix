@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -140,6 +141,12 @@ def publish(root, dist, commit):
         if not desktop.is_file():
             raise ValueError('The checked Windows desktop bundle is required.')
         packages.append(desktop)
+        spec = importlib.util.spec_from_file_location('windows_executable', root / 'scripts/build_windows_executable.py')
+        builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(builder)
+        packages.extend(builder.verify_build(root, dist, commit, version,
+                                             channel='dev' if development else 'stable',
+                                             wheel=wheel if development else None))
     checksum = dist / 'SHA256SUMS'
     checksum.write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n'
                                for p in packages))
@@ -153,8 +160,11 @@ def publish(root, dist, commit):
     notes = sections[1].split('\n', 1)[1].split('\n## ', 1)[0].strip()
     application = 'Bactologix Dev' if development else 'Bactologix'
     notes += f'\n\nTested source: `{commit}`. Install through **Update {application} → Refresh releases → {tag}**. Restart {application} after installation.\n'
+    if (root / 'scripts/windows').is_dir():
+        executable = 'Bactologix-Dev-Setup.exe' if development else 'Bactologix-Setup.exe'
+        notes += f'\nFor a new Windows installation, download **{executable}**. It contains the setup interface and reviewed bootstrap files; Internet access is still required for WSL, Ubuntu and application dependencies. ZIP remains available as a fallback.\n'
     if development:
-        notes += '\nFor the first public Dev update, use Bactologix-Dev-Windows.zip if an older Dev build does not list this release. Extract it into a new folder and run its Dev setup; it preserves the separate Dev workspace.\n'
+        notes += '\nUse the Dev setup executable if an older Dev build does not list this release; it preserves the separate Dev workspace.\n'
     parsed = Version(version)
     stage = {'a': 'Alpha', 'b': 'Beta', 'rc': 'Release candidate'}.get(parsed.pre[0]) if parsed.pre else None
     release_name = application + ' ' + version + (' — Development' if development else (' — ' + stage if stage else ''))

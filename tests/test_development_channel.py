@@ -165,6 +165,11 @@ def test_windows_dev_bundle_has_own_names_and_pinned_payload(tmp_path):
         manifest=json.loads(z.read('Bactologix-Dev/dev-package.json'))
         assert hashlib.sha256(z.read('Bactologix-Dev/'+w.name)).hexdigest()==manifest['sha256']
         assert all(n.startswith('Bactologix-Dev/') for n in z.namelist())
+        assert all(i.date_time == (2026, 1, 1, 0, 0, 0) and i.create_system == 3 and i.compress_type == zipfile.ZIP_STORED for i in z.infolist())
+    import os
+    os.utime(w, (1700000000, 1700000000))
+    again=builder.build(Path(__file__).parents[1],tmp_path/'again.zip',channel='dev',wheel=w)
+    assert result.read_bytes() == again.read_bytes()
 
 
 def test_bundled_wheel_verification(tmp_path):

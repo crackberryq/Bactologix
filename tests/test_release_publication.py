@@ -174,12 +174,20 @@ def test_dev_publication_cannot_be_selected_by_legacy_regular_installers(publica
     (root / 'scripts/windows').mkdir(parents=True)
     (dist / 'Bactologix-Windows.zip').write_bytes(b'regular installer must not be published')
     (dist / 'Bactologix-Dev-Windows.zip').write_bytes(b'dev installer fixture')
+    # This test isolates asset naming; native payload/source verification has
+    # its own tests, including the exact Dev wheel and wrong-channel rejection.
+    (root / 'scripts/build_windows_executable.py').write_text(
+        "def verify_build(root, dist, commit, version, channel, wheel):\n"
+        "    assert channel == 'dev' and wheel.name == f'bactologix-{version}-py3-none-any.whl'\n"
+        "    return [dist / 'Bactologix-Dev-Setup.exe', dist / 'Bactologix-Dev-Setup.build.json']\n")
+    (dist / 'Bactologix-Dev-Setup.exe').write_bytes(b'inert native fixture')
+    (dist / 'Bactologix-Dev-Setup.build.json').write_text('{}')
     record = publisher.publish(root, dist, COMMIT)
     release = state['release']
     assert release['tag_name'] == 'dev-v' + version
     assert release['name'] == f'Bactologix Dev {version} — Development'
     names = {asset['name'] for asset in release['assets']}
-    assert names == {f'Bactologix-Dev-{version}.whl', f'bactologix-{version}.tar.gz', 'Bactologix-Dev-Windows.zip', 'SHA256SUMS'}
+    assert names == {f'Bactologix-Dev-{version}.whl', f'bactologix-{version}.tar.gz', 'Bactologix-Dev-Windows.zip', 'Bactologix-Dev-Setup.exe', 'Bactologix-Dev-Setup.build.json', 'SHA256SUMS'}
     assert 'Bactologix-Windows.zip' not in names
     # Frozen a85 updater tag parsing and installer wheel-asset eligibility.
     with pytest.raises(InvalidVersion):
@@ -205,3 +213,14 @@ def test_dev_publication_requires_dev_bundle_even_if_regular_bundle_exists(publi
     with pytest.raises(ValueError, match='bundle is required'):
         publisher.publish(root, dist, COMMIT)
     assert all(method == 'GET' for _, method, _ in state['calls'])
+
+
+def test_windows_release_requires_native_executable_receipt(publication):
+    root, dist, state = publication
+    (root / 'scripts/windows').mkdir(parents=True)
+    source = Path(__file__).parents[1] / 'scripts/build_windows_executable.py'
+    (root / 'scripts/build_windows_executable.py').write_bytes(source.read_bytes())
+    (dist / 'Bactologix-Windows.zip').write_bytes(b'inert ZIP fixture')
+    with pytest.raises(ValueError, match='executable, build receipt and ZIP'):
+        publisher.publish(root, dist, COMMIT)
+    assert not any(method in {'POST', 'PATCH'} for _, method, _ in state['calls'])

@@ -180,8 +180,7 @@ function Save-SetupContinuation([string]$Name, [string]$Phase) {
 }
 function Show-SetupRestart($View, [string]$Name) {
     Save-SetupContinuation $Name 'restart-required'
-    Show-Stage $View 'Restart Windows to continue' 'Save your work and restart Windows. Then double-click Continue Bactologix Setup on your desktop. Your progress is saved.'
-    [Windows.Forms.MessageBox]::Show('Windows needs a restart before setup can continue. Save your work, restart, then use the Continue Bactologix Setup desktop shortcut. Bactologix will not restart your PC automatically.', 'Bactologix setup', 'OK','Information') | Out-Null
+    Show-SetupOutcome $View 'restart' 'Restart Windows to continue' 'Your setup progress is saved. Save your other work, restart Windows, then open Continue Bactologix Setup on your desktop. Bactologix will not restart this computer automatically.'
 }
 function Confirm-UbuntuInstall([string]$Name) {
     return ([Windows.Forms.MessageBox]::Show("Set up Windows WSL and install $Name now? Windows may request administrator permission and a restart. Existing Linux distributions will be kept.", 'Bactologix setup', 'YesNo','Question') -eq 'Yes')
@@ -241,7 +240,7 @@ function Prepare-Ubuntu($View, [string]$Name) {
         throw 'First-time setup requires 64-bit Windows 10 build 19041 or newer, or Windows 11. Update Windows, then rerun Setup.'
     }
     if (-not (Confirm-UbuntuInstall $Name)) {
-        Show-Stage $View 'Setup paused' 'Nothing was installed. Run Bactologix Setup again when you are ready.'
+        Show-SetupOutcome $View 'paused' 'Setup paused' 'Windows and Ubuntu installation was not started. Open Bactologix Setup again when you are ready.'
         return $null
     }
     Save-SetupContinuation $Name 'windows-prerequisites'
@@ -318,47 +317,285 @@ function Read-Json([string]$Path) {
     try { return ((Read-SharedText $Path) | ConvertFrom-Json) }
     catch { return $null }
 }
+function Setup-Color([string]$Hex) { return [Drawing.ColorTranslator]::FromHtml($Hex) }
+function New-SetupLabel([string]$Text, [single]$Size = 10, [switch]$Bold) {
+    $label = New-Object Windows.Forms.Label
+    $label.AutoSize = $true; $label.UseMnemonic = $false; $label.Text = $Text; $label.Margin = [Windows.Forms.Padding]::new(0,0,0,12)
+    $label.Font = [Drawing.Font]::new('Segoe UI',$Size,$(if ($Bold) { [Drawing.FontStyle]::Bold } else { [Drawing.FontStyle]::Regular }))
+    $label.ForeColor = Setup-Color '#17363D'
+    return $label
+}
+function New-SetupButton([string]$Text, [switch]$Primary) {
+    $button = New-Object Windows.Forms.Button
+    $button.Text = $Text; $button.AutoSize = $false
+    $button.MinimumSize = [Drawing.Size]::new(112,42); $button.Padding = [Windows.Forms.Padding]::new(16,6,16,6)
+    $button.Margin = [Windows.Forms.Padding]::new(8,4,0,4); $button.FlatStyle = 'Flat'
+    $button.Font = [Drawing.Font]::new('Segoe UI',10,[Drawing.FontStyle]::Bold)
+    $button.FlatAppearance.BorderSize = 1; $button.FlatAppearance.BorderColor = Setup-Color '#CADBD9'
+    $button.BackColor = $(if ($Primary) { Setup-Color '#11776F' } else { [Drawing.Color]::White })
+    $button.ForeColor = $(if ($Primary) { [Drawing.Color]::White } else { Setup-Color '#17363D' })
+    $button.UseVisualStyleBackColor = $false
+    return $button
+}
+function Fit-SetupWindow($View) {
+    $area = [Windows.Forms.Screen]::FromControl($View.Form).WorkingArea
+    $maximum = [Drawing.Size]::new([Math]::Max(500,$area.Width-40),[Math]::Max(360,$area.Height-40))
+    $View.Form.MinimumSize = [Drawing.Size]::new([Math]::Min($View.Form.MinimumSize.Width,$maximum.Width),[Math]::Min($View.Form.MinimumSize.Height,$maximum.Height))
+    $View.Form.Size = [Drawing.Size]::new([Math]::Min($View.Form.Width,$maximum.Width),[Math]::Min($View.Form.Height,$maximum.Height))
+    $View.Form.Location = [Drawing.Point]::new($area.Left+[int](($area.Width-$View.Form.Width)/2),$area.Top+[int](($area.Height-$View.Form.Height)/2))
+}
 function New-Progress([string]$Title) {
     $form = New-Object Windows.Forms.Form
-    $form.Text = $Title; $form.ClientSize = New-Object Drawing.Size(680, 450)
-    $form.StartPosition = 'CenterScreen'; $form.BackColor = [Drawing.ColorTranslator]::FromHtml('#F5F7F6')
-    $form.Font = New-Object Drawing.Font('Segoe UI', 10)
-    $form.FormBorderStyle = 'FixedDialog'; $form.MaximizeBox = $false
+    $form.Text = $Title; $form.ClientSize = [Drawing.Size]::new(940,660)
+    $form.MinimumSize = [Drawing.Size]::new(760,500); $form.StartPosition = 'CenterScreen'
+    $form.AutoScaleMode = 'Dpi'; $form.AutoScaleDimensions = [Drawing.SizeF]::new(96,96)
+    $form.BackColor = Setup-Color '#F4F8F7'; $form.Font = [Drawing.Font]::new('Segoe UI',10)
     $icon = Join-Path $PSScriptRoot 'brand.ico'
-    if (Test-Path $icon) { $form.Icon = New-Object Drawing.Icon($icon) }
-    $banner = New-Object Windows.Forms.Panel
-    $banner.SetBounds(0,0,680,100); $banner.BackColor = [Drawing.ColorTranslator]::FromHtml('#112D35')
+    if (Test-Path -LiteralPath $icon) {
+        $sourceIcon = [Drawing.Icon]::new($icon)
+        try { $form.Icon = $sourceIcon.Clone() } finally { $sourceIcon.Dispose() }
+    }
+    $shell = New-Object Windows.Forms.TableLayoutPanel
+    $shell.Dock = 'Fill'; $shell.ColumnCount = 2; $shell.RowCount = 1; $shell.Margin = [Windows.Forms.Padding]::Empty
+    $null = $shell.ColumnStyles.Add([Windows.Forms.ColumnStyle]::new('Absolute',230))
+    $null = $shell.ColumnStyles.Add([Windows.Forms.ColumnStyle]::new('Percent',100))
+    $null = $shell.RowStyles.Add([Windows.Forms.RowStyle]::new('Percent',100))
+    $form.Controls.Add($shell)
+    $sidebar = New-Object Windows.Forms.TableLayoutPanel
+    $sidebar.Dock = 'Fill'; $sidebar.BackColor = Setup-Color '#112F37'
+    $sidebar.Padding = [Windows.Forms.Padding]::new(24,28,20,22); $sidebar.ColumnCount = 1; $sidebar.RowCount = 4
+    $null = $sidebar.ColumnStyles.Add([Windows.Forms.ColumnStyle]::new('Percent',100))
+    $null = $sidebar.RowStyles.Add([Windows.Forms.RowStyle]::new('AutoSize'))
+    $null = $sidebar.RowStyles.Add([Windows.Forms.RowStyle]::new('AutoSize'))
+    $null = $sidebar.RowStyles.Add([Windows.Forms.RowStyle]::new('Percent',100))
+    $null = $sidebar.RowStyles.Add([Windows.Forms.RowStyle]::new('AutoSize'))
+    $shell.Controls.Add($sidebar,0,0)
+    $identity = New-Object Windows.Forms.FlowLayoutPanel
+    $identity.FlowDirection = 'TopDown'; $identity.WrapContents = $false; $identity.AutoSize = $true; $identity.Dock = 'Top'
+    $identity.Margin = [Windows.Forms.Padding]::new(0,0,0,28)
     $picture = New-Object Windows.Forms.PictureBox
-    $picture.SetBounds(30,22,49,56); $picture.SizeMode = 'Zoom'
+    $picture.Size = [Drawing.Size]::new(52,58); $picture.SizeMode = 'Zoom'; $picture.Margin = [Windows.Forms.Padding]::new(0,0,0,14)
     $png = Join-Path $PSScriptRoot 'brand.png'
-    if (Test-Path $png) { $picture.Image = [Drawing.Image]::FromFile($png) }
-    $brand = New-Object Windows.Forms.Label
-    $brand.Text = 'Bactologix'; $brand.SetBounds(96,19,500,39)
-    $brand.Font = New-Object Drawing.Font('Segoe UI',25,[Drawing.FontStyle]::Bold); $brand.ForeColor = [Drawing.Color]::White
-    $tag = New-Object Windows.Forms.Label
-    $tag.Text = 'YOUR WORKFLOW, CONNECTED'; $tag.SetBounds(100,63,470,24)
-    $tag.Font = New-Object Drawing.Font('Segoe UI',9); $tag.ForeColor = [Drawing.ColorTranslator]::FromHtml('#9AD7C7')
-    $banner.Controls.AddRange(@($picture,$brand,$tag)); $form.Controls.Add($banner)
-    $heading = New-Object Windows.Forms.Label
-    $heading.SetBounds(30,124,620,38); $heading.Font = New-Object Drawing.Font('Segoe UI',17,[Drawing.FontStyle]::Bold)
-    $detail = New-Object Windows.Forms.Label
-    $detail.SetBounds(32,172,610,66); $detail.ForeColor = [Drawing.ColorTranslator]::FromHtml('#52676B')
+    if (Test-Path -LiteralPath $png) {
+        $sourceImage = [Drawing.Image]::FromFile($png)
+        try { $picture.Image = $sourceImage.Clone() } finally { $sourceImage.Dispose() }
+    }
+    $brand = New-SetupLabel '' 22 -Bold
+    $brand.Text = 'Bactologix'; $brand.ForeColor = [Drawing.Color]::White; $brand.Margin = [Windows.Forms.Padding]::new(0,0,0,5)
+    $brand.MaximumSize = [Drawing.Size]::new(186,0)
+    $tag = New-SetupLabel 'YOUR WORKFLOW, CONNECTED' 8
+    $tag.ForeColor = Setup-Color '#9AD7C7'; $tag.Margin = [Windows.Forms.Padding]::new(0,0,0,0)
+    $identity.Controls.AddRange(@($picture,$brand,$tag)); $sidebar.Controls.Add($identity,0,0)
+    $stepPanel = New-Object Windows.Forms.FlowLayoutPanel
+    $stepPanel.FlowDirection = 'TopDown'; $stepPanel.WrapContents = $false; $stepPanel.AutoSize = $true; $stepPanel.Dock = 'Top'
+    $stepLabels = @(); $stepNumbers = @()
+    $names = @('Windows & Ubuntu','Conda','Workspace','Bactologix app','Desktop shortcut')
+    for ($index=0; $index -lt $names.Count; $index++) {
+        $row = New-Object Windows.Forms.TableLayoutPanel
+        $row.AutoSize = $true; $row.ColumnCount = 2; $row.Margin = [Windows.Forms.Padding]::new(0,0,0,20)
+        $null = $row.ColumnStyles.Add([Windows.Forms.ColumnStyle]::new('Absolute',30))
+        $null = $row.ColumnStyles.Add([Windows.Forms.ColumnStyle]::new('Absolute',152))
+        $number = New-SetupLabel ([string]($index+1)) 10 -Bold; $number.Margin = [Windows.Forms.Padding]::new(0,0,0,0)
+        $label = New-SetupLabel $names[$index] 10; $label.MaximumSize = [Drawing.Size]::new(152,0); $label.Margin = [Windows.Forms.Padding]::new(0,0,0,0)
+        $row.Controls.Add($number,0,0); $row.Controls.Add($label,1,0); $stepPanel.Controls.Add($row)
+        $stepLabels += $label; $stepNumbers += $number
+    }
+    $sidebar.Controls.Add($stepPanel,0,1)
+    $powered = New-SetupLabel 'Powered by GenoMix Human Link.' 9
+    $powered.MaximumSize = [Drawing.Size]::new(180,0); $powered.ForeColor = Setup-Color '#AAC9CB'; $powered.Margin = [Windows.Forms.Padding]::Empty
+    $sidebar.Controls.Add($powered,0,3)
+    $content = New-Object Windows.Forms.TableLayoutPanel
+    $content.Dock = 'Fill'; $content.ColumnCount = 1; $content.RowCount = 2; $content.Padding = [Windows.Forms.Padding]::new(28,26,28,20)
+    $null = $content.ColumnStyles.Add([Windows.Forms.ColumnStyle]::new('Percent',100))
+    $null = $content.RowStyles.Add([Windows.Forms.RowStyle]::new('Percent',100))
+    $null = $content.RowStyles.Add([Windows.Forms.RowStyle]::new('Absolute',64))
+    $shell.Controls.Add($content,1,0)
+    $scroll = New-Object Windows.Forms.Panel
+    $scroll.Dock = 'Fill'; $scroll.AutoScroll = $true; $scroll.Margin = [Windows.Forms.Padding]::Empty
+    $content.Controls.Add($scroll,0,0)
+    $body = New-Object Windows.Forms.FlowLayoutPanel
+    $body.Dock = 'Top'; $body.FlowDirection = 'TopDown'; $body.WrapContents = $false; $body.AutoSize = $true; $body.Margin = [Windows.Forms.Padding]::Empty
+    $scroll.Controls.Add($body)
+    $eyebrow = New-SetupLabel 'SETUP' 9 -Bold; $eyebrow.ForeColor = Setup-Color '#11776F'
+    $heading = New-SetupLabel 'Preparing your workspace' 23 -Bold; $heading.Name = 'SetupHeading'
+    $detail = New-SetupLabel '' 10; $detail.Name = 'SetupDetail'; $detail.ForeColor = Setup-Color '#526B70'
+    $body.Controls.AddRange(@($eyebrow,$heading,$detail))
+    $status = New-Object Windows.Forms.FlowLayoutPanel
+    $status.FlowDirection = 'TopDown'; $status.WrapContents = $false; $status.AutoSize = $true
+    $status.BackColor = Setup-Color '#E9F4F0'; $status.Padding = [Windows.Forms.Padding]::new(18,18,18,18)
+    $status.Margin = [Windows.Forms.Padding]::new(0,8,0,20)
+    $statusTitle = New-SetupLabel 'Getting ready' 11 -Bold
     $bar = New-Object Windows.Forms.ProgressBar
-    $bar.SetBounds(32,254,610,12); $bar.Style = 'Marquee'; $bar.MarqueeAnimationSpeed = 28
-    $steps = New-Object Windows.Forms.Label
-    $steps.SetBounds(32,290,610,75); $steps.ForeColor = [Drawing.ColorTranslator]::FromHtml('#136D68')
-    $steps.Text = 'Ubuntu  >  Conda  >  Bactomics  >  Bactologix  >  Desktop shortcut'
-    $footer = New-Object Windows.Forms.Label
-    $footer.SetBounds(32,388,610,32); $footer.Text = 'Your pipelines, databases and completed work stay in place.'
-    $footer.ForeColor = [Drawing.ColorTranslator]::FromHtml('#52676B')
-    $form.Controls.AddRange(@($heading,$detail,$bar,$steps,$footer))
-    $form.Add_FormClosing({ if (-not $script:AllowClose) { $_.Cancel = $true } })
-    return [pscustomobject]@{ Form=$form; Heading=$heading; Detail=$detail; Bar=$bar; Steps=$steps; Footer=$footer }
+    $bar.Height = 10; $bar.Style = 'Marquee'; $bar.MarqueeAnimationSpeed = 28; $bar.Margin = [Windows.Forms.Padding]::new(0,0,0,12)
+    $steps = New-SetupLabel '' 10; $steps.ForeColor = Setup-Color '#526B70'; $steps.Margin = [Windows.Forms.Padding]::Empty
+    $status.Controls.AddRange(@($statusTitle,$bar,$steps)); $body.Controls.Add($status)
+    $diagnostic = New-Object Windows.Forms.TextBox
+    $diagnostic.Multiline = $true; $diagnostic.ReadOnly = $true; $diagnostic.ScrollBars = 'Vertical'
+    $diagnostic.Height = 120; $diagnostic.BackColor = [Drawing.Color]::White; $diagnostic.BorderStyle = 'FixedSingle'
+    $diagnostic.Font = [Drawing.Font]::new('Segoe UI',9); $diagnostic.Visible = $false
+    $diagnostic.AccessibleName = 'Setup error details'; $diagnostic.Margin = [Windows.Forms.Padding]::new(0,0,0,16)
+    $body.Controls.Add($diagnostic)
+    $footer = New-SetupLabel 'Existing samples, runs, outputs and databases are retained.' 9
+    $footer.ForeColor = Setup-Color '#526B70'; $body.Controls.Add($footer)
+    $actions = New-Object Windows.Forms.Panel
+    $actions.Dock = 'Fill'; $actions.AutoSize = $false
+    $actions.Padding = [Windows.Forms.Padding]::new(0,14,0,0); $actions.Margin = [Windows.Forms.Padding]::Empty
+    $primary = New-SetupButton 'Start setup' -Primary
+    $secondary = New-SetupButton 'Close'
+    $logs = New-SetupButton 'Open setup logs'; $logs.Enabled = Test-Path -LiteralPath $script:Root
+    $actions.Controls.AddRange(@($primary,$secondary,$logs)); $content.Controls.Add($actions,0,1)
+    $view = [pscustomobject]@{
+        Form=$form; Heading=$heading; Detail=$detail; Bar=$bar; Steps=$steps; Footer=$footer
+        Eyebrow=$eyebrow; StatusCard=$status; StatusTitle=$statusTitle; Diagnostic=$diagnostic
+        Primary=$primary; Secondary=$secondary; Logs=$logs; Actions=$actions; Content=$content; Body=$body; Scroll=$scroll
+        Sidebar=$sidebar; Brand=$brand; StepPanel=$stepPanel; StepLabels=$stepLabels; StepNumbers=$stepNumbers
+        State='working'; ActiveStep=0; Outcome=$null; Action=$null; PrimaryAction='start'; AllowClose=$false; LogRoot=$script:Root; Picture=$picture
+        LayoutBusy=$false; LayoutDiagnostics=@()
+    }
+    $form.Tag = $view; $scroll.Tag = $view
+    $scroll.Add_SizeChanged({ param($sender,$eventArgs) Update-SetupLayout $sender.Tag })
+    $form.Add_Shown({ param($sender,$eventArgs) Fit-SetupWindow $sender.Tag; Update-SetupLayout $sender.Tag })
+    $primary.Add_Click({ param($sender,$eventArgs) $v = $sender.FindForm().Tag; $v.Action = $v.PrimaryAction })
+    $secondary.Add_Click({ param($sender,$eventArgs) $v = $sender.FindForm().Tag; if ($v.AllowClose) { $v.Action = 'close' } })
+    $logs.Add_Click({
+        param($sender,$eventArgs)
+        $v = $sender.FindForm().Tag
+        try { Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe') -ArgumentList (Quote-Argument $v.LogRoot) | Out-Null }
+        catch { $v.Diagnostic.Text = $_.Exception.Message; $v.Diagnostic.Visible = $true }
+    })
+    $form.Add_FormClosing({
+        param($sender,$eventArgs)
+        $v = $sender.Tag
+        if (-not $v.AllowClose) {
+            $eventArgs.Cancel = $true
+            $v.Footer.Text = 'Bactologix is still working. Wait for this step to finish; its progress will remain visible here.'
+        } else { $v.Action = 'close' }
+    })
+    $form.Add_FormClosed({ param($sender,$eventArgs) if ($sender.Tag.Picture.Image) { $sender.Tag.Picture.Image.Dispose() } })
+    Update-SetupLayout $view
+    return $view
+}
+function Update-SetupLayout($View) {
+    if (-not $View -or $View.LayoutBusy) { return }
+    $View.LayoutBusy = $true
+    try {
+    # Place and size the footer explicitly: Form.Scale can enlarge controls
+    # beyond GetPreferredSize, and FlowLayoutPanel can underreport wrapped rows.
+    $actionWidth = [Math]::Max(1,$View.Content.ClientSize.Width-$View.Content.Padding.Horizontal)
+    $availableWidth = [Math]::Max(1,$actionWidth-$View.Actions.Padding.Horizontal)
+    $rowWidth = 0; $rowHeight = 0; $rowTop = $View.Actions.Padding.Top
+    $cursorRight = $actionWidth-$View.Actions.Padding.Right
+    $View.LayoutDiagnostics = @("available=$availableWidth actionWidth=$actionWidth")
+    foreach ($button in @($View.Primary,$View.Secondary,$View.Logs)) {
+        if (-not $button.Visible) { continue }
+        $preferred = $button.GetPreferredSize([Drawing.Size]::Empty)
+        $buttonWidth = [Math]::Max($button.Width,[Math]::Max($button.MinimumSize.Width,$preferred.Width))
+        $buttonHeight = [Math]::Max($button.Height,[Math]::Max($button.MinimumSize.Height,$preferred.Height))
+        $View.LayoutDiagnostics += "button='$($button.Text)' actual=$($button.Size) preferred=$preferred minimum=$($button.MinimumSize) margin=$($button.Margin) allocated=$buttonWidth,$buttonHeight"
+        $itemWidth = $buttonWidth+$button.Margin.Horizontal
+        $itemHeight = $buttonHeight+$button.Margin.Vertical
+        if ($rowWidth -gt 0 -and $rowWidth+$itemWidth -gt $availableWidth) {
+            $rowTop += $rowHeight; $rowWidth = 0; $rowHeight = 0
+            $cursorRight = $actionWidth-$View.Actions.Padding.Right
+        }
+        $left = $cursorRight-$button.Margin.Right-$buttonWidth
+        $button.SetBounds($left,$rowTop+$button.Margin.Top,$buttonWidth,$buttonHeight)
+        $cursorRight = $left-$button.Margin.Left
+        $rowWidth += $itemWidth; $rowHeight = [Math]::Max($rowHeight,$itemHeight)
+    }
+    $footerHeight = $rowTop+$rowHeight+$View.Actions.Padding.Bottom
+    $View.LayoutDiagnostics += "allocatedFooterHeight=$footerHeight"
+    $View.Content.RowStyles[1].Height = $footerHeight
+    $View.Content.PerformLayout()
+    $width = [Math]::Max(260,$View.Scroll.ClientSize.Width-22)
+    foreach ($control in @($View.Eyebrow,$View.Heading,$View.Detail,$View.Footer)) { $control.MaximumSize = [Drawing.Size]::new($width,0) }
+    $View.StatusCard.Width = $width; $View.Diagnostic.Width = $width
+    $innerWidth = [Math]::Max(210,$width-$View.StatusCard.Padding.Horizontal)
+    foreach ($control in @($View.StatusTitle,$View.Steps)) { $control.MaximumSize = [Drawing.Size]::new($innerWidth,0) }
+    $View.Bar.Width = $innerWidth
+    } finally { $View.LayoutBusy = $false }
+}
+function Set-SetupSteps($View, [int]$Step) {
+    $View.ActiveStep = [Math]::Max(0,[Math]::Min(5,$Step))
+    for ($index=0; $index -lt $View.StepLabels.Count; $index++) {
+        $done = $View.State -eq 'complete' -or ($View.ActiveStep -gt 0 -and $index+1 -lt $View.ActiveStep)
+        $active = $index+1 -eq $View.ActiveStep -and $View.State -ne 'complete'
+        $color = if ($done) { '#9AD7C7' } elseif ($active) { '#FFFFFF' } else { '#93AFB4' }
+        $View.StepLabels[$index].ForeColor = Setup-Color $color
+        $View.StepNumbers[$index].ForeColor = Setup-Color $color
+        $View.StepNumbers[$index].Text = if ($done) { [string][char]0x2713 } else { [string]($index+1) }
+    }
+    if ($View.ActiveStep -gt 0) { $View.Steps.Text = "Step $($View.ActiveStep) of 5 - $($View.StepLabels[$View.ActiveStep-1].Text)" }
+}
+function Set-SetupPhase($View, [string]$State) {
+    $View.State = $State; $View.Action = $null
+    $busy = $State -in @('working','launcher')
+    $script:AllowClose = -not $busy; $View.AllowClose = -not $busy
+    $View.Primary.Visible = -not $busy; $View.Secondary.Visible = -not $busy
+    $View.Logs.Enabled = Test-Path -LiteralPath $script:Root
+    $View.Diagnostic.Visible = $State -eq 'error'
+    $View.Bar.Visible = $busy -or $State -eq 'complete'
+    $View.Bar.Style = if ($busy) { 'Marquee' } else { 'Continuous' }
+    $View.Bar.Value = if ($State -eq 'complete') { 100 } else { 0 }
+    $View.StatusCard.BackColor = Setup-Color $(if ($State -in @('restart','error','paused')) { '#FFF5E4' } else { '#E9F4F0' })
+    $View.StepPanel.Visible = $State -ne 'launcher'
+    $View.Eyebrow.Text = if ($State -eq 'launcher') { 'YOUR WORKSPACE' } else { 'SETUP' }
+    $View.Footer.Text = if ($busy) { 'This can take several minutes. Keep this window open; downloads and checks may pause between updates.' } else { 'Existing samples, runs, outputs and databases are retained.' }
+    Set-SetupSteps $View $View.ActiveStep
+    if ($State -eq 'launcher') { $View.Steps.Text = 'Starting your saved workspace. Your existing data stays in place.' }
+    Update-SetupLayout $View
 }
 function Show-Stage($View, [string]$Title, [string]$Detail) {
+    if ($View.State -notin @('working','launcher')) { Set-SetupPhase $View 'working' }
     $View.Heading.Text = $Title; $View.Detail.Text = $Detail
+    $View.StatusTitle.Text = 'Working on this step'
+    $View.Logs.Enabled = Test-Path -LiteralPath $script:Root
     if (-not $View.Form.Visible) { $View.Form.Show() }
     [Windows.Forms.Application]::DoEvents()
+}
+function Show-SetupWelcome($View) {
+    Set-SetupPhase $View 'welcome'; Set-SetupSteps $View 0
+    $pending = Read-Json (Join-Path $script:Root 'setup-state.json')
+    $resume = $pending -and $pending.phase -ne 'complete'
+    $View.Heading.Text = if ($resume) { 'Continue your setup' } else { 'Make room for discovery.' }
+    $View.Detail.Text = 'Set up your Bactologix workspace in a few guided steps. Setup checks Windows and Ubuntu, prepares the application environment, and adds a desktop shortcut.'
+    $View.StatusTitle.Text = if ($resume) { 'Your earlier progress is saved' } else { 'Ready when you are' }
+    $View.Steps.Text = 'Internet is needed for verified application and prerequisite downloads. Windows may request administrator permission and a restart.'
+    $View.Primary.Text = if ($resume) { 'Continue setup' } else { 'Start setup' }
+    $View.PrimaryAction = 'start'; $View.Secondary.Text = 'Close'
+    $View.Form.AcceptButton = $View.Primary; $View.Form.CancelButton = $View.Secondary
+    if (-not $View.Form.Visible) { $View.Form.Show() }
+    Update-SetupLayout $View
+    [Windows.Forms.Application]::DoEvents()
+}
+function Show-SetupOutcome($View, [string]$State, [string]$Title, [string]$Detail, [string]$Diagnostic = '') {
+    Set-SetupPhase $View $State
+    $View.Outcome = $State; $View.Heading.Text = $Title; $View.Detail.Text = $Detail; $View.Diagnostic.Text = $Diagnostic
+    $View.Primary.Visible = $State -in @('complete','error')
+    $View.Primary.Text = if ($State -eq 'complete') { 'Open Bactologix' } else { 'Try setup again' }
+    $View.PrimaryAction = if ($State -eq 'complete') { 'open' } else { 'retry' }
+    $View.Secondary.Text = if ($State -eq 'restart') { 'Close - restart later' } else { 'Close' }
+    $View.StatusTitle.Text = switch ($State) { 'complete' { 'Setup complete' } 'restart' { 'Restart required' } 'paused' { 'No installation is running' } default { 'Your next step' } }
+    $View.Steps.Text = switch ($State) {
+        'complete' { 'Open the app now or use its desktop shortcut later. Pipeline setup and your saved work are available inside Bactologix.' }
+        'restart' { 'Continue Bactologix Setup is saved on your desktop. Open it after Windows has restarted.' }
+        'paused' { 'Close this window and return to Bactologix Setup when you are ready.' }
+        default { 'Read the details below, open the setup logs, and retry after resolving the reported issue.' }
+    }
+    if ($State -eq 'complete') { Set-SetupSteps $View 5; $View.Steps.Text = 'Application verified and desktop shortcut created.' }
+    $View.Form.AcceptButton = if ($View.Primary.Visible) { $View.Primary } else { $View.Secondary }
+    $View.Form.ActiveControl = $View.Form.AcceptButton
+    $View.Form.CancelButton = $View.Secondary
+    if (-not $View.Form.Visible) { $View.Form.Show() }
+    Update-SetupLayout $View
+    [Windows.Forms.Application]::DoEvents()
+}
+function Wait-SetupAction($View) {
+    while (-not $View.Action -and -not $View.Form.IsDisposed -and $View.Form.Visible) {
+        [Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 80
+    }
+    return $(if ($View.Action) { $View.Action } else { 'close' })
 }
 function New-Shortcut([string]$Directory, [string]$Destination) {
     $shell = New-Object -ComObject WScript.Shell
@@ -367,7 +604,7 @@ function New-Shortcut([string]$Directory, [string]$Destination) {
     $shortcut.Arguments = Quote-Argument (Join-Path $Directory 'Bactologix.vbs')
     $shortcut.WorkingDirectory = $Directory
     $shortcut.IconLocation = (Join-Path $Directory 'brand.ico') + ',0'
-    $shortcut.Description = 'Bactologix - HybAs, BaSIS and MICP Scope'
+    $shortcut.Description = 'Bactologix - HybAs, BaSIS and GeneScope'
     $shortcut.Save()
 }
 function Find-Browser {
@@ -449,6 +686,7 @@ function Save-Log($Task, [string]$Path) {
     if ($Task -and $Task.Process.HasExited) { [IO.File]::WriteAllText($Path, $Task.Out.Result + $Task.Err.Result, $script:Utf8) }
 }
 function Install-Desktop($View) {
+    Set-SetupPhase $View 'working'; Set-SetupSteps $View 1
     Show-Stage $View 'Checking Windows and Ubuntu' 'Checking the installed WSL distributions. Administrator prompts appear only when Windows needs them.'
     Save-SetupFiles
     $prepared = Prepare-Ubuntu $View $Distro
@@ -473,7 +711,8 @@ function Install-Desktop($View) {
             $status = Read-Json (Join-Path $script:Root 'setup-status.json')
             if ($status) {
                 Show-Stage $View $status.title $status.detail
-                $View.Steps.Text = "Stage $($status.step) of 5`r`nUbuntu  >  Conda  >  Bactomics  >  Bactologix  >  Desktop shortcut"
+                # Native step 5 reports application readiness; Windows shortcut setup is still pending.
+                Set-SetupSteps $View ([Math]::Min(4,[int]$status.step))
             }
             [Windows.Forms.Application]::DoEvents()
         }
@@ -483,17 +722,17 @@ function Install-Desktop($View) {
     if (-not $installed.python) { throw 'The installer did not record a Python environment.' }
     $null = Capture @('--distribution',$Distro,'--exec',$installed.python,'-c','import bactologix.desktop')
     Write-Json (Join-Path $script:Root 'installation.json') @{ distro=$Distro; python=$installed.python }
+    Set-SetupSteps $View 5
+    Show-Stage $View 'Adding your desktop shortcut' 'The application passed its import check. Creating the Windows shortcut and saving setup completion.'
     New-Shortcut $script:Root (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Bactologix.lnk')
     Write-Json (Join-Path $script:Root 'setup-state.json') @{ distro=$Distro; phase='complete' }
     Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Continue Bactologix Setup.lnk') -ErrorAction SilentlyContinue
-    Show-Stage $View 'Ready for your next discovery' 'Bactologix is installed. Use the desktop shortcut for a silent Ubuntu launch and controlled shutdown.'
-    $View.Bar.Style = 'Continuous'; $View.Bar.Value = 100
-    $View.Steps.Text = 'Ubuntu checked   |   Environment ready   |   Shortcut created'
-    [Windows.Forms.MessageBox]::Show('Setup complete. Double-click the Bactologix desktop icon to open the app.', 'Bactologix', 'OK', 'Information') | Out-Null
+    Show-SetupOutcome $View 'complete' 'Your workspace is ready.' 'Bactologix is installed and its desktop shortcut is ready. Open it now, or return whenever you are ready to work.'
 }
 function Run-Desktop($View) {
+    Set-SetupPhase $View 'launcher'
     $installed = Read-Json (Join-Path $script:Root 'installation.json')
-    if (-not $installed.python -or -not $installed.distro) { throw 'Run Bactologix-Setup.cmd first to create the desktop installation.' }
+    if (-not $installed.python -or -not $installed.distro) { throw 'Run Bactologix Setup first to create the desktop installation.' }
     $browser = Find-Browser
     $id = [Guid]::NewGuid().ToString('N')
     $directory = Join-Path $script:Root "sessions\$id"
@@ -572,16 +811,43 @@ function Run-Desktop($View) {
     }
     if ($task.Process.ExitCode -ne 0) { throw "Bactologix stopped unexpectedly. See $directory\launcher.log ." }
 }
+function Invoke-SetupInterface($View) {
+    Show-SetupWelcome $View
+    if ((Wait-SetupAction $View) -ne 'start') { return 0 }
+    while ($true) {
+        $View.Outcome = $null
+        try { Install-Desktop $View }
+        catch {
+            Show-SetupOutcome $View 'error' 'Setup needs your attention' 'Setup stopped before it could finish. Your saved work remains in place. Review the details and setup logs before trying again.' $_.Exception.Message
+        }
+        if (-not $View.Outcome) {
+            Show-SetupOutcome $View 'error' 'Setup did not finish' 'A completion record was not produced. Review the setup logs before trying again.' 'Setup returned without recording completion or a restart requirement.'
+        }
+        $code = switch ($View.Outcome) { 'complete' { 0 } 'restart' { 3010 } 'paused' { 1223 } default { 1 } }
+        $action = Wait-SetupAction $View
+        if ($action -eq 'retry' -and $View.Outcome -eq 'error') { continue }
+        if ($action -eq 'open' -and $View.Outcome -eq 'complete') {
+            $View.Form.Hide()
+            Run-Desktop $View
+        }
+        return $code
+    }
+}
 if (-not $TestMode) {
     $script:AllowClose = $false
     $view = New-Progress $(if ($Setup) { 'Bactologix Setup' } else { 'Bactologix' })
-    try { if ($Setup) { Install-Desktop $view } else { Run-Desktop $view } }
-    catch {
-        Show-Stage $view 'A step needs your attention' $_.Exception.Message
-        $view.Bar.Style = 'Continuous'; $view.Bar.Value = 0
-        [Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Bactologix', 'OK', 'Warning') | Out-Null
-    } finally { $script:AllowClose = $true; $view.Form.Close(); $view.Form.Dispose() }
+    $exitCode = 0
+    try {
+        if ($Setup) { $exitCode = Invoke-SetupInterface $view }
+        else { Run-Desktop $view }
+    } catch {
+        $exitCode = 1
+        Show-SetupOutcome $view 'error' 'Bactologix needs your attention' 'The workspace could not open or close normally. Review the details below and the recorded log location.' $_.Exception.Message
+        $view.Primary.Visible = $false
+        $null = Wait-SetupAction $view
+    } finally {
+        $script:AllowClose = $true; $view.AllowClose = $true
+        if (-not $view.Form.IsDisposed) { $view.Form.Close(); $view.Form.Dispose() }
+    }
+    exit $exitCode
 }
-
-
-
