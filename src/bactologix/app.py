@@ -14,6 +14,14 @@ header[data-testid="stHeader"], [data-testid="stSidebar"], #MainMenu, footer {di
 .block-container {padding:0!important;max-width:100%!important}
 [data-testid="stMainBlockContainer"] {padding:0!important}
 [data-testid="stVerticalBlock"] {gap:0}
+/* The custom workspace keeps its previous snapshot usable while a request runs.
+   Streamlit otherwise fades this one element (including its entire sidebar).
+   Keep native elements and disconnected/error states under Streamlit's control. */
+[data-testid="stApp"][data-test-connection-state="CONNECTED"]:is([data-test-script-state="running"], [data-test-script-state="rerunRequested"])
+  .st-key-workspace-ui[data-testid="stElementContainer"][data-stale="true"] {
+  opacity:1;
+  transition:none;
+}
 </style>""", unsafe_allow_html=True)
 
 @st.cache_resource
