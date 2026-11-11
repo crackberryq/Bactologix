@@ -174,14 +174,15 @@ function refreshProgress(){
 function backgroundPosition(){
  const active=parentElement.activeElement||document.activeElement;
  const key=node=>node?[node.tagName,node.id,node.dataset.action,node.dataset.id,node.dataset.nav,node.getAttribute('href'),node.getAttribute('aria-label'),node.tagName==='SUMMARY'?node.textContent:null].join('\u0000'):null;
- const focused=root.contains(active)?{key:key(active),start:active.selectionStart,end:active.selectionEnd}:null;
+ const focusable='button,a,input,textarea,select,summary,[tabindex]';
+ const focused=root.contains(active)?{key:key(active),index:$$(focusable).filter(node=>key(node)===key(active)).indexOf(active),start:active.selectionStart,end:active.selectionEnd}:null;
  const details=$$('#main details').map(node=>({key:key(node.querySelector('summary')),open:node.open}));
  const scrollers=[];let node=root;
  while(node){if(node.scrollHeight>node.clientHeight||node.scrollWidth>node.clientWidth)scrollers.push({node,top:node.scrollTop,left:node.scrollLeft});node=node.parentElement||node.getRootNode()?.host;}
  const x=window.scrollX,y=window.scrollY;
  return ()=>{
   for(const saved of details){const summary=$$('#main details>summary').find(node=>key(node)===saved.key);if(summary)summary.parentElement.open=saved.open;}
-  if(focused){const target=$$('button,a,input,textarea,select,summary,[tabindex]').find(node=>key(node)===focused.key);if(target&&!target.disabled){target.focus({preventScroll:true});if(focused.start!=null&&target.setSelectionRange)target.setSelectionRange(focused.start,focused.end);}}
+  if(focused){const target=$$(focusable).filter(node=>key(node)===focused.key)[focused.index];if(target&&!target.disabled){target.focus({preventScroll:true});if(focused.start!=null&&target.setSelectionRange)target.setSelectionRange(focused.start,focused.end);}}
   for(const saved of scrollers){saved.node.scrollTop=saved.top;saved.node.scrollLeft=saved.left;}
   window.scrollTo(x,y);
  };

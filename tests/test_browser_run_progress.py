@@ -143,6 +143,12 @@ def test_background_progress_refresh_keeps_editing_context(progress_page):
     page.evaluate('progressState.background=true;progressRerender()')
     expect(details).to_have_attribute('open','')
     expect(details.locator('summary')).to_be_focused()
+    # These actions also occur in the run heading; polling must keep focus here.
+    for action in ('job-log','cancel-job'):
+        activity_action=page.locator(f'.run-job button[data-action="{action}"]').first
+        activity_action.focus()
+        page.evaluate('progressState.background=true;progressRerender()')
+        expect(activity_action).to_be_focused()
     preview=os.environ.get('BACTOLOGIX_UI_PREVIEWS')
     if preview:
         Path(preview).mkdir(parents=True,exist_ok=True)
