@@ -4,6 +4,11 @@ Bactologix separates storage measurement from permanent cleanup. Open **Storage*
 to see the registered cleanup candidates. Opening the page does not start a drive
 scan or delete anything, and age alone never triggers deletion.
 
+During local analysis, [low-disk protection](low-disk-protection.md) monitors
+required Linux and WSL host volumes. A storage-paused run retains its locks;
+stop it before in-app cleanup or exports that require an idle workspace.
+No storage threshold automatically authorizes file removal.
+
 ## Restore an archived run
 
 Archiving hides a run while keeping its configuration, files and reports. Use
