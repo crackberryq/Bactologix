@@ -1,3 +1,9 @@
+## 0.1.0a102 — 2026-11-11 · Alpha · Preserve memory settings during workflow unlock
+
+- Keep the saved scheduler memory budget, including an explicit disk-swap allowance, when invoking native workflow unlock. This prevents a lower workflow-profile default from rejecting maintenance before the lock can be released.
+- Preserve the existing ownership checks, frozen source/configuration checks and paused queue. Unlock remains a separate maintenance operation; it does not execute analysis steps or change their settings.
+- Cover the profile-default failure with native Snakemake regression tests that verify output preservation and no automatic analysis or resume.
+
 ## 0.1.0a101 — 2026-11-10 · Alpha · Explicit disk-swap scheduling
 
 - Add a per-run disk-swap allowance separate from physical RAM. A revision preserves the original run, and physical-RAM presets and individual tool memory settings retain their existing behavior.

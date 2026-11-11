@@ -146,7 +146,18 @@ def details(store, rid, own_job=None):
     argv = original[:original.index('snakemake') + 1]
     for option in ('--snakefile', '--directory', '--configfile'):
         argv.extend([option, original[original.index(option) + 1]])
-    argv += ['--cores', '1', '--unlock']
+    # Native unlock still parses the workflow and its resource guards. Keep the
+    # saved scheduler budget instead of falling back to a workflow profile's
+    # smaller default, while excluding analysis targets and execution options.
+    resource_start = original.index('--resources') + 1
+    resources = []
+    for value in original[resource_start:]:
+        if value.startswith('--'):
+            break
+        resources.append(value)
+    if not resources:
+        raise ValueError('Saved workflow scheduler resources are missing. Unlock is blocked.')
+    argv += ['--cores', '1', '--resources', *resources, '--unlock']
     signature = hashlib.sha256(json.dumps([run, argv, records], sort_keys=True).encode()).hexdigest()
     return {'id': rid, 'directory': str(directory), 'commit': run['commit'], 'signature': signature,
             'lock_count': len(files), 'command': argv}
