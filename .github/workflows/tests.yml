@@ -201,7 +201,7 @@ jobs:
         run: python -m pytest tests/test_report_refresh.py -q
   windows-installer:
     name: Build and check single-file Windows installer
-    needs: [tests, windows-desktop]
+    needs: [tests]
     runs-on: windows-latest
     timeout-minutes: 10
     steps:

@@ -327,7 +327,7 @@ function New-SetupLabel([string]$Text, [single]$Size = 10, [switch]$Bold) {
 }
 function New-SetupButton([string]$Text, [switch]$Primary) {
     $button = New-Object Windows.Forms.Button
-    $button.Text = $Text; $button.AutoSize = $true; $button.AutoSizeMode = 'GrowAndShrink'
+    $button.Text = $Text; $button.AutoSize = $false
     $button.MinimumSize = [Drawing.Size]::new(112,42); $button.Padding = [Windows.Forms.Padding]::new(16,6,16,6)
     $button.Margin = [Windows.Forms.Padding]::new(8,4,0,4); $button.FlatStyle = 'Flat'
     $button.Font = [Drawing.Font]::new('Segoe UI',10,[Drawing.FontStyle]::Bold)
@@ -437,9 +437,8 @@ function New-Progress([string]$Title) {
     $body.Controls.Add($diagnostic)
     $footer = New-SetupLabel 'Existing samples, runs, outputs and databases are retained.' 9
     $footer.ForeColor = Setup-Color '#526B70'; $body.Controls.Add($footer)
-    $actions = New-Object Windows.Forms.FlowLayoutPanel
+    $actions = New-Object Windows.Forms.Panel
     $actions.Dock = 'Fill'; $actions.AutoSize = $false
-    $actions.FlowDirection = 'RightToLeft'; $actions.WrapContents = $true
     $actions.Padding = [Windows.Forms.Padding]::new(0,14,0,0); $actions.Margin = [Windows.Forms.Padding]::Empty
     $primary = New-SetupButton 'Start setup' -Primary
     $secondary = New-SetupButton 'Close'
@@ -451,6 +450,7 @@ function New-Progress([string]$Title) {
         Primary=$primary; Secondary=$secondary; Logs=$logs; Actions=$actions; Content=$content; Body=$body; Scroll=$scroll
         Sidebar=$sidebar; Brand=$brand; StepPanel=$stepPanel; StepLabels=$stepLabels; StepNumbers=$stepNumbers
         State='working'; ActiveStep=0; Outcome=$null; Action=$null; PrimaryAction='start'; AllowClose=$false; LogRoot=$script:Root; Picture=$picture
+        LayoutBusy=$false; LayoutDiagnostics=@()
     }
     $form.Tag = $view; $scroll.Tag = $view
     $scroll.Add_SizeChanged({ param($sender,$eventArgs) Update-SetupLayout $sender.Tag })
@@ -476,30 +476,44 @@ function New-Progress([string]$Title) {
     return $view
 }
 function Update-SetupLayout($View) {
-    if (-not $View) { return }
-    # WinForms can report a single-row preferred height for a wrapping footer.
-    # Allocate the actual button rows so all actions stay outside the scroll area.
+    if (-not $View -or $View.LayoutBusy) { return }
+    $View.LayoutBusy = $true
+    try {
+    # Place and size the footer explicitly: Form.Scale can enlarge controls
+    # beyond GetPreferredSize, and FlowLayoutPanel can underreport wrapped rows.
     $actionWidth = [Math]::Max(1,$View.Content.ClientSize.Width-$View.Content.Padding.Horizontal)
-    $View.Actions.MaximumSize = [Drawing.Size]::new($actionWidth,0)
     $availableWidth = [Math]::Max(1,$actionWidth-$View.Actions.Padding.Horizontal)
-    $rowWidth = 0; $rowHeight = 0; $footerHeight = $View.Actions.Padding.Vertical
+    $rowWidth = 0; $rowHeight = 0; $rowTop = $View.Actions.Padding.Top
+    $cursorRight = $actionWidth-$View.Actions.Padding.Right
+    $View.LayoutDiagnostics = @("available=$availableWidth actionWidth=$actionWidth")
     foreach ($button in @($View.Primary,$View.Secondary,$View.Logs)) {
         if (-not $button.Visible) { continue }
         $preferred = $button.GetPreferredSize([Drawing.Size]::Empty)
-        $itemWidth = [Math]::Max($button.MinimumSize.Width,$preferred.Width)+$button.Margin.Horizontal
-        $itemHeight = [Math]::Max($button.MinimumSize.Height,$preferred.Height)+$button.Margin.Vertical
+        $buttonWidth = [Math]::Max($button.Width,[Math]::Max($button.MinimumSize.Width,$preferred.Width))
+        $buttonHeight = [Math]::Max($button.Height,[Math]::Max($button.MinimumSize.Height,$preferred.Height))
+        $View.LayoutDiagnostics += "button='$($button.Text)' actual=$($button.Size) preferred=$preferred minimum=$($button.MinimumSize) margin=$($button.Margin) allocated=$buttonWidth,$buttonHeight"
+        $itemWidth = $buttonWidth+$button.Margin.Horizontal
+        $itemHeight = $buttonHeight+$button.Margin.Vertical
         if ($rowWidth -gt 0 -and $rowWidth+$itemWidth -gt $availableWidth) {
-            $footerHeight += $rowHeight; $rowWidth = 0; $rowHeight = 0
+            $rowTop += $rowHeight; $rowWidth = 0; $rowHeight = 0
+            $cursorRight = $actionWidth-$View.Actions.Padding.Right
         }
+        $left = $cursorRight-$button.Margin.Right-$buttonWidth
+        $button.SetBounds($left,$rowTop+$button.Margin.Top,$buttonWidth,$buttonHeight)
+        $cursorRight = $left-$button.Margin.Left
         $rowWidth += $itemWidth; $rowHeight = [Math]::Max($rowHeight,$itemHeight)
     }
-    $View.Content.RowStyles[1].Height = $footerHeight+$rowHeight
+    $footerHeight = $rowTop+$rowHeight+$View.Actions.Padding.Bottom
+    $View.LayoutDiagnostics += "allocatedFooterHeight=$footerHeight"
+    $View.Content.RowStyles[1].Height = $footerHeight
+    $View.Content.PerformLayout()
     $width = [Math]::Max(260,$View.Scroll.ClientSize.Width-22)
     foreach ($control in @($View.Eyebrow,$View.Heading,$View.Detail,$View.Footer)) { $control.MaximumSize = [Drawing.Size]::new($width,0) }
     $View.StatusCard.Width = $width; $View.Diagnostic.Width = $width
     $innerWidth = [Math]::Max(210,$width-$View.StatusCard.Padding.Horizontal)
     foreach ($control in @($View.StatusTitle,$View.Steps)) { $control.MaximumSize = [Drawing.Size]::new($innerWidth,0) }
     $View.Bar.Width = $innerWidth
+    } finally { $View.LayoutBusy = $false }
 }
 function Set-SetupSteps($View, [int]$Step) {
     $View.ActiveStep = [Math]::Max(0,[Math]::Min(5,$Step))

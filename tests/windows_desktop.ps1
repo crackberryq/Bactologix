@@ -341,6 +341,7 @@ public static class ControlFileFixture {
     Show-SetupOutcome $large 'error' 'Setup needs your attention' 'A long diagnostic must remain readable when the display scale is enlarged. The setup actions remain available below the scrollable content.' ('Example diagnostic. ' * 40)
     Fit-SetupWindow $large; Update-SetupLayout $large; [Windows.Forms.Application]::DoEvents()
     Save-SetupPreview $large 'enlarged'
+    foreach ($diagnostic in $large.LayoutDiagnostics) { Write-Output ('Enlarged footer measurement: ' + $diagnostic) }
     foreach ($control in @($large.Content,$large.Scroll,$large.Actions)) {
         $position = $large.Form.PointToClient($control.PointToScreen([Drawing.Point]::Empty))
         $bounds = "type=$($control.GetType().Name) x=$($position.X) y=$($position.Y) size=$($control.Size); client=$($large.Form.ClientSize)"
