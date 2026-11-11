@@ -1,3 +1,11 @@
+## 0.1.0a106.dev1 low-disk protection
+
+- Capacity fixtures cover user-available space, required volumes, temporary-path selection, vanished mounts, WSL backing storage, custom DrvFs roots, enabled/default/disabled swap, malformed responses and unavailable measurements.
+- Harmless real writers verify suspension and continuation, cancellation, detached child sessions and preservation of unrelated processes. Abrupt worker-loss checks verify that owned suspended processes exit, inherited workspace locks release and interruption recovery does not automatically resume analysis.
+- UI regressions cover pause generations, stale/recovered measurements, explicit resume, Stop, queue distinction and notification preferences. Browser checks remain a CI release gate; local Chromium could not start because a socket operation was denied, so no local browser-render pass is claimed.
+- Windows CI executes the production PowerShell capacity query against native volumes with synthetic registration and temporary configuration fixtures. It does not run a full WSL workload or modify user WSL setup. Real backing-drive/swap monitoring under load remains a workstation acceptance check.
+- Current-channel adapter/report fixtures passed separately. Dev retains its own exact-source contract gates. These are software integrity checks with synthetic inputs, not analytical validation. The guard neither changes analysis thresholds nor removes generated data.
+
 ## 0.1.0a96.dev1 run Methods and data flow
 
 - Runtime regressions cover later controller changes, failed/interrupted invocations, immutable observation identity, malformed traces, historical version gaps and partial rule capture. Sample-free native workflows check dependency declarations, completed rule events and a second invocation with no work.
