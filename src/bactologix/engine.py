@@ -80,6 +80,10 @@ class Context:
             self.observer = Recorder(store, job)
         except Exception:
             self.observation_warning()
+        self.disk_guard = None
+        if job['kind'] == 'workflow' and job['payload'].get('action') in {'run', 'continue'}:
+            from .disk_pause import Guard
+            self.disk_guard = Guard(store, job, self.check_cancel_only, self.write)
 
     def observation_warning(self):
         if not self.observer_warned:
@@ -105,6 +109,11 @@ class Context:
         self.log.write(str(message) + "\n")
 
     def check_cancel(self):
+        self.check_cancel_only()
+        if self.disk_guard is not None:
+            self.disk_guard.checkpoint()
+
+    def check_cancel_only(self):
         self.refresh_desktop_cancel()
         if self.store.job(self.job["id"])["cancel"]:
             raise Cancelled("Stopped by user")
@@ -121,57 +130,113 @@ class Context:
         env = os.environ.copy()
         env.update({"PYTHONUNBUFFERED": "1", "PYTHONNOUSERSITE": "1"})
         env.update(extra_env or {})
+        guard = self.disk_guard
+        if guard is not None:
+            guard.before_command(cwd, extra_env)
         started_stop = None
         command_started = time.monotonic()
         timed_out = False
-        proc = subprocess.Popen([str(x) for x in argv], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+        actual_argv = [str(x) for x in argv]
+        gate_read = gate_write = None
+        pass_fds = self.lock_fds
+        if guard is not None:
+            from . import disk_process
+            gate_read, gate_write = os.pipe()
+            actual_argv = [sys.executable, str(Path(disk_process.__file__).resolve()), '--exec', str(gate_read), *actual_argv]
+            pass_fds = (*pass_fds, gate_read)
+        try:
+            proc = subprocess.Popen(actual_argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                 stdout=stdout if stdout is not None else self.log,
                                 stderr=self.log if stdout is not None else subprocess.STDOUT, start_new_session=True,
-                                pass_fds=self.lock_fds)
-        self.store.put("processes", self.job["id"], {"pid": proc.pid, "started": now()})
+                                pass_fds=pass_fds)
+        except BaseException:
+            if gate_write is not None:
+                os.close(gate_write)
+            raise
+        finally:
+            if gate_read is not None:
+                os.close(gate_read)
+        failed = True
         try:
+            if guard is not None:
+                guard.attach(proc)
+                os.write(gate_write, b'1')
+                os.close(gate_write)
+                gate_write = None
+            self.store.put("processes", self.job["id"], {"pid": proc.pid, "started": now()})
             self.observe("begin_command", proc, argv[0])
             while proc.poll() is None:
                 self.refresh_desktop_cancel()
                 elapsed_command = time.monotonic() - command_started
                 timed_out = timed_out or (timeout is not None and elapsed_command >= timeout)
                 if timed_out:
+                    if guard is not None:
+                        guard.signal(signal.SIGKILL)
                     try:
-                        os.killpg(proc.pid, signal.SIGKILL)
+                        if guard is None:
+                            os.killpg(proc.pid, signal.SIGKILL)
                     except ProcessLookupError:
                         pass
                 if self.store.job(self.job["id"])["cancel"] or (stop_after is not None and elapsed_command >= stop_after):
                     if started_stop is None:
                         started_stop = time.monotonic()
+                        if guard is not None:
+                            guard.stop()
                         self.write("Stopping process group gracefully (SIGINT)…")
                         try:
-                            os.killpg(proc.pid, signal.SIGINT)
+                            if guard is None:
+                                os.killpg(proc.pid, signal.SIGINT)
                         except ProcessLookupError:
                             pass
                     elapsed = time.monotonic() - started_stop
                     if elapsed > 30:
+                        if guard is not None:
+                            guard.signal(signal.SIGKILL if elapsed > 60 else signal.SIGTERM)
                         try:
-                            os.killpg(proc.pid, signal.SIGKILL if elapsed > 60 else signal.SIGTERM)
+                            if guard is None:
+                                os.killpg(proc.pid, signal.SIGKILL if elapsed > 60 else signal.SIGTERM)
                         except ProcessLookupError:
                             pass
+                if guard is not None and started_stop is None and not timed_out:
+                    guard.tick()
                 self.observe("tick")
                 time.sleep(0.25)
             if timed_out:
-                self.check_cancel()  # A concurrent user stop keeps its cancellation status.
+                self.check_cancel_only()  # A concurrent user stop keeps its cancellation status.
                 raise TimeoutError("Software check command exceeded its time limit; its process group was stopped.")
             if started_stop is not None:
                 # The session leader can exit before its children. This group
                 # was created by this command; never signal unrelated WSL PIDs.
                 try:
-                    os.killpg(proc.pid, signal.SIGKILL)
+                    if guard is None:
+                        os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
                 raise Cancelled("Stopped by user; inspect the log before resuming")
             if proc.returncode:
                 raise RuntimeError(f"Command exited with code {proc.returncode}; see the job log")
+            failed = False
         finally:
-            self.observe("end_command")
-            self.store.put("processes", self.job["id"], {"pid": None, "finished": now()})
+            if gate_write is not None:
+                os.close(gate_write)
+            try:
+                if failed:
+                    if guard is not None and guard.tree is None and proc.poll() is None:
+                        proc.kill()  # The gated launcher has not spawned native work.
+                    try:
+                        if guard is None:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                if guard is not None:
+                    guard.detach(failed=failed)
+            finally:
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    pass
+                self.observe("end_command")
+                self.store.put("processes", self.job["id"], {"pid": None, "finished": now()})
 
 
 def controller_key(tool, content):

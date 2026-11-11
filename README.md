@@ -5,7 +5,7 @@ alongside reviewed storage cleanup and the pre-beta evidence-integrity fixes. It
 installation and updates reject development releases. See [report evidence integrity](docs/report-evidence-integrity.md) for
 sample attribution, diagnostic report states and assessment coverage.
 
-**Windows desktop setup:** download [Bactologix-Setup.exe](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a105/Bactologix-Setup.exe) and open it normally. The branded setup guides you through Ubuntu, Conda, the application and desktop shortcuts. Internet access is needed for required downloads. Existing runs and environments are retained. A ZIP remains available for manual setup; see [Windows setup](docs/windows-desktop.txt).
+**Windows desktop setup:** download [Bactologix-Setup.exe](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a106/Bactologix-Setup.exe) and open it normally. The branded setup guides you through Ubuntu, Conda, the application and desktop shortcuts. Internet access is needed for required downloads. Existing runs and environments are retained. A ZIP remains available for manual setup; see [Windows setup](docs/windows-desktop.txt).
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
@@ -196,6 +196,13 @@ snapshot. It includes local interpreter/runner/source paths and run labels and i
 not redacted; review it before sharing.
 
 ### Storage management
+
+Local workflow runs have [low-disk protection](docs/low-disk-protection.md):
+warn below 20 GiB, hold or suspend at 10 GiB, and require manual resume after
+every required volume recovers to at least 15 GiB. WSL checks include Windows
+backing and swap volumes as well as Linux storage. Unavailable required
+measurements also hold the run. This does not delete data or control standalone
+workflows outside Bactologix.
 
 Open **Storage → Reclaim disk space** to select old run results, known sample input
 files, or unused managed pipeline sources and environments. The preview lists the
