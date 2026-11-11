@@ -1,3 +1,11 @@
+## 0.1.0a105 — 2026-11-11 · Alpha · Steady workspace and localized run progress
+
+- Keep the workspace readable during connected background refreshes. Scope the change to the Bactologix workspace so native disconnection and error feedback remains available.
+- Show activity beneath the isolate/run heading and in run lists. Use recorded tasks in the current workflow plan when available; otherwise show an indeterminate striped indicator without an estimated percentage or completion time.
+- Distinguish queued, delayed, disconnected and finished states, and respect reduced-motion preferences. Preserve user controls and reading position during background updates.
+- Make Stop run, log access and queue controls available beside the run heading. Queue pause lets the current job finish; stopping an attempt retains its outputs and logs, and saved-run resume remains a separate action.
+- Add browser regressions for slow real refreshes, progress states and accessibility. Pipeline settings, execution and generated data are unchanged.
+
 ## 0.1.0a104 — 2026-11-11 · Alpha · Branded Windows setup executable
 
 - Offer a single Windows setup executable with the existing installer, branding and channel-specific files embedded. Verify the embedded payload before starting setup under the current Windows user.
