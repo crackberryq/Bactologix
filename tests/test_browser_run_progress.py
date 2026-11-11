@@ -41,9 +41,11 @@ def progress_page(tmp_path, installed):
           progressJob.status='running';
           acceptanceWorkspace.runs.find(r=>r.id===rid).status='running';
           let reply=0;
-          window.progressRerender=()=>acceptanceRender({id:progressState.pending||'progress-fixture-'+(++reply),
-            ok:true,detail:progressDetail,keep_modal:true});
-          progressRerender();
+          // Never return component's disposer: Playwright auto-invokes a function
+          // returned by string-form evaluate(), which would remove every listener.
+          window.progressRerender=()=>{acceptanceRender({id:progressState.pending||'progress-fixture-'+(++reply),
+            ok:true,detail:progressDetail,keep_modal:true});};
+          if(progressRerender()!==undefined)throw new Error('Fixture must not return the component disposer');
         }''', {'rid':run['id'],'jid':jid,'detail':detail})
         page.locator('.primary-run-tabs [data-action="saved-run-tab"][data-id="activity"]').click()
         yield page
