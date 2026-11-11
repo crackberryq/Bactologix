@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -117,6 +118,10 @@ def publish(root, dist, commit):
         if not desktop.is_file():
             raise ValueError('The checked Windows desktop bundle is required.')
         packages.append(desktop)
+        spec = importlib.util.spec_from_file_location('windows_executable', root / 'scripts/build_windows_executable.py')
+        builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(builder)
+        packages.extend(builder.verify_build(root, dist, commit, version))
     checksum = dist / 'SHA256SUMS'
     checksum.write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n'
                                for p in packages))
@@ -128,6 +133,8 @@ def publish(root, dist, commit):
         raise ValueError('Add release notes to CHANGELOG.md before publishing.')
     notes = sections[1].split('\n', 1)[1].split('\n## ', 1)[0].strip()
     notes += f'\n\nTested source: `{commit}`. Install through **Update Bactologix → Refresh releases → {tag}**. Restart Bactologix after installation.\n'
+    if (root / 'scripts/windows').is_dir():
+        notes += '\nFor a new Windows installation, download **Bactologix-Setup.exe**. It contains the setup interface and reviewed bootstrap files; Internet access is still required for WSL, Ubuntu and application dependencies. ZIP remains available as a fallback.\n'
     if not release:
         release = github(base, 'POST', {'tag_name': tag, 'target_commitish': commit, 'name': 'Bactologix ' + tag,
                                       'body': notes, 'draft': True, 'prerelease': Version(version).is_prerelease})

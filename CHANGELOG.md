@@ -1,3 +1,10 @@
+## 0.1.0a104 — 2026-11-11 · Alpha · Branded Windows setup executable
+
+- Offer a single Windows setup executable with the existing installer, branding and channel-specific files embedded. Verify the embedded payload before starting setup under the current Windows user.
+- Refresh setup with a clear welcome screen, named steps, honest progress, restart guidance, visible errors and log access, and completion actions. Preserve the existing WSL, Ubuntu account, environment and desktop ownership behavior.
+- Build and test the native executable on Windows, bind the package to its checked source and payload, and require matching build receipts before publishing. Keep a ZIP fallback for manual setup.
+- The executable is an online setup package: required Windows/Linux components and dependencies can still need downloads. Regular setup selects a verified current application release; Dev retains its exact bundled application wheel. Existing workspaces and results are retained.
+
 ## 0.1.0a103 — 2026-11-11 · Alpha · Pipeline compute defaults and archived-run recovery
 
 - Save an independent disk-swap allowance in each pipeline's compute setup. New drafts inherit that default; per-run edits can change or disable it. Saved runs and revisions retain their own policy, and physical RAM remains separate from swap.

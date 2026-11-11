@@ -7,6 +7,7 @@ New-Item -ItemType Directory $temporary | Out-Null
 python (Join-Path $repo 'scripts/build_windows_bundle.py')
 Expand-Archive -LiteralPath (Join-Path $repo 'dist/Bactologix-Windows.zip') -DestinationPath $temporary
 . (Join-Path $temporary 'Bactologix/Bactologix.ps1') -TestMode
+$originalSetupRoot = $script:Root
 $views = @(); $profiles = @(); $browserProcesses = @()
 try {
     $listing = (@('--list','--quiet') | ForEach-Object { Quote-Argument $_ }) -join ' '
@@ -49,7 +50,7 @@ try {
         Assert ($message -like '*Could not read installed WSL distributions*fixture WSL detection error*') 'Detection failure was treated as missing Ubuntu'
     } finally { Set-Item Function:Capture $originalCapture }
     # First-install paths are mocked; CI never enables features, installs a distro or reboots.
-    $setupFunctions = @('Enable-WslFeatures','Get-WindowsBootIdentity','Read-Json','Invoke-SetupElevation','Get-WslExecutable','Get-RegisteredDistributions','Get-InstalledDistributions','Get-WslSetupState','Confirm-UbuntuInstall','Install-WslRuntime','Install-UbuntuForCurrentUser','Save-SetupContinuation','Show-SetupRestart','Initialize-UbuntuUser','Write-SetupLog','Show-Stage')
+    $setupFunctions = @('Enable-WslFeatures','Get-WindowsBootIdentity','Read-Json','Invoke-SetupElevation','Get-WslExecutable','Get-RegisteredDistributions','Get-InstalledDistributions','Get-WslSetupState','Confirm-UbuntuInstall','Install-WslRuntime','Install-UbuntuForCurrentUser','Save-SetupContinuation','Show-SetupRestart','Initialize-UbuntuUser','Write-SetupLog','Show-Stage','Show-SetupOutcome')
     $savedSetupFunctions = @{}
     foreach ($name in $setupFunctions) { $savedSetupFunctions[$name] = (Get-Item "Function:$name").ScriptBlock }
     try {
@@ -82,6 +83,7 @@ try {
         Assert ($message -match '0xFFFFFFFF' -and $message -match 'WSL_E_VIRTUAL_MACHINE_PLATFORM_REQUIRED') 'Underlying WSL error was discarded'
         function Write-SetupLog { param($Message) }
         function Show-Stage { param($View,$Title,$Detail) }
+        function Show-SetupOutcome { param($View,$State,$Title,$Detail,$Diagnostic) }
         # Execute the real elevated feature script in a separate PowerShell
         # process with mocked servicing commands; never modify the CI machine.
         function Invoke-SetupElevation {
@@ -282,17 +284,105 @@ public static class ControlFileFixture {
     $link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
     Assert ($link.IconLocation -eq ((Join-Path $temporary 'brand.ico') + ',0')) 'Shortcut icon not bound to app brand'
     Assert ($link.TargetPath -like '*wscript.exe') 'Silent shortcut entry missing'
-    $script:AllowClose = $true
+    function Save-SetupPreview($View, [string]$Name) {
+        Update-SetupLayout $View
+        $View.Form.PerformLayout(); [Windows.Forms.Application]::DoEvents()
+        $bitmap = New-Object Drawing.Bitmap($View.Form.Width, $View.Form.Height)
+        try {
+            $View.Form.DrawToBitmap($bitmap, [Drawing.Rectangle]::new(0,0,$View.Form.Width,$View.Form.Height))
+            $bitmap.Save((Join-Path $repo ("windows-setup-" + $Name + ".png")))
+        } finally { $bitmap.Dispose() }
+    }
+    $script:Root = Join-Path $temporary 'welcome-no-install'
     $view = New-Progress 'Bactologix setup preview'
     $views += $view
-    # Load the exact application asset used in the distribution bundle.
-    $view.Form.Icon = New-Object Drawing.Icon((Join-Path $repo 'src/bactologix/ui/brand.ico'))
-    Show-Stage $view 'Preparing Bactomics' 'Reusing your existing environment. Your pipelines, databases and completed work stay in place.'
-    $view.Steps.Text = "Stage 3 of 5`r`nUbuntu  >  Conda  >  Bactomics  >  Bactologix  >  Desktop shortcut"
-    $bitmap = New-Object Drawing.Bitmap($view.Form.Width, $view.Form.Height)
-    $view.Form.DrawToBitmap($bitmap, (New-Object Drawing.Rectangle(0,0,$view.Form.Width,$view.Form.Height)))
-    $bitmap.Save((Join-Path $repo 'windows-setup-preview.png')); $bitmap.Dispose()
-    $view.Form.Hide()
+    Assert ($null -ne $view.Picture.Image -and $null -ne $view.Form.Icon) 'Packaged setup branding was not loaded'
+    Show-SetupWelcome $view
+    Assert ($view.State -eq 'welcome' -and $view.AllowClose) 'Welcome did not allow a no-work exit'
+    Assert ($view.Primary.Visible -and -not $view.Bar.Visible) 'Welcome implies installation already started'
+    Assert ($view.Steps.Text -match 'Internet.*administrator.*restart') 'Welcome omitted setup requirements'
+    Assert (-not (Test-Path -LiteralPath $script:Root)) 'Welcome wrote installation state before Start'
+    Save-SetupPreview $view 'welcome'
+    $view.Primary.PerformClick()
+    Assert ($view.Action -eq 'start') 'Start setup action is not connected'
+    New-Item -ItemType Directory $script:Root | Out-Null
+    Set-SetupPhase $view 'working'; Set-SetupSteps $view 3
+    Show-Stage $view 'Preparing your application environment' 'Reusing an existing environment when available. This step may take several minutes while packages are checked or downloaded.'
+    Assert (-not $view.AllowClose -and -not $view.Primary.Visible -and -not $view.Secondary.Visible) 'Working state offers an unsafe exit'
+    Assert ($view.Bar.Style -eq 'Marquee' -and $view.Bar.Value -eq 0) 'Working state invented percentage progress'
+    Assert ($view.StepNumbers[0].Text -eq [string][char]0x2713 -and $view.StepNumbers[2].Text -eq '3') 'Current named step is unclear'
+    $view.Form.Close()
+    Assert (-not $view.Form.IsDisposed -and $view.Form.Visible) 'Closing progress abandoned active work'
+    Save-SetupPreview $view 'preview'
+    Show-SetupOutcome $view 'restart' 'Restart Windows to continue' 'Save your work and restart Windows. Your progress is saved. Then open Continue Bactologix Setup on your desktop.'
+    Assert ($view.AllowClose -and -not $view.Primary.Visible -and -not $view.Bar.Visible) 'Restart state still appears to install'
+    Assert ($view.Steps.Text -match 'Continue Bactologix Setup') 'Restart state lacks the continuation path'
+    Save-SetupPreview $view 'restart'
+    Show-SetupOutcome $view 'error' 'Setup needs your attention' 'Setup stopped before it could finish. Review the details and logs before trying again.' 'Example: Ubuntu could not start. The underlying Windows diagnostic is preserved here. No saved results were removed.'
+    Assert ($view.Diagnostic.Visible -and $view.Diagnostic.ReadOnly -and $view.PrimaryAction -eq 'retry') 'Failure details or retry action are missing'
+    $view.Primary.PerformClick()
+    Assert ($view.Action -eq 'retry') 'Retry action is not connected'
+    Save-SetupPreview $view 'error'
+    Show-SetupOutcome $view 'complete' 'Your workspace is ready.' 'Bactologix is installed and the desktop shortcut is ready. Open the app now or return later.'
+    Assert ($view.Bar.Value -eq 100 -and $view.PrimaryAction -eq 'open') 'Completion did not offer explicit opening'
+    Assert (@($view.StepNumbers | Where-Object { $_.Text -ne [string][char]0x2713 }).Count -eq 0) 'Completed steps were not recorded'
+    Save-SetupPreview $view 'complete'
+    # Dev packaging substitutes the visible product name; its longer label must
+    # wrap within the sidebar instead of widening or clipping the content.
+    $view.Brand.Text = 'Bactologix-Dev'
+    Show-SetupWelcome $view
+    Save-SetupPreview $view 'dev-welcome'
+    Assert ($view.Brand.Width -le $view.Brand.MaximumSize.Width) 'Dev branding exceeded its sidebar width'
+    $view.Brand.Text = 'Bactologix'
+    # Exercise enlarged controls/text in a constrained display; content may scroll,
+    # but the primary and close actions must stay inside the visible form.
+    $large = New-Progress 'Bactologix enlarged-layout preview'; $views += $large
+    $large.Form.Scale([Drawing.SizeF]::new(1.5,1.5))
+    Show-SetupOutcome $large 'error' 'Setup needs your attention' 'A long diagnostic must remain readable when the display scale is enlarged. The setup actions remain available below the scrollable content.' ('Example diagnostic. ' * 40)
+    Fit-SetupWindow $large; Update-SetupLayout $large; [Windows.Forms.Application]::DoEvents()
+    foreach ($button in @($large.Primary,$large.Secondary,$large.Logs)) {
+        $position = $large.Form.PointToClient($button.PointToScreen([Drawing.Point]::Empty))
+        Assert ($position.X -ge 0 -and $position.Y -ge 0 -and $position.X+$button.Width -le $large.Form.ClientSize.Width -and $position.Y+$button.Height -le $large.Form.ClientSize.Height) 'Enlarged setup actions were clipped'
+    }
+    Save-SetupPreview $large 'enlarged'
+    $large.Form.Hide(); $view.Form.Hide()
+    # Exercise the setup coordinator independently from WSL or app installation.
+    $uiFunctions = @('Show-SetupWelcome','Wait-SetupAction','Install-Desktop','Run-Desktop','Show-SetupOutcome')
+    $savedUiFunctions = @{}
+    foreach ($name in $uiFunctions) { $savedUiFunctions[$name] = (Get-Item "Function:$name").ScriptBlock }
+    try {
+        function Show-SetupWelcome { param($View) $script:WelcomeCount++ }
+        function Wait-SetupAction { param($View) return $script:UiActions.Dequeue() }
+        function Install-Desktop {
+            param($View)
+            $script:InstallCount++
+            $outcome = $script:UiOutcomes.Dequeue()
+            if ($outcome -eq 'throw') { throw 'preserved fixture diagnostic' }
+            $View.Outcome = $outcome
+        }
+        function Run-Desktop { param($View) $script:LaunchCount++ }
+        function Show-SetupOutcome { param($View,$State,$Title,$Detail,$Diagnostic) $View.Outcome=$State; $script:UiDiagnostic=$Diagnostic }
+        foreach ($case in @(
+            @{Actions=@('close');Outcomes=@();Code=0;Installs=0;Launches=0},
+            @{Actions=@('start','close');Outcomes=@('complete');Code=0;Installs=1;Launches=0},
+            @{Actions=@('start','open');Outcomes=@('complete');Code=0;Installs=1;Launches=1},
+            @{Actions=@('start','close');Outcomes=@('restart');Code=3010;Installs=1;Launches=0},
+            @{Actions=@('start','close');Outcomes=@('paused');Code=1223;Installs=1;Launches=0},
+            @{Actions=@('start','close');Outcomes=@('throw');Code=1;Installs=1;Launches=0},
+            @{Actions=@('start','retry','close');Outcomes=@('throw','complete');Code=0;Installs=2;Launches=0}
+        )) {
+            $script:UiActions=[Collections.Queue]::new(); foreach ($item in $case.Actions) { $script:UiActions.Enqueue($item) }
+            $script:UiOutcomes=[Collections.Queue]::new(); foreach ($item in $case.Outcomes) { $script:UiOutcomes.Enqueue($item) }
+            $script:WelcomeCount=0; $script:InstallCount=0; $script:LaunchCount=0; $script:UiDiagnostic=''
+            $code = Invoke-SetupInterface $view
+            Assert ($code -eq $case.Code -and $script:InstallCount -eq $case.Installs -and $script:LaunchCount -eq $case.Launches -and $script:WelcomeCount -eq 1) 'Setup coordinator started unrequested work or lost its outcome'
+            Assert ($script:UiActions.Count -eq 0 -and $script:UiOutcomes.Count -eq 0) 'Setup coordinator ignored an expected action'
+            if ('throw' -in $case.Outcomes) { Assert ($script:UiDiagnostic -eq 'preserved fixture diagnostic') 'Setup failure discarded the original diagnostic' }
+        }
+        Write-Output 'Installer UX passed: explicit Start, no-work Close, guarded progress, restart continuation, preserved errors, explicit Open, bounded layout and outcome exit codes.'
+    } finally {
+        foreach ($name in $uiFunctions) { Set-Item "Function:$name" $savedUiFunctions[$name] }
+    }
     $browser = Find-Browser
     Write-Output ('Browser fixture: ' + $browser + ' version ' + (Get-Item $browser).VersionInfo.FileVersion)
     foreach ($name in @('owned','independent')) {
@@ -317,8 +407,9 @@ public static class ControlFileFixture {
     Assert ((Browser-State $profiles[1]).reachable) 'Independent browser was affected'
     Write-Output 'Windows desktop checks passed: syntax, exact argument transport, atomic control, shortcut icon, installer render and isolated browser shutdown.'
 } finally {
+    $script:Root = $originalSetupRoot
     foreach ($profile in $profiles) { Close-OwnedBrowser $profile }
-    foreach ($view in $views) { $view.Form.Close(); $view.Form.Dispose() }
+    foreach ($view in $views) { $view.AllowClose=$true; $view.Form.Close(); $view.Form.Dispose() }
 }
 
 
