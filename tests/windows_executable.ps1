@@ -38,7 +38,11 @@ try {
     # Reflection checks the actual compiled command without launching setup or WSL.
     $assembly = [Reflection.Assembly]::LoadFile($exe)
     $flags = [Reflection.BindingFlags]'Static,NonPublic'
-    $command = $assembly.GetType('SetupBootstrap').GetMethod('SetupCommand', $flags).Invoke($null, @($destination))
+    # A typed delegate lets PowerShell convert the path to a CLR string instead
+    # of passing wrapped pipeline objects through reflection's object[] API.
+    $method = $assembly.GetType('SetupBootstrap').GetMethod('SetupCommand', $flags)
+    $inspectCommand = $method.CreateDelegate([Func[string,Diagnostics.ProcessStartInfo]])
+    $command = $inspectCommand.Invoke([string]$destination)
     Assert ($command.FileName -match 'WindowsPowerShell\\v1\.0\\powershell\.exe$') 'Bootstrap uses a non-system shell'
     Assert (-not $command.UseShellExecute -and $command.CreateNoWindow) 'Bootstrap unexpectedly elevates or opens a console'
     Assert ($command.Arguments -match '-STA' -and $command.Arguments -match '-NoProfile' -and $command.Arguments.EndsWith(' -Setup')) 'Bootstrap lost its reviewed setup invocation'
