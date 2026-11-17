@@ -4,6 +4,7 @@ The Windows owner controls a dedicated browser profile. Jobs carry the session
 identity in SQLite; shared workers use the existing cooperative cancellation.
 """
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -30,16 +31,27 @@ def read(path):
 
 
 def owner_cancelled(store, jid):
-    owner = store.get('job_owners', jid)
-    if not owner:
-        return False
-    return session_stopped(store, owner)
+    state = store.control_state(jid)
+    return bool(state['owner']) and session_value_stopped(state['session'])
 
 
 def session_stopped(store, owner):
     if not owner:
         return False
-    session = store.get('desktop_sessions', owner)
+    def read(db):
+        row = db.execute("SELECT body FROM items WHERE kind='desktop_sessions' AND id=?", (owner,)).fetchone()
+        return json.loads(row[0]) if row else None
+    session = store.control_read(read)
+    return session_value_stopped(session)
+
+
+def session_value_stopped(session):
+    if session is not None and (not isinstance(session, dict) or
+            not isinstance(session.get('last_seen', 0), (int, float)) or
+            isinstance(session.get('last_seen', 0), bool) or
+            not math.isfinite(session.get('last_seen', 0))):
+        from .supervision import MonitoringInterrupted
+        raise MonitoringInterrupted('Desktop session control metadata is invalid.')
     return (not session or session.get('phase') in {'stopping', 'stopped'}
             or time.time() - session.get('last_seen', 0) > LEASE_SECONDS)
 

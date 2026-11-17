@@ -19,11 +19,14 @@ def plotting_recipe(row):
 
 
 def probe(ctx, row, prefix, folder):
+    if plotting_recipe(row) and incompatible_plotting(package_versions(prefix)):
+        raise RuntimeError(PLOTTING_CONFLICT)
     command = [find_conda(ctx.store), 'run', '--no-capture-output', '-p', str(prefix)]
     native = ['bash', row['hook']] if row['hook'] else ['python', '-c', 'import sys; print(sys.version)']
-    ctx.command([*command, *native], cwd=folder)
+    ctx.command([*command, *native], cwd=folder, extra_env={'HYBAS_PREPARE_BROWSER': '0'})
     if plotting_recipe(row):
-        ctx.command([*command, 'python', str(DATA / 'plot_probe.py')], cwd=folder)
+        ctx.command([*command, 'python', str(DATA / 'plot_probe.py')], cwd=folder,
+                    extra_env={'HYBAS_PREPARE_BROWSER': '0'})
 
 
 def package_versions(prefix):
@@ -37,29 +40,51 @@ def package_versions(prefix):
     return result
 
 
-def repair_plotting(ctx, row, prefix, folder):
-    """Do not upgrade arbitrary packages or relax any native tool pin."""
+PLOTTING_CONFLICT = (
+    'NanoPlot 1.46.2 requires Kaleido 1 or newer, but MultiQC 1.32 requires Kaleido 0.2.1. '
+    'These versions need separate tool environments. Install a reviewed pipeline version '
+    'with separate QC and MultiQC environments, then create a revised draft. '
+    'The existing environment and saved run have not been changed. '
+    'Do not force an older Kaleido into the NanoPlot environment.'
+)
+
+
+def incompatible_plotting(versions):
+    return versions.get('nanoplot') == '1.46.2' and versions.get('multiqc') == '1.32'
+
+
+def repair_plotting(ctx, row, prefix, folder, preparation_env=None):
+    """Record the known conflicting contract without forcing incompatible packages."""
     before = package_versions(prefix)
-    if not plotting_recipe(row) or before.get('nanoplot') != '1.46.2' or before.get('multiqc') != '1.32':
+    if not plotting_recipe(row):
         return False
+    if not incompatible_plotting(before):
+        if not preparation_env or preparation_env.get('HYBAS_PREPARE_BROWSER') != '1' or not row.get('hook'):
+            return False
+        receipt = {'environment': str(prefix), 'recipe': row['recipe'], 'job': ctx.job['id'],
+                   'started': now(), 'before': before, 'status': 'preparing_browser'}
+        path = folder / (row['id'] + '-repair.json')
+        path.write_text(json.dumps(receipt, indent=2) + '\n')
+        ctx.write('Explicit repair may prepare a missing Chrome browser; existing browsers and package pins are retained.')
+        try:
+            ctx.command([find_conda(ctx.store), 'run', '--no-capture-output', '-p', str(prefix), 'bash', row['hook']],
+                        cwd=folder, extra_env=preparation_env)
+            probe(ctx, row, prefix, folder)
+            receipt['status'] = 'verified'
+        except BaseException:
+            receipt['status'] = 'failed'
+            raise
+        finally:
+            receipt.update(after=package_versions(prefix), finished=now())
+            path.write_text(json.dumps(receipt, indent=2) + '\n')
+        return True
     receipt = {'environment': str(prefix), 'recipe': row['recipe'], 'job': ctx.job['id'],
-               'started': now(), 'before': before, 'status': 'repairing',
-               'specs': ['plotly=6.1.2', 'python-kaleido=0.2.1']}
+               'checked_at': now(), 'before': before, 'status': 'incompatible_recipe',
+               'packages_changed': False, 'message': PLOTTING_CONFLICT}
     path = folder / (row['id'] + '-repair.json')
     path.write_text(json.dumps(receipt, indent=2) + '\n')
-    ctx.write('Applying the tested NanoPlot 1.46.2 / MultiQC 1.32 rendering workaround. Receipt: ' + str(path))
-    try:
-        ctx.command([find_conda(ctx.store), 'install', '--yes', '--freeze-installed', '-p', str(prefix),
-                     '-c', 'conda-forge', *receipt['specs']], cwd=folder)
-        probe(ctx, row, prefix, folder)
-        receipt['status'] = 'verified'
-    except BaseException:
-        receipt['status'] = 'failed'
-        raise
-    finally:
-        receipt.update(after=package_versions(prefix), finished=now())
-        path.write_text(json.dumps(receipt, indent=2) + '\n')
-    return True
+    ctx.write('Conflicting QC dependency contract; no packages changed. Receipt: ' + str(path))
+    raise RuntimeError(PLOTTING_CONFLICT)
 
 
 def retain_incomplete(ctx, row, prefix):
@@ -86,7 +111,7 @@ def restore_incomplete(ctx, prefix, backup):
     ctx.write('Restored the previous incomplete environment at ' + str(prefix))
 
 
-def repair(ctx, row, prefix, folder, deploy):
+def repair(ctx, row, prefix, folder, deploy, preparation_env=None):
     complete = (prefix / 'conda-meta/history').is_file() and prefix.with_suffix('.env_setup_done').is_file()
     if complete:
         try:
@@ -95,7 +120,7 @@ def repair(ctx, row, prefix, folder, deploy):
         except Cancelled:
             raise
         except Exception:
-            if repair_plotting(ctx, row, prefix, folder):
+            if repair_plotting(ctx, row, prefix, folder, preparation_env):
                 return 'Rendering compatibility repaired; native checks and HTML/PNG rendering passed.'
             raise RuntimeError('No supported automatic fix for this failure. The existing environment was retained; inspect the check log.') from None
     backup = retain_incomplete(ctx, row, prefix) if prefix.exists() else None
@@ -110,7 +135,7 @@ def repair(ctx, row, prefix, folder, deploy):
         except Cancelled:
             raise
         except Exception:
-            if not repair_plotting(ctx, row, prefix, folder):
+            if not repair_plotting(ctx, row, prefix, folder, preparation_env):
                 raise
     except BaseException:
         if backup:

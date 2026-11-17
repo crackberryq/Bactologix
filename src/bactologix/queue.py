@@ -75,6 +75,8 @@ def recover_interrupted(store):
     with store.connect() as db:
         db.execute('BEGIN IMMEDIATE')
         ids = [row[0] for row in db.execute("SELECT id FROM jobs WHERE status='running' ORDER BY rowid")]
+        from .supervision import assert_recoverable
+        assert_recoverable(store, ids)
         if ids:
             stamp = now()
             db.execute("UPDATE jobs SET status='interrupted',finished=?,error=? WHERE status='running'",
@@ -83,6 +85,17 @@ def recover_interrupted(store):
             state.update(paused=True, pause_reason='interruption', recovered=ids, recovered_at=stamp)
             save_control(db, state)
         return ids
+
+
+def monitoring_interrupted(store, jid, error, cleanup_confirmed):
+    """A control failure is not evidence that the scientific workflow failed."""
+    with store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if cleanup_confirmed:
+            db.execute("UPDATE jobs SET status='interrupted',finished=?,error=? WHERE id=? AND status='running'", (now(), error, jid))
+        state = control(db)
+        state.update(paused=True, pause_reason='interruption', recovered=[jid], recovered_at=now())
+        save_control(db, state)
 
 
 def reconcile_interrupted(store):
@@ -98,4 +111,10 @@ def reconcile_interrupted(store):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return []
-        return recover_interrupted(store)
+        from .supervision import MonitoringInterrupted
+        try:
+            return recover_interrupted(store)
+        except MonitoringInterrupted:
+            # Passive refresh must keep the UI (and Stop) available. A worker's
+            # explicit recovery still raises and cannot claim another job.
+            return []

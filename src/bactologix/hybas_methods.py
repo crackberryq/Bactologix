@@ -29,6 +29,7 @@ SCALARS = {
     'final_source_sha256', 'busco_lineage', 'busco_dataset_sha256',
     'medaka_model_requested', 'medaka_model_effective', 'medaka_model_sha256',
     'medaka_model_selection', 'medaka_input_metadata_status',
+    'medaka_model_review_status', 'medaka_model_review_reason', 'medaka_model_reviewed_model',
     'kraken_selected_target_taxid', 'kraken_selected_target_name',
     'kraken_selected_target_rank', 'kraken_selected_target_source',
     'kraken_target_selection_reason', 'pacbio_kraken_decision',
@@ -80,6 +81,11 @@ def _decisions(summary):
         if key.endswith('_sha256') and _known(value) and not SHA256.fullmatch(value):
             raise ValueError('Invalid HybAs metadata checksum: ' + key)
         result[key] = value
+    if 'medaka_model_review_acknowledged' in summary:
+        value = summary['medaka_model_review_acknowledged']
+        if type(value) is not bool:
+            raise ValueError('Invalid Medaka model review acknowledgement')
+        result['medaka_model_review_acknowledged'] = value
     # The historical field stores the request, not the model resolved at runtime.
     if 'medaka_model_requested' not in result and 'medaka_model' in summary:
         value = summary['medaka_model']

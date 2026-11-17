@@ -576,6 +576,12 @@ def build(store, run):
             actual.append('executed polishing stages: ' + (', '.join(map(str, decisions['executed_stages'])) or 'none'))
         if 'medaka' in decisions.get('executed_stages', []):
             actual.append('effective Medaka model: ' + _value(decisions.get('medaka_model_effective')))
+            if decisions.get('medaka_model_review_status'):
+                actual.append('Medaka installed-mapping assessment: ' + _value(decisions['medaka_model_review_status']))
+            if decisions.get('medaka_model_review_acknowledged') is True:
+                actual.append('explicit model review acknowledged for ' + _value(decisions.get('medaka_model_reviewed_model')) +
+                              '; recorded reason: ' + _value(decisions.get('medaka_model_review_reason')) +
+                              ' (a recorded decision, not model validation)')
         if decisions.get('assembler'):
             actual.append('recorded assembler: ' + _value(decisions['assembler']))
         if actual:

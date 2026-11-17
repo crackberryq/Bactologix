@@ -21,6 +21,9 @@ def edit(store, tool, payload, save=False):
     expected = revision(original) if loaded else payload.get('revision')
     if not isinstance(expected, str) or len(expected) != 64:
         raise ValueError('Reload saved defaults before editing this configuration.')
+    if loaded:
+        from .medaka_review import editor_text
+        text = editor_text(store, tool, text)
     text = run_config.compile_config(tool, text, payload.get('changes'))
     if save or payload.get('validate'):
         run_config.validate(tool, text)

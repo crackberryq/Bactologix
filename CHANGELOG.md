@@ -1,3 +1,14 @@
+## 0.1.0a107.dev1 — 2026-11-17 · Alpha · Preserve run ownership during monitoring failures
+
+- Retry brief SQLite control-read contention with bounded delays. Record monitoring interruptions separately from native tool failures, preserve process identities and block recovery while native exit is unconfirmed.
+- Offer a reviewed VFDB reference repair that creates an independent draft for native preparation; retain frozen runs, outputs and scientific thresholds.
+- Determine database preparation support from the installed source's reviewed capability, with an actionable unavailable reason, rather than one global default commit.
+- Reject the conflicting NanoPlot 1.46.2 / MultiQC 1.32 dependency repair instead of silently forcing an unsupported Kaleido downgrade. Keep complete environments and report the required separation.
+- New reviewed HybAs sources expose bound Medaka model-review controls and retain their review status/reason in Methods; old frozen sources cannot silently acquire those semantics.
+- Warn when the selected Kraken database exceeds physical RAM while keeping the user’s explicit swap allowance available.
+- Prepare a missing NanoPlot browser only during explicit Install/Repair for a reviewed split environment. Read-only checks and ordinary runs never silently download it.
+- These are software reliability changes. Existing frozen workflows are not rewritten, and no historical run or model choice gains validation by updating Bactologix.
+
 ## 0.1.0a106.dev1 — 2026-11-11 · Alpha · Pause local runs when storage is low
 
 - Monitor required run, workspace, workflow and temporary storage, including the Windows volume behind WSL and its enabled swap location. Report unavailable required measurements explicitly.

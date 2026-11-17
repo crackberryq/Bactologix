@@ -161,6 +161,28 @@ def test_hybas_never_substitutes_requested_medaka_model_for_effective_model(work
     assert 'requested-model' in '\n'.join(doc['execution'])
 
 
+def test_model_review_receipt_export_preserves_choice_and_scope(workspace, run):
+    hybas_output(run, medaka_model_effective='reviewed-choice',
+                 medaka_model_review_status='mismatched_to_installed_mapping',
+                 medaka_model_review_acknowledged=True,
+                 medaka_model_reviewed_model='reviewed-choice',
+                 medaka_model_review_reason='Compare retained polishing stages')
+    finish(workspace, run)
+    doc = methods.build(workspace, run)
+    assert doc['evidence']['decisions']['medaka_model_review_acknowledged'] is True
+    record = next(p for p in doc['paragraphs'] if 'retained native record' in p)
+    assert 'mismatched_to_installed_mapping' in record
+    assert 'Compare retained polishing stages' in record
+    assert 'not model validation' in record
+
+
+@pytest.mark.parametrize('value', ['false', 1, None, []])
+def test_model_acknowledgement_metadata_requires_boolean(value):
+    from bactologix.hybas_methods import _decisions
+    with pytest.raises(ValueError, match='acknowledgement'):
+        _decisions({'medaka_model_review_acknowledged': value})
+
+
 def test_reviewed_regular_hybas_template_remains_available(workspace, run):
     run['commit'] = HYBAS_NEARBETA
     doc = methods.build(workspace, run)

@@ -26,31 +26,40 @@ def test_check_runs_actual_renderer_without_changing_packages(installed, monkeyp
     assert 'rendering passed' in store.get('environment_checks', item['id'])['qc']['message']
 
 
-def test_known_plotting_conflict_is_repaired_and_probed(installed, monkeypatch):
+def test_known_plotting_conflict_is_reported_without_mutating_packages(installed, monkeypatch):
     store, item = installed
     prefix = ready_environment(store, item, 1)
     metadata(prefix, nanoplot='1.46.2', multiqc='1.32', plotly='7.1.0', **{'python-kaleido': '0.2.1'})
     monkeypatch.setattr(h, 'plotting_recipe', lambda _: True)
     monkeypatch.setattr(h, 'find_conda', lambda _: '/fixture/conda')
     ctx = FakeContext(store, m.environment_request(store, item['id'], ['qc'], 'repair'))
-    original = ctx.command
-    def command(argv, **kwargs):
-        result = original(argv, **kwargs)
-        if str(h.DATA / 'plot_probe.py') in argv and h.package_versions(prefix)['plotly'].startswith('7'):
-            raise RuntimeError('create_2d_density missing')
-        if 'install' in argv:
-            assert '--freeze-installed' in argv and 'plotly=6.1.2' in argv and 'python-kaleido=0.2.1' in argv
-            metadata(prefix, plotly='6.1.2')
-        return result
-    ctx.command = command
-    m.execute_environments(ctx)
-    assert store.get('environment_checks', item['id'])['qc']['status'] == 'Verified'
+    before = h.package_versions(prefix)
+    with pytest.raises(RuntimeError, match='Environment checks failed'):
+        m.execute_environments(ctx)
+    result = store.get('environment_checks', item['id'])['qc']
+    assert result['status'] == 'Repair failed'
+    assert 'separate tool environments' in result['message']
     receipts = list((store.home / 'maintenance' / ctx.job['id']).glob('hybas-repair-*/qc-repair.json'))
     assert len(receipts) == 1
     receipt = json.loads(receipts[0].read_text())
-    assert receipt['before']['plotly'] == '7.1.0' and receipt['after']['plotly'] == '6.1.2'
-    assert receipt['status'] == 'verified'
-    assert not any('--conda-create-envs-only' in argv for argv in ctx.calls)
+    assert receipt['before'] == before == h.package_versions(prefix)
+    assert receipt['status'] == 'incompatible_recipe' and receipt['packages_changed'] is False
+    assert not any('install' in argv or '--conda-create-envs-only' in argv for argv in ctx.calls)
+    assert not any(str(h.DATA / 'plot_probe.py') in argv for argv in ctx.calls)
+
+
+def test_conflicting_pair_fails_check_even_if_old_renderer_might_work(installed, monkeypatch):
+    store, item = installed
+    prefix = ready_environment(store, item, 1)
+    metadata(prefix, nanoplot='1.46.2', multiqc='1.32', plotly='6.1.2', **{'python-kaleido': '0.2.1'})
+    monkeypatch.setattr(h, 'plotting_recipe', lambda _: True)
+    ctx = FakeContext(store, m.environment_request(store, item['id'], ['qc'], 'check'))
+    with pytest.raises(RuntimeError, match='Environment checks failed'):
+        m.execute_environments(ctx)
+    result = store.get('environment_checks', item['id'])['qc']
+    assert result['status'] == 'Check failed'
+    assert 'separate tool environments' in result['message']
+    assert not any('install' in argv for argv in ctx.calls)
 
 
 def test_healthy_repair_makes_no_changes_and_unknown_failure_is_retained(installed):

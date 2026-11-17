@@ -102,7 +102,9 @@ def per_tool(run, cfg, known_source):
         selected('unicycler', ['spades_memory_gb', 'assembly_mem_mb'])
         natural('unicycler', 'min_fasta_length', 'minimum assembly FASTA length of {value} bp')
         natural('racon', 'racon_rounds', '{value} requested Racon rounds')
-        selected('medaka', ['medaka_model'], {'medaka_model': 'requested Medaka model'})
+        selected('medaka', ['medaka_model', 'medaka_model_review_acknowledged',
+                           'medaka_model_review_reason', 'medaka_model_reviewed_model'],
+                 {'medaka_model': 'requested Medaka model'})
         selected('polypolish', ['run_polypolish'])
         selected('busco', ['busco_lineage', 'busco_mem_mb'])
         selected('prokka', ['prokka_mem_mb'])
