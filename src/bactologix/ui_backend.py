@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import shlex
 import webbrowser
+import uuid
 
 import yaml
 
@@ -96,12 +97,16 @@ def workspace_label():
     return f"{name}'s workspace"
 
 
-def snapshot(store):
-    from . import disk_pause, notifications
+def snapshot(store, *, cached=False):
+    # Background preview polling reuses display data, never authorization.
+    if cached and store.home in _SNAPSHOTS:
+        return copy.deepcopy(_SNAPSHOTS[store.home])
+    from . import disk_pause, notifications, supervision
     from .queue import reconcile_interrupted
     reconcile_interrupted(store)
     records = {r['id']: r for r in store.all('job_telemetry') if isinstance(r, dict) and 'id' in r}
     jobs = [{**j, "guidance": readiness.job_guidance(store, j),
+             "monitoring": supervision.snapshot(store, j["id"]),
              "disk_safety": disk_pause.snapshot(store, j['id']),
              "telemetry": telemetry.view(records.get(j['id']), j)} for j in store.jobs()]
     app_update = updates.status(store)
@@ -294,6 +299,14 @@ def dispatch(store, kind, p):
                                           str(p.get("query", "")), p.get("show_hidden") is True), "keep_modal": True}
     if kind == 'refresh_reference_databases':
         return {'message': 'Available GeneScope databases refreshed.', 'keep_modal': True}
+    if kind == 'factory_reset_preview':
+        from . import factory_reset
+        return {'reset_plan': factory_reset.preview(store, p.get('delete_databases', False)), 'keep_modal': True}
+    if kind == 'factory_reset_execute':
+        from . import factory_reset
+        jid = factory_reset.request(store, p.get('plan_id'), p.get('signature'), p.get('confirmation'),
+                                    p.get('acknowledged'), p.get('database_confirmation', ''))
+        return {'job_id': jid, 'message': 'Workspace reset queued: ' + jid, 'navigate': 'storage'}
     if kind == "scan_databases":
         tool = _tool(p)
         found = databases.scan(store, tool, p.get('root', ''))
@@ -693,6 +706,12 @@ def dispatch(store, kind, p):
         job = store.job(p["id"])
         if not job or job["status"] not in {"queued", "running"}:
             raise ValueError("This job is no longer active")
+        from .supervision import snapshot as monitoring_snapshot
+        monitor = monitoring_snapshot(store, job['id']) or {}
+        if job['status'] == 'running' and monitor.get('state') == 'interrupted' and monitor.get('cleanup_confirmed') is not True:
+            raise ValueError("Monitoring was interrupted and native process exit is still unconfirmed. "
+                             "Cleanup was attempted; another stop request cannot restore process ownership. "
+                             "Review this attempt's log. Relaunch and cleanup remain blocked.")
         store.cancel(p["id"])
         return {"message": "Stop requested. The job log will be retained."}
     if kind == "job_metrics":
@@ -749,7 +768,19 @@ def handle_request(store, request, session):
     seen.append(request["id"])
     del seen[:-256]
     try:
-        response = {"id": request["id"], "ok": True, **dispatch(store, request.get("kind"), request.get("payload", {}))}
+        from . import async_tasks
+        kind, payload = request.get('kind'), request.get('payload', {})
+        if not isinstance(payload, dict):
+            raise ValueError('Invalid action payload')
+        owner = session.setdefault('ui-task-owner', uuid.uuid4().hex)
+        if kind in async_tasks.ACTIONS:
+            value = {'async_task': async_tasks.submit(store, owner, request['id'], kind, payload), 'keep_modal': True}
+        elif kind in {'poll_ui_task', 'cancel_ui_task'}:
+            action = async_tasks.poll if kind == 'poll_ui_task' else async_tasks.cancel
+            value = {'async_task': action(store, owner, payload.get('token')), 'keep_modal': True}
+        else:
+            value = dispatch(store, kind, payload)
+        response = {"id": request["id"], "ok": True, **value}
     except Exception as exc:
         response = {"id": request["id"], "ok": False, "message": str(exc)}
     session["ui-response"] = response

@@ -6,8 +6,8 @@ import threading
 import time
 import uuid
 from .disk_capacity import CapacityProbe
-from .disk_process import OwnedTree, OwnerWatch, SuspensionError
-from .store import now
+from .disk_process import OwnedTree, OwnerWatch, ProcessOwner, SuspensionError
+from .store import CONTROL_TIMEOUT, now
 
 GIB = 1024 ** 3
 PAUSE_BYTES, RESUME_BYTES, WARNING_BYTES = 10 * GIB, 15 * GIB, 20 * GIB
@@ -36,7 +36,7 @@ def snapshot(store, jid):
 def request_resume(store, jid, expected_generation):
     if isinstance(expected_generation, bool) or not isinstance(expected_generation, int):
         raise ValueError('Refresh the run before requesting resume.')
-    with store.connect() as db:
+    with store.connect(timeout=CONTROL_TIMEOUT) as db:
         db.execute('BEGIN IMMEDIATE')
         job = db.execute('SELECT * FROM jobs WHERE id=?', (jid,)).fetchone()
         saved = db.execute("SELECT body FROM items WHERE kind='disk_safety' AND id=?", (jid,)).fetchone()
@@ -56,10 +56,13 @@ def request_resume(store, jid, expected_generation):
 
 class Samples:
     """A stalled mount never blocks the worker's stop handling or its exit."""
-    def __init__(self, store, run):
+    def __init__(self, store, run, *, initial_env=None):
         self.store, self.run = store, run
         self.lock, self.wake, self.done = threading.Lock(), threading.Event(), threading.Event()
-        self.pending, self.epoch, self.result = [], 0, None
+        # Seed channel-selected temporary paths before the sampling thread can
+        # publish its first result. Initial worker checkpoints precede commands.
+        self.pending = [(None, dict(initial_env))] if initial_env is not None else []
+        self.epoch, self.result = 0, None
         self.started = time.monotonic()
         self.thread = threading.Thread(target=self._loop, daemon=True, name='disk-capacity')
         self.thread.start()
@@ -114,14 +117,14 @@ class Samples:
         self.wake.set()
 
 
-class Guard:
-    def __init__(self, store, job, check_cancel, write):
+class Guard(ProcessOwner):
+    def __init__(self, store, job, check_cancel, write, *, initial_env=None):
         self.store, self.job = store, job
         self.check_cancel, self.write = check_cancel, write
         self.tree, self.watch = None, None
         self.last_publish, self.resume_nonce, self.resume_after = 0, None, None
         run = store.get('runs', job['payload'].get('run_id'), {})
-        self.samples = Samples(store, run)
+        self.samples = Samples(store, run, initial_env=initial_env)
         self.record = {'id': job['id'], 'run_id': job['payload'].get('run_id'),
             'state': 'monitoring', 'generation': 0, 'pause_kind': None, 'reason': None,
             'volumes': [], 'errors': [], 'checked_at': None, 'can_resume': False,
@@ -192,7 +195,7 @@ class Guard:
                     self.resume_nonce, self.resume_after = request.get('nonce'), time.monotonic()
                     self.samples.wake.set()
                 elif completed > self.resume_after:
-                    with self.store.connect() as db:
+                    with self.store.connect(timeout=CONTROL_TIMEOUT) as db:
                         db.execute("DELETE FROM items WHERE kind='disk_safety_requests' AND id=?", (self.job['id'],))
                     if ready:
                         self.check_cancel()
@@ -220,22 +223,6 @@ class Guard:
     def signal(self, sig):
         if self.tree is not None:
             self.tree.signal(sig)
-
-    def detach(self, failed=False):
-        tree, watch = self.tree, self.watch
-        clean = False
-        try:
-            if tree is not None:
-                remaining = tree.refresh()
-                if remaining:
-                    tree.kill()
-                    if not failed:
-                        raise SuspensionError('The command exited while owned child processes remained; stopped remaining work. Review the log before continuing.')
-                clean = not remaining
-        finally:
-            self.tree, self.watch = None, None
-            if watch is not None:
-                watch.close(clean=clean)
 
     def finish(self, result):
         self.samples.close()
