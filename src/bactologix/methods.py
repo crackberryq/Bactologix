@@ -576,6 +576,11 @@ def build(store, run):
             actual.append('executed polishing stages: ' + (', '.join(map(str, decisions['executed_stages'])) or 'none'))
         if 'medaka' in decisions.get('executed_stages', []):
             actual.append('effective Medaka model: ' + _value(decisions.get('medaka_model_effective')))
+            if decisions.get('medaka_model_selection') == 'fallback':
+                actual.append('documented Medaka default used because ' + _value(decisions.get('medaka_model_selection_reason')) +
+                              '; upstream Medaka version=' + _value(decisions.get('medaka_model_fallback_medaka_version')) +
+                              ', source=' + _value(decisions.get('medaka_model_fallback_source_commit')) +
+                              ' (fallback selection does not establish suitability for these reads)')
             if decisions.get('medaka_model_review_status'):
                 actual.append('Medaka installed-mapping assessment: ' + _value(decisions['medaka_model_review_status']))
             if decisions.get('medaka_model_review_acknowledged') is True:

@@ -1,3 +1,11 @@
+## 0.1.0a108.dev1 — 2026-11-17 · Alpha · Reviewed reset and responsive setup
+
+- Add a developer workspace reset with an exact deletion preview, typed confirmation, separate managed-database opt-in, process checks and recoverable deletion receipts. Original inputs, manually linked databases and application/bootstrap files are protected.
+- Add Download again for a separate database snapshot. Existing selections and saved runs remain unchanged; a new provider snapshot may differ from the old database.
+- Open saved-run settings without rehashing raw reads. Run database scans/checks, reset previews and compute recommendations in bounded background tasks; stale results do not override newer selections.
+- Calculate Kraken swap guidance from database size, the selected RAM budget, usable active swap and required storage volumes. Use recommendation fills editable controls; it does not alter Linux/WSL or start a run.
+- Support the checked HybAs documented-default Medaka selection policy, preserve strict semantics for older saved runs, and disclose recorded fallback in Methods.
+
 ## 0.1.0a107.dev1 — 2026-11-17 · Alpha · Preserve run ownership during monitoring failures
 
 - Retry brief SQLite control-read contention with bounded delays. Record monitoring interruptions separately from native tool failures, preserve process identities and block recovery while native exit is unconfirmed.

@@ -47,7 +47,7 @@ def reason(tool, row):
     if interface == HYBAS_REVIEW_INTERFACE:
         # Older applications reject interface 2 before caching the catalog. They
         # cannot safely prepare its browser or expose its model-review controls.
-        from .medaka_review import CONTRACT, REQUIRED_FILES
+        from .medaka_review import CONTRACT, FALLBACK_CONTRACT, REQUIRED_FILES
         browser = {'interface': 1, 'environment': 'qc', 'policy': 'install_or_repair_when_missing'}
         required = set(REQUIRED_FILES) | {
             'environment.yaml', 'config.example.yaml', 'workflow/lib/hybas_report.py',
@@ -57,7 +57,7 @@ def reason(tool, row):
         }
         model = row.get('medaka_model_review')
         preparation = row.get('browser_preparation')
-        if (model != CONTRACT or preparation != browser
+        if (model not in (CONTRACT, FALLBACK_CONTRACT) or preparation != browser
                 or type(model.get('interface')) is not int
                 or type(preparation.get('interface')) is not int
                 or not required <= hashes.keys()):

@@ -30,6 +30,8 @@ SCALARS = {
     'final_source_sha256', 'busco_lineage', 'busco_dataset_sha256',
     'medaka_model_requested', 'medaka_model_effective', 'medaka_model_sha256',
     'medaka_model_selection', 'medaka_input_metadata_status',
+    'medaka_model_selection_policy', 'medaka_model_selection_reason',
+    'medaka_model_fallback_default', 'medaka_model_fallback_source_commit', 'medaka_model_fallback_medaka_version',
     'medaka_model_review_status', 'medaka_model_review_reason', 'medaka_model_reviewed_model',
     'kraken_selected_target_taxid', 'kraken_selected_target_name',
     'kraken_selected_target_rank', 'kraken_selected_target_source',

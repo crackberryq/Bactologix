@@ -122,7 +122,8 @@ class Store:
 
     def put(self, kind, key, value):
         guarded = kind in {'samples', 'runs', 'installs', 'configs', 'database_locations',
-                           'database_downloads', 'reports', 'report_refreshes', 'run_visibility'} or kind == 'settings'
+                           'database_downloads', 'database_builds', 'reference_packages',
+                           'reports', 'report_refreshes', 'run_visibility'} or kind == 'settings'
         if guarded:
             with activity(self):
                 return self._put(kind, key, value)
@@ -179,7 +180,7 @@ class Store:
                        ('active-' + item['tool'], json.dumps(key)))
 
     def submit(self, kind, payload):
-        with (exclusive(self) if kind == 'storage_cleanup' else activity(self)):
+        with (exclusive(self) if kind in {'storage_cleanup', 'factory_reset'} else activity(self)):
             return self._submit(kind, payload)
 
     def _submit(self, kind, payload):
@@ -193,7 +194,7 @@ class Store:
                 state = json.loads(session[0]) if session else {}
                 if state.get('phase') != 'ready' or time.time() - state.get('last_seen', 0) > 30:
                     raise ValueError('This desktop session is closing or disconnected. Reopen Bactologix before starting work.')
-            if kind in {'check', 'environments', 'database_download'} and payload.get('installation'):
+            if kind in {'check', 'environments', 'database_download', 'database_redownload'} and payload.get('installation'):
                 if not db.execute("SELECT 1 FROM items WHERE kind='installs' AND id=?", (payload['installation'],)).fetchone():
                     raise ValueError('This installation was removed. Refresh before starting maintenance.')
             if kind == 'workflow':
@@ -205,7 +206,7 @@ class Store:
                 raise ValueError('Finish or cancel queued/running jobs before exporting an isolate snapshot.')
             if any(row[0] == 'isolate_export' for row in pending):
                 raise ValueError('An isolate export is queued or running. Finish or cancel it before starting other work.')
-            if kind == 'storage_cleanup' and pending:
+            if kind in {'storage_cleanup', 'factory_reset'} and pending:
                 raise ValueError('Finish or cancel queued/running jobs before deleting stored data.')
             if any(row[0] == "app_update" for row in pending):
                 raise ValueError("A Bactologix update is queued or running. Wait for it to finish and restart the app.")
@@ -224,9 +225,11 @@ class Store:
                 active = db.execute("SELECT payload FROM jobs WHERE kind='workflow' AND status IN ('queued','running')").fetchall()
                 if any(json.loads(row[0]).get("run_id") == payload["run_id"] for row in active):
                     raise ValueError("This run already has a queued or active job")
-            if kind == "database_download":
-                active = db.execute("SELECT payload FROM jobs WHERE kind='database_download' AND status IN ('queued','running')").fetchall()
-                if any(json.loads(row[0]).get("id") == payload["id"] for row in active):
+            if kind in {"database_download", "database_redownload"}:
+                active = db.execute("SELECT payload FROM jobs WHERE kind IN ('database_download','database_redownload') AND status IN ('queued','running')").fetchall()
+                if any(json.loads(row[0]).get("id") == payload["id"] or
+                       (json.loads(row[0]).get('tool'), json.loads(row[0]).get('resource')) ==
+                       (payload.get('tool'), payload.get('resource')) for row in active):
                     raise ValueError("This database download is already queued or running")
             db.execute("INSERT INTO jobs(id,kind,payload,status,created) VALUES (?,?,?,'queued',?)",
                        (jid, kind, json.dumps(payload), now()))

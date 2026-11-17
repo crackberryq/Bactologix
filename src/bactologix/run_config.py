@@ -23,7 +23,8 @@ for _managed in MANAGED.values():
 OPTIONS = {
     'micpscope': {},
     'hybas': {'aware_mode': ['legacy', 'off', 'taxonomy', 'auto', 'split'], 'aware_run_until': ['assembly', 'aware'], 'kraken_decision_mode': ['off', 'manual', 'auto', 'aware'],
-              'polish_mode': ['none', 'racon', 'medaka', 'tripolish']},
+              'polish_mode': ['none', 'racon', 'medaka', 'tripolish'],
+              'medaka_model_selection_policy': ['documented_default', 'strict']},
     'basis': {'resources.policy': ['auto', 'manual'],
               'deep.aware.preset': ['auto-strict', 'auto-medium', 'auto-loose']},
 }
@@ -68,6 +69,7 @@ LABELS = {
     'run_busco': 'Run BUSCO', 'run_prokka': 'Run Prokka', 'run_multiqc': 'Run MultiQC',
     'run_polypolish': 'Run Polypolish', 'polish_mode': 'Polishing strategy',
     'medaka_model': 'Medaka model ID or file',
+    'medaka_model_selection_policy': 'When Medaka cannot detect a matching model',
     'medaka_model_review_acknowledged': 'Acknowledge unmatched Medaka model review',
     'medaka_model_review_reason': 'Medaka model review reason',
     'medaka_model_reviewed_model': 'Medaka model recorded for this review',
@@ -87,7 +89,8 @@ HELP = {
     'run_kraken': 'Switching off also sets the decision mode to Off. Switching on from Off selects AWARE.',
     'kraken_decision_mode': 'Off skips Kraken. Manual, Auto and AWARE enable it. The pipeline keeps its existing decision rules.',
     'polish_mode': 'Available modes come from HybAs AWARE. The native dry-run checks compatibility with the selected read modes.',
-    'medaka_model': 'Blank requests automatic selection from ONT basecaller metadata. Unsupported metadata requires an explicit reviewed model decision; no model is recommended here. An explicit model does not establish scientific suitability.',
+    'medaka_model': 'An explicit model takes precedence. Blank requests selection from ONT basecaller metadata; fallback is available only when the selected source exposes its documented-default policy. An explicit or default model does not establish scientific suitability.',
+    'medaka_model_selection_policy': 'Documented default: if metadata is absent or its single basecaller is unsupported, use the pinned Medaka version’s documented default and record the reason. Strict: stop for a model decision. Mixed/incomplete metadata and execution errors never trigger fallback.',
     'medaka_model_review_acknowledged': 'Requires a reviewed Dev model-selection contract. Records your decision to use an explicit model without a matching installed mapping; it does not establish scientific suitability. Older frozen workflows cannot use this control.',
     'medaka_model_review_reason': 'Document why this explicit model is being used and the supporting evidence or research purpose. Requires the reviewed Dev model-selection contract; it never selects a model automatically.',
     'db_root': 'Your saved database layout is inherited. Use an absolute path when choosing another root.',

@@ -246,6 +246,11 @@ def _hybas(n):
         if 'medaka' in decisions.get('executed_stages', []):
             polishing.append('The recorded effective Medaka model was ' + _text(decisions.get('medaka_model_effective')) +
                              '; the requested model setting is retained separately.')
+            if decisions.get('medaka_model_selection') == 'fallback':
+                polishing.append('The documented Medaka ' + _text(decisions.get('medaka_model_fallback_medaka_version')) +
+                                 ' default was used because ' + _text(decisions.get('medaka_model_selection_reason')) +
+                                 ' (upstream source ' + _text(decisions.get('medaka_model_fallback_source_commit')) +
+                                 '). This fallback does not establish that the model matches these reads or validate its accuracy.')
             if decisions.get('medaka_model_review_status'):
                 polishing.append('The recorded installed-mapping assessment was ' + _text(decisions['medaka_model_review_status']) +
                                  '; mapping compatibility does not establish model suitability.')

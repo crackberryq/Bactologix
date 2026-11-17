@@ -253,6 +253,9 @@ def test_download_failure_resume_and_explicit_selection(installed, tmp_path):
     assert saved['status'] == 'completed'
     assert saved['workflow_sha256'] == m.tree_digest(Path(saved['folder']) / 'workflow')
     assert store.get('configs', 'hybas') == 'custom: preserved\n'
+    with pytest.raises(ValueError, match='job to finish successfully'):
+        dispatch(store, 'use_downloaded_database', {'id': payload['id']})
+    store.update_job(retry.job['id'], status='succeeded')
     chosen = dispatch(store, 'use_downloaded_database', {'id': payload['id']})
     assert chosen['database_check']['path'] == str(Path(payload['destination']) / 'standard')
     assert store.get('configs', 'hybas') == 'custom: preserved\n'

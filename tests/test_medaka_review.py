@@ -129,3 +129,62 @@ def test_source_symlink_escape_rejected_even_with_matching_hash(tmp_path, monkey
     path.unlink(); path.symlink_to(outside)
     with pytest.raises(ValueError, match='source identity changed'):
         medaka_review.require_adapter(None, 'hybas', 'fixture', {'medaka_model_review_acknowledged': False}, tmp_path / 'source')
+
+
+def fallback_source(root, monkeypatch):
+    row = reviewed_source(root, monkeypatch)
+    row['medaka_model_review'] = medaka_review.FALLBACK_CONTRACT
+    path = root / medaka_review.CONTRACT['capability']
+    doc = json.loads(path.read_text())
+    doc.update(version=2, configuration_fields=sorted(medaka_review.FIELDS | {'medaka_model', medaka_review.POLICY_FIELD}),
+               automatic_fallback=medaka_review.FALLBACK, selection_policies=['strict', 'documented_default'],
+               missing_policy='strict', new_draft_policy='documented_default',
+               selection_precedence=['explicit', 'exact_installed_mapping', 'documented_default'],
+               fallback_eligible=['basecaller_metadata_absent', 'basecaller_model_unsupported'],
+               fallback_excluded=['mixed_metadata', 'incomplete_metadata', 'installed_mapping_unavailable',
+                                  'resolution_failure', 'runtime_failure', 'invalid_reads'])
+    path.write_text(json.dumps(doc))
+    row['files_sha256'][medaka_review.CONTRACT['capability']] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return row
+
+
+def test_documented_fallback_only_for_version_two_source(tmp_path, monkeypatch):
+    reviewed_source(tmp_path, monkeypatch)
+    cfg = {medaka_review.POLICY_FIELD: 'documented_default'}
+    with pytest.raises(ValueError, match='does not support'):
+        medaka_review.require_adapter(None, 'hybas', 'fixture', cfg, tmp_path)
+    fallback_source(tmp_path, monkeypatch)
+    assert medaka_review.require_adapter(None, 'hybas', 'fixture', cfg, tmp_path) == 2
+
+
+@pytest.mark.parametrize('change', [
+    {'automatic_fallback': dict(medaka_review.FALLBACK, model='different-default')},
+    {'automatic_fallback': dict(medaka_review.FALLBACK, options_sha256='0' * 64)},
+    {'fallback_eligible': ['runtime_failure']},
+    {'missing_policy': 'documented_default'},
+    {'selection_precedence': ['documented_default', 'explicit', 'exact_installed_mapping']},
+])
+def test_checked_source_cannot_redefine_fallback_contract(tmp_path, monkeypatch, change):
+    row = fallback_source(tmp_path, monkeypatch)
+    path = tmp_path / medaka_review.CONTRACT['capability']
+    doc = json.loads(path.read_text()); doc.update(change); path.write_text(json.dumps(doc))
+    row['files_sha256'][medaka_review.CONTRACT['capability']] = hashlib.sha256(path.read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match='fallback capability is invalid'):
+        medaka_review.require_adapter(None, 'hybas', 'fixture', {medaka_review.POLICY_FIELD: 'documented_default'}, tmp_path)
+
+
+def test_new_draft_offers_fallback_but_saved_run_keeps_strict(workspace, installation, tmp_path, monkeypatch):
+    from pathlib import Path
+    import yaml
+    fallback_source(Path(installation['source']), monkeypatch)
+    original = template('hybas')
+    workspace.put('configs', 'hybas', original)
+    new = yaml.safe_load(medaka_review.editor_text(workspace, 'hybas', original))
+    assert new[medaka_review.POLICY_FIELD] == 'documented_default'
+    run = {'commit': installation['version']['commit'], 'folder': str(tmp_path / 'saved-run')}
+    fallback_source(Path(run['folder']) / 'workflow', monkeypatch)
+    revised = yaml.safe_load(medaka_review.editor_text(workspace, 'hybas', original, run=run))
+    assert revised[medaka_review.POLICY_FIELD] == 'strict'
+    explicit = yaml.safe_dump({medaka_review.POLICY_FIELD: 'documented_default'})
+    assert yaml.safe_load(medaka_review.editor_text(workspace, 'hybas', explicit, run=run))[medaka_review.POLICY_FIELD] == 'documented_default'
+    assert workspace.get('configs', 'hybas') == original
