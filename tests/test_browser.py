@@ -1,5 +1,6 @@
 """Real Chromium -> Streamlit -> SQLite checks, enabled in the browser CI job."""
 import os
+import hashlib
 from pathlib import Path
 import socket
 import shutil
@@ -73,17 +74,37 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
     workspace = tmp_path / 'workspace'
     store = Store(workspace)
     for tool, recipe in [('hybas', 'workflow/envs/qc.yml'), ('basis', 'envs/diamond.yml')]:
+        commit = PIPELINES[tool]['commit']
         if tool == 'hybas':
             source = Path(os.environ['BACTOLOGIX_HYBAS_SOURCE'])
         else:
             source = tmp_path / (tool + '-ui-fixture')
             (source / recipe).parent.mkdir(parents=True)
             (source / recipe).write_text('dependencies: [python=3.11]\n')
+            # Exercise the actual capability gate with a reviewed, clean source;
+            # a ready flag alone must not authorize database preparation.
+            (source / 'BaSIS.smk').write_text('rule all:\n    input: []\n')
+            (source / 'environment.yml').write_text('dependencies: [python=3.11, snakemake=9.6.2]\n')
+            subprocess.run(['git', 'init', '-q', str(source)], check=True)
+            subprocess.run(['git', '-C', str(source), 'add', '.'], check=True)
+            subprocess.run(['git', '-C', str(source), '-c', 'user.name=Test',
+                            '-c', 'user.email=test@localhost', 'commit', '-qm', 'browser software fixture'], check=True)
+            commit = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
+            from test_release_contract import review
+            contract = review()
+            contract.update(commit=commit, database_downloads=1,
+                files_sha256={name: hashlib.sha256((source / name).read_bytes()).hexdigest()
+                              for name in ('BaSIS.smk', 'environment.yml')})
+            store.put('release_approvals', 'basis:' + commit, contract)
         runner = tmp_path / (tool + '-runner-fixture')
-        runner.mkdir()
+        (runner / 'bin').mkdir(parents=True)
+        for name in ('python', 'snakemake'):
+            command = runner / 'bin' / name
+            command.write_text('#!/bin/sh\nexit 0\n')
+            command.chmod(0o755)
         item = {'id': tool + '-ui-fixture', 'tool': tool, 'source': str(source),
                 'controller': str(runner), 'ready': True,
-                'version': {'commit': PIPELINES[tool]['commit'], 'ref': 'Browser UI fixture'}}
+                'version': {'commit': commit, 'ref': 'Browser UI fixture'}}
         store.put('installs', item['id'], item)
         store.put('settings', 'active-' + tool, item['id'])
     old_cache = tmp_path / 'previous-environments'
@@ -100,6 +121,9 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
     conda.write_text('#!/bin/sh\nexit 1\n')
     conda.chmod(0o755)
     store.put('settings', 'conda', str(conda))
+    from bactologix.maintenance import download_capability
+    capability = download_capability(store.get('installs', 'basis-ui-fixture'), store)
+    assert capability['available'], capability['reason']
     download = tmp_path / 'download destination with spaces'
     download.mkdir()
     card = download / 'card'
