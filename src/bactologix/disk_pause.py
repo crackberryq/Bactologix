@@ -6,8 +6,8 @@ import threading
 import time
 import uuid
 from .disk_capacity import CapacityProbe
-from .disk_process import OwnedTree, OwnerWatch, SuspensionError
-from .store import now
+from .disk_process import OwnedTree, OwnerWatch, ProcessOwner, SuspensionError
+from .store import CONTROL_TIMEOUT, now
 
 GIB = 1024 ** 3
 PAUSE_BYTES, RESUME_BYTES, WARNING_BYTES = 10 * GIB, 15 * GIB, 20 * GIB
@@ -36,7 +36,7 @@ def snapshot(store, jid):
 def request_resume(store, jid, expected_generation):
     if isinstance(expected_generation, bool) or not isinstance(expected_generation, int):
         raise ValueError('Refresh the run before requesting resume.')
-    with store.connect() as db:
+    with store.connect(timeout=CONTROL_TIMEOUT) as db:
         db.execute('BEGIN IMMEDIATE')
         job = db.execute('SELECT * FROM jobs WHERE id=?', (jid,)).fetchone()
         saved = db.execute("SELECT body FROM items WHERE kind='disk_safety' AND id=?", (jid,)).fetchone()
@@ -117,7 +117,7 @@ class Samples:
         self.wake.set()
 
 
-class Guard:
+class Guard(ProcessOwner):
     def __init__(self, store, job, check_cancel, write, *, initial_env=None):
         self.store, self.job = store, job
         self.check_cancel, self.write = check_cancel, write
@@ -195,7 +195,7 @@ class Guard:
                     self.resume_nonce, self.resume_after = request.get('nonce'), time.monotonic()
                     self.samples.wake.set()
                 elif completed > self.resume_after:
-                    with self.store.connect() as db:
+                    with self.store.connect(timeout=CONTROL_TIMEOUT) as db:
                         db.execute("DELETE FROM items WHERE kind='disk_safety_requests' AND id=?", (self.job['id'],))
                     if ready:
                         self.check_cancel()
@@ -223,22 +223,6 @@ class Guard:
     def signal(self, sig):
         if self.tree is not None:
             self.tree.signal(sig)
-
-    def detach(self, failed=False):
-        tree, watch = self.tree, self.watch
-        clean = False
-        try:
-            if tree is not None:
-                remaining = tree.refresh()
-                if remaining:
-                    tree.kill()
-                    if not failed:
-                        raise SuspensionError('The command exited while owned child processes remained; stopped remaining work. Review the log before continuing.')
-                clean = not remaining
-        finally:
-            self.tree, self.watch = None, None
-            if watch is not None:
-                watch.close(clean=clean)
 
     def finish(self, result):
         self.samples.close()

@@ -1,12 +1,14 @@
 """One OS lock serializes setup, native workflows and shared environment writes."""
 import argparse
 import fcntl
+import sqlite3
 import time
 import traceback
 from .store import Store, now
 from .engine import Cancelled, Context, execute
 from .runtime import environment_lock
 from .updates import assert_current
+from .supervision import MonitoringInterrupted
 
 
 def work(store, desktop_owner=None):
@@ -40,6 +42,7 @@ def work(store, desktop_owner=None):
             idle = 0
             processed = True
             ctx = Context(store, job, lock.fileno())
+            status = 'running'
             try:
                 ctx.check_cancel()
                 ctx.write("Bactologix started " + now())
@@ -48,21 +51,34 @@ def work(store, desktop_owner=None):
                     assert_current(store)
                     execute(ctx)
                 ctx.check_cancel()
+                status = 'succeeded'
                 store.update_job(job["id"], status="succeeded", finished=now())
             except Cancelled as exc:
                 ctx.write(str(exc))
+                status = 'cancelled'
                 store.update_job(job["id"], status="cancelled", finished=now(), error=str(exc))
+            except (MonitoringInterrupted, sqlite3.Error) as exc:
+                ctx.write(str(exc))
+                confirmed = getattr(exc, 'cleanup_confirmed', True)
+                status = 'interrupted' if confirmed else 'running'
+                ctx.monitor_state('interrupted', str(exc), cleanup_confirmed=confirmed)
+                from .queue import monitoring_interrupted
+                monitoring_interrupted(store, job['id'], str(exc), confirmed)
             except Exception as exc:
                 ctx.write(traceback.format_exc())
+                status = 'failed'
                 store.update_job(job["id"], status="failed", finished=now(), error=str(exc))
             finally:
                 try:
-                    status = store.job(job["id"])["status"]
                     if ctx.disk_guard is not None:
                         ctx.disk_guard.finish(status)
                     ctx.observe("finish", status)
                 finally:
                     ctx.log.close()
+            if status in {'interrupted', 'running'}:
+                # Never progress the queue after monitoring loss. Recovery checks
+                # native identities and pauses the queue before any future claim.
+                return
             if job["kind"] == "app_update":
                 # Never claim more work with modules loaded before pip replaced them.
                 return

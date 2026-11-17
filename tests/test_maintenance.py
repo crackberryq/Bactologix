@@ -1,5 +1,6 @@
 """Administrative software fixtures: no biological analyses or data downloads."""
 import json
+import hashlib
 from pathlib import Path
 import subprocess
 
@@ -21,14 +22,30 @@ def installed(tmp_path, monkeypatch):
         (envs / (name + '.yml')).write_text('channels: [conda-forge]\ndependencies: [python=3.11]\n')
         (envs / (name + '.post-deploy.sh')).write_text('#!/bin/bash\nset -eu\npython --version\n')
     (source / 'Hybas.smk').write_text('rule all:\n    input: []\n')
+    (source / 'environment.yaml').write_text('dependencies: [python=3.11, snakemake=9.6.2]\n')
     subprocess.run(['git', 'init', '-q', str(source)], check=True)
     subprocess.run(['git', '-C', str(source), 'add', '.'], check=True)
     subprocess.run(['git', '-C', str(source), '-c', 'user.name=Test', '-c', 'user.email=test@localhost', 'commit', '-qm', 'fixture'], check=True)
     commit = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
     monkeypatch.setitem(PIPELINES['hybas'], 'commit', commit)
     monkeypatch.setattr(m, 'find_conda', lambda _: '/fixture/conda')
-    item = {'id': 'fixture-install', 'tool': 'hybas', 'source': str(source), 'controller': '/fixture/runner',
+    controller = tmp_path / 'runner'
+    (controller / 'bin').mkdir(parents=True)
+    for name in ('python', 'snakemake'):
+        path = controller / 'bin' / name
+        path.write_text('#!/bin/sh\nexit 0\n')
+        path.chmod(0o755)
+    item = {'id': 'fixture-install', 'tool': 'hybas', 'source': str(source), 'controller': str(controller),
             'ready': True, 'rule_cache': str(tmp_path / 'tool-cache'), 'version': {'commit': commit, 'ref': 'fixture'}}
+    store.put('release_approvals', 'hybas:' + commit, {
+        'tool': 'hybas', 'repository': PIPELINES['hybas']['repo'], 'commit': commit,
+        'tag': 'fixture', 'channel': 'stable', 'adapter_interface': 1, 'configuration_schema': 'hybas-v1',
+        'entry_points': {'workflow': 'Hybas.smk', 'environment': 'environment.yaml'},
+        'runner': {'python': '3.11', 'snakemake': '9.6.2'}, 'tested': True,
+        'test_run': 'https://github.com/crackberryq/Bactologix/actions/runs/40906609530',
+        'database_downloads': 1,
+        'files_sha256': {name: hashlib.sha256((source / name).read_bytes()).hexdigest()
+                         for name in ('Hybas.smk', 'environment.yaml')}})
     store.put('installs', item['id'], item)
     store.put('settings', 'active-hybas', item['id'])
     return store, item
@@ -40,6 +57,7 @@ class FakeContext:
         jid = store.submit(kind, payload)
         self.job = store.job(jid)
         self.calls = []
+        self.command_envs = []
         self.output = []
 
     def write(self, text):
@@ -48,8 +66,9 @@ class FakeContext:
     def check_cancel(self):
         pass
 
-    def command(self, argv, cwd=None, stdout=None):
+    def command(self, argv, cwd=None, stdout=None, extra_env=None):
         self.calls.append(argv)
+        self.command_envs.append(extra_env)
         if stdout is not None:
             item = self.store.get('installs', self.job['payload']['installation'])
             stdout.write('environment\tcontainer\tlocation\n')

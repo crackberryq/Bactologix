@@ -202,7 +202,7 @@ def job_guidance(store, job):
          'Open the saved run and check its environment cache. Install environments only when you choose to, then review the run before retrying.'),
         ('dependencies', r"(?:AttributeError[^\n]*create_2d_density|(?:ModuleNotFoundError|ImportError):[^\n]*(?:plotly|kaleido)|ValueError[^\n]*kaleido)",
          'A plotting dependency may be incompatible',
-         'Open pipeline setup and Check environments to verify the installed packages and rendering. Repair environments offers the supported NanoPlot/MultiQC workaround only when its exact package conditions match.'),
+         'Open pipeline setup and Check environments to verify package compatibility and actual HTML/PNG rendering. NanoPlot 1.46.2 and MultiQC 1.32 require separate environments; use a reviewed pipeline version with compatible recipes and explicitly provision its required browser.'),
         ('databases', r'(?:database[^\n]{0,180}(?:missing|not found)|(?:BUSCO|Kraken)[^\n]{0,180}(?:missing|not found))',
          'Check the database location used by this run',
          'Review the frozen database paths. If you selected a new location, apply it to a revised draft and validate that draft.'),

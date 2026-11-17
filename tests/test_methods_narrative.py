@@ -70,6 +70,22 @@ def test_native_stages_models_and_final_producer():
     assert 'effective Medaka model was Not recorded' in prose(args)
 
 
+def test_medaka_review_is_a_recorded_decision_not_model_validation():
+    args = fixture()
+    args[1]['evidence']['decisions'] = {
+        'executed_stages': ['medaka'], 'medaka_model_effective': 'explicit-model',
+        'medaka_model_review_status': 'unsupported_basecaller',
+        'medaka_model_review_acknowledged': True,
+        'medaka_model_reviewed_model': 'explicit-model',
+        'medaka_model_review_reason': 'Comparative engineering evaluation'}
+    text = prose(args)
+    assert 'unsupported_basecaller' in text
+    assert 'Comparative engineering evaluation' in text
+    assert 'not validation of model accuracy' in text
+    args[1]['evidence_origin'] = 'Legacy output metadata read at export'
+    assert 'An explicit model review was acknowledged' not in prose(args)
+
+
 @pytest.mark.parametrize('change',['legacy','failed_latest','identity_missing'])
 def test_unattributable_metadata_never_asserts_execution(change):
     args=fixture(); args[1]['evidence']['decisions']={'executed_stages':['racon1'],'assembler':'unicycler'}

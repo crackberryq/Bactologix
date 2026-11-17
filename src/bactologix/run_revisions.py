@@ -37,8 +37,10 @@ def signature(run):
 
 def editor(store, rid):
     run = source(store, rid)
+    from .medaka_review import editor_text
+    text = editor_text(store, run['tool'], run['config'], run=run)
     return {'edit_run': {k: run[k] for k in ('id', 'tool', 'sample', 'label', 'cores', 'memory_mb')}
-            | {'signature': signature(run), 'swap_mb': compute_memory.policy(run)['swap_mb']}, 'run_config': run_config.editor(run['tool'], run['config']),
+            | {'signature': signature(run), 'swap_mb': compute_memory.policy(run)['swap_mb']}, 'run_config': run_config.editor(run['tool'], text),
             'run_config_view': 'settings', 'keep_modal': True}
 
 

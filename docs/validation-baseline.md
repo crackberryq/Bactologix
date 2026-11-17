@@ -8,14 +8,14 @@ another combination.
 
 ## Dev source baseline
 
-This document records the **Bactologix 0.1.0a106.dev1** development baseline.
+This document records the **Bactologix 0.1.0a107.dev1** development baseline.
 Record the installed application version and the exact commit resolved by its
 published release tag in your validation record. Keep Dev testing separate from
 [the current-channel baseline](https://github.com/crackberryq/Bactologix/blob/main/docs/validation-baseline.md).
 
 | Pipeline | Dev source candidate |
 | --- | --- |
-| HybAs | 10.0.0a4 — `7cbd29d942a3d70bc1f6c7be176a75ce4bb7f2a8` |
+| HybAs | 10.0.0a5 — `73fe6c3e9baec2694e4f863153b6a3e6872df610` |
 | BaSIS | 0.4.0a8 — `7c293d36a633a726424d544c6ffc39824537ebe4` |
 | GeneScope | 0.1.0a18 — `28bf38c44eb07fe8e4865f67d59ef6b4028f51dc` |
 
@@ -23,6 +23,8 @@ The native-retention review used Flye **2.9.6** (Dev) at upstream commit
 `886b8c17412cdf3a2868a28237bca6c5ad1da156` and BUSCO **6.0.0** at upstream commit
 `6278721a1916f6da310e03ec9674099028c927a4`. The pipeline's retention adapter checks
 its reviewed package sources; other versions require a new compatibility review.
+
+HybAs 10.0.0a5 requires Bactologix 0.1.0a107.dev1 or a later compatible Dev application. Its adapter interface prevents older clients from selecting the new setup controls through a catalog refresh; their existing approvals remain available. Update the application before installing this pipeline.
 
 These identify source code only. They do not freeze your computer's installed
 packages, databases or models. Older saved runs retain their original workflow;

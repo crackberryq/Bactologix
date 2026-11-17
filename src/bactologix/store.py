@@ -6,9 +6,23 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import time
 import uuid
 from platformdirs import user_data_dir
 from .storage_guard import activity, exclusive, mutation
+
+CONTROL_TIMEOUT = .05
+CONTROL_BACKOFF = (.05, .1, .2)
+CONTROL_ITEMS = {'disk_safety', 'disk_safety_requests', 'job_telemetry', 'job_usage_history',
+                 'desktop_sessions', 'desktop_browser', 'job_owners', 'processes'}
+
+
+def transient_lock(exc):
+    code = getattr(exc, 'sqlite_errorcode', None)
+    if code is not None:
+        return (code & 0xff) in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED, sqlite3.SQLITE_PROTOCOL}
+    # Exact fallback also supports Python/SQLite builds without error-code metadata.
+    return str(exc).lower() in {'database is locked', 'database table is locked', 'locking protocol'}
 
 
 def now():
@@ -51,14 +65,60 @@ class Store:
             """)
 
     @contextmanager
-    def connect(self):
-        db = sqlite3.connect(self.home / "workspace.sqlite3", timeout=30)
+    def connect(self, *, timeout=30):
+        db = sqlite3.connect(self.home / "workspace.sqlite3", timeout=timeout)
         db.row_factory = sqlite3.Row
         try:
             with db:
                 yield db
         finally:
             db.close()
+
+    def control_read(self, reader, on_retry=None):
+        """Retry a complete read transaction, never a partially committed write.
+
+        Four short attempts keep cancellation and disk checks within their normal
+        polling budget; the ordinary 30-second database timeout is unsuitable here.
+        """
+        from .supervision import MonitoringInterrupted
+        for attempt in range(len(CONTROL_BACKOFF) + 1):
+            try:
+                with self.connect(timeout=CONTROL_TIMEOUT) as db:
+                    db.execute('BEGIN')
+                    return reader(db)
+            except sqlite3.Error as exc:
+                retry = transient_lock(exc) and attempt < len(CONTROL_BACKOFF)
+                if on_retry is not None:
+                    on_retry(exc, attempt + 1)
+                if not retry:
+                    raise MonitoringInterrupted('Execution monitoring lost access to workspace control data: ' + str(exc)) from exc
+                time.sleep(CONTROL_BACKOFF[attempt])
+            except (ValueError, TypeError) as exc:
+                raise MonitoringInterrupted('Workspace control metadata could not be read: ' + str(exc)) from exc
+
+    def control_state(self, jid, on_retry=None):
+        def read(db):
+            job = db.execute('SELECT kind,status,cancel FROM jobs WHERE id=?', (jid,)).fetchone()
+            if job is None:
+                from .supervision import MonitoringInterrupted
+                raise MonitoringInterrupted('Execution monitoring cannot find its saved job.')
+            if job['kind'] == 'app_update':
+                return dict(job, owner=None, session=None)
+            row = db.execute("SELECT body FROM items WHERE kind='job_owners' AND id=?", (jid,)).fetchone()
+            owner = json.loads(row[0]) if row else None
+            if row and (not isinstance(owner, str) or not owner):
+                raise ValueError('Invalid desktop owner identity')
+            row = db.execute("SELECT body FROM items WHERE kind='desktop_sessions' AND id=?", (owner,)).fetchone() if owner else None
+            session = json.loads(row[0]) if row else None
+            if row and not isinstance(session, dict):
+                raise ValueError('Invalid desktop session metadata')
+            return dict(job, owner=owner, session=session)
+        return self.control_read(read, on_retry)
+
+    def put_process(self, jid, value):
+        """Bounded control bookkeeping; never delay the disk watchdog for 30s."""
+        with self.connect(timeout=CONTROL_TIMEOUT) as db:
+            db.execute("INSERT INTO items VALUES ('processes',?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body", (jid, json.dumps(value)))
 
     def put(self, kind, key, value):
         guarded = kind in {'samples', 'runs', 'installs', 'configs', 'database_locations',
@@ -77,12 +137,17 @@ class Store:
             if kind == 'settings' and key == 'conda' and value:
                 if Path(value).resolve() != (self.home / 'tools/miniforge/bin/conda').resolve():
                     raise ValueError('Dev uses only its dedicated Conda installation.')
-        with self.connect() as db:
+        with self.connect(timeout=CONTROL_TIMEOUT if kind in CONTROL_ITEMS else 30) as db:
             db.execute("INSERT INTO items VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body",
                        (kind, key, json.dumps(value)))
         return value
 
     def get(self, kind, key, default=None):
+        if kind in CONTROL_ITEMS:
+            def read(db):
+                row = db.execute("SELECT body FROM items WHERE kind=? AND id=?", (kind, key)).fetchone()
+                return json.loads(row[0]) if row else default
+            return self.control_read(read)
         with self.connect() as db:
             row = db.execute("SELECT body FROM items WHERE kind=? AND id=?", (kind, key)).fetchone()
         return json.loads(row[0]) if row else default
@@ -210,12 +275,22 @@ class Store:
             return snapshot(db)
 
     def cancel(self, jid):
-        with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT kind,status FROM jobs WHERE id=?", (jid,)).fetchone()
-            if row and row[0] == "app_update" and row[1] == "running":
-                raise ValueError("An application update cannot be cancelled while it is installing. Wait for its result.")
-            db.execute("UPDATE jobs SET cancel=1,status=CASE WHEN status='queued' THEN 'cancelled' ELSE status END WHERE id=? AND status IN ('queued','running')", (jid,))
+        # This mutation is idempotent. Retry its entire short transaction only
+        # after connect() has rolled back and closed the failed attempt. Re-read
+        # status each time: a queued application update may now be installing.
+        for attempt in range(len(CONTROL_BACKOFF) + 1):
+            try:
+                with self.connect(timeout=CONTROL_TIMEOUT) as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    row = db.execute("SELECT kind,status FROM jobs WHERE id=?", (jid,)).fetchone()
+                    if row and row[0] == "app_update" and row[1] == "running":
+                        raise ValueError("An application update cannot be cancelled while it is installing. Wait for its result.")
+                    db.execute("UPDATE jobs SET cancel=1,status=CASE WHEN status='queued' THEN 'cancelled' ELSE status END WHERE id=? AND status IN ('queued','running')", (jid,))
+                return
+            except sqlite3.Error as exc:
+                if not transient_lock(exc) or attempt >= len(CONTROL_BACKOFF):
+                    raise
+                time.sleep(CONTROL_BACKOFF[attempt])
 
     def log_path(self, jid):
         if not jid.startswith("job-") or not jid[4:].isalnum():

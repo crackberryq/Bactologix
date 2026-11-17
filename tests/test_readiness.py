@@ -30,7 +30,7 @@ def test_checks_do_not_claim_full_readiness_or_mutate_defaults(workspace, instal
     states = {row['id']: row['state'] for row in panel['rows']}
     assert {k: v for k, v in states.items() if k not in {'destinations', 'storage', 'resources'}} == {'inputs': 'Unchanged', 'pipeline': 'Setup recorded',
                       'configuration': 'Validation needed', 'databases': 'Frozen in this draft',
-                      'environments': 'Check this run’s cache'}
+                      'environments': 'Check this run’s cache', 'kraken_memory': 'Size unavailable'}
     run['dry_run_ok'] = True
     assert r.panel(workspace, run)['next'] == 'check-environments'
     assert workspace.get('runs', run['id']) == original

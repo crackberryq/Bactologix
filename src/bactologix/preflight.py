@@ -1,15 +1,88 @@
-"""Bounded, read-only host checks. These are not estimates of analysis requirements."""
+"""Bounded, read-only host checks with explicitly labelled database estimates."""
 from __future__ import annotations
 
 import os
 from pathlib import Path
 import shutil
+import stat
 
 from . import compute_memory, hardware
 from .runs import parse_config
 from .store import now
 
 MIB = 1024 ** 2
+
+
+def kraken_memory(run, info):
+    """Stat only the three native Kraken index files; never read or scan a DB."""
+    if run.get('tool') != 'hybas':
+        return None
+    cfg = parse_config(run['config'])
+    if (str(cfg.get('run_kraken', True)).lower() in {'false', '0', 'no', 'off'}
+            or str(cfg.get('kraken_decision_mode', 'manual')).lower() == 'off'):
+        return None
+    result = {'level': 'pending', 'state': 'Size unavailable'}
+    try:
+        # Mirror native HybAs BASE_DIR/db_root/kraken_db_name joining. Saved
+        # Bactologix drafts normally bind db_root to an absolute resource alias.
+        base = Path(str(cfg.get('base_dir', '.'))).expanduser()
+        if not base.is_absolute():
+            base = Path(run['folder']) / 'workflow' / base
+        selected = base / str(cfg.get('db_root', 'db')) / str(cfg.get('kraken_db_name', 'standard'))
+        resolved = selected.resolve(strict=True)
+        files = []
+        for name in ('hash.k2d', 'opts.k2d', 'taxo.k2d'):
+            target = (resolved / name).resolve(strict=True)
+            measured = target.stat()
+            if not stat.S_ISREG(measured.st_mode) or measured.st_size <= 0:
+                raise ValueError(name + ' is not a nonempty regular index file')
+            files.append({'name': name, 'resolved_path': str(target), 'bytes': measured.st_size})
+        total = sum(item['bytes'] for item in files)
+        estimate = int(total / MIB * 1.2) + 1024
+        physical = info.get('memory', {}).get('total_mb')
+        known_ram = isinstance(physical, int) and not isinstance(physical, bool) and physical > 0
+        text = (f'Selected Kraken database: {total / (1024 * MIB):.2f} GiB across its three index files. '
+                f'Estimated full-load requirement with headroom: {estimate / 1024:.2f} GiB '
+                '(file bytes × 1.2 plus 1 GiB). ')
+        level, state = 'info', 'Footprint checked'
+        if known_ram:
+            text += f'Detected physical RAM: {physical / 1024:.2f} GiB. '
+            if total > physical * MIB:
+                level, state = 'warning', 'Database exceeds physical RAM'
+                text += ('An opted-in swap allowance may permit execution, but severe paging and long runtimes '
+                         'are expected with ordinary database loading. ')
+            elif estimate > physical:
+                level, state = 'warning', 'Review memory headroom'
+                text += ('The estimate exceeds physical RAM; paging may substantially slow this run. '
+                         'Swap allowance does not provide RAM-speed access. ')
+        else:
+            level, state = 'pending', 'RAM comparison unavailable'
+            text += 'Physical RAM could not be verified. '
+        text += ('File footprint and headroom are resource estimates, not measured resident memory. '
+                 f'Database alias: {selected}. Resolved folder: {resolved}.')
+        result.update(level=level, state=state, text=text, selected_path=str(selected), resolved_path=str(resolved),
+                      files=files, core_bytes=total, estimated_full_load_mb=estimate,
+                      physical_ram_mb=physical if known_ram else None)
+    except (OSError, ValueError, TypeError, RuntimeError, KeyError) as exc:
+        result['text'] = 'Kraken index size could not be verified: ' + str(exc) + '. Native database checks still apply.'
+    return result
+
+
+def kraken_warnings(run, info):
+    result = kraken_memory(run, info)
+    return [result['text']] if result and result['level'] == 'warning' else []
+
+
+def log_kraken_warnings(ctx, run):
+    """Refresh cheap capacity diagnostics at worker launch without changing policy."""
+    if run.get('tool') != 'hybas':
+        return
+    try:
+        info = hardware.inventory(ctx.store, refresh=True)
+        for warning in kraken_warnings(run, info):
+            ctx.write('Pre-run warning: ' + warning)
+    except (OSError, ValueError, TypeError, RuntimeError, KeyError) as exc:
+        ctx.write('Kraken memory advisory unavailable: ' + str(exc))
 
 
 def destination(path, label):
@@ -129,6 +202,10 @@ def panel(store, run):
                 ' Tool requirements and concurrent memory use still apply.'),
                 'error' if memory_blockers else 'warning' if warnings else 'info', action='budget', inventory_checked_at=info['checked_at'])]
     rows[-1]['checked_at'] = info['checked_at']
+    kraken = kraken_memory(run, info)
+    if kraken:
+        rows.append(row('kraken_memory', 'Kraken database and memory', kraken.pop('state'),
+                        kraken.pop('text'), kraken.pop('level'), action='budget', **kraken))
     return {'rows': rows, 'destinations': locations, 'blocked': bool(invalid or full or memory_blockers)}
 
 

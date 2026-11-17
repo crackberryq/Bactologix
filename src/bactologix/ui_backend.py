@@ -97,11 +97,12 @@ def workspace_label():
 
 
 def snapshot(store):
-    from . import disk_pause, notifications
+    from . import disk_pause, notifications, supervision
     from .queue import reconcile_interrupted
     reconcile_interrupted(store)
     records = {r['id']: r for r in store.all('job_telemetry') if isinstance(r, dict) and 'id' in r}
     jobs = [{**j, "guidance": readiness.job_guidance(store, j),
+             "monitoring": supervision.snapshot(store, j['id']),
              "disk_safety": disk_pause.snapshot(store, j['id']),
              "telemetry": telemetry.view(records.get(j['id']), j)} for j in store.jobs()]
     app_update = updates.status(store)
@@ -162,7 +163,7 @@ def snapshot(store):
             "database_builder": {"available": database_builder.available(store), "starter": database_builder.starter(store), "builds": store.all("database_builds")},
             "database_downloads": [{**d, "job_status": next((j["status"] for j in jobs if j["id"] == d.get("job")), d.get("status"))}
                                    for d in store.all("database_downloads")],
-            "download_options": {t: {"available": maintenance.download_supported(store.get("installs", store.get("settings", "active-" + t)), store),
+            "download_options": {t: {**maintenance.download_panel_capability(store.get("installs", store.get("settings", "active-" + t)), store),
                                       "parent": str(store.home / "resources")}
                                  for t in PIPELINES},
             "citations": {f.name: f.read_text() for f in DATA.glob("CITATION.*")}}
@@ -480,6 +481,16 @@ def dispatch(store, kind, p):
             variants.eligible(store, _item(store, 'runs', p.get('id')))
             response['edit_run']['variant'] = True
         return response
+    if kind == "preview_vfdb_repair":
+        from . import resource_repair
+        return {"resource_repair": resource_repair.preview(store, p.get("id")), "keep_modal": True}
+    if kind == "apply_vfdb_repair":
+        from . import resource_repair
+        child = resource_repair.apply(store, p.get("id"), p.get("signature"))
+        response = dispatch(store, "inspect_run", {"id": child["id"]})
+        response.update(message="Created a revised draft for native VFDB preparation. Validate it before running. The original run is unchanged.",
+                        navigate="runs", open_run=child["id"], keep_modal=False)
+        return response
     if kind in {"inspect_setup_advice", "apply_setup_advice"}:
         from . import setup_advice
         if kind == "apply_setup_advice":
@@ -488,6 +499,9 @@ def dispatch(store, kind, p):
     if kind == "run_config_editor":
         tool = _tool(p)
         text = p.get("text", run_config.defaults(store, tool))
+        if 'text' not in p:
+            from .medaka_review import editor_text
+            text = editor_text(store, tool, text)
         if not isinstance(text, str):
             raise ValueError("Provide configuration as YAML text.")
         text = run_config.compile_config(tool, text, p.get("changes"))
@@ -534,6 +548,10 @@ def dispatch(store, kind, p):
             # retain the ordinary inventory cache and never trigger probes.
             hardware.inventory(store, refresh=True)
         run["database_paths"] = database_runs.paths(store, run)
+        cfg = parse_config(run['config'])
+        vfdb = cfg.get('modules', {}).get('vfdb', {}) if run['tool'] == 'basis' else {}
+        run['has_external_vfdb'] = isinstance(vfdb, dict) and any(
+            vfdb.get(key) for key in ('database', 'reference_fasta', 'metadata', 'database_version'))
         run["readiness"] = readiness.panel(store, run)
         run["settings"] = run_config.editor(run["tool"], run["config"])
         try:
@@ -706,6 +724,11 @@ def dispatch(store, kind, p):
         from . import disk_pause
         if set(p) != {"job_id", "generation"}:
             raise ValueError("Select the current storage pause before resuming.")
+        from .supervision import snapshot as monitoring_snapshot
+        selected_job = store.job(p['job_id']) if isinstance(p['job_id'], str) else None
+        monitor = (monitoring_snapshot(store, selected_job['id']) or {}) if selected_job else {}
+        if monitor.get('state') in {'degraded', 'interrupted', 'unavailable'}:
+            raise ValueError("Storage resume is unavailable while execution monitoring needs attention. Review this attempt's log and status.")
         disk_pause.request_resume(store, p["job_id"], p["generation"])
         return {"message": "Resume requested. Storage will be checked again before the run continues."}
     if kind == "cancel_job":
@@ -716,6 +739,12 @@ def dispatch(store, kind, p):
         job = store.job(p["id"])
         if not job or job["status"] not in {"queued", "running"}:
             raise ValueError("This job is no longer active")
+        from .supervision import snapshot as monitoring_snapshot
+        monitor = monitoring_snapshot(store, job['id']) or {}
+        if job['status'] == 'running' and monitor.get('state') == 'interrupted' and monitor.get('cleanup_confirmed') is not True:
+            raise ValueError("Monitoring was interrupted and native process exit is still unconfirmed. "
+                             "Cleanup was attempted; another stop request cannot restore process ownership. "
+                             "Review this attempt's log. Relaunch and cleanup remain blocked.")
         store.cancel(p["id"])
         return {"message": "Stop requested. The job log will be retained."}
     if kind == "job_metrics":

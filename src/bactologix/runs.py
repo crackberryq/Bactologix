@@ -468,6 +468,8 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
     from .compute_memory import policy, require_adapter as require_memory_adapter
     policy({'memory_mb': memory_mb}, cfg)
     require_memory_adapter(store, tool, installed['version']['commit'], cfg, installed['source'])
+    from .medaka_review import require_adapter as require_medaka_review_adapter
+    require_medaka_review_adapter(store, tool, installed['version']['commit'], cfg, installed['source'])
     if tool == "hybas":
         from .aware_modes import resolve
         cfg = resolve(cfg)
@@ -590,6 +592,8 @@ def validate_launch(store, rid, action, check_busy=True):
     preflight(store, run["tool"], run["commit"], Path(run["folder"]) / "workflow")
     from .compute_memory import require_adapter as require_memory_adapter
     require_memory_adapter(store, run['tool'], run['commit'], parse_config(run['config']), Path(run['folder']) / 'workflow')
+    from .medaka_review import require_adapter as require_medaka_review_adapter
+    require_medaka_review_adapter(store, run['tool'], run['commit'], parse_config(run['config']), Path(run['folder']) / 'workflow')
     if not supported(run["tool"], run["commit"], store):
         raise ValueError("This source version has no reviewed execution adapter")
     if action == "continue" and not (run.get("identification", {}).get("decision_path") or run.get("aware", {}).get("continuation_path")):
@@ -659,6 +663,9 @@ def execute_workflow(ctx):
     verify(run)  # Full hashes at execution, not on every UI readiness refresh.
     if tree_digest(Path(run["folder"]) / "workflow") != run["workflow_sha256"]:
         raise ValueError("The run's workflow source changed; create a new draft")
+    if payload['action'] in {'run', 'continue'}:
+        from .preflight import log_kraken_warnings
+        log_kraken_warnings(ctx, run)
     if payload["action"] == "check-environments":
         from .readiness import check_environments
         check_environments(ctx, run)
@@ -702,6 +709,13 @@ def execute_workflow(ctx):
         from .hardware import workflow_environment
         extra_env = workflow_environment(parse_config(run['config']))
         ctx.write('GPU policy: ' + ('CPU only (CUDA devices hidden)' if extra_env else 'Native tool settings; existing CUDA visibility preserved'))
+        if payload['action'] == 'prepare':
+            from .maintenance import browser_preparation_env
+            browser_env = browser_preparation_env(store, run['tool'], run['commit'],
+                                                   Path(run['folder']) / 'workflow', 'prepare')
+            extra_env = dict(extra_env or {}, **browser_env)
+            if browser_env['HYBAS_PREPARE_BROWSER'] == '1':
+                ctx.write('Selected environment preparation may download a missing NanoPlot rendering browser; checks and normal runs do not download it.')
         if payload['action'] == 'run':
             try:
                 from . import methods_runtime

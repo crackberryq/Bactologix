@@ -16,6 +16,7 @@ EXPERIMENTAL_HYBAS = {
     '79c5b7f342e02bd5b60bf7847fc5f4fb441e1fd4',
     '0d334449d69fe2208b79affad2f5162ac801be05',
     '7cbd29d942a3d70bc1f6c7be176a75ce4bb7f2a8',
+    '73fe6c3e9baec2694e4f863153b6a3e6872df610',
 }
 
 
@@ -245,6 +246,13 @@ def _hybas(n):
         if 'medaka' in decisions.get('executed_stages', []):
             polishing.append('The recorded effective Medaka model was ' + _text(decisions.get('medaka_model_effective')) +
                              '; the requested model setting is retained separately.')
+            if decisions.get('medaka_model_review_status'):
+                polishing.append('The recorded installed-mapping assessment was ' + _text(decisions['medaka_model_review_status']) +
+                                 '; mapping compatibility does not establish model suitability.')
+            if decisions.get('medaka_model_review_acknowledged') is True:
+                polishing.append('An explicit model review was acknowledged for ' + _text(decisions.get('medaka_model_reviewed_model')) +
+                                 ', with the recorded reason: ' + _text(decisions.get('medaka_model_review_reason')) +
+                                 '. This records the selection decision, not validation of model accuracy.')
     if short and polish == 'tripolish' and _bool(cfg.get('run_polypolish')):
         polishing.append(n.step('bwa', 'index the preceding assembly and align the processed short reads for Polypolish', rules={'bwa_index', 'polypolish_align'}))
         polishing.append(n.step('polypolish', 'update the consensus using those short-read alignments'))

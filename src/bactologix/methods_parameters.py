@@ -20,6 +20,7 @@ HYBAS_DEV = frozenset({
     '79c5b7f342e02bd5b60bf7847fc5f4fb441e1fd4',
     '0d334449d69fe2208b79affad2f5162ac801be05',
     '7cbd29d942a3d70bc1f6c7be176a75ce4bb7f2a8',
+    '73fe6c3e9baec2694e4f863153b6a3e6872df610',
 })
 GENESCOPE = frozenset({
     'af9502c3040258a69b1efc662a6f11b95e46b729',
@@ -102,7 +103,9 @@ def per_tool(run, cfg, known_source):
         selected('unicycler', ['spades_memory_gb', 'assembly_mem_mb'])
         natural('unicycler', 'min_fasta_length', 'minimum assembly FASTA length of {value} bp')
         natural('racon', 'racon_rounds', '{value} requested Racon rounds')
-        selected('medaka', ['medaka_model'], {'medaka_model': 'requested Medaka model'})
+        selected('medaka', ['medaka_model', 'medaka_model_review_acknowledged',
+                           'medaka_model_review_reason', 'medaka_model_reviewed_model'],
+                 {'medaka_model': 'requested Medaka model'})
         selected('polypolish', ['run_polypolish'])
         selected('busco', ['busco_lineage', 'busco_mem_mb'])
         selected('prokka', ['prokka_mem_mb'])

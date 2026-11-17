@@ -265,7 +265,7 @@ def review(store, payload):
                 applicable=known and homogeneous and not any_pacbio, allow_apply=True)
         setting('racon_rounds', 'The source default is a starting point. Read availability alone does not establish the best number of rounds; compare independently validated outcomes.',
                 applicable=known and homogeneous and any_ont and effective_polish in {'racon', 'medaka', 'tripolish'}, allow_apply=True)
-        setting('medaka_model', 'Use the appropriate model for the actual ONT chemistry/basecaller. A blank value delegates model handling to the workflow; it is not proof of a suitable model.',
+        setting('medaka_model', 'Blank requests automatic selection from ONT basecaller metadata. If that metadata is unsupported, review an explicit model choice; this adviser does not choose or validate one. Full-read preflight is available only in a source with the reviewed model-selection contract. Older sources may discover model problems at the polishing stage.',
                 applicable=known and any_ont and effective_polish in {'medaka', 'tripolish'})
         setting('run_polypolish', 'This stage needs compatible Illumina reads; its effect is checked in the native route.',
                 applicable=known and homogeneous and any_short and not any_pacbio and effective_polish == 'tripolish', allow_apply=True)

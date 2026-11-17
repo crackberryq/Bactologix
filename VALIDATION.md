@@ -1,3 +1,13 @@
+## 0.1.0a107.dev1 reliability recovery
+
+- Harmless real subprocess tests reproduce the a105 monitoring-error orphan and check bounded SQLite retries, interruption classification, identity-checked stopping, independent watchdogs, inherited locks and exit verification for workflow and maintenance commands.
+- A real held SQLite writer checks that control/observation persistence cannot impose the former 30-second supervisor stall. Invalid or incomplete identity records block recovery; passive refresh still renders the run for review. Unknown ownership is never adopted automatically.
+- VFDB recovery tests check exact installation capability, UI-only cache invalidation, fresh execution checks, stale reference drift, independent revised drafts and unchanged parent records/inputs/defaults.
+- Model-review tests check exact source capabilities, all-read metadata interpretation, unknown version rejection, explicit model binding, revision acknowledgement reset and Methods evidence scope. Historical runs and model suitability are not inferred.
+- Graphics tests distinguish incompatible packages, actual image structure, absent browsers and explicit installation from read-only checks. Required native pipeline CI installs complete QC/MultiQC recipes and renders real HTML/PNG; local NanoPlot PNG could not be qualified because this executor denies Chromium socket startup. Local MultiQC HTML/PNG succeeded.
+- Kraken checks stat only three known core files and compare the footprint with physical RAM. These are estimates and warnings; swap remains explicit, and no loading policy or classification threshold is changed.
+- Full application, browser, native Windows and exact-source adapter checks remain publication gates. Full WSL workloads, kernel blocked-I/O behavior, unobserved daemonized processes, failed-parent checkpoint reuse and Kraken memory-mapping performance remain outside these software checks.
+
 ## 0.1.0a106.dev1 low-disk protection
 
 - Capacity fixtures cover user-available space, required volumes, temporary-path selection, vanished mounts, WSL backing storage, custom DrvFs roots, enabled/default/disabled swap, malformed responses and unavailable measurements.
