@@ -78,7 +78,11 @@ An unmatched explicit choice requires acknowledgement, a reason and binding to
 that selected model. Changing the model requires a new acknowledgement. This
 records a researcher decision, not model suitability. Requested/resolved model,
 read metadata, model hash, tool version and failure diagnostics are retained.
-Methods exports distinguish recorded model review from scientific validation.
+Methods exports distinguish recorded model review from scientific validation
+when it is attributable to an executed Medaka stage in the saved run summary.
+Standalone failed-preflight receipts and graphics-runtime observations remain
+native output files; they are not automatically imported into Methods evidence
+or its reproducibility ZIP.
 Medaka is not silently skipped or replaced with a historical default model.
 
 ## Kraken capacity
