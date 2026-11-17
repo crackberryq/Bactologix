@@ -21,6 +21,7 @@ RUNTIME_SOURCES = {
     '79c5b7f342e02bd5b60bf7847fc5f4fb441e1fd4',
     '0d334449d69fe2208b79affad2f5162ac801be05',
     '7cbd29d942a3d70bc1f6c7be176a75ce4bb7f2a8',
+    '73fe6c3e9baec2694e4f863153b6a3e6872df610',
 }
 SCALARS = {
     'workflow_version', 'run_mode', 'requested_polish_mode', 'assembler',

@@ -18,6 +18,12 @@ the UI does not promise that another Stop click can regain process ownership.
 Logs and process identity records remain available. Restarting the interface does
 not make a historical failed run complete.
 
+Explicit Stop and desktop lease changes retry brief database contention within
+a bounded interval. A stale heartbeat cannot clear a confirmed stop request.
+If control storage stays unavailable, the launcher still runs cleanup for its
+owned UI process and reports shutdown as unconfirmed; it does not report zero jobs or
+successful workflow shutdown without evidence.
+
 The older a105 monitoring exception could leave a native child working after the
 application marked its job failed. This was reproduced with a harmless writer.
 Historical records may lack the PID creation identity needed for safe recovery;
@@ -41,6 +47,11 @@ draft, prepare its environments if needed, and run it explicitly. A newly fetche
 VFDB snapshot may differ from the old one: review its actual provider provenance
 and citations. Neither file proximity nor a directory name establishes a matched
 FASTA/index bundle or database version.
+
+Revised drafts use independent output directories. Verified checkpoint reuse
+from a failed parent, including reuse across pipeline source versions, remains
+a separate recovery feature; this update does not establish that an older
+Racon assembly or other checkpoint is eligible for reuse.
 
 On older application versions the same revision can be made through **Edit
 settings**: set **Databases & storage → Policy** to `auto`, and leave **Module:

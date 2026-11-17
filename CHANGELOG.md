@@ -1,6 +1,7 @@
 ## 0.1.0a107.dev1 — 2026-11-17 · Alpha · Preserve run ownership during monitoring failures
 
 - Retry brief SQLite control-read contention with bounded delays. Record monitoring interruptions separately from native tool failures, preserve process identities and block recovery while native exit is unconfirmed.
+- Retry explicit Stop and desktop lease transactions after transient contention; preserve confirmed stop intent and complete launcher cleanup when control storage remains unavailable.
 - Offer a reviewed VFDB reference repair that creates an independent draft for native preparation; retain frozen runs, outputs and scientific thresholds.
 - Determine database preparation support from the installed source's reviewed capability, with an actionable unavailable reason, rather than one global default commit.
 - Reject the conflicting NanoPlot 1.46.2 / MultiQC 1.32 dependency repair instead of silently forcing an unsupported Kaleido downgrade. Keep complete environments and report the required separation.

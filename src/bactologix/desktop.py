@@ -8,8 +8,10 @@ import math
 import os
 from pathlib import Path
 import re
+import sqlite3
 import time
 import uuid
+from .store import CONTROL_BACKOFF, CONTROL_TIMEOUT, transient_lock
 
 
 ENV = 'BACTOLOGIX_DESKTOP_SESSION'
@@ -52,7 +54,7 @@ def session_value_stopped(session):
             not math.isfinite(session.get('last_seen', 0))):
         from .supervision import MonitoringInterrupted
         raise MonitoringInterrupted('Desktop session control metadata is invalid.')
-    return (not session or session.get('phase') in {'stopping', 'stopped'}
+    return (not session or session.get('cancelled') is True or session.get('phase') in {'stopping', 'stopped'}
             or time.time() - session.get('last_seen', 0) > LEASE_SECONDS)
 
 
@@ -78,30 +80,67 @@ class Session:
         self.nonce = None
         self.phase = 'starting'
         self.reason = ''
+        self.pending_stop_reason = None
         self.publish('')
 
     def jobs(self):
-        with self.store.connect() as db:
+        def query(db):
             rows = db.execute("SELECT j.* FROM jobs j JOIN items i ON i.kind='job_owners' AND i.id=j.id "
                               "WHERE i.body=? AND j.status IN ('queued','running')", (json.dumps(self.key),)).fetchall()
-        return [dict(row) for row in rows]
+            return [dict(row) for row in rows]
+        return self.store.control_read(query)
 
-    def gate(self, phase):
-        self.phase = phase
-        self.store.put('desktop_sessions', self.key, {'phase': phase, 'last_seen': time.time()})
+    def gate(self, phase, *, heartbeat=False):
+        # This session-specific transaction is idempotent. Retry only after a
+        # failed transaction has rolled back; never republish a cached lease row.
+        for attempt in range(len(CONTROL_BACKOFF) + 1):
+            try:
+                with self.store.connect(timeout=CONTROL_TIMEOUT) as db:
+                    db.execute('BEGIN IMMEDIATE')
+                    row = db.execute("SELECT body FROM items WHERE kind='desktop_sessions' AND id=?", (self.key,)).fetchone()
+                    previous = json.loads(row[0]) if row else {}
+                    if not isinstance(previous, dict):
+                        raise ValueError('Desktop session control metadata is invalid.')
+                    if row:
+                        session_value_stopped(previous)  # Validate timestamp shape before any renewal.
+                    terminal = previous.get('cancelled') is True or previous.get('phase') in {'stopping', 'stopped'}
+                    expired = bool(row) and time.time() - previous.get('last_seen', 0) > LEASE_SECONDS
+                    selected = previous.get('phase', phase) if heartbeat else phase
+                    reason = self.pending_stop_reason or previous.get('reason') or self.reason
+                    if terminal:
+                        selected = 'stopped' if previous.get('phase') == 'stopped' or phase == 'stopped' else 'stopping'
+                        reason = previous.get('reason') or reason
+                    elif self.pending_stop_reason or expired:
+                        selected = 'stopping'
+                        reason = reason or 'Desktop session lease expired; stopping owned work'
+                    cancelled = terminal or selected in {'stopping', 'stopped'}
+                    value = dict(previous, phase=selected, last_seen=time.time(), reason=reason,
+                                 cancelled=cancelled)
+                    db.execute("INSERT INTO items VALUES ('desktop_sessions',?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body",
+                               (self.key, json.dumps(value)))
+                    if cancelled:
+                        # Gate new submissions and stop this session's work at the
+                        # same write boundary. A running app update must finish.
+                        db.execute("UPDATE jobs SET cancel=1,status=CASE WHEN status='queued' THEN 'cancelled' ELSE status END "
+                                   "WHERE status IN ('queued','running') AND NOT(kind='app_update' AND status='running') "
+                                   "AND id IN (SELECT id FROM items WHERE kind='job_owners' AND body=?)", (json.dumps(self.key),))
+                self.phase, self.reason = value['phase'], value['reason']
+                if cancelled:
+                    self.pending_stop_reason = self.reason
+                return
+            except sqlite3.Error as exc:
+                if not transient_lock(exc) or attempt >= len(CONTROL_BACKOFF):
+                    raise
+                time.sleep(CONTROL_BACKOFF[attempt])
 
     def stop(self, reason='Window closed'):
         # Same SQLite write boundary used by submit: after gating, a racing UI
         # cannot sneak in another job between cancellation and server shutdown.
-        self.reason = reason
+        self.pending_stop_reason = self.pending_stop_reason or self.reason or reason
         self.gate('stopping')
-        for job in self.jobs():
-            if job['kind'] == 'app_update' and job['status'] == 'running':
-                continue  # Never interrupt pip halfway through replacement.
-            self.store.cancel(job['id'])
 
     def publish(self, url):
-        self.gate(self.phase)
+        self.gate(self.phase, heartbeat=True)
         jobs = self.jobs()
         atomic(self.root / 'status.json', {'session': self.key, 'phase': self.phase, 'url': url,
             'jobs': len(jobs), 'reason': self.reason,
@@ -115,7 +154,6 @@ class Session:
             self.stop('Desktop supervisor disconnected; stopping owned work')
         request = read(self.root / 'request.json')
         if request.get('session') == self.key and request.get('nonce') != self.nonce:
-            self.nonce = request.get('nonce')
             action = request.get('action')
             if action == 'close' and self.phase != 'stopping':
                 self.gate('confirming')
@@ -125,13 +163,23 @@ class Session:
                 self.stop()
             elif action == 'reopen' and self.phase == 'confirming':
                 self.gate('ready' if ready else 'starting')
+            self.nonce = request.get('nonce')
         if self.phase == 'starting' and ready:
-            self.phase = 'ready'
+            self.gate('ready')
         if self.phase == 'stopping':
             self.stop(self.reason)
         self.publish(url)
-        return self.phase == 'stopping' and not self.jobs()
+        return self.phase in {'stopping', 'stopped'} and not self.jobs()
 
     def finish(self, url):
-        self.phase = 'stopped'
+        if self.jobs():
+            raise RuntimeError('Desktop shutdown cannot be confirmed while owned jobs remain active.')
+        self.gate('stopped')
         self.publish(url)
+
+    def control_failure(self, url, error):
+        # Do not claim zero jobs, a refreshed lease, or completed shutdown when
+        # SQLite could not confirm it. This file does not control native workers.
+        atomic(self.root / 'status.json', {'session': self.key, 'phase': 'error', 'url': url,
+            'jobs': None, 'shutdown_confirmed': False, 'control_error': str(error),
+            'reason': self.pending_stop_reason or self.reason or 'Desktop control unavailable'})

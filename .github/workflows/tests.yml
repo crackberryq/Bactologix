@@ -84,13 +84,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: crackberryq/Bactomics_HybAs
-          ref: 7cbd29d942a3d70bc1f6c7be176a75ce4bb7f2a8
+          ref: 73fe6c3e9baec2694e4f863153b6a3e6872df610
           path: upstream-hybas-v2
       - run: python -m pip install . pytest 'snakemake==9.27.1'
       - name: Validate frozen manifest native DAGs
         env:
           BACTOLOGIX_HYBAS_V2_SOURCE: ${{ github.workspace }}/upstream-hybas-v2
-        run: python -m pytest -q tests/test_manifest_inputs.py tests/test_manifest_adapter_native.py tests/test_run_trace.py tests/test_methods_runtime.py tests/test_workflow_unlock.py
+        run: python -m pytest -q tests/test_manifest_inputs.py tests/test_manifest_adapter_native.py tests/test_run_trace.py tests/test_methods_runtime.py tests/test_workflow_unlock.py tests/test_handoff_source_contract.py
 
   browser:
     runs-on: ubuntu-latest
@@ -173,7 +173,7 @@ jobs:
         include:
           - tool: hybas
             repo: crackberryq/Bactomics_HybAs
-            commit: 7cbd29d942a3d70bc1f6c7be176a75ce4bb7f2a8
+            commit: 73fe6c3e9baec2694e4f863153b6a3e6872df610
           - tool: basis
             repo: crackberryq/Bactomics_BaSIS
             commit: 7c293d36a633a726424d544c6ffc39824537ebe4
@@ -195,7 +195,7 @@ jobs:
         env:
           BACTOLOGIX_DEV_SOURCE: ${{ github.workspace }}/development-source
           BACTOLOGIX_DEV_TOOL: ${{ matrix.tool }}
-        run: python -m pytest tests/test_development_channel.py -q -k dev_source_contract
+        run: python -m pytest tests/test_development_channel.py tests/test_handoff_source_contract.py -q -k 'dev_source_contract or handoff_source_contract'
       - name: Verify saved report refresh against the exact Dev renderer
         env:
           BACTOLOGIX_MICPSCOPE_SOURCE: ${{ matrix.tool == 'micpscope' && format('{0}/development-source', github.workspace) || '' }}

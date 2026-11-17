@@ -275,12 +275,22 @@ class Store:
             return snapshot(db)
 
     def cancel(self, jid):
-        with self.connect(timeout=CONTROL_TIMEOUT) as db:
-            db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT kind,status FROM jobs WHERE id=?", (jid,)).fetchone()
-            if row and row[0] == "app_update" and row[1] == "running":
-                raise ValueError("An application update cannot be cancelled while it is installing. Wait for its result.")
-            db.execute("UPDATE jobs SET cancel=1,status=CASE WHEN status='queued' THEN 'cancelled' ELSE status END WHERE id=? AND status IN ('queued','running')", (jid,))
+        # This mutation is idempotent. Retry its entire short transaction only
+        # after connect() has rolled back and closed the failed attempt. Re-read
+        # status each time: a queued application update may now be installing.
+        for attempt in range(len(CONTROL_BACKOFF) + 1):
+            try:
+                with self.connect(timeout=CONTROL_TIMEOUT) as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    row = db.execute("SELECT kind,status FROM jobs WHERE id=?", (jid,)).fetchone()
+                    if row and row[0] == "app_update" and row[1] == "running":
+                        raise ValueError("An application update cannot be cancelled while it is installing. Wait for its result.")
+                    db.execute("UPDATE jobs SET cancel=1,status=CASE WHEN status='queued' THEN 'cancelled' ELSE status END WHERE id=? AND status IN ('queued','running')", (jid,))
+                return
+            except sqlite3.Error as exc:
+                if not transient_lock(exc) or attempt >= len(CONTROL_BACKOFF):
+                    raise
+                time.sleep(CONTROL_BACKOFF[attempt])
 
     def log_path(self, jid):
         if not jid.startswith("job-") or not jid[4:].isalnum():
