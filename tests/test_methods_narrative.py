@@ -86,6 +86,19 @@ def test_medaka_review_is_a_recorded_decision_not_model_validation():
     assert 'An explicit model review was acknowledged' not in prose(args)
 
 
+def test_documented_fallback_is_disclosed_only_with_attributable_execution():
+    args = fixture()
+    args[1]['evidence']['decisions'] = {
+        'executed_stages': ['medaka'], 'medaka_model_effective': 'documented-model',
+        'medaka_model_selection': 'fallback', 'medaka_model_selection_reason': 'basecaller_metadata_absent',
+        'medaka_model_fallback_medaka_version': '2.2.0', 'medaka_model_fallback_source_commit': 'a' * 40}
+    text = prose(args)
+    assert 'documented Medaka 2.2.0 default was used because basecaller_metadata_absent' in text
+    assert 'does not establish that the model matches these reads' in text
+    args[1]['evidence_origin'] = 'Legacy output metadata read at export'
+    assert 'documented Medaka 2.2.0 default was used' not in prose(args)
+
+
 @pytest.mark.parametrize('change',['legacy','failed_latest','identity_missing'])
 def test_unattributable_metadata_never_asserts_execution(change):
     args=fixture(); args[1]['evidence']['decisions']={'executed_stages':['racon1'],'assembler':'unicycler'}

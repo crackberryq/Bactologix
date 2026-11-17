@@ -35,7 +35,7 @@ def _hash(value):
 def assert_mutation_allowed(db):
     if db.execute("SELECT 1 FROM jobs WHERE kind='isolate_export' AND status IN ('queued','running')").fetchone():
         raise ValueError('An isolate export is queued or running. Finish or cancel it before changing this workspace.')
-    if db.execute("SELECT 1 FROM jobs WHERE kind='storage_cleanup' AND status IN ('queued','running')").fetchone():
+    if db.execute("SELECT 1 FROM jobs WHERE kind IN ('storage_cleanup','factory_reset') AND status IN ('queued','running')").fetchone():
         raise ValueError('Storage cleanup is queued or running. Wait before changing this workspace.')
     for row in db.execute('SELECT body FROM items WHERE kind=?', (_RECEIPTS,)):
         if json.loads(row[0]).get('status') != 'completed':

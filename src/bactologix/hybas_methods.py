@@ -22,6 +22,7 @@ RUNTIME_SOURCES = {
     '0d334449d69fe2208b79affad2f5162ac801be05',
     '7cbd29d942a3d70bc1f6c7be176a75ce4bb7f2a8',
     '73fe6c3e9baec2694e4f863153b6a3e6872df610',
+    'bfa43bbbe73484817266e9d7cb39bcf3544262f5',
 }
 SCALARS = {
     'workflow_version', 'run_mode', 'requested_polish_mode', 'assembler',
@@ -30,6 +31,8 @@ SCALARS = {
     'final_source_sha256', 'busco_lineage', 'busco_dataset_sha256',
     'medaka_model_requested', 'medaka_model_effective', 'medaka_model_sha256',
     'medaka_model_selection', 'medaka_input_metadata_status',
+    'medaka_model_selection_policy', 'medaka_model_selection_reason',
+    'medaka_model_fallback_default', 'medaka_model_fallback_source_commit', 'medaka_model_fallback_medaka_version',
     'medaka_model_review_status', 'medaka_model_review_reason', 'medaka_model_reviewed_model',
     'kraken_selected_target_taxid', 'kraken_selected_target_name',
     'kraken_selected_target_rank', 'kraken_selected_target_source',

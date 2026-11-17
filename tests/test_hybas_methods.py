@@ -157,6 +157,18 @@ def test_old_model_request_never_becomes_an_effective_model(run):
     assert 'medaka_model_effective' not in decisions
 
 
+def test_recorded_fallback_metadata_is_retained_without_inference(run):
+    values = {'medaka_model_selection_policy': 'documented_default',
+              'medaka_model_selection_reason': 'basecaller_model_unsupported',
+              'medaka_model_fallback_default': 'documented-model',
+              'medaka_model_fallback_source_commit': 'a' * 40,
+              'medaka_model_fallback_medaka_version': '2.2.0'}
+    write(run, {'isolate': 'isolate', 'medaka_model_selection': 'fallback', **values})
+    decisions = collect(run)['decisions']
+    assert all(decisions[k] == v for k, v in values.items())
+    assert 'medaka_model_effective' not in decisions
+
+
 @pytest.mark.parametrize('invalid', [
     {'executed_stages': 'medaka'}, {'executed_stages': [False]},
     {'executed_stages': ['medaka', 'medaka']}, {'skipped_stages': ['medaka']},

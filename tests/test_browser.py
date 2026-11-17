@@ -129,9 +129,12 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
     card = download / 'card'
     card.mkdir()
     (card / 'card.json').write_text('{"software_fixture": true}')
+    download_job = store.submit('database_download', {
+        'id': 'database-browser-fixture', 'tool': 'basis', 'resource': 'rgi'})
+    store.update_job(download_job, status='succeeded')
     store.put('database_downloads', 'database-browser-fixture', {
         'id': 'database-browser-fixture', 'tool': 'basis', 'resource': 'rgi', 'destination': str(download),
-        'result_path': str(card), 'status': 'completed', 'job': 'software-fixture-job'})
+        'result_path': str(card), 'status': 'completed', 'job': download_job})
     sample = tmp_path / 'sample folder'
     (sample / 'raw/illumina').mkdir(parents=True)
     for mate in (1, 2):

@@ -1,3 +1,9 @@
+## 0.1.0a108.dev1 reviewed workspace actions
+
+New checks cover destructive reset path protection, process/queue locks, stale plans and worker revalidation, database replacement isolation, typed UI confirmations, asynchronous late-result rejection, calculated swap capacity and Medaka policy contracts. All destructive tests operate on temporary fixture files only. Required browser CI exercises the real application controls; local Chromium could not start in the test host's socket restrictions.
+
+The native Medaka probe resolves installed packaged model weights without inference or downloads. Neither software checks nor source review establish AFB02 cross-version sequence equivalence, model accuracy, GPU behavior or a full WSL workload. See [workspace controls](docs/WORKSPACE_RESET_AND_COMPUTE.md).
+
 ## 0.1.0a107.dev1 reliability recovery
 
 - Harmless real subprocess tests reproduce the a105 monitoring-error orphan and check bounded SQLite retries, interruption classification, identity-checked stopping, independent watchdogs, inherited locks and exit verification for workflow and maintenance commands.

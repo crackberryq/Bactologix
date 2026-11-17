@@ -76,12 +76,25 @@ def test_interface_two_requires_exact_capabilities(name, change):
     if change == 'missing':
         row.pop(name)
     elif change == 'wrong':
-        row[name]['interface'] = 2
+        row[name]['interface'] = 3 if name == 'medaka_model_review' else 2
     elif change == 'extra':
         row[name]['unreviewed'] = True
     else:
         row[name]['interface'] = True
     assert 'capabilities' in release_contract.reason('hybas', row)
+
+
+def test_documented_fallback_requires_new_model_contract_and_preserves_old_contract():
+    from bactologix.medaka_review import FALLBACK_CONTRACT
+    old = handoff()
+    new = handoff()
+    new['medaka_model_review'] = dict(FALLBACK_CONTRACT)
+    assert release_contract.reason('hybas', old) is None
+    assert release_contract.reason('hybas', new) is None
+    # The a107 application accepts only the v1 Medaka capability, so a catalog
+    # refresh cannot silently expose fallback to a client without its controls.
+    assert old['medaka_model_review'] == MODEL
+    assert new['medaka_model_review'] != MODEL
 
 
 @pytest.mark.parametrize('name', sorted(CHECKED_FILES))

@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import shlex
 import webbrowser
+import uuid
 
 import yaml
 
@@ -96,7 +97,12 @@ def workspace_label():
     return f"{name}'s workspace"
 
 
-def snapshot(store):
+def snapshot(store, *, cached=False):
+    # Background observations must not trigger another full workspace/source
+    # inspection merely to poll their progress. This is display data only;
+    # dispatch and workers still perform fresh authorization checks.
+    if cached and store.home in _SNAPSHOTS:
+        return copy.deepcopy(_SNAPSHOTS[store.home])
     from . import disk_pause, notifications, supervision
     from .queue import reconcile_interrupted
     reconcile_interrupted(store)
@@ -303,6 +309,33 @@ def dispatch(store, kind, p):
             for row in found['candidates'].get('reference', []):
                 reference_catalog.register(store, row['path'])
         return {"database_scan": found, "keep_modal": True}
+    if kind == 'factory_reset_preview':
+        from . import factory_reset
+        return {'reset_plan': factory_reset.preview(store, p.get('delete_databases', False)), 'keep_modal': True}
+    if kind == 'factory_reset_execute':
+        from . import factory_reset
+        jid = factory_reset.request(store, p.get('plan_id'), p.get('signature'), p.get('confirmation'),
+                                    p.get('acknowledged'), p.get('database_confirmation', ''))
+        return {'job_id': jid, 'message': 'Workspace reset queued: ' + jid, 'navigate': 'storage'}
+    if kind == 'database_redownload_preview':
+        from . import database_redownload
+        return {'redownload_plan': database_redownload.preview(store, _tool(p), p.get('id'), lineage=p.get('lineage')),
+                'keep_modal': True}
+    if kind == 'database_redownload_request':
+        from . import database_redownload
+        payload = database_redownload.request(store, _tool(p), p.get('id'), p.get('signature'), p.get('parent'),
+            choice=p.get('choice'), cores=p.get('cores', 4), memory_mb=p.get('memory_mb', 16000), lineage=p.get('lineage'))
+        jid = enqueue(store, 'database_redownload', payload)
+        return {'job_id': jid, 'message': 'New database snapshot queued: ' + jid, 'navigate': 'jobs'}
+    if kind == 'recommend_swap':
+        from . import swap_adviser
+        tool, config = _tool(p), p.get('config')
+        if config is not None:
+            if not isinstance(config, dict) or config.get('tool') != tool or not isinstance(config.get('text'), str):
+                raise ValueError('The recommendation configuration belongs to another pipeline.')
+            config = run_config.compile_config(tool, config['text'], config.get('changes'))
+        return {'swap_recommendation': swap_adviser.recommend(store, tool, p.get('memory_mb'),
+                run_id=p.get('run_id'), config=config), 'keep_modal': True}
     if kind == "manage_environments":
         payload = maintenance.environment_request(store, p.get("id"), p.get("selected"), p.get("action"))
         jid = enqueue(store, "environments", payload)
@@ -338,12 +371,19 @@ def dispatch(store, kind, p):
         job = store.job(row["job"])
         if not job or job["status"] not in {"failed", "cancelled", "interrupted"}:
             raise ValueError("Only a stopped or failed download can be resumed.")
-        jid = enqueue(store, "database_download", row["request"])
+        kind = 'database_redownload' if row['request'].get('redownload_review') else 'database_download'
+        jid = enqueue(store, kind, row["request"])
         return {"message": "Database preparation resumed: " + jid, "navigate": "jobs"}
     if kind == "use_downloaded_database":
         row = _item(store, "database_downloads", p.get("id"))
         if row.get("status") != "completed":
             raise ValueError("Wait for database preparation to finish.")
+        job = store.job(row.get('job'))
+        if not job or job['status'] != 'succeeded':
+            raise ValueError('Wait for the database preparation job to finish successfully.')
+        if row.get('request', {}).get('redownload_review'):
+            if not row.get('replacement_receipt'):
+                raise ValueError('The replacement database receipt is not available. Review its preparation job.')
         checked = databases.inspect(store, row["tool"], row["resource"], row["result_path"])
         return {"database_check": {"tool": row["tool"], **checked}, "keep_modal": True,
                 "message": "Downloaded location selected. Save locations to use it for future drafts."}
@@ -801,7 +841,19 @@ def handle_request(store, request, session):
     seen.append(request["id"])
     del seen[:-256]
     try:
-        response = {"id": request["id"], "ok": True, **dispatch(store, request.get("kind"), request.get("payload", {}))}
+        from . import async_tasks
+        kind, payload = request.get('kind'), request.get('payload', {})
+        if not isinstance(payload, dict):
+            raise ValueError('Invalid action payload')
+        owner = session.setdefault('ui-task-owner', uuid.uuid4().hex)
+        if kind in async_tasks.ACTIONS:
+            value = {'async_task': async_tasks.submit(store, owner, request['id'], kind, payload), 'keep_modal': True}
+        elif kind in {'poll_ui_task', 'cancel_ui_task'}:
+            action = async_tasks.poll if kind == 'poll_ui_task' else async_tasks.cancel
+            value = {'async_task': action(store, owner, payload.get('token')), 'keep_modal': True}
+        else:
+            value = dispatch(store, kind, payload)
+        response = {"id": request["id"], "ok": True, **value}
     except Exception as exc:
         response = {"id": request["id"], "ok": False, "message": str(exc)}
     session["ui-response"] = response
