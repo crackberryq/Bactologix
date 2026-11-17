@@ -8,6 +8,7 @@ import platform
 import re
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,7 @@ from urllib.request import Request, urlopen
 from .catalog import PIPELINES, api, supported
 from .controllers import controller_requirements, controller_check_code
 from .store import Store, now
+from .supervision import MonitoringInterrupted
 
 
 class Cancelled(Exception):
@@ -54,7 +56,7 @@ def launch_worker(store):
 
 
 def enqueue(store, kind, payload):
-    if kind not in {"install", "connect", "bootstrap", "check", "workflow", "smoke", "workstation", "app_update", "environments", "database_download", "database_build", "report_refresh", "storage_cleanup", "isolate_export"}:
+    if kind not in {"install", "connect", "bootstrap", "check", "workflow", "smoke", "workstation", "app_update", "environments", "database_download", "database_build", "report_refresh", "storage_cleanup", "factory_reset", "isolate_export"}:
         raise ValueError("Unknown operation")
     if platform.system() != "Linux":
         raise RuntimeError("Run this app inside Linux or WSL2 to execute jobs.")
@@ -73,6 +75,11 @@ class Context:
         self.store, self.job, self.lock_fd = store, job, lock_fd
         self.lock_fds = tuple(fd for fd in (lock_fd, environment_fd) if fd is not None)
         self.log = store.log_path(job["id"]).open("a", buffering=1)
+        self.cancel_requested = False
+        self.monitor = {'id': job['id'], 'state': 'healthy', 'retry_count': 0}
+        self.native_record = None
+        run_id = job['payload'].get('run_id')
+        self.source_commit = (store.get('runs', run_id, {}) if run_id else {}).get('commit')
         self.observer = None
         self.observer_warned = False
         try:
@@ -114,14 +121,72 @@ class Context:
             self.disk_guard.checkpoint()
 
     def check_cancel_only(self):
-        self.refresh_desktop_cancel()
-        if self.store.job(self.job["id"])["cancel"]:
+        if self.refresh_desktop_cancel():
             raise Cancelled("Stopped by user")
 
     def refresh_desktop_cancel(self):
-        from .desktop import owner_cancelled
-        if self.job['kind'] != 'app_update' and owner_cancelled(self.store, self.job['id']):
-            self.store.cancel(self.job['id'])
+        from .desktop import session_value_stopped
+        if self.cancel_requested:
+            return True
+        state = self.store.control_state(self.job['id'], self.monitor_retry)
+        if self.monitor['state'] == 'degraded':
+            self.monitor_state('recovered', 'Workspace control reads recovered; native execution remained owned.')
+        self.cancel_requested = bool(state['cancel'] or (self.job['kind'] != 'app_update' and state['owner'] and session_value_stopped(state['session'])))
+        return self.cancel_requested
+
+    def monitor_state(self, state, detail, **fields):
+        from .supervision import save
+        self.monitor.update(state=state, detail=detail, updated_at=now(), **fields)
+        try:
+            save(self.store, self.job['id'], self.monitor)
+        except OSError:
+            pass  # Diagnostics cannot disable the native-process cleanup path.
+
+    def monitor_retry(self, exc, attempt):
+        if self.monitor['state'] != 'degraded':
+            try:
+                self.write('Workspace control read interrupted; retrying while retaining native process ownership: ' + str(exc))
+            except OSError:
+                pass
+        self.monitor_state('degraded', 'Retrying workspace control reads; native work is still supervised.',
+                           retry_count=self.monitor['retry_count'] + 1, last_error=str(exc))
+
+    def remember_processes(self, proc, argv, guard):
+        """Record identities before opening the native exec gate and as children appear."""
+        import psutil
+        from .supervision import save
+        if self.native_record is None:
+            run_id = self.job['payload'].get('run_id')
+            try:
+                created, pgid = psutil.Process(proc.pid).create_time(), os.getpgid(proc.pid)
+            except (psutil.NoSuchProcess, ProcessLookupError):
+                # An ungated short command can finish before identity collection.
+                # Popen is the authority for its own child's exit, never PID absence.
+                if guard is not None or proc.poll() is None:
+                    raise MonitoringInterrupted('Cannot establish the native process identity.', cleanup_confirmed=False)
+                created, pgid = None, None
+            self.native_record = {'pid': proc.pid, 'created': created,
+                'pgid': pgid, 'job_id': self.job['id'], 'run_id': run_id,
+                'source_commit': self.source_commit, 'started': now(), 'cleanup_confirmed': False,
+                'ownership_complete': True,
+                'command_sha256': hashlib.sha256(json.dumps([str(x) for x in argv]).encode()).hexdigest()}
+        identities = ([{'pid': pid, 'created': created} for pid, created in sorted(guard.tree.members)]
+                      if guard is not None and guard.tree is not None else
+                      ([{'pid': self.native_record['pid'], 'created': self.native_record['created']}]
+                       if self.native_record['created'] is not None else []))
+        if self.native_record.get('identities') != identities:
+            self.native_record['identities'] = identities
+            save(self.store, self.job['id'], self.native_record, 'process')
+
+    def complete_process_record(self, proc, confirmed):
+        from .supervision import save
+        if self.native_record is None:
+            return
+        self.native_record.update(cleanup_confirmed=confirmed, finished=now() if confirmed else None,
+                                  returncode=proc.returncode)
+        save(self.store, self.job['id'], self.native_record, 'process')
+        value = dict(self.native_record, pid=None if confirmed else self.native_record['pid'])
+        self.store.put_process(self.job['id'], value)
 
     def command(self, argv, cwd=None, extra_env=None, stdout=None, *, timeout=None, stop_after=None):
         import shlex
@@ -132,18 +197,16 @@ class Context:
         env.update(extra_env or {})
         guard = self.disk_guard
         if guard is not None:
-            guard.before_command(cwd, extra_env)
+            guard.before_command(cwd, env)
         started_stop = None
         command_started = time.monotonic()
         timed_out = False
         actual_argv = [str(x) for x in argv]
-        gate_read = gate_write = None
-        pass_fds = self.lock_fds
-        if guard is not None:
-            from . import disk_process
-            gate_read, gate_write = os.pipe()
-            actual_argv = [sys.executable, str(Path(disk_process.__file__).resolve()), '--exec', str(gate_read), *actual_argv]
-            pass_fds = (*pass_fds, gate_read)
+        from . import disk_process
+        owner = guard if guard is not None else disk_process.ProcessOwner()
+        gate_read, gate_write = os.pipe()
+        actual_argv = [sys.executable, str(Path(disk_process.__file__).resolve()), '--exec', str(gate_read), *actual_argv]
+        pass_fds = (*self.lock_fds, gate_read)
         try:
             proc = subprocess.Popen(actual_argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                 stdout=stdout if stdout is not None else self.log,
@@ -157,86 +220,100 @@ class Context:
             if gate_read is not None:
                 os.close(gate_read)
         failed = True
+        cleanup_confirmed = False
+        monitoring_error = None
+        owned_tree = None
+        native_started = False
+        self.native_record = None
         try:
-            if guard is not None:
-                guard.attach(proc)
-                os.write(gate_write, b'1')
-                os.close(gate_write)
-                gate_write = None
-            self.store.put("processes", self.job["id"], {"pid": proc.pid, "started": now()})
+            owner.attach(proc)
+            owned_tree = owner.tree
+            self.remember_processes(proc, argv, owner)
+            self.store.put_process(self.job['id'], self.native_record)
+            os.write(gate_write, b'1')
+            native_started = True
+            os.close(gate_write)
+            gate_write = None
             self.observe("begin_command", proc, argv[0])
             while proc.poll() is None:
-                self.refresh_desktop_cancel()
+                cancelled = self.refresh_desktop_cancel()
                 elapsed_command = time.monotonic() - command_started
                 timed_out = timed_out or (timeout is not None and elapsed_command >= timeout)
                 if timed_out:
-                    if guard is not None:
-                        guard.signal(signal.SIGKILL)
-                    try:
-                        if guard is None:
-                            os.killpg(proc.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                if self.store.job(self.job["id"])["cancel"] or (stop_after is not None and elapsed_command >= stop_after):
+                    owner.signal(signal.SIGKILL)
+                if cancelled or (stop_after is not None and elapsed_command >= stop_after):
                     if started_stop is None:
                         started_stop = time.monotonic()
-                        if guard is not None:
-                            guard.stop()
-                        self.write("Stopping process group gracefully (SIGINT)…")
-                        try:
-                            if guard is None:
-                                os.killpg(proc.pid, signal.SIGINT)
-                        except ProcessLookupError:
-                            pass
+                        owner.stop()
+                        self.write("Stopping owned processes gracefully (SIGINT)…")
                     elapsed = time.monotonic() - started_stop
                     if elapsed > 30:
-                        if guard is not None:
-                            guard.signal(signal.SIGKILL if elapsed > 60 else signal.SIGTERM)
-                        try:
-                            if guard is None:
-                                os.killpg(proc.pid, signal.SIGKILL if elapsed > 60 else signal.SIGTERM)
-                        except ProcessLookupError:
-                            pass
+                        owner.signal(signal.SIGKILL if elapsed > 60 else signal.SIGTERM)
                 if guard is not None and started_stop is None and not timed_out:
                     guard.tick()
+                else:
+                    owner.refresh()
+                self.remember_processes(proc, argv, owner)
                 self.observe("tick")
                 time.sleep(0.25)
             if timed_out:
                 self.check_cancel_only()  # A concurrent user stop keeps its cancellation status.
                 raise TimeoutError("Software check command exceeded its time limit; its process group was stopped.")
             if started_stop is not None:
-                # The session leader can exit before its children. This group
-                # was created by this command; never signal unrelated WSL PIDs.
-                try:
-                    if guard is None:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
                 raise Cancelled("Stopped by user; inspect the log before resuming")
             if proc.returncode:
                 raise RuntimeError(f"Command exited with code {proc.returncode}; see the job log")
             failed = False
+        except MonitoringInterrupted as exc:
+            monitoring_error = exc
+            self.monitor_state('interrupted', str(exc), command_returncode=proc.poll(), cleanup_confirmed=False)
+            raise
+        except TimeoutError:
+            raise  # A native command timeout is distinct from control storage loss.
+        except (sqlite3.Error, OSError) as exc:
+            self.monitor_state('interrupted', 'Workspace control persistence failed: ' + str(exc), command_returncode=proc.poll(), cleanup_confirmed=False)
+            monitoring_error = MonitoringInterrupted(self.monitor['detail'])
+            raise monitoring_error from exc
         finally:
             if gate_write is not None:
                 os.close(gate_write)
             try:
-                if failed:
-                    if guard is not None and guard.tree is None and proc.poll() is None:
-                        proc.kill()  # The gated launcher has not spawned native work.
+                # Capture the latest descendants before detach releases the in-memory tree.
+                if owner.tree is not None:
                     try:
-                        if guard is None:
-                            os.killpg(proc.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                if guard is not None:
-                    guard.detach(failed=failed)
+                        owner.tree.refresh()
+                        self.remember_processes(proc, argv, owner)
+                    except Exception:
+                        pass  # Never skip signals because inspection/persistence failed.
+                if failed:
+                    if owner.tree is None and proc.poll() is None:
+                        proc.kill()  # The gated launcher has not spawned native work.
+                owner.detach(failed=failed)
             finally:
                 try:
                     proc.wait(timeout=3)
                 except subprocess.TimeoutExpired:
                     pass
                 self.observe("end_command")
-                self.store.put("processes", self.job["id"], {"pid": None, "finished": now()})
+                from .supervision import verify_exit
+                identities = (self.native_record or {}).get('identities', [])
+                ownership_complete = not native_started or (owned_tree is not None and not owned_tree.inspection_failed)
+                if self.native_record is not None:
+                    self.native_record['ownership_complete'] = ownership_complete
+                cleanup_confirmed = ownership_complete and proc.poll() is not None and (not identities or verify_exit(identities))
+                if monitoring_error is not None:
+                    monitoring_error.cleanup_confirmed = cleanup_confirmed
+                if not cleanup_confirmed:
+                    self.monitor_state('interrupted', 'Native cleanup could not be confirmed; execution remains locked for review.', cleanup_confirmed=False)
+                elif self.monitor['state'] == 'interrupted':
+                    self.monitor_state('interrupted', self.monitor['detail'], cleanup_confirmed=True)
+                try:
+                    self.complete_process_record(proc, cleanup_confirmed)
+                except Exception as exc:
+                    self.monitor_state('interrupted', 'Native execution ended but its control record could not be saved: ' + str(exc), cleanup_confirmed=cleanup_confirmed)
+                    raise MonitoringInterrupted(self.monitor['detail'], cleanup_confirmed=cleanup_confirmed) from exc
+                if not cleanup_confirmed:
+                    raise MonitoringInterrupted(self.monitor['detail'], cleanup_confirmed=False)
 
 
 def controller_key(tool, content):
@@ -498,6 +575,9 @@ def execute(ctx):
     if kind == 'isolate_export':
         from .isolate_export import execute as export_isolate
         export_isolate(ctx)
+    elif kind == 'factory_reset':
+        from .factory_reset import execute as reset_workspace
+        reset_workspace(ctx)
     elif kind == 'storage_cleanup':
         from .storage_cleanup import execute as cleanup_storage
         cleanup_storage(ctx)

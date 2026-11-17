@@ -1,3 +1,12 @@
+## 0.1.0a107 — 2026-11-17 · Alpha · Reviewed workspace reset and reliable process ownership
+
+- Add an explicit developer reset in Storage for reviewed managed runs, results, reports, pipeline installations and eligible caches. Keep the application, bootstrap Conda, sample originals and linked databases; database deletion is off by default and requires separate typed confirmation.
+- Preview exact paths and sizes, preserve protected descendants inside selected folders, recheck the plan in the worker, reject active or unverified ownership, and retain durable recovery receipts outside the deletion scope. Only proven unlinked application-created databases can be selected for removal.
+- Keep reset previews in a bounded background task so the workspace remains usable. Changes after preview invalidate deletion before files are staged.
+- Retry transient SQLite control contention within bounded limits, retain Stop intent, record native identities before execution and distinguish monitoring interruption from native command failure. Preserve the low-storage guard and block recovery while native cleanup remains unconfirmed.
+- Keep desktop cleanup effective when workspace persistence fails. Exercise held-writer contention, detached children, unknown process state, nested database references and interrupted reset recovery with isolated fixtures.
+- Keep regular HybAs 9.0.6 source approvals, algorithms and frozen runs unchanged. This is an application/storage update, not scientific validation or a native pipeline release.
+
 ## 0.1.0a106 — 2026-11-11 · Alpha · Pause local runs when storage is low
 
 - Monitor required run, workspace, workflow and temporary storage, including the Windows volume behind WSL and its enabled swap location. Report unavailable required measurements explicitly.

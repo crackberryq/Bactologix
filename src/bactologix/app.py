@@ -36,7 +36,7 @@ def on_action():
     if request:
         handle_request(store, request, st.session_state)
 
-workspace_state = snapshot(store)
+workspace_state = snapshot(store, cached=bool(st.session_state.get('ui-response', {}).get('async_task')))
 if not workspace_state['app_update']['active_job'] and not workspace_state['app_update']['restart_required']:
     from bactologix import update_checks
     update_checks.tick(store)

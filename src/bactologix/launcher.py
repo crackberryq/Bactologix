@@ -10,6 +10,7 @@ import re
 import shutil
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -267,6 +268,56 @@ def stop_server(proc, sig=signal.SIGTERM):
             proc.wait()
 
 
+def _unregister_launcher(store, item):
+    """A bounded, idempotent cleanup write must not delay process cleanup."""
+    from .store import CONTROL_BACKOFF, CONTROL_TIMEOUT, transient_lock
+    for attempt in range(len(CONTROL_BACKOFF) + 1):
+        try:
+            with store.connect(timeout=CONTROL_TIMEOUT) as db:
+                db.execute("DELETE FROM items WHERE kind='launchers' AND id=?", (item['id'],))
+            return
+        except sqlite3.Error as exc:
+            if not transient_lock(exc) or attempt >= len(CONTROL_BACKOFF):
+                raise
+            time.sleep(CONTROL_BACKOFF[attempt])
+
+
+def finish_server(store, item, proc, reader, previous_term, desktop, url, restarting):
+    """Always release the UI child/resources, even if desktop persistence fails."""
+    errors = []
+    def attempt(operation):
+        try:
+            operation()
+        except Exception as exc:
+            errors.append(exc)
+    try:
+        if desktop and not restarting:
+            try:
+                desktop.stop('Desktop session closing')
+                while desktop.jobs():
+                    desktop.publish(url)
+                    time.sleep(.25)
+            except Exception as exc:
+                errors.append(exc)
+    finally:
+        # Each cleanup remains independent; a failed SQLite operation must not
+        # skip restoring handlers, stopping our UI process, or closing its pipe.
+        attempt(lambda: signal.signal(signal.SIGTERM, previous_term))
+        attempt(lambda: stop_server(proc))
+        attempt(lambda: reader.join(timeout=1))
+        if not reader.is_alive():
+            attempt(proc.stdout.close)
+        attempt(lambda: _unregister_launcher(store, item))
+        if desktop and not restarting:
+            if not errors:
+                attempt(lambda: desktop.finish(url))
+            if errors:
+                attempt(lambda: desktop.control_failure(url, errors[0]))
+    if errors:
+        raise RuntimeError('Application cleanup encountered a control error; saved shutdown state and any owned job completion are not confirmed. '
+                           'Review the launcher log: ' + str(errors[0])) from errors[0]
+
+
 def serve(home, host=None, port=None, browser=True, app_window=True, desktop_control=None, desktop_session=None):
     host = checked_host(host or default_host())
     port = free_port(host, port)
@@ -347,19 +398,7 @@ def serve(home, host=None, port=None, browser=True, app_window=True, desktop_con
             stop_server(proc, signal.SIGINT)
             return 0
         finally:
-            if desktop and not restarting:
-                desktop.stop('Desktop session closing')
-                while desktop.jobs():
-                    desktop.publish(url)
-                    time.sleep(.25)
-            signal.signal(signal.SIGTERM, previous_term)
-            stop_server(proc)
-            reader.join(timeout=1)
-            if not reader.is_alive():
-                proc.stdout.close()
-            restart.unregister(store, item)
-            if desktop and not restarting:
-                desktop.finish(url)
+            finish_server(store, item, proc, reader, previous_term, desktop, url, restarting)
     if restarting:
         # A fresh interpreter loads the new launcher as well as the new application.
         # Existing tabs reload through runtime.json; do not open duplicate browser tabs.

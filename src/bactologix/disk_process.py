@@ -18,6 +18,7 @@ class SuspensionError(RuntimeError):
 class OwnedTree:
     def __init__(self, pid, created=None):
         self.members, self.stopped_by_us = {}, set()
+        self.inspection_failed = False
         root = psutil.Process(pid)
         if created is not None and root.create_time() != created:
             raise SuspensionError('The workflow process identity changed.')
@@ -37,6 +38,13 @@ class OwnedTree:
             return False
 
     def refresh(self):
+        try:
+            return self._refresh()
+        except (psutil.Error, SuspensionError):
+            self.inspection_failed = True
+            raise
+
+    def _refresh(self):
         for identity, process in list(self.members.items()):
             if not self.alive(process, identity):
                 continue
@@ -160,6 +168,45 @@ class OwnerWatch:
             pass  # Do not kill a watcher while it may be stopping owned work.
 
 
+class ProcessOwner:
+    """Shared ownership for workflows and short maintenance commands."""
+    def __init__(self):
+        self.tree, self.watch = None, None
+
+    def attach(self, proc):
+        self.tree = OwnedTree(proc.pid)
+        self.watch = OwnerWatch(self.tree)
+
+    def refresh(self):
+        if self.tree is not None:
+            self.tree.refresh()
+            self.watch.publish()
+
+    def stop(self):
+        if self.tree is not None:
+            self.tree.stop()
+
+    def signal(self, sig):
+        if self.tree is not None:
+            self.tree.signal(sig)
+
+    def detach(self, failed=False):
+        tree, watch = self.tree, self.watch
+        clean = False
+        try:
+            if tree is not None:
+                remaining = tree.refresh()
+                if remaining:
+                    tree.kill()
+                    if not failed:
+                        raise SuspensionError('The command exited while owned child processes remained; stopped remaining work. Review the log before continuing.')
+                clean = not remaining
+        finally:
+            self.tree, self.watch = None, None
+            if watch is not None:
+                watch.close(clean=clean)
+
+
 def watch(fd):
     root, members, disarmed = None, set(), False
     with os.fdopen(fd, 'r', encoding='utf-8') as stream:
@@ -188,6 +235,7 @@ def watch(fd):
     if tree is None:
         tree = object.__new__(OwnedTree)
         tree.members, tree.stopped_by_us = {}, set()
+        tree.inspection_failed = False
     for item in members:
         try:
             pid, created = int(item[0]), float(item[1])
