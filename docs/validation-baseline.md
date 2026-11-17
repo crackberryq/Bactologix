@@ -8,14 +8,14 @@ another combination.
 
 ## Dev source baseline
 
-This document records the **Bactologix 0.1.0a107.dev1** development baseline.
+This document records the **Bactologix 0.1.0a108.dev1** development baseline.
 Record the installed application version and the exact commit resolved by its
 published release tag in your validation record. Keep Dev testing separate from
 [the current-channel baseline](https://github.com/crackberryq/Bactologix/blob/main/docs/validation-baseline.md).
 
 | Pipeline | Dev source candidate |
 | --- | --- |
-| HybAs | 10.0.0a5 — `73fe6c3e9baec2694e4f863153b6a3e6872df610` |
+| HybAs | 10.0.0a6 — `bfa43bbbe73484817266e9d7cb39bcf3544262f5` |
 | BaSIS | 0.4.0a8 — `7c293d36a633a726424d544c6ffc39824537ebe4` |
 | GeneScope | 0.1.0a18 — `28bf38c44eb07fe8e4865f67d59ef6b4028f51dc` |
 
@@ -24,7 +24,7 @@ The native-retention review used Flye **2.9.6** (Dev) at upstream commit
 `6278721a1916f6da310e03ec9674099028c927a4`. The pipeline's retention adapter checks
 its reviewed package sources; other versions require a new compatibility review.
 
-HybAs 10.0.0a5 requires Bactologix 0.1.0a107.dev1 or a later compatible Dev application. Its adapter interface prevents older clients from selecting the new setup controls through a catalog refresh; their existing approvals remain available. Update the application before installing this pipeline.
+HybAs 10.0.0a6 requires Bactologix 0.1.0a108.dev1 or a later compatible Dev application. Its adapter interface prevents older clients from selecting the new setup controls through a catalog refresh; their existing approvals remain available. Update the application before installing this pipeline.
 
 These identify source code only. They do not freeze your computer's installed
 packages, databases or models. Older saved runs retain their original workflow;
@@ -112,3 +112,5 @@ configuration, environment, database or model identity needs a new comparison
 record. Keep **software acceptance**, **native tool integration acceptance** and
 **independent analytical validation** as separate outcomes. Passing software
 checks or retaining files does not validate scientific interpretations.
+
+The 10a6 model-review capability is version 2. Its documented-default selection policy must be exposed by a supporting application; earlier clients retain their existing approvals rather than silently approving fallback. See [workspace reset and compute guidance](WORKSPACE_RESET_AND_COMPUTE.md).

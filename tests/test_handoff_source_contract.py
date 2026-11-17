@@ -1,4 +1,4 @@
-"""Registration checks for the reviewed HybAs 10.0.0a5 handoff source.
+"""Registration checks for the reviewed HybAs 10.0.0a6 handoff source.
 
 Native hooks are never executed here. Optional source checks bind the application's
 capability decisions to the exact Git checkout used by the adapter CI jobs.
@@ -22,7 +22,7 @@ from bactologix.store import Store
 
 ROOT = Path(__file__).resolve().parents[1]
 BROWSER = {'interface': 1, 'environment': 'qc', 'policy': 'install_or_repair_when_missing'}
-MODEL = {'interface': 1, 'capability': 'app/medaka-model-review.json',
+MODEL = {'interface': 2, 'capability': 'app/medaka-model-review.json',
          'helper': 'workflow/lib/medaka_stage.py', 'preflight_rule': 'medaka_model_preflight'}
 HANDOFF_FILES = {
     'Hybas.smk', 'environment.yaml', 'config.example.yaml',
@@ -65,7 +65,7 @@ def test_development_registry_copies_match():
 
 
 def test_preferred_handoff_source_has_complete_reviewed_contract(preferred):
-    assert preferred['tag'] == 'v10.0.0a5', 'Register the final reviewed 10a5 source before publishing this handoff update'
+    assert preferred['tag'] == 'v10.0.0a6', 'Register the final reviewed 10a6 source before publishing this handoff update'
     assert preferred['adapter_interface'] == 2, 'Older apps must not approve a source requiring browser and model-review controls'
     assert release_contract.reason('hybas', preferred) is None
     assert preferred['configuration_schema'] == 'hybas-v2'
