@@ -56,8 +56,13 @@ def work(store, desktop_owner=None):
                 ctx.write(traceback.format_exc())
                 store.update_job(job["id"], status="failed", finished=now(), error=str(exc))
             finally:
-                ctx.observe("finish", store.job(job["id"])["status"])
-                ctx.log.close()
+                try:
+                    status = store.job(job["id"])["status"]
+                    if ctx.disk_guard is not None:
+                        ctx.disk_guard.finish(status)
+                    ctx.observe("finish", status)
+                finally:
+                    ctx.log.close()
             if job["kind"] == "app_update":
                 # Never claim more work with modules loaded before pip replaced them.
                 return

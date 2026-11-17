@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a97.dev1 — Experimental development
+# Bactologix 0.1.0a106.dev1 — Experimental development
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
 
@@ -6,7 +6,7 @@ This development update adds [verified isolate export and analysis history](docs
 alongside reviewed storage cleanup. It retains the independent Dev workspace
 and experimental HybAs 10 workflow.
 
-**Windows Dev setup:** download [Bactologix-Dev-Setup.exe](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a105.dev1/Bactologix-Dev-Setup.exe) and open it normally. This independent installer includes the exact Dev application wheel and keeps its environment, workspace and shortcuts separate. Internet access is needed for dependencies. A ZIP remains available for manual setup. See [parallel testing](docs/DEVELOPMENT.md).
+**Windows Dev setup:** download [Bactologix-Dev-Setup.exe](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a106.dev1/Bactologix-Dev-Setup.exe) and open it normally. This independent installer includes the exact Dev application wheel and keeps its environment, workspace and shortcuts separate. Internet access is needed for dependencies. A ZIP remains available for manual setup. See [parallel testing](docs/DEVELOPMENT.md).
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
@@ -197,6 +197,13 @@ snapshot. It includes local interpreter/runner/source paths and run labels and i
 not redacted; review it before sharing.
 
 ### Storage management
+
+Local workflow runs have [low-disk protection](docs/low-disk-protection.md):
+warn below 20 GiB, hold or suspend at 10 GiB, and require manual resume after
+every required volume recovers to at least 15 GiB. WSL checks include Windows
+backing and swap volumes as well as Linux storage. Unavailable required
+measurements also hold the run. This does not delete data or control standalone
+workflows outside Bactologix.
 
 Open **Storage → Reclaim disk space** to select old run results, known sample input
 files, or unused managed pipeline sources and environments. The preview lists the

@@ -1,3 +1,12 @@
+## 0.1.0a106.dev1 — 2026-11-11 · Alpha · Pause local runs when storage is low
+
+- Monitor required run, workspace, workflow and temporary storage, including the Windows volume behind WSL and its enabled swap location. Report unavailable required measurements explicitly.
+- Warn below 20 GiB and hold or suspend owned local analysis processes at or below 10 GiB. Require fresh measurements of at least 15 GiB on every required volume and manual resume; retain Stop while paused.
+- Guard prelaunch output preservation as well as native workflow execution, retain existing busy locks, and clean up owned processes after worker loss. Never automatically delete data or alter pipeline settings.
+- Show affected storage, pause reason and recovery controls in run views, lists and notifications without a page fade or moving progress while paused.
+- Add capacity, real-process, worker-loss and browser regressions. The sampled guard does not control external writers or standalone workflows; full WSL workload validation remains a host acceptance check.
+- Synchronize bundled application citation versions with this release.
+
 ## 0.1.0a105.dev1 — 2026-11-11 · Alpha · Steady workspace and localized run progress
 
 - Keep the workspace readable during connected background refreshes. Scope the change to the Bactologix workspace so native disconnection and error feedback remains available.

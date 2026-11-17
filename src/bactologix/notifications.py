@@ -87,6 +87,11 @@ def _job_event(job, runs):
 def panel(store, jobs=None, runs=None):
     """Collect new saved outcomes and return a bounded notification center."""
     jobs = store.jobs() if jobs is None else jobs
+    # Read the guard's public snapshot before taking the notification write
+    # transaction. Polling this panel never probes a drive or controls a process.
+    from . import disk_pause
+    pauses = [(job, disk_pause.snapshot(store, job['id'])) for job in jobs
+              if job.get('kind') == 'workflow' and job.get('status') == 'running']
     if runs is None:
         from .runs import run_status
         archived = {row['id'] for row in store.all('run_visibility') if row.get('archived')}
@@ -132,6 +137,22 @@ def panel(store, jobs=None, runs=None):
                 add(identity, event, historical=first_visit)
             else:
                 _put(db, 'notification_seen', _identity(identity), True)
+        for job, safety in pauses:
+            if not safety or safety.get('state') != 'paused':
+                continue
+            waiting = safety.get('pause_kind') == 'before_launch'
+            unavailable = safety.get('reason') == 'monitor_unavailable'
+            title = ('Waiting for storage' if waiting else
+                     'Paused — storage check unavailable' if unavailable else
+                     'Paused — low disk space')
+            body = ('No tool process has started for this command. ' if waiting else
+                    'Tool processes are suspended and still hold memory. ')
+            body += ('Storage could not be verified. ' if unavailable else
+                     'A monitored drive is below the storage safety threshold. ')
+            body += 'Open the run to review drives, free space and request resume. Outputs are retained.'
+            event = {'category': 'jobs', 'event_type': 'disk_pause', 'title': title,
+                     'body': body, 'target': {'kind': 'job', 'id': job['id']}}
+            live.add(add(['disk_pause', job['id'], safety.get('generation')], event))
         for run in runs:
             review = run.get('identification') or {}
             awaiting = (run.get('status') == 'awaiting_review' if 'status' in run
@@ -152,7 +173,7 @@ def panel(store, jobs=None, runs=None):
         records = db.execute("SELECT id,body FROM items WHERE kind='notifications' ORDER BY rowid DESC").fetchall()
         for record in records:
             row = json.loads(record['body'])
-            if row['category'] in {'review', 'updates'} and row['id'] not in live and row.get('active', True):
+            if (row['category'] in {'review', 'updates'} or row.get('event_type') == 'disk_pause') and row['id'] not in live and row.get('active', True):
                 row.update(active=False, read=True)
                 _put(db, 'notifications', row['id'], row)
         for record in records[MAX_ITEMS:]:
