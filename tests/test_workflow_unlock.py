@@ -14,6 +14,148 @@ from bactologix import runs
 from bactologix.store import Store
 from bactologix.runs import tree_digest
 from bactologix.ui_backend import dispatch
+from test_native import workspace, installation, sample
+
+
+@pytest.fixture
+def low_swap_locked(workspace, installation, sample, monkeypatch):
+    """Exercise real launch validation with the reported maintenance shortfall."""
+    from bactologix import compute_memory, hardware
+    run = runs.create_run(workspace, 'hybas', sample,
+                          compute_memory.with_swap('{}', 98160), 12, 46080)
+    run['dry_run_ok'] = True
+    workspace.put('runs', run['id'], run)
+    directory = Path(run['folder']) / 'workflow'
+    locks = directory / '.snakemake/locks'
+    locks.mkdir(parents=True)
+    (locks / '0.input.lock').write_text('/software/fixture\n')
+    output = Path(run['output']) / 'preserved-result.txt'
+    output.write_text('retained output')
+    inventory_calls = []
+
+    def inventory(store, refresh=False):
+        inventory_calls.append(refresh)
+        return {'checked_at': '2026-11-18T18:30:45+00:00',
+                'cpu': {'available': 12},
+                'memory': {'total_mb': 49152, 'available_mb': 49004,
+                           'swap_mb': 98304, 'swap_available_mb': 73728,
+                           'combined_total_mb': 147456,
+                           'combined_available_mb': 122732}}
+
+    monkeypatch.setattr(hardware, 'inventory', inventory)
+    monkeypatch.setattr('bactologix.engine.find_conda', lambda _: '/fixture/conda')
+    monkeypatch.setattr('bactologix.engine.launch_worker', lambda _: None)
+    monkeypatch.setattr(unlock.psutil, 'process_iter', lambda: [])
+    return workspace, run, locks, output, inventory_calls
+
+
+def test_low_swap_unlock_preserves_run_and_keeps_analysis_capacity_checks(low_swap_locked):
+    store, run, locks, output, inventory_calls = low_swap_locked
+    original = copy.deepcopy(run)
+    folder = Path(run['folder'])
+    preserved = [output, folder / 'config.yaml', folder / 'samples.tsv',
+                 folder / 'bactologix-run.json',
+                 *Path(run['sample']['path']).glob('raw/illumina/*.fastq')]
+    contents = {path: path.read_bytes() for path in preserved}
+
+    for action in ('dry-run', 'run'):
+        with pytest.raises(ValueError, match='Pre-run memory checks:') as error:
+            runs.validate_launch(store, run['id'], action)
+        assert '98,160 MB swap allowance exceeds the 72,704 MB usable free swap' in str(error.value)
+        assert '144,240 MB scheduling budget exceeds the 119,251 MB' in str(error.value)
+    assert inventory_calls == [True, True]
+
+    plan = unlock.preview(store, run['id'])
+    assert plan['allowed'], plan['message']
+    jid = unlock.request(store, run['id'], plan['signature'])
+    job = store.claim()
+    assert job['id'] == jid and job['kind'] == 'workflow_unlock'
+    executed = []
+
+    def native(argv, **kwargs):
+        executed.append(argv)
+        start = argv.index('snakemake') + 1
+        result = subprocess.run([sys.executable, '-m', 'snakemake', *argv[start:]],
+                                cwd=kwargs['cwd'], capture_output=True, text=True,
+                                timeout=kwargs['timeout'])
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    with unlock.ownership(store):
+        unlock.execute(SimpleNamespace(store=store, job=job, write=lambda _: None,
+                                       command=native))
+    assert len(executed) == 1 and executed[0][-1] == '--unlock'
+    assert 'mem_mb=144240' in executed[0]
+    assert not {'--dry-run', '--forcerun', '--use-conda', '--rerun-incomplete'}.intersection(executed[0])
+    assert not locks.exists() or not list(locks.iterdir())
+    assert inventory_calls == [True, True]  # Preview, queue and worker skip only admission.
+    assert store.get('runs', run['id']) == original
+    assert all(path.read_bytes() == content for path, content in contents.items())
+    assert store.queue_snapshot()['paused']
+    store.update_job(jid, status='succeeded')
+    with pytest.raises(ValueError, match='Pre-run memory checks:'):
+        runs.validate_launch(store, run['id'], 'run')
+    assert inventory_calls == [True, True, True]
+
+
+@pytest.mark.parametrize('failure', ['working_directory', 'configuration', 'lock_redirect', 'worker_lease'])
+def test_low_swap_unlock_retains_non_memory_guards(low_swap_locked, monkeypatch, tmp_path, failure):
+    from bactologix import preflight
+    store, run, locks, output, inventory_calls = low_swap_locked
+    if failure == 'working_directory':
+        access = preflight.os.access
+        directory = Path(run['folder']) / 'workflow'
+        monkeypatch.setattr(preflight.os, 'access',
+                            lambda path, mode: False if Path(path) == directory else access(path, mode))
+        expected = 'Pre-run checks:'
+    elif failure == 'configuration':
+        Path(run['folder'], 'config.yaml').write_text('changed: true\n')
+        expected = 'Saved configuration changed'
+    elif failure == 'lock_redirect':
+        target = tmp_path / 'redirected-locks'
+        locks.rename(target)
+        locks.symlink_to(target, target_is_directory=True)
+        expected = 'Lock location is redirected'
+    else:
+        with unlock.ownership(store):
+            plan = unlock.preview(store, run['id'])
+        assert not plan['allowed'] and 'currently in use' in plan['message']
+        assert inventory_calls == [] and store.jobs() == []
+        return
+    plan = unlock.preview(store, run['id'])
+    assert not plan['allowed'] and expected in plan['message']
+    assert inventory_calls == [] and store.jobs() == []
+    assert output.read_text() == 'retained output'
+
+
+@pytest.mark.parametrize('stage', ['preview', 'request', 'execute'])
+def test_low_swap_unlock_rechecks_active_processes(low_swap_locked, monkeypatch, stage):
+    store, run, locks, output, inventory_calls = low_swap_locked
+    if stage != 'preview':
+        plan = unlock.preview(store, run['id'])
+        assert plan['allowed']
+    if stage == 'execute':
+        jid = unlock.request(store, run['id'], plan['signature'])
+        job = store.claim()
+        assert job['id'] == jid
+    process = SimpleNamespace(pid=123, cmdline=lambda: ['python', '-m', 'snakemake'],
+                              uids=lambda: SimpleNamespace(real=os.getuid(),
+                                                           effective=os.getuid(), saved=os.getuid()))
+    monkeypatch.setattr(unlock.psutil, 'process_iter', lambda: [process])
+    if stage == 'preview':
+        plan = unlock.preview(store, run['id'])
+        assert not plan['allowed'] and 'Snakemake process 123 is active' in plan['message']
+    elif stage == 'request':
+        with pytest.raises(ValueError, match='Snakemake process 123 is active'):
+            unlock.request(store, run['id'], plan['signature'])
+    else:
+        with unlock.ownership(store), pytest.raises(ValueError, match='Snakemake process 123 is active'):
+            unlock.execute(SimpleNamespace(store=store, job=job,
+                                           command=lambda *_a, **_k: pytest.fail('Active work must prevent native unlock')))
+    assert (locks / '0.input.lock').exists()
+    assert output.read_text() == 'retained output'
+    assert inventory_calls == []
+    if stage != 'execute':
+        assert store.jobs() == []
 
 
 @pytest.fixture
