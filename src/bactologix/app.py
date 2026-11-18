@@ -2,7 +2,7 @@
 from pathlib import Path
 import streamlit as st
 from streamlit.components.v2 import component
-from bactologix.store import Store
+from bactologix.store import Store, workspace
 from bactologix.ui_backend import handle_request, snapshot
 
 from bactologix.channels import title
@@ -31,7 +31,13 @@ def workspace_component():
     return component("bactologix_workspace", html=(assets / "shell.html").read_text().replace('__BRAND_SVG__', brand),
                      css=(assets / "styles.css").read_text(), js=(assets / "workspace.js").read_text().replace('__BRAND_SVG__', brand))
 
-store = Store()
+@st.cache_resource(scope="session", show_spinner=False)
+def open_workspace(home):
+    # Initialize the SQLite schema once per workspace in this UI session. Each
+    # snapshot still opens fresh transactions to read the worker's latest state.
+    return Store(home)
+
+store = open_workspace(workspace())
 
 def on_action():
     request = st.session_state["workspace-ui"].get("action")

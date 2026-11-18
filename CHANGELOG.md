@@ -1,3 +1,9 @@
+## 0.1.0a112.dev1 — 2026-11-19 · Alpha · Keep environment setup running during brief workspace database locks
+
+- During pipeline setup, keep the installer and its child processes under supervision while retrying a temporary workspace database lock for up to 30 seconds. Read pending stop requests as soon as access returns. If control remains unavailable, stop the owned processes and pause the queue for review.
+- Keep the Windows desktop session open through brief heartbeat contention. Reuse the initialized workspace on progress refreshes while reading fresh job data.
+- For a previously interrupted installation, open **Install & update**, select the pipeline version, and choose **Retry setup**. Bactologix reuses completed environments and verifies the installation.
+
 ## 0.1.0a111.dev1 — 2026-11-18 · Alpha · Unlock maintenance without analysis memory requirements
 
 - Allow guarded native workflow unlock when the saved analysis RAM/swap budget exceeds current free capacity. Unlock performs maintenance only and no longer applies analysis memory admission checks.

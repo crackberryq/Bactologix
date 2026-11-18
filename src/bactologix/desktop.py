@@ -12,6 +12,7 @@ import sqlite3
 import time
 import uuid
 from .store import CONTROL_BACKOFF, CONTROL_TIMEOUT, transient_lock
+from .supervision import MonitoringInterrupted
 
 
 ENV = 'BACTOLOGIX_DESKTOP_SESSION'
@@ -52,7 +53,6 @@ def session_value_stopped(session):
             not isinstance(session.get('last_seen', 0), (int, float)) or
             isinstance(session.get('last_seen', 0), bool) or
             not math.isfinite(session.get('last_seen', 0))):
-        from .supervision import MonitoringInterrupted
         raise MonitoringInterrupted('Desktop session control metadata is invalid.')
     return (not session or session.get('cancelled') is True or session.get('phase') in {'stopping', 'stopped'}
             or time.time() - session.get('last_seen', 0) > LEASE_SECONDS)
@@ -170,6 +170,24 @@ class Session:
             self.stop(self.reason)
         self.publish(url)
         return self.phase in {'stopping', 'stopped'} and not self.jobs()
+
+    def poll(self, url, ready):
+        """Keep the Windows session alive across brief control-database contention."""
+        deadline = time.monotonic() + LEASE_SECONDS
+        while True:
+            try:
+                return self.tick(url, ready)
+            except (sqlite3.Error, MonitoringInterrupted) as exc:
+                # A failed control read wraps its SQLite cause. Re-read the OS
+                # heartbeat and any pending close on every attempt. Only gate()
+                # may renew the lease, after checking its durable expiry/stop.
+                cause = exc.__cause__ if isinstance(exc, MonitoringInterrupted) else exc
+                if not isinstance(cause, sqlite3.Error) or not transient_lock(cause):
+                    raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise
+                time.sleep(min(.3, remaining))
 
     def finish(self, url):
         if self.jobs():

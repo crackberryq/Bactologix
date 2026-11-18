@@ -23,6 +23,7 @@ from .local import git_read, local_path
 from .runs import parse_config, template, tree_digest
 from .store import identifier, now
 from .storage_guard import mutation
+from .supervision import MonitoringInterrupted
 from . import environment_health
 
 RECIPES = {
@@ -266,7 +267,7 @@ def execute_environments(ctx):
                 message = environment_health.repair(ctx, row, prefix, folder, deploy,
                     preparation_env=prepare_env if row['id'] == 'qc' else {'HYBAS_PREPARE_BROWSER': '0'})
                 result.update(status='Verified', message=message)
-            except Cancelled:
+            except (Cancelled, MonitoringInterrupted):
                 raise
             except Exception as exc:
                 result.update(status='Repair failed', message=str(exc))
@@ -280,7 +281,7 @@ def execute_environments(ctx):
                 environment_health.probe(ctx, row, prefix, folder)
                 result.update(status="Verified", message="Native executable checks passed." +
                               (" NanoPlot HTML and PNG rendering passed." if environment_health.plotting_recipe(row) else ""))
-            except Cancelled:
+            except (Cancelled, MonitoringInterrupted):
                 raise
             except Exception as exc:
                 result.update(status="Check failed", message=str(exc))

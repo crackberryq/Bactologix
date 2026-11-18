@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+from unittest.mock import Mock
 import uuid
 
 import pytest
@@ -81,6 +82,65 @@ def test_real_writer_contention_retries_heartbeat_or_confirmed_close(session, mo
     assert store.job(unrelated)['cancel'] == 0
     if closing:
         assert item.nonce == sent['nonce']
+
+
+@pytest.mark.parametrize('closing', [False, True])
+def test_desktop_poll_survives_an_exhausted_heartbeat_and_reads_pending_close(session, monkeypatch, closing):
+    store, item = session
+    monkeypatch.setenv(desktop.ENV, item.key)
+    owned = store.submit('install', {})
+    tick = item.tick
+    exhausted = threading.Event()
+    outcome = []
+
+    def observe_tick(url, ready):
+        try:
+            return tick(url, ready)
+        except sqlite3.OperationalError:
+            exhausted.set()
+            raise
+
+    def poll():
+        try:
+            outcome.append(item.poll('', True))
+        except Exception as exc:
+            outcome.append(exc)
+
+    monkeypatch.setattr(item, 'tick', observe_tick)
+    with store.connect() as writer:
+        writer.execute('BEGIN IMMEDIATE')
+        thread = threading.Thread(target=poll)
+        thread.start()
+        try:
+            assert exhausted.wait(4), 'Exhaust all short heartbeat attempts before releasing the lock'
+            if closing:
+                request(item, 'confirm_close')
+        finally:
+            writer.rollback()
+            thread.join(4)
+    assert outcome == [closing]
+    assert store.job(owned)['cancel'] == int(closing)
+    assert store.get('desktop_sessions', item.key)['phase'] == ('stopping' if closing else 'ready')
+
+
+@pytest.mark.parametrize(('error', 'should_retry'), [
+    ('database is locked', True), ('database disk image is malformed', False),
+])
+def test_desktop_poll_retries_only_transient_control_read_failures_within_lease(session, monkeypatch, error, should_retry):
+    _, item = session
+    attempts = []
+
+    def interrupted(url, ready):
+        attempts.append(True)
+        raise desktop.MonitoringInterrupted('control read failed') from sqlite3.OperationalError(error)
+
+    monkeypatch.setattr(item, 'tick', interrupted)
+    clock = Mock()
+    clock.monotonic.side_effect = [0., 1., desktop.LEASE_SECONDS]
+    monkeypatch.setattr(desktop, 'time', clock)
+    with pytest.raises(desktop.MonitoringInterrupted, match='control read failed'):
+        item.poll('', True)
+    assert len(attempts) == (2 if should_retry else 1)
 
 
 def test_failed_close_preserves_nonce_reason_and_durable_phase_until_retry(session, monkeypatch):

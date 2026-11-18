@@ -62,6 +62,29 @@ def test_rerun_does_not_duplicate_job(tmp_path, monkeypatch):
     assert queued == ["smoke"]
 
 
+def test_poll_reuses_initialized_workspace_and_reads_worker_changes(tmp_path, monkeypatch):
+    monkeypatch.setenv('BACTOLOGIX_HOME', str(tmp_path))
+    worker_store = Store(tmp_path)
+    job = worker_store.submit('smoke', {})
+    initialized = []
+    original_init = Store.__init__
+
+    def count_initializations(self, home=None):
+        original_init(self, home)
+        initialized.append(self.home)
+
+    monkeypatch.setattr(Store, '__init__', count_initializations)
+    app = AppTest.from_file(str(APP)).run(timeout=20)
+    assert not app.exception
+    assert initialized == [tmp_path]
+    worker_store.update_job(job, status='succeeded')
+    app.run(timeout=20)
+    assert not app.exception
+    assert initialized == [tmp_path]
+    data = json.loads(app.get('bidi_component')[0].proto.json)
+    assert any(row['id'] == job and row['status'] == 'succeeded' for row in data['workspace']['jobs'])
+
+
 def test_failed_action_is_returned_to_component(tmp_path, monkeypatch):
     monkeypatch.setenv("BACTOLOGIX_HOME", str(tmp_path))
     app = AppTest.from_file(str(APP)).run(timeout=20)

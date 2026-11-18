@@ -10,6 +10,7 @@ import yaml
 from .catalog import DATA
 from .engine import Cancelled, find_conda
 from .store import now
+from .supervision import MonitoringInterrupted
 
 
 def plotting_recipe(row):
@@ -117,7 +118,7 @@ def repair(ctx, row, prefix, folder, deploy, preparation_env=None):
         try:
             probe(ctx, row, prefix, folder)
             return 'Existing environment passed its checks; no packages changed.'
-        except Cancelled:
+        except (Cancelled, MonitoringInterrupted):
             raise
         except Exception:
             if repair_plotting(ctx, row, prefix, folder, preparation_env):
@@ -132,7 +133,7 @@ def repair(ctx, row, prefix, folder, deploy, preparation_env=None):
             raise RuntimeError('Environment deployment did not complete. See the job log.')
         try:
             probe(ctx, row, prefix, folder)
-        except Cancelled:
+        except (Cancelled, MonitoringInterrupted):
             raise
         except Exception:
             if not repair_plotting(ctx, row, prefix, folder, preparation_env):

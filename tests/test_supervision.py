@@ -319,6 +319,116 @@ def test_real_sqlite_writer_contention_does_not_stall_native_safety(fixture):
         ctx.log.close()
 
 
+@pytest.mark.parametrize('cancel', [False, True])
+def test_setup_keeps_supervising_children_during_real_exclusive_lock(tmp_path, cancel):
+    store = Store(tmp_path / 'workspace')
+    jid = store.submit('install', {})
+    ctx = Context(store, store.claim())
+    # Model an installer spawning a package helper after workspace reads fail.
+    # Its native identity must be recorded before the database is available again.
+    script = tmp_path / 'setup.py'
+    script.write_text('''
+from pathlib import Path
+import os
+import subprocess
+import sys
+import time
+
+folder = Path(__file__).parent
+if len(sys.argv) > 1:
+    (folder / 'child').write_text(str(os.getpid()))
+    while not (folder / 'finish').exists():
+        time.sleep(.02)
+else:
+    (folder / 'started').touch()
+    while not (folder / 'spawn').exists():
+        time.sleep(.02)
+    subprocess.run([sys.executable, __file__, 'child'], check=True)
+    (folder / 'installed').touch()
+''')
+    thread, outcome = background(ctx, [sys.executable, str(script)])
+    try:
+        wait_for((tmp_path / 'started').exists)
+        with store.connect() as writer:
+            writer.execute('PRAGMA locking_mode=EXCLUSIVE')
+            writer.execute('BEGIN EXCLUSIVE')
+            # Four failed reads exhausted the previous retry budget.
+            wait_for(lambda: (supervision.snapshot(store, jid) or {}).get('retry_count', 0) >= 4)
+            (tmp_path / 'spawn').touch()
+            child = tmp_path / 'child'
+            wait_for(lambda: child.exists() and child.read_text().isdigit())
+            child_pid = int(child.read_text())
+            wait_for(lambda: any(i['pid'] == child_pid for i in
+                                 supervision.snapshot(store, jid, 'process')['identities']))
+            assert supervision.snapshot(store, jid)['state'] == 'degraded'
+            if cancel:
+                writer.execute('UPDATE jobs SET cancel=1 WHERE id=?', (jid,))
+        if not cancel:
+            wait_for(lambda: supervision.snapshot(store, jid)['state'] == 'recovered')
+            (tmp_path / 'finish').touch()
+        thread.join(5)
+        assert not thread.is_alive()
+        if cancel:
+            assert len(outcome) == 1 and isinstance(outcome[0], Cancelled)
+            assert not (tmp_path / 'installed').exists()
+        else:
+            assert not outcome and (tmp_path / 'installed').is_file()
+        record = supervision.snapshot(store, jid, 'process')
+        assert record['cleanup_confirmed'] and not supervision.remaining(record['identities'])
+    finally:
+        (tmp_path / 'spawn').touch()
+        (tmp_path / 'finish').touch()
+        thread.join(5)
+        ctx.log.close()
+
+
+def test_setup_interrupts_and_pauses_queue_on_persistent_control_loss(fixture, monkeypatch):
+    from bactologix import engine
+    store, jid, marker, command, _ = fixture
+    with store.connect() as db:
+        db.execute("UPDATE jobs SET kind='environments' WHERE id=?", (jid,))
+    monkeypatch.setattr(engine, 'SETUP_CONTROL_GRACE_SECONDS', 1.0)
+    inject_control_error(store, marker, monkeypatch, failures=None, message='database is locked')
+    monkeypatch.setattr(worker, 'execute', lambda ctx: ctx.command(command))
+    monkeypatch.setattr(worker, 'assert_current', lambda store: None)
+    started = time.monotonic()
+    worker.work(store)
+    assert 1 <= time.monotonic() - started < 8
+    assert store.job(jid)['status'] == 'interrupted' and store.queue_snapshot()['paused']
+    monitor = supervision.snapshot(store, jid)
+    assert monitor['cleanup_confirmed'] and monitor['retry_count'] > 4
+    assert not supervision.remaining(supervision.snapshot(store, jid, 'process')['identities'])
+
+
+def test_setup_recovers_locked_process_registration_and_completion(tmp_path, monkeypatch):
+    store = Store(tmp_path / 'workspace')
+    jid = store.submit('environments', {})
+    ctx = Context(store, store.claim())
+    installed = tmp_path / 'installed'
+    original = store.put_process
+    retried = set()
+
+    def put(jid, record):
+        completed = record['cleanup_confirmed']
+        if completed not in retried:
+            retried.add(completed)
+            # Gate stays closed until registration. A subsequent write conflict
+            # after success must retry bookkeeping without relaunching setup.
+            assert installed.exists() == completed
+            raise sqlite3.OperationalError('database is locked')
+        return original(jid, record)
+
+    monkeypatch.setattr(store, 'put_process', put)
+    try:
+        ctx.command([sys.executable, '-c',
+                     'import sys; open(sys.argv[1], "x").close()', str(installed)])
+        assert retried == {False, True} and installed.exists()
+        assert store.get('processes', jid)['cleanup_confirmed']
+        assert supervision.snapshot(store, jid, 'process')['returncode'] == 0
+    finally:
+        ctx.log.close()
+
+
 @pytest.mark.parametrize('value', [[], None, {}, {'cleanup_confirmed': 'yes', 'identities': []},
     {'cleanup_confirmed': False, 'identities': []},
     {'cleanup_confirmed': False, 'identities': [{'pid': 1, 'created': 'yesterday'}]}])

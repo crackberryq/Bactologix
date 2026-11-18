@@ -16,8 +16,11 @@ import time
 from urllib.request import Request, urlopen
 from .catalog import PIPELINES, api, supported
 from .controllers import controller_requirements, controller_check_code
-from .store import Store, now
+from .store import Store, now, transient_lock
 from .supervision import MonitoringInterrupted
+
+
+SETUP_CONTROL_GRACE_SECONDS = 30.0
 
 
 class Cancelled(Exception):
@@ -79,6 +82,9 @@ class Context:
         self.lock_fds = tuple(fd for fd in (lock_fd, environment_fd) if fd is not None)
         self.log = store.log_path(job["id"]).open("a", buffering=1)
         self.cancel_requested = False
+        self.setup_control = (job['kind'] in {'install', 'connect', 'bootstrap', 'environments'} or
+                              (job['kind'] == 'check' and (job['payload'].get('setup') or job['payload'].get('repair'))))
+        self.control_deadline = None
         self.monitor = {'id': job['id'], 'state': 'healthy', 'retry_count': 0}
         self.native_record = None
         run_id = job['payload'].get('run_id')
@@ -129,11 +135,42 @@ class Context:
         if self.refresh_desktop_cancel():
             raise Cancelled("Stopped by user")
 
-    def refresh_desktop_cancel(self):
+    def control_operation(self, operation, *args, poll=False):
+        """Allow setup to ride out a brief SQLite lock without losing the owned installer.
+
+        At a command boundary we must wait for a real result. In the native
+        polling loop, yield to process supervision and try again on the next tick.
+        """
+        if not self.setup_control or self.monitor['state'] == 'interrupted':
+            return operation(*args)
+        deadline = self.control_deadline or time.monotonic() + SETUP_CONTROL_GRACE_SECONDS
+        while True:
+            try:
+                result = operation(*args)
+            except (sqlite3.Error, MonitoringInterrupted) as exc:
+                cause = exc.__cause__ if isinstance(exc, MonitoringInterrupted) else exc
+                if not isinstance(cause, sqlite3.Error) or not transient_lock(cause):
+                    raise
+                if isinstance(exc, sqlite3.Error):  # Reads already report their short retries.
+                    self.monitor_retry(exc, 1)
+                self.control_deadline = deadline
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise
+                if poll:
+                    return None
+                time.sleep(min(.25, remaining))
+            else:
+                self.control_deadline = None
+                return result
+
+    def refresh_desktop_cancel(self, *, poll=False):
         from .desktop import session_value_stopped
         if self.cancel_requested:
             return True
-        state = self.store.control_state(self.job['id'], self.monitor_retry)
+        state = self.control_operation(self.store.control_state, self.job['id'], self.monitor_retry, poll=poll)
+        if state is None:  # A setup poll deferred; keep servicing the owned process.
+            return False
         if self.monitor['state'] == 'degraded':
             self.monitor_state('recovered', 'Workspace control reads recovered; native execution remained owned.')
         self.cancel_requested = bool(state['cancel'] or (self.job['kind'] != 'app_update' and state['owner'] and session_value_stopped(state['session'])))
@@ -150,10 +187,10 @@ class Context:
     def monitor_retry(self, exc, attempt):
         if self.monitor['state'] != 'degraded':
             try:
-                self.write('Workspace control read interrupted; retrying while retaining native process ownership: ' + str(exc))
+                self.write('Workspace control data is unavailable; retrying while retaining native process ownership: ' + str(exc))
             except OSError:
                 pass
-        self.monitor_state('degraded', 'Retrying workspace control reads; native work is still supervised.',
+        self.monitor_state('degraded', 'Retrying workspace control access; native work is still supervised.',
                            retry_count=self.monitor['retry_count'] + 1, last_error=str(exc))
 
     def remember_processes(self, proc, argv, guard):
@@ -191,7 +228,7 @@ class Context:
                                   returncode=proc.returncode)
         save(self.store, self.job['id'], self.native_record, 'process')
         value = dict(self.native_record, pid=None if confirmed else self.native_record['pid'])
-        self.store.put_process(self.job['id'], value)
+        self.control_operation(self.store.put_process, self.job['id'], value)
 
     def command(self, argv, cwd=None, extra_env=None, stdout=None, *, timeout=None, stop_after=None):
         import shlex
@@ -236,14 +273,16 @@ class Context:
             owner.attach(proc)
             owned_tree = owner.tree
             self.remember_processes(proc, argv, owner)
-            self.store.put_process(self.job['id'], self.native_record)
+            self.control_operation(self.store.put_process, self.job['id'], self.native_record)
+            if self.setup_control and self.monitor['state'] == 'degraded':
+                self.check_cancel_only()  # A stop may have arrived while the exec gate was closed.
             os.write(gate_write, b'1')
             native_started = True
             os.close(gate_write)
             gate_write = None
             self.observe("begin_command", proc, argv[0])
             while proc.poll() is None:
-                cancelled = self.refresh_desktop_cancel()
+                cancelled = self.refresh_desktop_cancel(poll=True)
                 elapsed_command = time.monotonic() - command_started
                 timed_out = timed_out or (timeout is not None and elapsed_command >= timeout)
                 if timed_out:
@@ -321,6 +360,8 @@ class Context:
                     raise MonitoringInterrupted(self.monitor['detail'], cleanup_confirmed=cleanup_confirmed) from exc
                 if not cleanup_confirmed:
                     raise MonitoringInterrupted(self.monitor['detail'], cleanup_confirmed=False)
+        if self.setup_control and self.monitor['state'] == 'degraded':
+            self.check_cancel_only()  # Reconcile control before advancing past a completed command.
 
 
 def controller_key(tool, content):
@@ -440,7 +481,7 @@ def prepare_controller(ctx, record, repair=False):
         ctx.write("Checking the existing controller before reuse.")
     try:
         check_controller(ctx, conda, prefix, tool, requirements)
-    except Cancelled:
+    except (Cancelled, MonitoringInterrupted):
         raise
     except Exception:
         record.update(ready=False)

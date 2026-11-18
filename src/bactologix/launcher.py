@@ -367,7 +367,7 @@ def serve(home, host=None, port=None, browser=True, app_window=True, desktop_con
         try:
             deadline = time.monotonic() + 60
             while proc.poll() is None:
-                if desktop and desktop.tick(url, ready):
+                if desktop and desktop.poll(url, ready):
                     desktop_closed = True
                     stop_server(proc)
                     break
