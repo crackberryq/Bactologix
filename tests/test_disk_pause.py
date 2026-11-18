@@ -128,8 +128,12 @@ def test_owned_detached_tree_stops_writing_resumes_and_cancels(safety, tmp_path)
         assert sizes() == stopped_sizes
         disk_pause.request_resume(store, jid, state['generation'])
         wait_for(lambda: all(a > b for a, b in zip(sizes(), stopped_sizes)))
+        # SIGCONT precedes saving the resumed state; output growth alone can
+        # still leave the previous low-space pause visible in the database.
+        wait_for(lambda: disk_pause.snapshot(store, jid)['state'] == 'monitoring')
         values['errors'] = ['Windows backing drive unavailable']
-        wait_for(lambda: disk_pause.snapshot(store, jid)['state'] == 'paused')
+        wait_for(lambda: (current := disk_pause.snapshot(store, jid))['state'] == 'paused'
+                 and current['generation'] > state['generation'])
         assert disk_pause.snapshot(store, jid)['reason'] == 'monitor_unavailable'
         assert not disk_pause.snapshot(store, jid)['can_resume']
         store.cancel(jid)

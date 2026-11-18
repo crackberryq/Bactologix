@@ -2807,7 +2807,12 @@ def test_workflow_lock_review_and_guarded_unlock(tmp_path, installed, monkeypatc
     (sample/'raw/illumina').mkdir(parents=True)
     for mate in (1,2):
         (sample/f'raw/illumina/fixture_R{mate}.fastq').write_text('@fixture\nA\n+\nI\n')
-    run = create_run(store,'hybas',{'id':'unlock.fixture','path':str(sample),'mode':'illumina_only'},'custom_note: retained\n',label='Interrupted fixture')
+    from bactologix import hardware
+    from test_compute_memory import host
+    monkeypatch.setattr(hardware, 'inventory', lambda *a, **k: host(0))
+    run = create_run(store,'hybas',{'id':'unlock.fixture','path':str(sample),'mode':'illumina_only'},
+                     'custom_note: retained\nbactologix_compute: {swap_mb: 98160}\n',
+                     memory_mb=46080, label='Interrupted fixture')
     locks = Path(run['folder'])/'workflow/.snakemake/locks'
     locks.mkdir(parents=True)
     (locks/'0.input.lock').write_text('/software-fixture')
