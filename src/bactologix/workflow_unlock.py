@@ -128,7 +128,9 @@ def check_processes(directory):
 def details(store, rid, own_job=None):
     if any(j['status'] in {'queued', 'running'} and j['id'] != own_job for j in store.jobs()):
         raise ValueError('Finish or cancel other queued/running jobs before unlocking.')
-    run = validate_launch(store, rid, 'dry-run')
+    # Unlock is maintenance: retain run/source/path checks, but do not require
+    # today's RAM and swap to admit the saved analysis scheduling budget.
+    run = validate_launch(store, rid, 'dry-run', check_memory_capacity=False)
     source = Path(run['folder']) / 'workflow'
     if tree_digest(source) != run['workflow_sha256']:
         raise ValueError('Saved workflow source changed. Unlock is blocked.')

@@ -129,7 +129,7 @@ def panel(store, run):
     return {'rows': rows, 'destinations': locations, 'blocked': bool(invalid or full or memory_blockers)}
 
 
-def assert_launch(run, action, store=None):
+def assert_launch(run, action, store=None, *, check_memory_capacity=True):
     # Rechecked when queued AND when the worker starts; warnings do not prevent dry-runs.
     problems = []
     for item in destinations(run, action):
@@ -139,7 +139,7 @@ def assert_launch(run, action, store=None):
             problems.append(item['label'] + ': less than 1 MB free disk space. ' + item['path'])
     if problems:
         raise ValueError('Pre-run checks: ' + ' '.join(problems) + ' Restore access/free space, then refresh run checks.')
-    if action in {'dry-run', 'run'} and compute_memory.policy(run)['swap_mb']:
+    if check_memory_capacity and action in {'dry-run', 'run'} and compute_memory.policy(run)['swap_mb']:
         # Refresh at both queue submission and worker launch; a prior capacity
         # observation does not reserve memory while a run is waiting.
         info = hardware.inventory(store, refresh=True) if store is not None else hardware.detect(Path(run['folder']))
