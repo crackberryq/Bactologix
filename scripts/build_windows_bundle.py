@@ -7,6 +7,7 @@ def build(root, destination):
     root, destination = Path(root), Path(destination)
     files = {p.name: p for p in (root / 'scripts/windows').glob('*') if p.suffix in {'.ps1', '.cmd', '.vbs'}}
     files.update({name: root / 'src/bactologix/ui' / name for name in ('brand.ico', 'brand.png')})
+    files['LICENSE.txt'] = root / 'LICENSE'
     files['install_bactologix.py'] = root / 'scripts/install_bactologix.py'
     files['README.txt'] = root / 'docs/windows-desktop.txt'
     destination.parent.mkdir(parents=True, exist_ok=True)

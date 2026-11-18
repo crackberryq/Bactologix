@@ -20,7 +20,7 @@ COMMIT = 'a' * 40
 def source(tmp_path):
     for item in ['scripts/windows', 'src/bactologix/ui']:
         shutil.copytree(ROOT / item, tmp_path / item)
-    for item in ['scripts/build_windows_bundle.py', 'scripts/build_windows_executable.py',
+    for item in ['LICENSE', 'scripts/build_windows_bundle.py', 'scripts/build_windows_executable.py',
                  'scripts/install_bactologix.py', 'docs/windows-desktop.txt']:
         target = tmp_path / item
         target.parent.mkdir(parents=True, exist_ok=True)

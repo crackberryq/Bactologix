@@ -758,7 +758,7 @@ Credits and RIS/BibTeX/CFF/plain-text citations are in the UI and package data. 
 
 ## License
 
-Bactologix is released under the [MIT License](LICENSE), copyright (c) 2026 Jimi Goldstein. The license is included in the wheel and source distributions. Upstream templates, pipelines, tools and databases retain their respective licenses; bundled upstream notices are in `src/bactologix/data/LICENSE.*`.
+Bactologix is available under the [Noncommercial Research Software Licence, version 1.0](LICENSE). Noncommercial research use is free. When reporting results, cite Jimi Goldstein, any other authors credited for the release, and the software version used. Commercial use requires prior written permission from Jimi Goldstein. The licence is included with the Python distributions and Windows installer. Upstream templates, pipelines, tools and databases retain their own licences. See `src/bactologix/data/LICENSE.*` for the bundled notices.
 
 ## Publishing application updates
 
