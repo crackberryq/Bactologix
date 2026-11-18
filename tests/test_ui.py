@@ -1,6 +1,7 @@
 """Exercise the real Streamlit trigger protocol and its backend boundary."""
 import base64
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -14,14 +15,24 @@ from bactologix.ui_backend import dispatch, handle_request, snapshot
 APP = Path(PACKAGE_FILE).with_name("app.py")
 
 
-def send(app, kind, payload=None, request_id="request-1"):
+def send(app, kind, payload=None, request_id="request-1", *, wait_for_task=True):
     state = WidgetStates()
     event = state.widgets.add()
     event.id = _make_trigger_id(app.get("bidi_component")[0].proto.id, "events")
     event.json_trigger_value = json.dumps({"event": "action", "value": {"id": request_id, "kind": kind, "payload": payload or {}}})
     app._run(state, timeout=20)
     assert not app.exception, [e.value for e in app.exception]
-    return app.session_state["ui-response"]
+    response = app.session_state["ui-response"]
+    if wait_for_task and response.get('async_task'):
+        for index in range(100):
+            task = response['async_task']
+            if task['status'] != 'running':
+                return {'id': request_id, 'ok': task['status'] == 'completed',
+                        **(task.get('result') or {'message': task.get('message', task['status'])})}
+            time.sleep(.01)
+            response = send(app, 'poll_ui_task', {'token': task['token']}, request_id + '-poll-' + str(index), wait_for_task=False)
+        raise AssertionError('Background component action did not finish')
+    return response
 
 
 def test_html_component_mount_and_config_trigger(tmp_path, monkeypatch):

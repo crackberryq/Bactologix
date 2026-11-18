@@ -20,7 +20,7 @@ def task_response(page, request, payload):
 
 
 def pending(page, request):
-    task = {'token': 'fixture-task', 'request_id': request['id'], 'kind': request['kind'], 'status': 'running'}
+    task = {'token': 'fixture-task-' + request['id'], 'request_id': request['id'], 'kind': request['kind'], 'status': 'running'}
     task_response(page, request, {'async_task': task, 'keep_modal': True})
     return task
 
@@ -60,10 +60,8 @@ def browser_page():
 
 def open_reset(page, store):
     render_component(page, store)
-    page.get_by_role('link', name='Storage', exact=True).click()
-    respond(page, store, 'inspect_storage')
-    page.locator('summary').filter(has_text='Developer tools · reset this workspace').click()
-    page.get_by_role('button', name='Review workspace reset', exact=True).click()
+    page.locator('.workspace-tools summary').click()
+    page.get_by_role('button', name='Reset workspace', exact=True).click()
     return page.get_by_role('dialog')
 
 
@@ -129,5 +127,80 @@ def test_reset_scope_change_discards_late_preview_and_keeps_navigation_live(revi
     dialog.get_by_role('button', name='Close dialog', exact=True).click()
     page.get_by_role('link', name='Home', exact=True).click()
     assert '#overview' in page.url and cached.exists() and not store.jobs()
+
+
+def test_storage_loading_keeps_workspace_reset_available_and_discards_departed_results(reviewed_workspace, browser_page):
+    from playwright.sync_api import expect
+    store, _, _, _, cached = reviewed_workspace
+    page = browser_page
+    render_component(page, store)
+    page.get_by_role('link', name='Storage', exact=True).click()
+    request = page.evaluate('window.acceptanceEvents.at(-1).value')
+    assert request['kind'] == 'inspect_storage'
+    expect(page.locator('.bacto-root.is-busy')).to_have_count(0)
+    expect(page.locator('#connection-status')).not_to_contain_text('Working')
+    task = pending(page, request)
+    expect(page.get_by_role('region', name='Background checks')).to_contain_text('Loading registered storage locations')
+    # Ordinary renders must not restart the same slow observation.
+    page.evaluate('() => { window.acceptanceRender(null); }')
+    assert page.evaluate("window.acceptanceEvents.filter(x => x.value.kind === 'inspect_storage').length") == 1
+    page.locator('.workspace-tools summary').click()
+    page.get_by_role('button', name='Reset workspace', exact=True).click()
+    dialog = page.get_by_role('dialog', name='Review workspace reset', exact=True)
+    expect(dialog).to_be_visible()
+    expect(dialog.get_by_role('button', name='Preview reset', exact=True)).to_be_enabled()
+    # A result from the old page cannot replace the reset dialog or revive its context.
+    task.update(status='completed', result=dispatch(store, 'inspect_storage', {}))
+    task_response(page, {'id': 'late-storage-poll'}, {'async_task': task, 'keep_modal': True})
+    expect(dialog).to_be_visible()
+    assert page.locator('.bacto-root').evaluate('(el) => el._workspaceState.storage == null')
+    dialog.get_by_role('button', name='Close dialog', exact=True).click()
+    expect(page.locator('.workspace-tools summary')).to_be_focused()
+    expect(page.get_by_role('button', name='Retry locations', exact=True)).to_be_enabled()
+    page.get_by_role('button', name='Retry locations', exact=True).click()
+    retry = page.evaluate('window.acceptanceEvents.at(-1).value')
+    assert retry['id'] != request['id']
+    retry_task = pending(page, retry)
+    page.get_by_role('link', name='Home', exact=True).click()
+    page.get_by_role('link', name='Storage', exact=True).click()
+    retry_task.update(status='completed', result=dispatch(store, 'inspect_storage', {}))
+    task_response(page, {'id': 'late-returned-storage-poll'}, {'async_task': retry_task, 'keep_modal': True})
+    assert page.locator('.bacto-root').evaluate('(el) => el._workspaceState.storage == null')
+    expect(page.get_by_role('button', name='Retry locations', exact=True)).to_be_enabled()
+    assert cached.exists() and not store.jobs()
+
+
+def test_storage_cleanup_is_explicit_cancellable_and_retryable(reviewed_workspace, browser_page):
+    from playwright.sync_api import expect
+    store, _, _, _, cached = reviewed_workspace
+    page = browser_page
+    render_component(page, store)
+    page.get_by_role('link', name='Storage', exact=True).click()
+    _, result = respond(page, store, 'inspect_storage')
+    assert 'storage_cleanup' not in result
+    cleanup = page.get_by_role('region', name='Storage cleanup', exact=True)
+    expect(page.get_by_role('region', name='Filesystem capacity')).to_be_visible()
+    expect(cleanup.get_by_role('button', name='Load cleanup candidates', exact=True)).to_be_enabled()
+    assert not page.evaluate("window.acceptanceEvents.some(x => x.value.kind === 'inspect_storage_cleanup')")
+    cleanup.get_by_role('button', name='Load cleanup candidates', exact=True).click()
+    request = page.evaluate('window.acceptanceEvents.at(-1).value')
+    task = pending(page, request)
+    expect(page.get_by_role('button', name='Refresh locations', exact=True)).to_be_enabled()
+    page.get_by_role('button', name='Cancel check', exact=True).click()
+    expect(cleanup).to_contain_text('Stopped waiting for this check')
+    expect(cleanup.get_by_role('button', name='Retry cleanup candidates', exact=True)).to_be_enabled()
+    task.update(status='completed', result={'storage_cleanup': {'candidates': [{'kind': 'run', 'id': 'discarded-result'}]}})
+    task_response(page, {'id': 'late-cancelled-cleanup-poll'}, {'async_task': task, 'keep_modal': True})
+    assert page.locator('.bacto-root').evaluate('(el) => el._workspaceState.storageCleanup == null')
+    cleanup.get_by_role('button', name='Retry cleanup candidates', exact=True).click()
+    retry = page.evaluate('window.acceptanceEvents.at(-1).value')
+    retry_task = pending(page, retry)
+    retry_task.update(status='failed', message='The storage check reached its time limit. Retry when the drive is available.')
+    task_response(page, {'id': 'failed-cleanup-poll'}, {'async_task': retry_task, 'keep_modal': True})
+    expect(cleanup).to_contain_text('The storage check reached its time limit')
+    expect(cleanup.get_by_role('button', name='Retry cleanup candidates', exact=True)).to_be_enabled()
+    page.locator('.workspace-tools summary').click()
+    expect(page.get_by_role('button', name='Reset workspace', exact=True)).to_be_enabled()
+    assert cached.exists() and not store.jobs()
 
 

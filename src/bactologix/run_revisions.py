@@ -11,7 +11,7 @@ from .runs import check_run_files, create_run, current_controller, tree_digest
 
 from .storage_guard import mutation
 
-def source(store, rid):
+def source(store, rid, *, full=True):
     run = store.get('runs', rid)
     if not run:
         raise ValueError('Choose an existing run.')
@@ -22,10 +22,11 @@ def source(store, rid):
     if any(j['kind'] == 'workflow' and j['payload'].get('run_id') == rid
            and j['status'] in {'queued', 'running'} for j in store.jobs()):
         raise ValueError('Wait for the queued or running job to finish before editing this run.')
-    check_run_files(run)
     current_controller(store, run)
-    if tree_digest(Path(run['folder']) / 'workflow') != run['workflow_sha256']:
-        raise ValueError('The saved workflow source changed. Create a new run.')
+    if full:
+        check_run_files(run)
+        if tree_digest(Path(run['folder']) / 'workflow') != run['workflow_sha256']:
+            raise ValueError('The saved workflow source changed. Create a new run.')
     return run
 
 
@@ -36,7 +37,9 @@ def signature(run):
 
 
 def editor(store, rid):
-    run = source(store, rid)
+    # Opening saved settings is not authorization to revise or execute.
+    # Apply verifies the full input/workflow identities and editor signature.
+    run = source(store, rid, full=False)
     return {'edit_run': {k: run[k] for k in ('id', 'tool', 'sample', 'label', 'cores', 'memory_mb')}
             | {'signature': signature(run), 'swap_mb': compute_memory.policy(run)['swap_mb']}, 'run_config': run_config.editor(run['tool'], run['config']),
             'run_config_view': 'settings', 'keep_modal': True}

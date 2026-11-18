@@ -149,7 +149,7 @@ def test_failed_tasks_are_local_and_expire(store, monkeypatch):
 
 
 def test_actions_that_can_launch_or_save_are_not_background_observations(store):
-    for kind in ('run', 'revise_run', 'factory_reset_execute', 'scan_databases', 'check_database', 'recommend_swap', 'database_redownload_preview'):
+    for kind in ('run', 'revise_run', 'factory_reset_execute', 'execute_storage_cleanup', 'save_databases', 'recommend_swap', 'database_redownload_preview'):
         with pytest.raises(ValueError, match='cannot run'):
             tasks.submit(store, 'tab-a', kind, kind, {})
 

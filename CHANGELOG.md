@@ -1,3 +1,11 @@
+## 0.1.0a108 — 2026-11-18 · Alpha · Responsive Storage and workspace reset access
+
+- Move Reset workspace into the top-right Workspace tools menu, available without loading Storage first.
+- Separate registered-location loading, size measurements and cleanup discovery. Long observations use bounded background tasks with local progress, cancellation and retry; late or stale results are discarded.
+- Keep cleanup discovery explicit and avoid duplicate source Git scans within one display request. Deletion previews and execution retain fresh ownership and dependency checks.
+- Run database scans/checks and saved-run editor loading in the background. Opening the editor reads saved settings; saving revisions and launching still verify original inputs and workflow identities.
+- Preserve pipeline versions, scientific parameters, database selections and generated data. This is an application responsiveness update, including the regular channel used with frozen HybAs 9.
+
 ## 0.1.0a107 — 2026-11-17 · Alpha · Reviewed workspace reset and reliable process ownership
 
 - Add an explicit developer reset in Storage for reviewed managed runs, results, reports, pipeline installations and eligible caches. Keep the application, bootstrap Conda, sample originals and linked databases; database deletion is off by default and requires separate typed confirmation.
