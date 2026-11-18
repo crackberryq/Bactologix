@@ -163,7 +163,7 @@ function Install-UbuntuForCurrentUser($View, [string]$Name) {
 }
 function Save-SetupFiles {
     New-Item -ItemType Directory -Force -Path $script:Root | Out-Null
-    foreach ($name in @('Bactologix.ps1','Bactologix.vbs','Bactologix.cmd','Bactologix-Setup.cmd','install_bactologix.py','brand.ico','brand.png')) {
+    foreach ($name in @('Bactologix.ps1','Bactologix.vbs','Bactologix.cmd','Bactologix-Setup.cmd','install_bactologix.py','LICENSE.txt','brand.ico','brand.png')) {
         $source = Join-Path $PSScriptRoot $name; $target = Join-Path $script:Root $name
         if ([IO.Path]::GetFullPath($source) -ne [IO.Path]::GetFullPath($target)) { Copy-Item -LiteralPath $source -Destination $target -Force }
     }

@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "Please cite Bactologix and the pipelines, tools and databases used."
 type: software
-license: MIT
+license-url: "https://github.com/crackberryq/Bactologix/blob/licensing/dev-v0.1.0a111.dev1-research-v1/LICENSE"
 title: Bactologix
 version: 0.1.0a111.dev1
 date-released: 2026-11-18

@@ -9,6 +9,7 @@ def build(root, destination, channel="stable", wheel=None):
     if channel == "dev" and not wheel: raise ValueError("Dev Windows bundle requires its pinned wheel")
     files = {p.name: p for p in (root / 'scripts/windows').glob('*') if p.suffix in {'.ps1', '.cmd', '.vbs'}}
     files.update({name: root / 'src/bactologix/ui' / name for name in ('brand.ico', 'brand.png')})
+    files['LICENSE.txt'] = root / 'LICENSE'
     files['install_bactologix.py'] = root / 'scripts/install_bactologix.py'
     files['README.txt'] = root / ('docs/development-install.txt' if channel == 'dev' else 'docs/windows-desktop.txt')
     destination.parent.mkdir(parents=True, exist_ok=True)
