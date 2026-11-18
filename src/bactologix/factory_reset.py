@@ -14,7 +14,6 @@ import re
 import sqlite3
 import stat
 import sys
-import time
 
 from . import storage_cleanup as cleanup
 from .storage import _open
@@ -89,14 +88,15 @@ def _database_paths(store, tool, text, run=None):
     yield from _paths(retained)
 
 
-def _alias_targets(paths):
+def _alias_targets(paths, *, budget=None):
     """A linked database can itself contain aliases into a selected environment."""
-    seen, found, count, started = set(), set(), 0, time.monotonic()
+    seen, found = set(), set()
+    budget = budget if budget is not None else cleanup._scan_budget(reset=True)
     pending = list(paths)
     while pending:
         path = pending.pop()
-        if time.monotonic() - started > cleanup.MAX_SECONDS:
-            raise ValueError('Database alias inspection exceeded its safe limit; no reset is authorized.')
+        cleanup._scan_checkpoint(budget, 'Checking retained database links', path, force=True)
+        cleanup._scan_limits(budget, path)
         try:
             resolved = path.resolve()
             info = resolved.stat()
@@ -107,10 +107,8 @@ def _alias_targets(paths):
         seen.add((info.st_dev, info.st_ino))
         with _open(resolved) as fd:
             for entry in os.scandir(fd):
-                count += 1
-                if count > cleanup.MAX_ENTRIES:
-                    raise ValueError('Database alias inspection exceeded its safe limit; no reset is authorized.')
                 child = resolved / entry.name
+                cleanup._scan_entry(budget, 'Checking retained database links', child)
                 if entry.is_symlink():
                     target = child.resolve()
                     found.add(target)
@@ -194,10 +192,12 @@ def _idle(store, own_job=None):
         raise ValueError('Recover the interrupted storage cleanup before resetting.')
 
 
-def _build(store, delete_databases=False, own_job=None):
+def _build(store, delete_databases=False, own_job=None, *, checkpoint=None):
     if type(delete_databases) is not bool:
         raise ValueError('Choose explicitly whether to delete unlinked managed databases.')
     blocked, preserved, raw, protections, database_links = [], [], [], {}, set()
+    budget = cleanup._scan_budget(reset=True, checkpoint=checkpoint)
+    cleanup._scan_checkpoint(budget, 'Checking workspace ownership', store.home, force=True)
     records = cleanup._records(store)
     jobs = {j['id']: j for j in store.jobs()}
     owned_databases = {Path(body['destination']) for kind, _, body in records
@@ -231,6 +231,7 @@ def _build(store, delete_databases=False, own_job=None):
     protect([store.home / 'tools', Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve(),
              Path(__file__).resolve().parent], 'Application or bootstrap environment')
     for kind, key, body in records:
+        cleanup._scan_checkpoint(budget, 'Checking retained dependencies', store.home, force=True)
         try:
             if kind == 'configs':
                 protect(_database_paths(store, key, body), 'Linked database in saved defaults', True)
@@ -323,12 +324,16 @@ def _build(store, delete_databases=False, own_job=None):
                     kind in {'database_locations', 'reference_packages'})
         except (ValueError, OSError) as exc:
             blocked.append('Cannot inspect related workspace reference: ' + str(exc))
+    references_complete = True
     try:
-        protect(_alias_targets(database_links), 'Nested alias or content of a retained database')
-    except (OSError, ValueError, RuntimeError) as exc:
+        protect(_alias_targets(database_links, budget=budget), 'Nested alias or content of a retained database')
+    except (OSError, ValueError) as exc:
+        references_complete = False
         blocked.append('Cannot verify database aliases: ' + str(exc))
 
     def partition(path):
+        cleanup._scan_checkpoint(budget, 'Separating retained files', path, force=True)
+        cleanup._scan_limits(budget, path, len(path.relative_to(store.home).parts))
         above = [p for p in protections if cleanup._inside(path, p)]
         if above:
             preserved.append({'path': str(path), 'reasons': sorted({s for p in above for s in protections[p]})})
@@ -340,7 +345,7 @@ def _build(store, delete_databases=False, own_job=None):
                 if not stat.S_ISDIR(os.fstat(fd).st_mode):
                     return []
                 result = []
-                for name in sorted(os.listdir(fd)):
+                for name in cleanup._directory_names(fd, budget, path):
                     child = path / name
                     if child.is_symlink():
                         preserved.append({'path': str(child), 'reasons': ['Link retained inside a protected tree']})
@@ -356,6 +361,7 @@ def _build(store, delete_databases=False, own_job=None):
         try:
             paths.extend(partition(path))
         except (OSError, ValueError) as exc:
+            references_complete = False
             blocked.append('Cannot separate retained data from reset targets: ' + str(exc))
     for path, reasons in protections.items():
         if any('database' in reason.lower() for reason in reasons):
@@ -365,12 +371,15 @@ def _build(store, delete_databases=False, own_job=None):
                 and any(cleanup._inside(Path(body['destination']), p) for p in paths)):
             retire.append({'kind': kind, 'id': key, 'expected': body})
     inventories = []
-    budget = {'started': time.monotonic(), 'entries': 0, 'inodes': set(), 'mounts': cleanup._mounts()}
+    inventory_complete = references_complete
     for path in paths:
+        cleanup._scan_checkpoint(budget, 'Reviewing managed files', path, force=True)
         try:
             inventories.append(cleanup._inventory(str(path), budget))
         except (OSError, ValueError) as exc:
+            inventory_complete = False
             blocked.append(str(exc))
+    cleanup._scan_checkpoint(budget, 'Checking active processes', store.home, force=True)
     try:
         cleanup._check_processes([str(p) for p in paths])
     except (OSError, ValueError) as exc:
@@ -383,19 +392,23 @@ def _build(store, delete_databases=False, own_job=None):
                  'record_deletions': retire, 'description': NOTICE}
     result = {'targets': [{'kind': 'factory_reset', 'id': 'workspace'}], 'candidates': [candidate],
               'inventories': inventories, 'blocked': sorted(set(blocked)), 'delete_databases': delete_databases,
+              'inventory_complete': inventory_complete,
               'logical_bytes': sum(r['logical_bytes'] for r in inventories),
               'allocated_bytes': sum(r['allocated_bytes'] for r in inventories),
               'checked_workspaces': [str(store.home), *homes], 'preserved': preserved}
+    cleanup._scan_checkpoint(budget, 'Finalizing complete review' if inventory_complete else 'Finalizing incomplete review', store.home, force=True)
     result['signature'] = cleanup._hash(result)
+    cleanup._scan_checkpoint(budget, 'Review finished', store.home, force=True)
     return result
 
 
-def preview(store, delete_databases=False):
+def preview(store, delete_databases=False, *, checkpoint=None):
     from .workflow_unlock import ownership
     with cleanup._exclusive(store), ownership(store):
-        plan = _build(store, delete_databases)
+        plan = _build(store, delete_databases, checkpoint=checkpoint)
         plan.update(id=identifier('reset-plan'), created_at=now())
         store.put(PLANS, plan['id'], plan)
+        _prune_plans(store)
     public = cleanup._public_plan(plan)
     return {**public, 'confirmation': CONFIRMATION, 'database_confirmation': DATABASE_CONFIRMATION,
             'delete_databases': delete_databases, 'preserved': plan['preserved'], 'notice': NOTICE,
@@ -403,8 +416,22 @@ def preview(store, delete_databases=False):
             'record_count': len(plan['candidates'][0]['record_deletions'])}
 
 
-def _verify(store, plan, own_job=None):
-    current = _build(store, plan['delete_databases'], own_job)
+def _prune_plans(store, completed=None):
+    """Keep one recent review plus plans required by pending reset jobs."""
+    with store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        active = {json.loads(row[0]).get('plan_id') for row in db.execute(
+            "SELECT payload FROM jobs WHERE kind='factory_reset' AND status IN ('queued','running')")}
+        keys = [row[0] for row in db.execute('SELECT id FROM items WHERE kind=? ORDER BY rowid DESC', (PLANS,))]
+        for key in keys[1:]:
+            if key not in active:
+                db.execute('DELETE FROM items WHERE kind=? AND id=?', (PLANS, key))
+        if completed:
+            db.execute('DELETE FROM items WHERE kind=? AND id=?', (PLANS, completed))
+
+
+def _verify(store, plan, own_job=None, *, checkpoint=None):
+    current = _build(store, plan['delete_databases'], own_job, checkpoint=checkpoint)
     if current['blocked']:
         raise ValueError('Workspace reset is blocked: ' + '; '.join(current['blocked']))
     if current['signature'] != plan['signature']:
@@ -442,7 +469,7 @@ def execute(ctx):
         plan = store.get(PLANS, payload.get('plan_id'))
         if not plan or plan['signature'] != payload.get('signature'):
             raise ValueError('The reviewed workspace reset plan is unavailable.')
-        _verify(store, plan, ctx.job['id'])
+        _verify(store, plan, ctx.job['id'], checkpoint=lambda **_: ctx.check_cancel())
         receipt = {'id': ctx.job['id'], 'created_at': now(), 'status': 'staging',
                    'operation': 'factory_reset', 'targets': plan['targets'], 'candidates': plan['candidates'],
                    'logical_bytes': plan['logical_bytes'], 'allocated_bytes': plan['allocated_bytes'],
@@ -471,5 +498,9 @@ def execute(ctx):
             receipt.update(status='partial', error=str(exc) or type(exc).__name__)
             cleanup._write_receipt(store, receipt)
             raise
+        try:
+            _prune_plans(store, completed=plan['id'])
+        except (sqlite3.Error, OSError):
+            pass  # Pruning cannot invalidate a completed deletion receipt.
         ctx.write('Workspace reset completed. Retained files and deletion paths are recorded in the cleanup receipt.')
     return cleanup._receipt_summary(receipt)

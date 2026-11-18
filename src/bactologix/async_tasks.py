@@ -23,13 +23,34 @@ MAX_TASKS_PER_WORKSPACE = 32
 TASK_TIMEOUT = 30
 # Deletion previews can include several bounded inventory/ownership checks.
 # A timeout discards their result; execution still verifies its own fresh plan.
-TASK_TIMEOUTS = {'factory_reset_preview': 180, 'preview_storage_cleanup': 180}
+TASK_TIMEOUTS = {'factory_reset_preview': 1200, 'preview_storage_cleanup': 1200}
 RESULT_TTL = 300
 MAX_PAYLOAD_BYTES = 65536
 MAX_RESULT_BYTES = 4 * 1024 * 1024
 _LOCK = threading.Lock()
 _TASKS = {}
 _ACTIVE = {}
+_LOCAL = threading.local()
+
+
+def checkpoint(*, stage='', entries=0, path=''):
+    """Cooperative scan progress/cancellation, bound to this worker's session.
+
+    Direct non-background callers have no task to report to. A cancelled task
+    can stop between filesystem calls; it cannot interrupt a blocked syscall.
+    RuntimeError deliberately bypasses incomplete-inventory ValueError handlers.
+    """
+    token = getattr(_LOCAL, 'token', None)
+    if token is None:
+        return
+    with _LOCK:
+        _expire()
+        task = _TASKS.get(token)
+        if not task or task['status'] != 'running':
+            raise RuntimeError('The background scan was cancelled or expired; no reset is authorized.')
+        task['progress'] = {'stage': str(stage)[:160], 'entries': max(0, int(entries)),
+                            'path': str(path)[:2048],
+                            'elapsed_seconds': max(0, int(time.monotonic() - task['started']))}
 
 
 def _workspace(store):
@@ -67,6 +88,8 @@ def _binding(store, kind, payload):
 
 def _describe(task):
     result = {k: task[k] for k in ('token', 'request_id', 'kind', 'status')}
+    if task.get('progress'):
+        result['progress'] = copy.deepcopy(task['progress'])
     if task.get('message'):
         result['message'] = task['message']
     if task['status'] == 'completed':
@@ -142,6 +165,7 @@ def _run(store, token):
         task = _TASKS[token]
         kind, payload = task['kind'], copy.deepcopy(task['payload'])
     try:
+        _LOCAL.token = token
         binding = _binding(store, kind, payload)
         from .ui_backend import dispatch
         result = dispatch(store, kind, payload)
@@ -160,6 +184,7 @@ def _run(store, token):
             if task['status'] == 'running':
                 _invalidate(task, 'failed', str(exc))
     finally:
+        _LOCAL.__dict__.pop('token', None)
         with _LOCK:
             task['active'] = False
             _ACTIVE[task['workspace']] -= 1

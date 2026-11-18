@@ -129,6 +129,34 @@ def test_reset_scope_change_discards_late_preview_and_keeps_navigation_live(revi
     assert '#overview' in page.url and cached.exists() and not store.jobs()
 
 
+def test_reset_scan_progress_and_incomplete_totals_never_enable_deletion(reviewed_workspace, browser_page):
+    from playwright.sync_api import expect
+    store, _, _, _, cached = reviewed_workspace
+    page = browser_page
+    dialog = open_reset(page, store)
+    dialog.get_by_role('button', name='Preview reset', exact=True).click()
+    request = page.evaluate('window.acceptanceEvents.at(-1).value')
+    task = pending(page, request)
+    task['progress'] = {'stage': 'Reviewing managed files', 'entries': 310000,
+                        'path': '/fixture/cache', 'elapsed_seconds': 45}
+    task_response(page, {'id': 'progress-poll'}, {'async_task': task, 'keep_modal': True})
+    expect(dialog).to_contain_text('310,000 entries checked')
+    expect(dialog).to_contain_text('/fixture/cache')
+    expect(dialog.get_by_role('button', name='Cancel check')).to_be_enabled()
+    expect(page.locator('.bacto-root.is-busy')).to_have_count(0)
+    result = dispatch(store, request['kind'], request['payload'])
+    result['reset_plan'].update(inventory_complete=False, blocked=['Workspace review is incomplete.'])
+    task.update(status='completed', result=result)
+    task_response(page, {'id': 'incomplete-poll'}, {'async_task': task, 'keep_modal': True})
+    expect(dialog).to_contain_text('Files counted so far')
+    expect(dialog).to_contain_text('Partial logical size')
+    expect(dialog).to_contain_text('Review incomplete')
+    dialog.get_by_label('Type RESET THIS WORKSPACE', exact=True).fill('RESET THIS WORKSPACE')
+    dialog.locator('#reset-acknowledged').check()
+    expect(dialog.get_by_role('button', name='Permanently reset reviewed data')).to_be_disabled()
+    assert cached.exists() and not store.jobs()
+
+
 def test_storage_loading_keeps_workspace_reset_available_and_discards_departed_results(reviewed_workspace, browser_page):
     from playwright.sync_api import expect
     store, _, _, _, cached = reviewed_workspace
