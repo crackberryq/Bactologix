@@ -13,15 +13,17 @@ import threading
 import time
 import uuid
 
-ACTIONS = frozenset({'factory_reset_preview'})
+ACTIONS = frozenset({'scan_databases', 'check_database', 'edit_run_settings',
+                     'factory_reset_preview', 'inspect_storage', 'inspect_storage_cleanup',
+                     'scan_storage', 'preview_storage_cleanup'})
 MAX_ACTIVE_PER_WORKSPACE = 2
 MAX_ACTIVE = 8
 MAX_TASKS = 128
 MAX_TASKS_PER_WORKSPACE = 32
 TASK_TIMEOUT = 30
-# Reset inventories and protected-link discovery each have a 60s traversal
-# budget. Keep normal checks short without discarding a valid reset preview.
-TASK_TIMEOUTS = {'factory_reset_preview': 180}
+# Deletion previews can include several bounded inventory/ownership checks.
+# A timeout discards their result; execution still verifies its own fresh plan.
+TASK_TIMEOUTS = {'factory_reset_preview': 180, 'preview_storage_cleanup': 180}
 RESULT_TTL = 300
 MAX_PAYLOAD_BYTES = 65536
 MAX_RESULT_BYTES = 4 * 1024 * 1024
@@ -42,7 +44,24 @@ def _text(value, label):
 
 def _binding(store, kind, payload):
     """Cheap saved-record identity only; full checks remain in save/launch."""
-    value = [store.all(name) for name in ('runs', 'run_visibility', 'configs', 'installs', 'database_locations')]
+    if kind == 'edit_run_settings':
+        rid = payload.get('id')
+        run = store.get('runs', rid)
+        value = [run, store.get('run_visibility', rid),
+                 store.get('installs', run.get('installation')) if run else None,
+                 [(j['id'], j['status']) for j in store.jobs()
+                  if j['kind'] == 'workflow' and j['payload'].get('run_id') == rid
+                  and j['status'] in {'queued', 'running'}]]
+    elif kind in {'factory_reset_preview', 'inspect_storage', 'inspect_storage_cleanup',
+                  'scan_storage', 'preview_storage_cleanup'}:
+        value = [store.all(name) for name in ('runs', 'run_visibility', 'configs', 'installs',
+                 'database_locations', 'database_downloads', 'samples', 'database_builds',
+                 'reference_packages', 'storage_cleanup_receipts')]
+        value.append([(j['id'], j['status'], j.get('cancel')) for j in store.jobs()])
+    else:
+        tool = payload.get('tool')
+        value = [store.get('configs', tool), store.get('database_locations', tool),
+                 store.get('settings', 'active-' + str(tool))]
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 

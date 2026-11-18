@@ -50,7 +50,9 @@ def test_poll_snapshot_is_display_cache_not_a_fresh_authorization(tmp_path, monk
     assert cached == initial
     cached['runs'].append({'id': 'changed browser copy'})
     assert ui_backend.snapshot(store, cached=True) == initial
-    assert async_tasks.ACTIONS == {'factory_reset_preview'}
+    assert {'factory_reset_preview', 'inspect_storage', 'inspect_storage_cleanup',
+            'scan_storage', 'preview_storage_cleanup', 'scan_databases',
+            'check_database', 'edit_run_settings'} == async_tasks.ACTIONS
     assert 'factory_reset_execute' not in async_tasks.ACTIONS
 
 

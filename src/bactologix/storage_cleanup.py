@@ -164,7 +164,7 @@ def _sample_files(sample):
     return sorted(files)
 
 
-def _base_candidates(store, selected):
+def _base_candidates(store, selected, *, display_only=False):
     rows, records = [], _records(store)
     selected_keys = {(t['kind'], t['id']) for t in selected}
     selected_runs = {key for kind, key in selected_keys if kind == 'run'}
@@ -211,7 +211,7 @@ def _base_candidates(store, selected):
         rows.append({**common, 'kind': 'sample_files', 'paths': paths, 'blocked': blocked,
                      'description': 'Permanently delete the listed original input files and unregister this sample. Empty directories remain.'})
     from .storage_resources import candidates
-    rows.extend(candidates(store, selected))
+    rows.extend(candidates(store, selected, display_only=display_only))
     for receipt in store.all(_RECEIPTS):
         if receipt.get('status') == 'completed':
             continue
@@ -222,8 +222,8 @@ def _base_candidates(store, selected):
     return rows
 
 
-def _candidates(store, selected=(), own_job=None):
-    rows = _base_candidates(store, selected)
+def _candidates(store, selected=(), own_job=None, *, display_only=False):
+    rows = _base_candidates(store, selected, display_only=display_only)
     chosen = {(t['kind'], t['id']) for t in selected}
     deleted_records = {(r['kind'], r['id']) for row in rows if (row['kind'], row['id']) in chosen
                        for r in row.get('record_deletions', [])}
@@ -303,7 +303,7 @@ def _candidates(store, selected=(), own_job=None):
 
 
 def panel(store):
-    rows, checked = _candidates(store)
+    rows, checked = _candidates(store, display_only=True)
     return {'candidates': [_public_candidate(r) for r in rows],
             'history': [_receipt_summary(r) for r in store.all(_RECEIPTS)[:30]],
             'active_job': next((j for j in store.jobs() if j['kind'] == 'storage_cleanup' and j['status'] in {'queued', 'running'}), None),

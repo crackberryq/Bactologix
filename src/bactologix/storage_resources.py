@@ -167,13 +167,17 @@ def _ownership_job(item, check, jobs):
     return None
 
 
-def _inventory(store, item):
+def _source_matches(item):
+    source = Path(item['source'])
+    return (git_read(source, 'rev-parse', 'HEAD') == item.get('version', {}).get('commit')
+            and not git_read(source, 'status', '--porcelain', '--untracked-files=all', '--ignored'))
+
+
+def _inventory(store, item, *, source_verified=None):
     """Return exact current prefixes or None when completeness is unknown."""
     from .maintenance import recipes
     try:
-        source = Path(item['source'])
-        if (git_read(source, 'rev-parse', 'HEAD') != item.get('version', {}).get('commit')
-                or git_read(source, 'status', '--porcelain', '--untracked-files=all', '--ignored')):
+        if source_verified is False or (source_verified is None and not _source_matches(item)):
             return None
         definitions = recipes(item)
         checks = store.get('environment_checks', item['id'], {})
@@ -193,11 +197,13 @@ def _inventory(store, item):
         return None
 
 
-def candidates(store, selected=None):
+def candidates(store, selected=None, *, display_only=False):
     """Accept selected {kind,id}, pairs, or kind:id strings.
 
     Selection only changes dependency planning. The executor must reject the
-    entire batch if any selected target is missing or blocked.
+    entire batch if any selected target is missing or blocked. Only the read-only
+    display may reuse a source check within this call. Preview and execution keep
+    fresh verification; no verification survives into another invocation.
     """
     selected = _selection(selected)
     installs = store.all('installs')
@@ -208,7 +214,7 @@ def candidates(store, selected=None):
     reference_errors = []
     registered = list(_registered_paths(store, selected, reference_errors))
     protected = _system_paths(store, installs)
-    result, owners = [], []
+    result, owners, verified_sources = [], [], {}
     live_ids = {item['id'] for item in installs}
     for saved in store.all(OWNER_KIND):
         if isinstance(saved, dict) and saved.get('id') not in live_ids and isinstance(saved.get('installation'), dict):
@@ -241,10 +247,14 @@ def candidates(store, selected=None):
             reasons.append('This source overlaps retained data, an original checkout, a runner or an environment cache.')
         if owned and source.exists():
             try:
-                if (git_read(source, 'rev-parse', 'HEAD') != item.get('version', {}).get('commit')
-                        or git_read(source, 'status', '--porcelain', '--untracked-files=all', '--ignored')):
+                verified = _source_matches(item)
+                if display_only:
+                    verified_sources[key] = verified
+                if not verified:
                     reasons.append('The source has changes or extra files. Preserve them before retirement.')
             except (OSError, ValueError):
+                if display_only:
+                    verified_sources[key] = False
                 reasons.append('The source cannot be verified as an unchanged Git snapshot.')
         active_key = 'active-' + item.get('tool', '')
         active = store.get('settings', active_key)
@@ -263,7 +273,8 @@ def candidates(store, selected=None):
         result.append(row)
     retiring = {row['id'] for row in result if ('installation', row['id']) in selected and not row['blocked']}
     retained = [item for item in installs if item['id'] not in retiring]
-    inventories = {item['id']: _inventory(store, item) for item in retained}
+    inventories = {item['id']: _inventory(store, item, source_verified=verified_sources.get(item['id']))
+                   for item in retained}
     grouped = {}
     for owner in owners:
         item = owner['installation']

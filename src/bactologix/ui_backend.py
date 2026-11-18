@@ -556,7 +556,7 @@ def dispatch(store, kind, p):
         doc = compatibility.panel(store)
         return {'compatibility': doc, 'download': compatibility.export(doc), 'keep_modal': True}
     if kind == 'inspect_storage':
-        return {'storage': storage.panel(store), 'storage_cleanup': storage_cleanup.panel(store), 'keep_modal': True}
+        return {'storage': storage.panel(store), 'keep_modal': True}
     if kind == 'inspect_storage_cleanup':
         return {'storage_cleanup': storage_cleanup.panel(store), 'keep_modal': True}
     if kind == 'inspect_storage_cleanup_receipt':
@@ -566,11 +566,11 @@ def dispatch(store, kind, p):
     if kind == 'execute_storage_cleanup':
         jid = storage_cleanup.request(store, p.get('plan_id'), p.get('signature'),
                                       p.get('confirmation'), p.get('acknowledged'))
-        return {'storage_cleanup': storage_cleanup.panel(store), 'job_id': jid,
+        return {'cleanup_refresh': True, 'job_id': jid,
                 'message': 'Storage cleanup queued. Follow its progress and receipt on this page.'}
     if kind == 'scan_storage':
         storage.scan(store, p.get('revision'), p.get('include_external', False))
-        return {'storage': storage.panel(store), 'storage_cleanup': storage_cleanup.panel(store), 'message': 'Storage measurement saved. Review its scope and limits.', 'keep_modal': True}
+        return {'storage': storage.panel(store), 'message': 'Storage measurement saved. Review its scope and limits.', 'keep_modal': True}
     if kind == 'download_storage':
         return {'download': storage.download(store), 'keep_modal': True}
     if kind == 'inspect_results':

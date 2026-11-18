@@ -374,7 +374,17 @@ def inspect(store, tool, key, value, cfg=None):
             "receipt": receipt, "status": "Layout recognized", "checked_at": now()}
 
 
-def _roots(store, tool, cfg, extra):
+class _ScanDeadline(Exception):
+    pass
+
+
+def _scan_checkpoint(deadline):
+    if deadline is not None and time.monotonic() >= deadline:
+        raise _ScanDeadline()
+
+
+def _roots(store, tool, cfg, extra, deadline=None):
+    _scan_checkpoint(deadline)
     roots = []
     if extra:
         chosen = local_path(extra)
@@ -382,6 +392,7 @@ def _roots(store, tool, cfg, extra):
             raise ValueError("Choose an existing folder to scan.")
         roots.append(chosen)
     for row in panel(store, tool)["rows"]:
+        _scan_checkpoint(deadline)
         if row.get("path"):
             try:
                 path = local_path(row["path"])
@@ -391,6 +402,7 @@ def _roots(store, tool, cfg, extra):
     roots.append(store.home / "resources" / tool)
     roots.append(store.home / "envs" / tool)
     for download in store.all("database_downloads"):
+        _scan_checkpoint(deadline)
         if download.get("tool") == tool:
             roots.append(Path(download["destination"]))
     if tool == "basis":
@@ -398,6 +410,7 @@ def _roots(store, tool, cfg, extra):
         if raw != "resources":
             roots.append(local_path(raw))
     for install in store.all("installs"):
+        _scan_checkpoint(deadline)
         if install.get("tool") != tool:
             continue
         for key in ("original_source", "source"):
@@ -410,22 +423,36 @@ def _roots(store, tool, cfg, extra):
     # Start at environment prefixes, not at Home: package databases can otherwise
     # exceed the depth limit before reaching share/ or site-packages/.
     roots.extend(environment_paths(store))
+    _scan_checkpoint(deadline)
     home = Path.home()
     for parent in (home / "bactomics", home / "databases", home / "db"):
+        _scan_checkpoint(deadline)
         if parent.is_dir():
             roots.append(parent)
             entries, _ = _children(parent)
             for entry in entries:
+                _scan_checkpoint(deadline)
                 base = Path(entry.path)
                 for relative in ("resources", "db", "databases", ".snakemake/conda"):
                     roots.append(base / relative)
     roots.extend((home, Path("/data"), Path("/databases"), Path("/mnt"), Path("/media"), Path("/opt")))
     for var in ("CONDA_PREFIX", "CONDA_ENVS_PATH"):
         roots.extend(Path(p) for p in os.environ.get(var, "").split(os.pathsep) if p)
-    return list(dict.fromkeys(p.resolve() for p in roots if p.is_dir()))
+    resolved = []
+    for path in roots:
+        _scan_checkpoint(deadline)
+        if path.is_dir():
+            resolved.append(path.resolve())
+    _scan_checkpoint(deadline)
+    return list(dict.fromkeys(resolved))
 
 
 def scan(store, tool, extra=""):
+    # Include configured-resource inspection and discovery in the same budget.
+    # Check between operations: a blocked filesystem syscall is not interruptible
+    # here, and the independent UI task runner bounds concurrent outstanding work.
+    deadline = time.monotonic() + MAX_SECONDS
+    reasons = set()
     cfg = parse_config(_text(store, tool))
     current = panel(store, tool)
     specs = [s for s in CATALOG[tool] if not s.get("managed")]
@@ -434,8 +461,10 @@ def scan(store, tool, extra=""):
     configured = {}
     rejected = set()
     def add(key, path, explicit=False, recognized=False):
+        _scan_checkpoint(deadline)
         try:
             result = inspect(store, tool, key, str(path), cfg)
+            _scan_checkpoint(deadline)
             keypath = result["path"]
             if explicit:
                 configured[key] = keypath
@@ -447,15 +476,19 @@ def scan(store, tool, extra=""):
             if (explicit or recognized) and identity not in rejected and len(invalid) < 200:
                 rejected.add(identity)
                 invalid.append({"id": key, "path": str(path), "message": str(exc), "configured": explicit})
-    for row in current["rows"]:
-        if row.get("path"):
-            add(row["id"], row["path"], True)
-    roots = _roots(store, tool, cfg, extra)
+    roots = []
+    try:
+        for row in current["rows"]:
+            _scan_checkpoint(deadline)
+            if row.get("path"):
+                add(row["id"], row["path"], True)
+        roots = _roots(store, tool, cfg, extra, deadline)
+        _scan_checkpoint(deadline)
+    except _ScanDeadline:
+        reasons.add("folder/time limit")
     queue = deque((p, 0) for p in roots)
     seen = set()
-    reasons = set()
     inaccessible = 0
-    deadline = time.monotonic() + MAX_SECONDS
     while queue:
         if len(seen) >= MAX_DIRS or time.monotonic() >= deadline:
             reasons.add("folder/time limit")
@@ -472,6 +505,7 @@ def scan(store, tool, extra=""):
             names = {e.name for e in entries}
             receipt = bool(names & {"provenance.json", "completed.json"})
             for spec in specs:
+                _scan_checkpoint(deadline)
                 recognized = spec.get("hint") in names
                 matched_receipt = receipt and tool == "basis" and bool(_receipt(path, spec)[0])
                 if matched_receipt or recognized:
@@ -495,6 +529,9 @@ def scan(store, tool, extra=""):
                             reasons.add("depth limit")
                 except OSError:
                     inaccessible += 1
+        except _ScanDeadline:
+            reasons.add("folder/time limit")
+            break
         except (OSError, RuntimeError):
             inaccessible += 1
     for spec in specs:
@@ -516,7 +553,7 @@ def scan(store, tool, extra=""):
     return {"tool": tool, "revision": current["revision"], "candidates": found, "invalid": invalid,
             "roots": [str(p) for p in roots], "visited": len(seen), "limited": bool(reasons),
             "limits": sorted(reasons), "inaccessible": inaccessible, "checked_at": now(),
-            "scope": f"Known resource folders, registered Conda environments and Snakemake caches, up to {MAX_DEPTH} levels deep per root. Symlinks are followed with cycle and time limits. Add a specific scan folder when the scan is limited."}
+            "scope": f"Known resource folders, registered Conda environments and Snakemake caches, up to {MAX_DEPTH} levels deep per root. The time budget includes discovery and is checked between filesystem operations; an in-progress operation may take longer. Symlinks are followed with cycle limits. Add a specific scan folder when the scan is limited."}
 
 
 def _hybas_layout(store, paths, lineage):

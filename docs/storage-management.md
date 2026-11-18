@@ -89,3 +89,12 @@ space. Hard links, compression, snapshots and WSL virtual disks can affect the
 change visible to Windows. The storage measurement reports current filesystem
 availability separately. Cleanup does not compact a WSL virtual disk or remove
 unregistered files elsewhere on the drive.
+
+
+## Workspace reset and responsive loading
+
+Open **Workspace tools → Reset workspace** from the top-right menu on any page. The reset preview remains a separate review with typed confirmation; databases remain protected by default. Opening this dialog does not delete anything.
+
+Storage first loads only its registered locations. Choose **Measure storage** to measure files, or **Load cleanup candidates** to inspect cleanup options. These observations run separately in the background, so navigation and the workspace menu remain usable. Cancel discards the result; it cannot terminate an already blocked filesystem call. A timeout or failure provides an explicit retry instead of restarting automatically. The two-task workspace limit remains occupied until outstanding filesystem work actually returns.
+
+Displayed cleanup candidates may reuse a source Git check within one request. A fresh request rechecks the source; deletion previews and execution always keep their own fresh checks. These performance changes do not authorize deletion or relax original-input, database or related-workspace protection.
