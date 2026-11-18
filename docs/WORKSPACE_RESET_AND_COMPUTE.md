@@ -2,7 +2,7 @@
 
 ## Developer reset
 
-In **Storage → Developer tools → Review workspace reset**, review the current workspace path and select Preview reset. The preview lists exact deletion paths, file sizes, retained paths and blockers. Type `RESET THIS WORKSPACE` and acknowledge the reviewed permanent deletion to enqueue it.
+In **Workspace tools → Reset workspace** at the top right, review the current workspace path and select Preview reset. The dialog is available independently of Storage loading. The preview lists exact deletion paths, file sizes, retained paths and blockers. Type `RESET THIS WORKSPACE` and acknowledge the reviewed permanent deletion to enqueue it.
 
 Database deletion is off by default. Selecting it requires a fresh preview and the additional phrase `DELETE MANAGED DATABASES`. Only positively recorded app-created, eligible database destinations inside this workspace can be removed. Linked or ambiguous database locations are retained, including manually selected locations inside the workspace. External databases are never selected. Bundled resources inside an environment are removed with that environment unless a registered dependency protects them.
 
