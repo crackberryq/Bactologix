@@ -1,3 +1,10 @@
+## 0.1.0a109 — 2026-11-18 · Alpha · Large workspace reset review
+
+- Give full workspace reset and interrupted-reset recovery a dedicated large-workspace scan budget, instead of sharing the ordinary 300,000-entry / 30-second cleanup limits.
+- Show live scan stage, entry counts and elapsed time. Cancellation stops the traversal between filesystem operations; partial totals are labelled incomplete and cannot authorize deletion.
+- Preserve full file identity inventories, fresh verification before deletion, native process/lock checks, original inputs, linked databases and separate managed-database confirmation.
+- Bound inventory metadata and scan duration, identify the specific limit when a review cannot finish, and prune obsolete reset previews while retaining pending work and recovery receipts.
+
 ## 0.1.0a108 — 2026-11-18 · Alpha · Responsive Storage and workspace reset access
 
 - Move Reset workspace into the top-right Workspace tools menu, available without loading Storage first.

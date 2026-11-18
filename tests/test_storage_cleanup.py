@@ -241,7 +241,7 @@ def test_inaccessible_same_user_process_fails_closed(tmp_path, monkeypatch):
         cleanup._check_processes([str(tmp_path)])
 
 
-def test_cancel_before_staging_keeps_files_and_can_recover(tmp_path):
+def test_cancel_during_verification_keeps_files_without_partial_receipt(tmp_path):
     from bactologix.engine import Cancelled
     store = Store(tmp_path / 'workspace')
     row = saved_run(store)
@@ -249,10 +249,9 @@ def test_cancel_before_staging_keeps_files_and_can_recover(tmp_path):
         raise Cancelled('Stopped by user')
     with pytest.raises(Cancelled):
         run_cleanup(store, plan(store, ('run', row['id'])), cancel)
-    receipt = store.all('storage_cleanup_receipts')[0]
-    assert receipt['status'] == 'partial'
+    assert not store.all('storage_cleanup_receipts')
     assert Path(row['folder']).exists() and store.get('runs', row['id']) == row
-    run_cleanup(store, plan(store, ('cleanup_remaining', receipt['id'])))
+    run_cleanup(store, plan(store, ('run', row['id'])))
     assert not Path(row['folder']).exists()
 
 

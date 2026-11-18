@@ -104,7 +104,7 @@ function asyncProgress(){
  const rows=Object.entries(U.asyncTasks).filter(([,task])=>asyncCurrent(task));
  if(!rows.length)return '';
  const labels={scan_databases:'Scanning database folders',check_database:'Checking database location',edit_run_settings:'Opening saved run settings',factory_reset_preview:'Reviewing workspace reset',inspect_storage:'Loading registered storage locations',inspect_storage_cleanup:'Checking cleanup candidates',scan_storage:'Measuring registered storage',preview_storage_cleanup:'Reviewing selected cleanup paths'};
- return `<section class="async-checks" aria-label="Background checks">${rows.map(([id,task])=>`<div class="async-check" role="status"><div><strong>${e(labels[task.kind]||'Checking saved information')}</strong><span class="secondary-line">You can continue using the workspace.</span><span class="async-check-progress" aria-hidden="true"></span></div>${btn('cancel-ui-task','Cancel check',false,id)}</div>`).join('')}</section>`;
+ return `<section class="async-checks" aria-label="Background checks">${rows.map(([id,task])=>`<div class="async-check" role="status"><div><strong>${e(labels[task.kind]||'Checking saved information')}</strong><span class="secondary-line">${task.progress?e(task.progress.stage)+' · '+e(Number(task.progress.entries||0).toLocaleString())+' entries checked · '+e(task.progress.elapsed_seconds)+'s elapsed':'You can continue using the workspace.'}</span>${task.progress?.path?`<span class="secondary-line path-cell">${e(task.progress.path)}</span>`:''}<span class="async-check-progress" aria-hidden="true"></span></div>${btn('cancel-ui-task','Cancel check',false,id)}</div>`).join('')}</section>`;
 }
 function request(kind,payload={},background=false){
  const observation=asyncActions.has(kind);
@@ -462,13 +462,14 @@ function storageCleanupPanel(){
 function cleanupCanExecute(){const p=U.cleanupPlan;return !!p&&!p.blocked?.length&&!!p.targets?.length&&val('cleanup-acknowledged',false)===true&&val('cleanup-confirmation','')===(p.confirmation||'DELETE')&&!U.pending&&!U.queuedRequest;}
 function syncCleanupConfirmation(){const button=$('[data-action="execute-cleanup"]');if(button)button.disabled=!cleanupCanExecute();}
 function previewCleanup(targets){U.cleanupPlan=null;setDraft('cleanup-acknowledged',false);setDraft('cleanup-confirmation','');U.cleanupPreviewTargets=targets.map(c=>({kind:c.kind,id:c.id}));modal('cleanup-preview');request('preview_storage_cleanup',{targets:U.cleanupPreviewTargets});}
-function resetConfirmed(){const p=U.resetPlan;return !!p&&!p.blocked?.length&&p.delete_databases===!!val('reset-databases',false)&&val('reset-confirmation')===p.confirmation&&val('reset-acknowledged',false)&&(!p.delete_databases||val('reset-database-confirmation')===p.database_confirmation);}
+function resetConfirmed(){const p=U.resetPlan;return !!p&&p.inventory_complete!==false&&!p.blocked?.length&&p.delete_databases===!!val('reset-databases',false)&&val('reset-confirmation')===p.confirmation&&val('reset-acknowledged',false)&&(!p.delete_databases||val('reset-database-confirmation')===p.database_confirmation);}
 function syncResetConfirmation(){const b=$('[data-action="execute-factory-reset"]');if(b)b.disabled=!resetConfirmed();}
 function resetPanel(){
  const p=U.resetPlan;
  let body=`<p class="path-cell">${e(S.workspace)}</p><p>This resets only this workspace. Other Bactologix workspaces and the application are retained.</p><label class="check-field"><input type="checkbox" id="reset-databases" ${val('reset-databases',false)?'checked':''}> Also review deletion of eligible Bactologix-managed databases</label><p>Off by default, including Kraken. Manually linked databases are protected even inside the workspace. The preview lists what is eligible and what will stay.</p>${btn('preview-factory-reset',p?'Refresh reset preview':'Preview reset',true,'','file')}`;
- if(!p)return body+'<p>Previewing does not delete files. A separate confirmation is required after the paths are reviewed.</p>';
- body+=`<div class="review-stats"><div><span>Files</span><strong>${e(p.file_count)}</strong></div><div><span>Logical size</span><strong>${storageBytes(p.logical_bytes)}</strong></div><div><span>Allocated file blocks</span><strong>${storageBytes(p.allocated_bytes)}</strong></div></div><p>${e(p.notice)}</p>`;
+ if(!p)return body+'<p>Large workspaces can take several minutes to review. Progress counts include files, links and directories.</p><p>Previewing does not delete files. A separate confirmation is required after the paths are reviewed.</p>';
+ body+=`<div class="review-stats"><div><span>${p.inventory_complete===false?'Files counted so far':'Files'}</span><strong>${e(p.file_count)}</strong></div><div><span>${p.inventory_complete===false?'Partial logical size':'Logical size'}</span><strong>${storageBytes(p.logical_bytes)}</strong></div><div><span>${p.inventory_complete===false?'Partial allocated blocks':'Allocated file blocks'}</span><strong>${storageBytes(p.allocated_bytes)}</strong></div></div><p>${e(p.notice)}</p>`;
+ if(p.inventory_complete===false)body+=notice('Review incomplete','These totals cover only fully scanned paths. No deletion can start until the entire review succeeds.',true);
  if(p.blocked?.length)body+=notice('Reset is blocked',p.blocked.map(e).join('<br>'),true);
  body+=`<h3>Paths eligible for permanent deletion</h3>${p.paths?.length?p.paths.map(x=>`<article class="padded"><p class="path-cell">${e(x.path)}</p><p>${e(x.files)} files · ${storageBytes(x.logical_bytes)}</p></article>`).join(''):'<p>No file paths are eligible. Only the reviewed workspace records would be removed.</p>'}<details><summary>Retained paths · ${(p.preserved||[]).length}</summary>${(p.preserved||[]).map(x=>`<p class="path-cell">${e(x.path)}</p><p>${(x.reasons||[]).map(e).join('; ')}</p>`).join('')}</details><p>Job history and deletion receipts remain. Shared or unverified caches may be retained. File deletion may not immediately shrink the WSL virtual disk on Windows.</p>${field('reset-confirmation','Type '+p.confirmation,'','text','autocomplete="off"')}${p.delete_databases?field('reset-database-confirmation','Separately type '+p.database_confirmation,'','text','autocomplete="off"'):''}<label class="check-field"><input type="checkbox" id="reset-acknowledged" ${val('reset-acknowledged',false)?'checked':''}> I reviewed these paths and accept permanent deletion. I have kept any copies I need.</label>`;
  return body;
@@ -1702,7 +1703,7 @@ if(newResponse&&response.async_task){
  const status=response.async_task,task=U.asyncTasks[status.request_id];
  const transportId=response.id;
  if(task){
-  task.token=status.token;
+  task.token=status.token;task.progress=status.progress||task.progress;
   if(status.status==='running')response={id:transportId,ok:true,keep_modal:true,silent_task:true};
   else{
    const current=asyncCurrent(task);delete U.asyncTasks[status.request_id];
