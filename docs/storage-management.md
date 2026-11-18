@@ -95,6 +95,20 @@ unregistered files elsewhere on the drive.
 
 Open **Workspace tools → Reset workspace** from the top-right menu on any page. The reset preview remains a separate review with typed confirmation; databases remain protected by default. Opening this dialog does not delete anything.
 
+Full reset and recovery of an interrupted reset use an aggregate budget of
+2,000,000 entries, 15 minutes of traversal and 192 MiB of estimated encoded
+inventory metadata. Actual memory use is higher than the encoded metadata size.
+Retained database link checks share this budget. Ordinary selected cleanup keeps
+its smaller limits. A large reset may take several minutes; the dialog reports
+the scan stage, entries checked and elapsed time, without a guessed percentage.
+Cancel stops the traversal at its next checkpoint, after any current filesystem
+call returns. A cancelled, timed-out or incomplete preview cannot authorize
+deletion. Incomplete totals cover only paths whose inventories finished; the
+message identifies the reached limit and path. If the reset exceeds these larger
+bounds, review smaller groups through Storage first, then retry the reset.
+Execution checks the complete inventory again before moving or deleting files.
+Obsolete reset previews are pruned; pending plans and deletion receipts remain.
+
 Storage first loads only its registered locations. Choose **Measure storage** to measure files, or **Load cleanup candidates** to inspect cleanup options. These observations run separately in the background, so navigation and the workspace menu remain usable. Cancel discards the result; it cannot terminate an already blocked filesystem call. A timeout or failure provides an explicit retry instead of restarting automatically. The two-task workspace limit remains occupied until outstanding filesystem work actually returns.
 
 Displayed cleanup candidates may reuse a source Git check within one request. A fresh request rechecks the source; deletion previews and execution always keep their own fresh checks. These performance changes do not authorize deletion or relax original-input, database or related-workspace protection.

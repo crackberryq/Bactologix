@@ -18,6 +18,13 @@ from .store import identifier, now
 MAX_ENTRIES = 300000
 MAX_SECONDS = 30
 MAX_DEPTH = 96
+# Whole-workspace reset (and its interrupted recovery) must accommodate several
+# complete Conda environments. These are aggregate finite limits, not per-target
+# budgets. The manifest byte budget conservatively estimates encoded metadata;
+# Python object memory is larger and also bounded by the entry limit.
+RESET_MAX_ENTRIES = 2000000
+RESET_MAX_SECONDS = 900
+RESET_MAX_MANIFEST_BYTES = 192 * 1024 * 1024
 CONFIRMATION = 'DELETE'
 NOTICE = ('Deletion is permanent. Verify transferred copies yourself, or explicitly choose to discard the data. '
           'Original sample files are a separate selection. References in this workspace and discovered/configured '
@@ -29,7 +36,17 @@ _PLANS = 'storage_cleanup_plans'
 
 
 def _hash(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    digest = hashlib.sha256()
+    # Avoid another full encoded copy of a large review manifest.
+    chunks = []
+    for chunk in json.JSONEncoder(sort_keys=True, separators=(',', ':')).iterencode(value):
+        chunks.append(chunk)
+        if len(chunks) >= 1024:
+            digest.update(''.join(chunks).encode())
+            chunks.clear()
+    if chunks:
+        digest.update(''.join(chunks).encode())
+    return digest.hexdigest()
 
 
 def assert_mutation_allowed(db):
@@ -81,7 +98,8 @@ def _inside(path, root):
 
 def _records(store):
     with store.connect() as db:
-        return [(r['kind'], r['id'], json.loads(r['body'])) for r in db.execute('SELECT * FROM items')]
+        return [(r['kind'], r['id'], json.loads(r['body'])) for r in db.execute(
+            "SELECT * FROM items WHERE kind NOT IN ('storage_cleanup_plans','factory_reset_plans')")]
 
 
 def _other_workspaces(store):
@@ -369,6 +387,77 @@ def _mounts():
     return {Path(re.sub(r'\\([0-7]{3})', lambda m: chr(int(m[1], 8)), line.split()[4])) for line in text.splitlines()}
 
 
+def _scan_budget(*, reset=False, checkpoint=None):
+    budget = {'started': time.monotonic(), 'entries': 0, 'inodes': set(), 'mounts': _mounts(),
+              'checkpoint': checkpoint, 'manifest_bytes': 0}
+    if reset:
+        budget.update(reset=True, max_entries=RESET_MAX_ENTRIES, max_seconds=RESET_MAX_SECONDS,
+                      max_manifest_bytes=RESET_MAX_MANIFEST_BYTES)
+    return budget
+
+
+def _scan_checkpoint(budget, stage, path='', *, force=False):
+    callback = budget.get('checkpoint')
+    if callback is not None and (force or budget['entries'] % 256 == 0):
+        callback(stage=stage, entries=budget['entries'], path=str(path))
+
+
+def _scan_limits(budget, path, depth=0):
+    max_entries = budget.get('max_entries', MAX_ENTRIES)
+    max_seconds = budget.get('max_seconds', MAX_SECONDS)
+    reason = None
+    if budget['entries'] > max_entries:
+        reason = str(max_entries) + ' file/directory entries'
+    elif time.monotonic() - budget['started'] > max_seconds:
+        reason = str(max_seconds) + ' seconds'
+    elif depth > MAX_DEPTH:
+        reason = str(MAX_DEPTH) + ' directory levels'
+    if reason:
+        label = 'Workspace reset' if budget.get('reset') else 'Cleanup'
+        raise ValueError(label + ' review is incomplete: reached the safe scan limit of ' + reason
+                         + ' while checking ' + str(path) + '. No deletion is authorized; '
+                         + ('use Storage to review smaller groups before retrying reset.' if budget.get('reset')
+                            else 'select fewer targets.'))
+
+
+def _scan_entry(budget, stage, path, depth=0):
+    budget['entries'] += 1
+    _scan_checkpoint(budget, stage, path)
+    _scan_limits(budget, path, depth)
+
+
+def _directory_names(fd, budget, path):
+    """Bound directory enumeration before allocating an unbounded list of names."""
+    names = []
+    remaining = max(0, budget.get('max_entries', MAX_ENTRIES) - budget['entries'])
+    with os.scandir(fd) as entries:
+        for entry in entries:
+            names.append(entry.name)
+            if len(names) > remaining:
+                label = 'Workspace reset' if budget.get('reset') else 'Cleanup'
+                raise ValueError(label + ' review is incomplete: a directory would exceed the safe scan limit of '
+                                 + str(budget.get('max_entries', MAX_ENTRIES)) + ' file/directory entries while checking '
+                                 + str(path) + '. No deletion is authorized; use Storage to review smaller groups.')
+            if len(names) % 256 == 0:
+                _scan_checkpoint(budget, 'Listing managed files', path, force=True)
+                _scan_limits(budget, path)
+    return sorted(names)
+
+
+def _manifest_entry(budget, row, path):
+    if not budget.get('max_manifest_bytes'):
+        return
+    # Escaped ASCII JSON string lengths plus a conservative allowance for seven
+    # 64-bit stat values and key/container overhead. This bounds encoded review
+    # metadata, not interpreter heap usage. Count failed inventories too.
+    size = 192 + len(json.dumps(row['name'])) + len(json.dumps(row.get('link', '')))
+    budget['manifest_bytes'] = budget.get('manifest_bytes', 0) + size
+    if budget['manifest_bytes'] > budget['max_manifest_bytes']:
+        raise ValueError('Workspace reset review is incomplete: the estimated inventory metadata reached '
+                         + str(budget['max_manifest_bytes'] // (1024 * 1024)) + ' MiB while checking '
+                         + str(path) + '. No deletion is authorized; use Storage to review smaller groups before retrying reset.')
+
+
 def _inventory(value, budget):
     path = Path(value)
     if not path.is_absolute() or '..' in path.parts or path == Path('/'):
@@ -384,9 +473,7 @@ def _inventory(value, budget):
 
         def visit(fd, name, rel, depth):
             nonlocal logical, allocated, files, links
-            budget['entries'] += 1
-            if budget['entries'] > MAX_ENTRIES or time.monotonic() - budget['started'] > MAX_SECONDS or depth > MAX_DEPTH:
-                raise ValueError('Cleanup preview exceeded its safe scan limit. Select fewer targets.')
+            _scan_entry(budget, 'Reviewing managed files', path / rel, depth)
             info = os.stat(name, dir_fd=fd, follow_symlinks=False)
             if info.st_dev != root.st_dev:
                 raise ValueError('Cleanup cannot cross filesystem boundaries.')
@@ -404,13 +491,14 @@ def _inventory(value, budget):
                     budget['inodes'].add(identity)
                     logical += info.st_size
                     allocated += info.st_blocks * 512
+            _manifest_entry(budget, row, path / rel)
             manifest.append(row)
             if stat.S_ISDIR(mode):
                 child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
                 try:
                     if _stamp(os.fstat(child)) != row['stamp']:
                         raise ValueError('A directory changed during preview.')
-                    names = sorted(os.listdir(child))
+                    names = _directory_names(child, budget, path / rel)
                     if names and (rel == '.snakemake/locks' or rel.endswith('/.snakemake/locks')):
                         raise ValueError('Native workflow locks remain. Use workflow unlock before cleanup.')
                     for entry in names:
@@ -460,7 +548,7 @@ def _recovery_paths(receipt):
     return result
 
 
-def _build(store, targets, own_job=None):
+def _build(store, targets, own_job=None, *, checkpoint=None):
     targets = _normalize(targets)
     candidates, checked = _candidates(store, targets, own_job)
     indexed = {(r['kind'], r['id']): r for r in candidates}
@@ -483,13 +571,19 @@ def _build(store, targets, own_job=None):
     values = sorted(set(p for row in selected for p in row['paths']))
     values = [p for p in values if not any(p != other and _inside(Path(p), Path(other)) for other in values)]
     inventories = []
-    budget = {'started': time.monotonic(), 'entries': 0, 'inodes': set(), 'mounts': _mounts()}
+    reset_recovery = any(row['kind'] == 'cleanup_remaining' and
+                         row.get('recovery', {}).get('operation') == 'factory_reset' for row in selected)
+    budget = _scan_budget(reset=reset_recovery, checkpoint=checkpoint)
+    inventory_complete = True
     for value in values:
+        _scan_checkpoint(budget, 'Reviewing managed files', value, force=True)
         try:
             inventories.append(_inventory(value, budget))
         except (OSError, ValueError) as exc:
+            inventory_complete = False
             blocked.append(str(exc))
     result = {'targets': targets, 'candidates': selected, 'inventories': inventories, 'blocked': sorted(set(blocked)),
+              'inventory_complete': inventory_complete,
               'logical_bytes': sum(r['logical_bytes'] for r in inventories),
               'allocated_bytes': sum(r['allocated_bytes'] for r in inventories), 'checked_workspaces': [str(store.home), *checked]}
     result['signature'] = _hash(result)
@@ -500,12 +594,13 @@ def _public_plan(plan):
     return {**{k: plan[k] for k in ('id', 'signature', 'targets', 'blocked', 'logical_bytes', 'allocated_bytes', 'checked_workspaces')},
             'candidates': [_public_candidate(r) for r in plan['candidates']],
             'paths': [{k: r[k] for k in ('path', 'kind', 'logical_bytes', 'allocated_bytes', 'files', 'links')} for r in plan['inventories']],
+            'inventory_complete': plan.get('inventory_complete', not plan['blocked']),
             'confirmation': CONFIRMATION, 'requires_acknowledgment': True, 'notice': NOTICE}
 
 
-def preview(store, targets):
+def preview(store, targets, *, checkpoint=None):
     with _exclusive(store):
-        plan = _build(store, targets)
+        plan = _build(store, targets, checkpoint=checkpoint)
         plan.update(id=identifier('cleanup-plan'), created_at=now())
         store.put(_PLANS, plan['id'], plan)
         _prune_plans(store)
@@ -526,8 +621,8 @@ def _prune_plans(store, completed=None):
             db.execute('DELETE FROM items WHERE kind=? AND id=?', (_PLANS, completed))
 
 
-def _verify(store, plan, own_job=None):
-    current = _build(store, plan['targets'], own_job)
+def _verify(store, plan, own_job=None, *, checkpoint=None):
+    current = _build(store, plan['targets'], own_job, checkpoint=checkpoint)
     if current['blocked']:
         raise ValueError('Cleanup is blocked: ' + '; '.join(current['blocked']))
     if current['signature'] != plan['signature']:
@@ -567,9 +662,23 @@ def request(store, plan_id, signature, confirmation, acknowledged):
     if not plan or signature != plan['signature']:
         raise ValueError('Review a current cleanup preview before deleting files.')
     from .engine import launch_worker
-    with _exclusive(store):
-        _verify(store, plan)
-        _check_processes([r['path'] for r in plan['inventories']])
+    from .workflow_unlock import ownership
+    from contextlib import nullcontext
+    reset_recovery = (len(plan['candidates']) == 1 and
+                      plan['candidates'][0]['kind'] == 'cleanup_remaining' and
+                      plan['candidates'][0].get('recovery', {}).get('operation') == 'factory_reset')
+    with _exclusive(store), ownership(store) if reset_recovery else nullcontext():
+        if reset_recovery:
+            # A large reset recovery has already been reviewed in the background.
+            # As with factory_reset.request, queue cheaply; the worker performs
+            # full fresh identity/process checks before any mutation.
+            if plan['blocked']:
+                raise ValueError('Cleanup is blocked: ' + '; '.join(plan['blocked']))
+            if any(job['status'] in {'queued', 'running'} for job in store.jobs()):
+                raise ValueError('Finish or cancel all queued/running jobs before recovering cleanup.')
+        else:
+            _verify(store, plan)
+            _check_processes([r['path'] for r in plan['inventories']])
         jid = store.submit('storage_cleanup', {'plan_id': plan_id, 'signature': signature})
     launch_worker(store)
     return jid
@@ -688,7 +797,7 @@ def execute(ctx):
         plan = store.get(_PLANS, payload.get('plan_id'))
         if not plan or plan['signature'] != payload.get('signature'):
             raise ValueError('The reviewed cleanup plan is unavailable.')
-        _verify(store, plan, ctx.job['id'])
+        _verify(store, plan, ctx.job['id'], checkpoint=lambda **_: ctx.check_cancel())
         _check_processes([r['path'] for r in plan['inventories']])
         recovering = plan['candidates'][0]['kind'] == 'cleanup_remaining'
         if recovering:

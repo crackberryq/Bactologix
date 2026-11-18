@@ -310,8 +310,9 @@ def dispatch(store, kind, p):
                 reference_catalog.register(store, row['path'])
         return {"database_scan": found, "keep_modal": True}
     if kind == 'factory_reset_preview':
-        from . import factory_reset
-        return {'reset_plan': factory_reset.preview(store, p.get('delete_databases', False)), 'keep_modal': True}
+        from . import factory_reset, async_tasks
+        return {'reset_plan': factory_reset.preview(store, p.get('delete_databases', False),
+                                                    checkpoint=async_tasks.checkpoint), 'keep_modal': True}
     if kind == 'factory_reset_execute':
         from . import factory_reset
         jid = factory_reset.request(store, p.get('plan_id'), p.get('signature'), p.get('confirmation'),
@@ -614,7 +615,9 @@ def dispatch(store, kind, p):
     if kind == 'inspect_storage_cleanup_receipt':
         return {'cleanup_receipt': storage_cleanup.receipt(store, p.get('id')), 'keep_modal': True}
     if kind == 'preview_storage_cleanup':
-        return {'cleanup_plan': storage_cleanup.preview(store, p.get('targets')), 'keep_modal': True}
+        from . import async_tasks
+        return {'cleanup_plan': storage_cleanup.preview(store, p.get('targets'),
+                                                        checkpoint=async_tasks.checkpoint), 'keep_modal': True}
     if kind == 'execute_storage_cleanup':
         jid = storage_cleanup.request(store, p.get('plan_id'), p.get('signature'),
                                       p.get('confirmation'), p.get('acknowledged'))
