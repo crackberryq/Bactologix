@@ -51,10 +51,8 @@ def browser_page():
 
 def open_reset(page, store):
     render_component(page, store)
-    page.get_by_role('link', name='Storage', exact=True).click()
-    respond(page, store, 'inspect_storage')
-    page.locator('summary').filter(has_text='Developer tools · reset this workspace').click()
-    page.get_by_role('button', name='Review workspace reset', exact=True).click()
+    page.locator('.workspace-tools summary').click()
+    page.get_by_role('button', name='Reset workspace', exact=True).click()
     return page.get_by_role('dialog')
 
 
