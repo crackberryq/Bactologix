@@ -1,3 +1,10 @@
+## 0.1.0a111.dev1 — 2026-11-18 · Alpha · Unlock maintenance without analysis memory requirements
+
+- Allow guarded native workflow unlock when the saved analysis RAM/swap budget exceeds current free capacity. Unlock performs maintenance only and no longer applies analysis memory admission checks.
+- Keep queue/worker ownership, active-process inspection, frozen run/source checks, lock identity verification and writable-folder checks at review, submission and execution. Native unlock preserves the saved resource arguments and leaves the queue paused.
+- Continue enforcing current memory capacity for analysis validation, run and resume. Preserve saved settings, inputs, outputs, database selections and reset deletion protections.
+- Reproduce the reported 98,160 MB swap allowance / 72,704 MB usable swap case in regression tests, including native unlock and unchanged analysis rejection.
+
 ## 0.1.0a110.dev1 — 2026-11-18 · Alpha · Large workspace reset review
 
 - Give full workspace reset and interrupted-reset recovery a dedicated large-workspace scan budget, instead of sharing the ordinary 300,000-entry / 30-second cleanup limits.

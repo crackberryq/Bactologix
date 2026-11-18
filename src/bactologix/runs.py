@@ -577,7 +577,7 @@ def clone_runs(store, parent_id, aware_free=False, strategies=None):
     return created
 
 
-def validate_launch(store, rid, action, check_busy=True):
+def validate_launch(store, rid, action, check_busy=True, *, check_memory_capacity=True):
     if action not in {"dry-run", "prepare", "run", "check-environments", "continue"}:
         raise ValueError("Unsupported workflow action")
     run = store.get("runs", rid)
@@ -604,7 +604,8 @@ def validate_launch(store, rid, action, check_busy=True):
         raise ValueError("A successful native dry-run with the current runner is required before preparing tools or running")
     check_run_files(run)
     from .preflight import assert_launch
-    assert_launch(run, "run" if action == "continue" else action, store=store)
+    assert_launch(run, "run" if action == "continue" else action, store=store,
+                  check_memory_capacity=check_memory_capacity)
     return run
 
 
