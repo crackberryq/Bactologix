@@ -142,7 +142,7 @@ def test_storage_loading_keeps_workspace_reset_available_and_discards_departed_r
     task = pending(page, request)
     expect(page.get_by_role('region', name='Background checks')).to_contain_text('Loading registered storage locations')
     # Ordinary renders must not restart the same slow observation.
-    page.evaluate('window.acceptanceRender(null)')
+    page.evaluate('() => { window.acceptanceRender(null); }')
     assert page.evaluate("window.acceptanceEvents.filter(x => x.value.kind === 'inspect_storage').length") == 1
     page.locator('.workspace-tools summary').click()
     page.get_by_role('button', name='Reset workspace', exact=True).click()

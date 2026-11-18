@@ -50,6 +50,8 @@ def test_restore_locked_archived_run_preserves_all_files_and_exposes_lock_review
         if entry in {'storage-row', 'cleanup-preview'}:
             page.get_by_role('link', name='Storage', exact=True).click()
             respond(page, workspace, 'inspect_storage')
+            page.get_by_role('button', name='Load cleanup candidates', exact=True).click()
+            respond(page, workspace, 'inspect_storage_cleanup')
             row = page.locator('[data-cleanup-key="run:' + run['id'] + '"]')
             expect(row.get_by_role('button', name='Restore run', exact=True)).to_be_enabled()
             row.locator('[data-cleanup-select]').check()
@@ -96,6 +98,10 @@ def test_restore_locked_archived_run_preserves_all_files_and_exposes_lock_review
         page.get_by_role('link', name='Storage', exact=True).click()
         if entry in {'run-activity', 'jobs'}:
             respond(page, workspace, 'inspect_storage')
+            page.get_by_role('button', name='Load cleanup candidates', exact=True).click()
+        else:
+            page.get_by_role('button', name='Refresh cleanup list', exact=True).click()
+        respond(page, workspace, 'inspect_storage_cleanup')
         expect(page.get_by_role('button', name='Preview selected cleanup', exact=True)).to_be_disabled()
         expect(page.locator('[data-cleanup-key="run:' + run['id'] + '"] [data-action="restore-run"]')).to_have_count(0)
         assert not errors, errors
