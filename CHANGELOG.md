@@ -1,3 +1,8 @@
+## 0.1.0a116.dev1 — 2026-11-19 · Alpha · Job network activity
+
+- **Jobs & progress** shows live download and upload rates for each monitored job. **Resource use** shows observed totals, transfer history and when data last moved. Setup downloads by child processes such as Conda and MOB-suite are included.
+- Unavailable readings and gaps in observation are marked. A quiet connection can accompany local work such as unpacking or indexing. Historic jobs keep their original records.
+
 ## 0.1.0a115.dev1 — 2026-11-19 · Alpha · Clear notifications and clean up failed work
 
 - Open the notification bell and choose **Clear all notifications** to clear the current alerts. New alerts continue to appear.

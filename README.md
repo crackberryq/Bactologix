@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a115.dev1 — Experimental development
+# Bactologix 0.1.0a116.dev1 — Experimental development
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
 
@@ -14,7 +14,7 @@ used by failed runs and failed database or pipeline installations. See
 [cleaning up failed work](docs/storage-management.md#clean-up-failed-items).
 The Dev workspace also supports [verified isolate export and analysis history](docs/isolate-export.md).
 
-**Windows Dev setup:** download [Bactologix-Dev-Setup.exe](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a115.dev1/Bactologix-Dev-Setup.exe) and open it normally. This independent installer includes the exact Dev application wheel and keeps its environment, workspace and shortcuts separate. Internet access is needed for dependencies. A ZIP remains available for manual setup. See [parallel testing](docs/DEVELOPMENT.md).
+**Windows Dev setup:** download [Bactologix-Dev-Setup.exe](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a116.dev1/Bactologix-Dev-Setup.exe) and open it normally. This independent installer includes the exact Dev application wheel and keeps its environment, workspace and shortcuts separate. Internet access is needed for dependencies. A ZIP remains available for manual setup. See [parallel testing](docs/DEVELOPMENT.md).
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
@@ -380,11 +380,14 @@ privacy or anonymity guarantee.
 ### Job progress and resource-use records
 
 **Jobs & progress** and a saved run's **Activity** show elapsed time, sampled CPU
-and peak sampled RAM. Recognized Snakemake log messages add active steps and
+and peak sampled RAM. On Linux and WSL2, new jobs also show download and upload
+rates and the time of the last observed transfer. A quiet network is common
+while a tool unpacks files or builds an index. Recognized Snakemake log messages add active steps and
 completed tasks in the current plan. Checkpoints can change the total; a task
 percentage is neither an ETA nor evidence of complete biological results.
 
-Choose **Resource use** to view CPU/RAM charts or download JSON, CSV, or a ZIP
+Choose **Resource use** to view CPU, RAM and network history, check observed
+transfer totals, or download JSON, CSV, or a ZIP
 containing both formats and measurement notes. Every job attempt has a separate
 record, including failed and cancelled jobs; a resumed run never overwrites the
 earlier attempt. Recording starts with jobs executed in a27. Historical usage
@@ -394,7 +397,12 @@ Measurements sample the command and discoverable descendants approximately every
 two seconds. 100% CPU represents one logical CPU. CPU seconds are observed
 user/system counter increments; RAM is the sum of process RSS in MiB, which can
 count shared memory more than once. Brief processes, detached children and
-between-sample peaks can be missed. Unavailable/stale readings and interrupted
+between-sample peaks can be missed. Network measurements cover TCP sockets
+belonging to the monitored command and its children. Short connections can
+escape sampling. Bactologix also counts the response bytes it reads directly
+when downloading Miniforge or an application update. The record contains byte
+counts and timing. Browser and
+unrelated application traffic are excluded. Unavailable/stale readings and interrupted
 records are explicit. Charts save at most every 30 seconds and at command/job
 completion; long histories are combined into intervals preserving observed CPU
 seconds and sampled RSS peaks. These are local diagnostic measurements, not

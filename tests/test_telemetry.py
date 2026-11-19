@@ -93,8 +93,14 @@ def test_sampler_tracks_process_identity_and_excludes_reaped_child_counters(monk
         def memory_info(self): return SimpleNamespace(rss=self.rss * 1024 ** 2)
     root, child = Process(10, 1, 1, 20), Process(11, 2, 2, 30)
     monkeypatch.setattr(t.psutil, 'Process', lambda pid: root)
+    inspected = []
+    def network_failure(processes):
+        inspected.append([p.pid for p in processes])
+        raise PermissionError('network counters unavailable')
+    monkeypatch.setattr(t, 'NetworkSampler', lambda: SimpleNamespace(sample=network_failure))
     sampler = t.Sampler(10)
     assert sampler.sample() == {'cpu_s': 3.5, 'rss_mb': 50, 'processes': 2}
+    assert inspected == [[10, 11]] and sampler.network_partial
     root.counter += 1
     child.counter += 2
     assert sampler.sample()['cpu_s'] == 3
@@ -102,6 +108,7 @@ def test_sampler_tracks_process_identity_and_excludes_reaped_child_counters(monk
     assert sampler.sample()['cpu_s'] == .75
     child.error = True
     assert sampler.sample()['rss_mb'] == 20 and sampler.partial
+    assert inspected[-1] == [10]
     root.error = True
     assert sampler.sample() is None
     monkeypatch.setattr(t, 'psutil', None)
@@ -118,6 +125,62 @@ def test_compaction_preserves_integrals_peaks_and_missing_intervals():
     assert result[0]['cpu_s'] == pytest.approx(sum(p['cpu_s'] for p in points))
     assert result[0]['rss_peak_mb'] == 10
     assert result[0]['observed'] == 7 and result[0]['unavailable'] == 4
+    assert result[0]['rx_bytes'] is None and result[0]['observed_network_s'] == 0
+
+
+def test_network_record_keeps_measured_zero_gaps_and_rates_separate(tmp_path, monkeypatch):
+    store = Store(tmp_path)
+    jid, rec = record_job(store)
+    clock = [100.0]
+    monkeypatch.setattr(t.time, 'monotonic', lambda: clock[0])
+    rec.started = rec.last = rec.last_save = clock[0]
+    monkeypatch.setattr(t, 'HISTORY_LIMIT', 4)
+    # Each command establishes a fresh baseline; force a sub-second interval too.
+    readings = iter([None, (200, 20), (10, 0), (0, 0), None, None, (0, 12), None])
+    def sample():
+        value = next(readings)
+        result = dict(cpu_s=1, rss_mb=20, processes=2)
+        if value is not None:
+            result['network'] = dict(rx_bytes=value[0], tx_bytes=value[1], partial=False)
+        return result
+    monkeypatch.setattr(t, 'Sampler', lambda pid: SimpleNamespace(sample=sample, partial=False, network_partial=False))
+    proc = SimpleNamespace(pid=42)
+    rec.begin_command(proc, 'first')
+    assert rec.record['latest']['rx_bps'] is None and rec.record['observed_rx_bytes'] is None
+    clock[0] += 2
+    rec.tick()
+    assert rec.record['latest']['rx_bps'] == 100 and rec.record['latest']['tx_bps'] == 10
+    clock[0] += .25
+    rec.tick(force=True)
+    assert rec.record['latest']['rx_bps'] == 40
+    last_transfer = rec.record['network_last_active_at']
+    assert last_transfer
+    clock[0] += 2
+    rec.tick()
+    assert rec.record['latest']['rx_bps'] == 0
+    assert rec.record['network_last_active_at'] == last_transfer
+    clock[0] += .25
+    rec.end_command()
+    clock[0] += 30
+    rec.begin_command(proc, 'second')
+    assert rec.record['latest']['tx_bps'] is None
+    clock[0] += 2
+    rec.tick()
+    assert rec.record['latest']['tx_bps'] == 6
+    rec.end_command()
+    rec.finish('succeeded')
+    data = t.inspect(store, jid)
+    assert data['summary']['observed_rx_bytes'] == 210
+    assert data['summary']['observed_tx_bytes'] == 32
+    assert sum(p['observed_network_s'] for p in data['points']) == pytest.approx(6.25)
+    rows = list(csv.DictReader(io.StringIO(t.download(store, jid, 'csv')['text'])))
+    assert sum(int(row['received_bytes'] or 0) for row in rows) == 210
+    assert sum(int(row['sent_bytes'] or 0) for row in rows) == 32
+    for row in rows:
+        if float(row['observed_network_s']):
+            assert float(row['received_bytes_per_s']) == int(row['received_bytes']) / float(row['observed_network_s'])
+        else:
+            assert row['received_bytes_per_s'] == ''
 
 
 def test_recorder_is_bounded_and_each_attempt_remains_separate(tmp_path, monkeypatch):
@@ -279,6 +342,8 @@ def test_downloads_are_read_only_bounded_and_exclude_logs_commands_and_samples(t
         rows = list(csv.DictReader(io.StringIO(archive.read('resource-use.csv').decode())))
         assert rows[0]['cpu_percent_mean'] == '50.0'
         assert rows[1]['cpu_percent_mean'] == '' and rows[1]['peak_process_rss_sum_mb'] == ''
+        assert rows[0]['received_bytes'] == rows[0]['sent_bytes'] == ''
+        assert rows[0]['received_bytes_per_s'] == rows[0]['sent_bytes_per_s'] == ''
     workspace = snapshot(store)
     assert workspace['jobs'][0]['telemetry']['id'] == jid
     assert 'points' not in workspace['jobs'][0]['telemetry']

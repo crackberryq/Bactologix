@@ -1,5 +1,6 @@
 """Explicit operations executed by a detached, single-workspace worker."""
 from __future__ import annotations
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -125,6 +126,15 @@ class Context:
 
     def write(self, message):
         self.log.write(str(message) + "\n")
+
+    @contextmanager
+    def observe_download(self, name):
+        """Count response bytes read directly by this worker between native commands."""
+        self.observe("begin_download", name)
+        try:
+            yield lambda count: self.observe("received_download_bytes", count)
+        finally:
+            self.observe("end_download")
 
     def check_cancel(self):
         self.check_cancel_only()
@@ -578,16 +588,22 @@ def bootstrap(ctx):
     destination.parent.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(dir=destination.parent) as tmp:
         installer = Path(tmp) / name
-        with urlopen(Request(assets[name + ".sha256"], headers={"User-Agent": "Bactologix"}), timeout=60) as response:
-            expected = response.read(4096).decode().split()[0].lower()
+        checksum_request = Request(assets[name + ".sha256"], headers={"User-Agent": "Bactologix"})
+        with ctx.observe_download("Miniforge checksum") as received, urlopen(checksum_request, timeout=60) as response:
+            checksum = response.read(4096)
+            received(len(checksum))
+            expected = checksum.decode().split()[0].lower()
         if not re.fullmatch(r"[a-f0-9]{64}", expected):
             raise RuntimeError("Official Miniforge checksum file has an unexpected format")
         for attempt in range(1, 4):
             ctx.check_cancel()
             ctx.write(f"Downloading official installer, attempt {attempt}/3")
             req = Request(assets[name], headers={"User-Agent": "Bactologix"})
-            with urlopen(req, timeout=60) as response, installer.open("wb") as out:
+            with (ctx.observe_download("Miniforge installer") as received,
+                  urlopen(req, timeout=60) as response,
+                  installer.open("wb") as out):
                 while chunk := response.read(1024 * 1024):
+                    received(len(chunk))
                     ctx.check_cancel()
                     out.write(chunk)
             actual = hashlib.sha256(installer.read_bytes()).hexdigest()

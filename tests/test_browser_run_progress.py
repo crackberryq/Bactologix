@@ -212,3 +212,59 @@ def test_run_heading_stop_queue_controls_and_resource_counts(progress_page):
       usage:{id:progressJob.id,summary:{...progressJob.telemetry,job_status:'running'},points:[]}})''')
     expect(page.locator('.usage-detail .task-progress')).to_contain_text('3 / 12 tasks in current plan')
     expect(page.locator('.usage-detail .task-progress progress')).to_have_attribute('value','3')
+
+
+def test_job_network_readings(progress_page):
+    from playwright.sync_api import expect
+
+    page = progress_page
+    measured(page)
+    card = page.locator('.run-job .job-progress').first
+    expect(card).to_contain_text('Network measurements unavailable')
+    page.evaluate('''() => {
+      const t = progressJob.telemetry;
+      t.updated_at = '2026-11-19T13:00:00Z';
+      t.network_last_active_at = '2026-11-19T12:53:00Z';
+      t.observed_rx_bytes = 16 * 1024;
+      t.observed_tx_bytes = 512;
+      t.latest.rx_bps = 0;
+      t.latest.tx_bps = 0;
+      progressRerender();
+    }''')
+    network = card.get_by_role('group', name='Job network activity')
+    expect(network).to_contain_text('Download 0 B/s (16 KiB total)')
+    expect(network).to_contain_text('Last transfer 7m 0s ago')
+    page.evaluate('''() => {
+      progressJob.telemetry.observed_tx_bytes = null;
+      progressJob.telemetry.latest.tx_bps = null;
+      progressRerender();
+    }''')
+    expect(network).to_contain_text('Upload Unavailable')
+    expect(network).to_contain_text('Download 0 B/s')
+    page.evaluate('''() => {
+      progressJob.telemetry.latest.rx_bps = 4096;
+      progressJob.telemetry.latest.tx_bps = 256;
+      progressJob.telemetry.observed_tx_bytes = 512;
+      progressJob.telemetry.network_partial = true;
+      progressRerender();
+    }''')
+    expect(network).to_contain_text('Download 4 KiB/s')
+    expect(network).to_contain_text('Upload 256 B/s')
+    expect(network).to_contain_text('Partial network readings')
+    page.context.set_offline(True)
+    expect(network).to_contain_text('Downloaded 16 KiB')
+    expect(network).not_to_contain_text('/s')
+    page.context.set_offline(False)
+    expect(network).to_contain_text('4 KiB/s')
+
+    page.get_by_role('button', name='Resource use', exact=True).click()
+    page.evaluate('''() => {
+      const points = [{start_s:0, end_s:2, observed:1, unavailable:0, cpu_s:0.2,
+        rss_peak_mb:10, observed_network_s:1, observed_tx_s:0.5, rx_bytes:2048, tx_bytes:512}];
+      acceptanceRender({id:'network-fixture', ok:true, keep_modal:true,
+        usage:{id:progressJob.id, summary:{...progressJob.telemetry, job_status:'running'}, points}});
+    }''')
+    detail = page.locator('.usage-detail')
+    expect(detail).to_contain_text('Download 4 KiB/s (16 KiB total)')
+    expect(detail.get_by_role('img', name='Download rate over elapsed job time; peak 2 KiB/s')).to_be_visible()
+    expect(detail.get_by_role('img', name='Upload rate over elapsed job time; peak 1 KiB/s')).to_be_visible()

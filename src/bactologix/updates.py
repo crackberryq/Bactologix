@@ -103,7 +103,7 @@ def assert_current(store):
         raise ValueError("Restart Bactologix to load the installed application before starting more work. In its terminal press Ctrl+C, then rerun your Bactologix launch command.")
 
 
-def download_wheel(record, directory):
+def download_wheel(record, directory, received=None):
     path = directory / record["wheel_name"]
     digest = hashlib.sha256()
     request = Request(record["wheel_url"], headers={"User-Agent": "Bactologix/" + __version__})
@@ -113,6 +113,8 @@ def download_wheel(record, directory):
             if not response.url.startswith("https://"):
                 raise ValueError("Wheel download redirected to an insecure URL")
             while chunk := response.read(1024 * 1024):
+                if received is not None:
+                    received(len(chunk))
                 count += len(chunk)
                 if count > record["size"] or count > MAX_WHEEL_BYTES:
                     raise ValueError("Wheel download exceeds the published size")
@@ -156,7 +158,8 @@ def install_update(ctx):
     directory = ctx.store.home / "updates" / ctx.job["id"]
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     ctx.write(f"Downloading {latest['tag']} from {REPO} and verifying its SHA-256…")
-    wheel = download_wheel(latest, directory)
+    with ctx.observe_download("Bactologix update wheel") as received:
+        wheel = download_wheel(latest, directory, received)
     ctx.write("Wheel identity, checksum and Python requirement verified.")
     ctx.write("Updating only the application environment: " + sys.prefix)
     state = {"job": ctx.job["id"], "from_version": __version__, "version": latest["version"],
