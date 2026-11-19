@@ -213,10 +213,12 @@ def dispatch(store, kind, p):
     """Only named UI commands are allowed. Browser-supplied objects are not trusted."""
     if not isinstance(p, dict):
         raise ValueError("Invalid action payload")
-    if kind in {'mark_notifications_read', 'save_notification_settings', 'claim_desktop_notifications', 'check_notification_updates'}:
+    if kind in {'mark_notifications_read', 'clear_notifications', 'save_notification_settings', 'claim_desktop_notifications', 'check_notification_updates'}:
         from . import notifications, update_checks
         if kind == 'mark_notifications_read':
             return notifications.mark_read(store, p)
+        if kind == 'clear_notifications':
+            return notifications.clear(store, p)
         if kind == 'save_notification_settings':
             return notifications.configure(store, p)
         if kind == 'claim_desktop_notifications':
@@ -626,13 +628,16 @@ def dispatch(store, kind, p):
         return {'cleanup_receipt': storage_cleanup.receipt(store, p.get('id')), 'keep_modal': True}
     if kind == 'preview_storage_cleanup':
         from . import async_tasks
-        return {'cleanup_plan': storage_cleanup.preview(store, p.get('targets'),
-                                                        checkpoint=async_tasks.checkpoint), 'keep_modal': True}
+        if p.get('scope') == 'failed':
+            plan = storage_cleanup.preview_failed(store, checkpoint=async_tasks.checkpoint)
+        else:
+            plan = storage_cleanup.preview(store, p.get('targets'), checkpoint=async_tasks.checkpoint)
+        return {'cleanup_plan': plan, 'keep_modal': True}
     if kind == 'execute_storage_cleanup':
         jid = storage_cleanup.request(store, p.get('plan_id'), p.get('signature'),
                                       p.get('confirmation'), p.get('acknowledged'))
         return {'cleanup_refresh': True, 'job_id': jid,
-                'message': 'Storage cleanup queued. Follow its progress and receipt on this page.'}
+                'message': 'Cleanup queued. Follow it in Jobs & progress and find the receipt in Storage.'}
     if kind == 'scan_storage':
         storage.scan(store, p.get('revision'), p.get('include_external', False))
         return {'storage': storage.panel(store), 'message': 'Storage measurement saved. Review its scope and limits.', 'keep_modal': True}

@@ -251,6 +251,25 @@ def test_retention_keeps_latest_results_and_tombstones_prevent_reappearance(work
     assert len(after['items']) == 2 and after['items'][0]['target']['id'] == newest
 
 
+def test_clear_removes_displayed_alerts_once_across_tabs_and_restarts(workspace):
+    job(workspace, status='failed')
+    workspace.put('notification_test', 'candidates', [candidate()])
+    displayed = notifications.panel(workspace)
+    assert len(displayed['items']) == 2 and displayed['unread'] == 1
+    payload = {'ids': [item['id'] for item in displayed['items']]}
+
+    other_tab = Store(workspace.home)
+    later = job(other_tab)
+    assert len(notifications.panel(other_tab)['items']) == 3
+    for _ in range(2):
+        assert dispatch(workspace, 'clear_notifications', payload)['keep_modal']
+    after = notifications.panel(Store(workspace.home))
+    assert [item['target']['id'] for item in after['items']] == [later]
+    assert after['unread'] == 1 and after['desktop_candidates'] == after['items']
+    assert notifications.claim_desktop(other_tab, payload)['notification_delivery'] == []
+    assert len(workspace.jobs()) == 2
+
+
 def test_alerts_do_not_expose_input_paths_error_text_or_sample_labels(workspace):
     initialized(workspace)
     jid = job(workspace, status='failed')

@@ -157,18 +157,6 @@ def _managed_database(store, kind, row, jobs):
         return False
 
 
-def _related_records(store):
-    records, homes, errors = cleanup._other_workspaces(store)
-    for home in homes:
-        try:
-            with sqlite3.connect((Path(home) / 'workspace.sqlite3').as_uri() + '?mode=ro', uri=True, timeout=2) as db:
-                records.extend((home, kind, key, json.loads(body)) for kind, key, body in db.execute(
-                    "SELECT kind,id,body FROM items WHERE kind IN ('database_builds','reference_packages')"))
-        except (OSError, sqlite3.Error, ValueError) as exc:
-            errors.append('Cannot verify related database references: ' + str(exc))
-    return records, homes, errors
-
-
 def _idle(store, own_job=None):
     from .supervision import assert_recoverable
     jobs = store.jobs()
@@ -304,7 +292,7 @@ def _build(store, delete_databases=False, own_job=None, *, checkpoint=None):
         if key != own_job and _SAFE_ID.fullmatch(key):
             for suffix in ('.log', '.monitor.json', '.process.json'):
                 target(store.home / 'logs' / (key + suffix), 'Historical job log or monitoring record')
-    related, homes, errors = _related_records(store)
+    related, homes, errors = cleanup._other_workspaces(store)
     blocked.extend(errors)
     for home, kind, key, body in related:
         try:

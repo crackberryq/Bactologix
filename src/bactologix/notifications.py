@@ -209,6 +209,14 @@ def mark_read(store, payload):
     return {'keep_modal': True}
 
 
+def clear(store, payload):
+    """Remove the displayed alerts, leaving newer events and deduplication records alone."""
+    ids = _ids(payload)
+    with store.connect() as db:
+        db.executemany("DELETE FROM items WHERE kind='notifications' AND id=?", ((key,) for key in ids))
+    return {'message': 'Notifications cleared.', 'keep_modal': True}
+
+
 def claim_desktop(store, payload):
     ids = _ids(payload, limit=3)
     result = []

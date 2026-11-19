@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a114.dev1 — Experimental development
+# Bactologix 0.1.0a115.dev1 — Experimental development
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
 
@@ -9,10 +9,12 @@ See [Connect an existing Kraken2 database](docs/DEVELOPMENT.md#connect-an-existi
 HybAs AWARE v10.0.0a7 fixes BUSCO database preparation. The pipeline now
 checks the lineage folder that BUSCO extracts before making the dataset ready
 for use. Existing HybAs v10.0.0a6 tool environments can be reused.
-The Dev workspace also supports [verified isolate export and analysis history](docs/isolate-export.md)
-and reviewed storage cleanup.
+In **Jobs & progress**, choose **Clean up failed items** to review the disk space
+used by failed runs and failed database or pipeline installations. See
+[cleaning up failed work](docs/storage-management.md#clean-up-failed-items).
+The Dev workspace also supports [verified isolate export and analysis history](docs/isolate-export.md).
 
-**Windows Dev setup:** download [Bactologix-Dev-Setup.exe](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a114.dev1/Bactologix-Dev-Setup.exe) and open it normally. This independent installer includes the exact Dev application wheel and keeps its environment, workspace and shortcuts separate. Internet access is needed for dependencies. A ZIP remains available for manual setup. See [parallel testing](docs/DEVELOPMENT.md).
+**Windows Dev setup:** download [Bactologix-Dev-Setup.exe](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a115.dev1/Bactologix-Dev-Setup.exe) and open it normally. This independent installer includes the exact Dev application wheel and keeps its environment, workspace and shortcuts separate. Internet access is needed for dependencies. A ZIP remains available for manual setup. See [parallel testing](docs/DEVELOPMENT.md).
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 
@@ -26,7 +28,8 @@ Results show execution and evidence coverage separately. Storage starts with mea
 ### Notifications and available updates
 
 Use the **Notifications** bell for saved job outcomes, runs waiting for review and
-available updates. **Enable desktop alerts** requests browser permission on this
+available updates. Choose **Clear all notifications** inside the window to clear
+current alerts. **Enable desktop alerts** requests browser permission on this
 computer. Desktop pop-ups require a supported browser and an open or minimized
 Bactologix window; the notification center retains missed alerts.
 

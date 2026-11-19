@@ -125,8 +125,12 @@ def _registered_paths(store, selected, errors):
             continue
         if kind in {'runs', 'run_visibility'} and ('run', key) in selected:
             continue
-        # Removing a sample registration never grants deletion of original input.
+        # Original GeneScope input files remain protected when retiring a failed build.
         body = json.loads(record['body'])
+        if kind in {'database_downloads', 'database_builds'} and ('failed_database', key) in selected:
+            if kind == 'database_builds':
+                yield from _paths(body.get('input_sha256', {}))
+            continue
         if kind == 'configs' and isinstance(body, str):
             body = {'config': body}
         yield from _configured_paths(body, errors)
@@ -233,7 +237,7 @@ def candidates(store, selected=None, *, display_only=False):
         if any(r.get('installation') == key for r in runs):
             reasons.append('Saved runs or drafts, including archived runs, still depend on this installation.')
         if any(d.get('installation') == key and d.get('status') != 'completed'
-               for d in store.all('database_downloads')):
+               and ('failed_database', d['id']) not in selected for d in store.all('database_downloads')):
             reasons.append('An unfinished database download still needs this installation for resume.')
         if busy:
             reasons.append('Finish or cancel queued and running jobs before retiring pipeline resources.')

@@ -23,6 +23,23 @@ Unlock is available only when the ownership checks allow it; see
 [workflow lock recovery](workflow-locks.md). A blocked cleanup preview does not
 mean that the run has been deleted.
 
+## Clean up failed items
+
+In **Jobs & progress**, choose **Clean up failed items**. The preview gathers
+eligible failed runs and files left by failed database or pipeline installations.
+Review the listed paths, estimated size and reasons an item is protected. This is
+also where you can check which failed work would lose its partial results.
+
+To delete the reviewed items, select the acknowledgment, type **DELETE** and
+choose **Delete failed items**. Follow the cleanup job in **Jobs & progress**.
+Original sample inputs, shared databases and files that another retained run or
+installation still needs are protected.
+
+A successful retry protects the working run or installation. Its older failed setup
+attempt can still have a private work folder to reclaim. Cleanup also keeps job logs
+and a receipt of the paths it removed. If an older Conda setup stopped before
+Bactologix recorded which environment folder it created, that folder stays in the cache.
+
 ## Choose what to remove
 
 | Cleanup item | What it removes | What remains protected |

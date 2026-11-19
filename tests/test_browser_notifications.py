@@ -129,7 +129,16 @@ def test_notification_center_persists_read_state_and_opens_update_review(notific
         expect(bell).to_be_focused()
         expect(bell).to_have_attribute('aria-label', 'Notifications')
         bell.click()
-        expect(page.get_by_role('dialog', name='Notifications', exact=True)).to_contain_text('0 unread')
+        expect(dialog).to_contain_text('0 unread')
+        clear = dialog.get_by_role('button', name='Clear all notifications', exact=True)
+        clear.click()
+        respond(page, store, 'clear_notifications')
+        expect(dialog.locator('.notification-item')).to_have_count(0)
+        expect(dialog.get_by_text('No saved alerts yet')).to_be_visible()
+        expect(clear).to_be_disabled()
+        refresh(page, store)
+        expect(dialog.locator('.notification-item')).to_have_count(0)
+        expect(bell).to_have_attribute('aria-label', 'Notifications')
         assert store.jobs() == original_jobs
         assert not errors
         browser.close()

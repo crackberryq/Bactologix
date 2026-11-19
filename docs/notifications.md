@@ -1,6 +1,6 @@
 # Notifications
 
-The header bell opens a workspace-specific notification center. It keeps the latest 200 alerts for job outcomes, runs awaiting identification review and available updates. Mark one or all alerts as read. Muting a category suppresses its unread/desktop alerts while preserving the recorded history.
+The header bell opens a workspace-specific notification center. It keeps the latest 200 alerts for job outcomes, runs awaiting identification review and available updates. Mark one or all alerts as read, or choose **Clear all notifications** to remove the alerts displayed in the window. New alerts continue to appear. Muting a category suppresses its unread/desktop alerts while preserving the recorded history.
 
 Validation success, completed workflow execution and a workflow paused for review are different events. An alert reports software status; it does not certify the scientific completeness or safety of a result. Open the run or job log to review its evidence.
 

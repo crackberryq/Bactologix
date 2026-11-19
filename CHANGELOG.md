@@ -1,3 +1,8 @@
+## 0.1.0a115.dev1 — 2026-11-19 · Alpha · Clear notifications and clean up failed work
+
+- Open the notification bell and choose **Clear all notifications** to clear the current alerts. New alerts continue to appear.
+- In **Jobs & progress**, choose **Clean up failed items** to review failed runs and files left by failed database or pipeline installations. Confirm the listed items to reclaim space. Shared databases, original inputs and files required by retained work are protected.
+
 ## 0.1.0a114.dev1 — 2026-11-19 · Alpha · Share an existing Kraken2 database
 
 - Connect an existing Kraken2 index from a Windows drive or another local folder to HybAs in Bactologix Dev. **Save for future runs** records its location and **Calculate swap recommendation** reads the index files there.

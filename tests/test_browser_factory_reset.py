@@ -232,3 +232,43 @@ def test_storage_cleanup_is_explicit_cancellable_and_retryable(reviewed_workspac
     assert cached.exists() and not store.jobs()
 
 
+def test_jobs_failed_cleanup_previews_and_requires_confirmation(reviewed_workspace, browser_page, monkeypatch):
+    from playwright.sync_api import expect
+    from bactologix import storage_cleanup
+    from test_storage_cleanup import saved_run
+
+    store, _, _, _, _ = reviewed_workspace
+    monkeypatch.setattr(storage_cleanup, '_other_workspaces', lambda _: ([], [], []))
+    page = browser_page
+    render_component(page, store)
+    page.get_by_role('link', name='Activity', exact=True).click()
+    open_review = page.get_by_role('button', name='Clean up failed items', exact=True)
+    open_review.click()
+    request, result = respond(page, store, 'preview_storage_cleanup')
+    assert request['payload'] == {'scope': 'failed'}
+    assert not result['cleanup_plan']['targets']
+    dialog = page.get_by_role('dialog', name='Clean up failed items')
+    expect(dialog).to_contain_text('No failed items are eligible')
+    expect(dialog.get_by_role('button', name='Delete failed items')).to_have_count(0)
+    dialog.get_by_role('button', name='Close', exact=True).click()
+
+    run = saved_run(store, completed=False, created='2026-01-01T00:00:00+00:00', label='Discarded draft')
+    job = store.submit('workflow', {'run_id': run['id'], 'action': 'run'})
+    store.update_job(job, status='failed')
+    open_review.click()
+    _, result = respond(page, store, 'preview_storage_cleanup')
+    assert {'kind': 'run', 'id': run['id']} in result['cleanup_plan']['targets']
+    expect(dialog).to_contain_text('Discarded draft')
+    expect(dialog).to_contain_text(run['folder'])
+    remove = dialog.get_by_role('button', name='Delete failed items', exact=True)
+    expect(remove).to_be_disabled()
+    dialog.get_by_label('I want to permanently delete the listed failed items.').check()
+    expect(remove).to_be_disabled()
+    dialog.get_by_label('Type DELETE to confirm permanent deletion').fill('DELETE')
+    expect(remove).to_be_enabled()
+    assert Path(run['folder']).exists() and all(j['kind'] != 'storage_cleanup' for j in store.jobs())
+    remove.click()
+    request = page.evaluate('window.acceptanceEvents.at(-1).value')
+    assert request['kind'] == 'execute_storage_cleanup'
+    assert request['payload']['plan_id'] == result['cleanup_plan']['id']
+    assert request['payload']['signature'] == result['cleanup_plan']['signature']

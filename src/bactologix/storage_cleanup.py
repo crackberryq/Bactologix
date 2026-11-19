@@ -12,6 +12,8 @@ import time
 from contextlib import contextmanager, ExitStack
 from types import SimpleNamespace
 
+import yaml
+
 from .storage import _open
 from .store import identifier, now
 
@@ -76,20 +78,18 @@ def _paths(value):
             if isinstance(key, str) and key.startswith('/'):
                 yield from _paths(key)
             if key == 'config' and isinstance(item, str):
-                try:
-                    from .runs import parse_config
-                    yield from _paths(parse_config(item))
-                except (ValueError, TypeError):
-                    pass
+                from .runs import parse_config
+                yield from _paths(parse_config(item))
             yield from _paths(item)
     elif isinstance(value, list):
         for item in value:
             yield from _paths(item)
     elif isinstance(value, str) and value.startswith('/') and '\x00' not in value:
-        try:
-            yield Path(value).resolve()
-        except (OSError, RuntimeError):
-            yield Path(value)
+        path = Path(value)
+        yield path
+        resolved = path.resolve()
+        if resolved != path:
+            yield resolved
 
 
 def _inside(path, root):
@@ -139,7 +139,7 @@ def _other_workspaces(store):
         try:
             db = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=2)
             try:
-                rows = db.execute("SELECT kind,id,body FROM items WHERE kind IN ('samples','runs','installs','configs','database_locations','database_downloads')").fetchall()
+                rows = db.execute("SELECT kind,id,body FROM items WHERE kind IN ('samples','runs','installs','configs','database_locations','database_downloads','database_builds','reference_packages')").fetchall()
                 records.extend((str(home), k, key, json.loads(body)) for k, key, body in rows)
             finally:
                 db.close()
@@ -182,13 +182,55 @@ def _sample_files(sample):
     return sorted(files)
 
 
-def _base_candidates(store, selected, *, display_only=False):
+def failed_job(store, job):
+    """An interruption qualifies only after the monitor explicitly confirmed cleanup."""
+    if job['status'] == 'failed':
+        return True
+    if job['status'] == 'interrupted':
+        from .supervision import snapshot
+        if (store.get('disk_safety', job['id']) or {}).get('state') == 'paused':
+            return False
+        monitor = snapshot(store, job['id']) or {}
+        return (monitor.get('id') == job['id'] and monitor.get('state') == 'interrupted'
+                and monitor.get('cleanup_confirmed') is True)
+    return False
+
+
+def _failed_run_jobs(store, run, related):
+    """Preserve prior results, researcher review, intentional stops and never-run drafts."""
+    if (not related or run.get('completed') or run.get('previous_completed')
+            or run.get('identification', {}).get('state') == 'awaiting_review'
+            or run.get('aware', {}).get('state') == 'complete'):
+        return []
+    execution = [job for job in related if job['payload'].get('action') in {'run', 'continue'}]
+    if any(job['status'] == 'succeeded' for job in execution):
+        return []
+    if any(job['status'] in {'queued', 'running'} for job in related):
+        return []
+    latest = related[0]
+    failed = failed_job(store, latest)
+    if not failed and (latest['status'] != 'succeeded' or not execution or not failed_job(store, execution[0])):
+        return []
+    return [job['id'] for job in related if job['status'] in {'failed', 'interrupted'}]
+
+
+def _base_candidates(store, selected, *, display_only=False, failed_only=False):
     rows, records = [], _records(store)
     selected_keys = {(t['kind'], t['id']) for t in selected}
     selected_runs = {key for kind, key in selected_keys if kind == 'run'}
     run_rows = [body for kind, _, body in records if kind == 'runs']
+    jobs_by_run = {}
+    if failed_only:
+        jobs = store.jobs()
+        for job in jobs:
+            if job['kind'] == 'workflow':
+                jobs_by_run.setdefault(job['payload'].get('run_id'), []).append(job)
     for run in run_rows:
         key = run['id']
+        if failed_only:
+            failed_jobs = _failed_run_jobs(store, run, jobs_by_run.get(key, []))
+            if not failed_jobs:
+                continue
         folder = store.home / 'runs' / key
         blocked = []
         if not re.fullmatch(r'[A-Za-z0-9_-]+', key) or Path(run.get('folder', '')) != folder:
@@ -215,6 +257,15 @@ def _base_candidates(store, selected, *, display_only=False):
                      'blocked': blocked, 'status': 'completed' if run.get('completed') else 'saved',
                      'description': 'Delete saved run files and report editions. Original sample inputs are retained.',
                      'record_deletions': deletions, 'metadata': run})
+        if failed_only:
+            rows[-1].update(status='failed', failed_jobs=failed_jobs)
+            if not folder.exists() and not folder.is_symlink():
+                rows[-1]['paths'].remove(str(folder))
+    from .storage_resources import candidates
+    resources = candidates(store, selected, display_only=display_only)
+    if failed_only:
+        from . import failed_installs
+        return rows + failed_installs.candidates(store, selected, resources, jobs)
     for sample in store.all('samples'):
         common = {'id': sample['id'], 'label': sample['id'],
                   'record_deletions': [{'kind': 'samples', 'id': sample['id'], 'expected': sample}], 'metadata': sample}
@@ -228,8 +279,7 @@ def _base_candidates(store, selected, *, display_only=False):
             paths, blocked = [], [str(exc)]
         rows.append({**common, 'kind': 'sample_files', 'paths': paths, 'blocked': blocked,
                      'description': 'Permanently delete the listed original input files and unregister this sample. Empty directories remain.'})
-    from .storage_resources import candidates
-    rows.extend(candidates(store, selected, display_only=display_only))
+    rows.extend(resources)
     for receipt in store.all(_RECEIPTS):
         if receipt.get('status') == 'completed':
             continue
@@ -240,13 +290,13 @@ def _base_candidates(store, selected, *, display_only=False):
     return rows
 
 
-def _candidates(store, selected=(), own_job=None, *, display_only=False):
-    rows = _base_candidates(store, selected, display_only=display_only)
+def _candidates(store, selected=(), own_job=None, *, display_only=False, failed_only=False):
+    rows = _base_candidates(store, selected, display_only=display_only, failed_only=failed_only)
     chosen = {(t['kind'], t['id']) for t in selected}
     deleted_records = {(r['kind'], r['id']) for row in rows if (row['kind'], row['id']) in chosen
                        for r in row.get('record_deletions', [])}
     dependencies = [(str(store.home), k, key, body) for k, key, body in _records(store)
-                    if k in {'samples', 'runs', 'installs', 'configs', 'database_locations', 'database_downloads'}]
+                    if k in {'samples', 'runs', 'installs', 'configs', 'database_locations', 'database_downloads', 'database_builds', 'reference_packages'}]
     others, checked, errors = _other_workspaces(store)
     dependencies.extend(others)
     inspected = []
@@ -264,7 +314,35 @@ def _candidates(store, selected=(), own_job=None, *, display_only=False):
                     body = {**body, 'cleanup_dependency_manifest': evidence}
                 except (OSError, ValueError) as exc:
                     errors.append('Cannot inspect retained variant ' + key + ': ' + str(exc))
-        inspected.append((home, kind, key, body))
+        if kind == 'database_downloads' and isinstance(body, dict):
+            # parent is the container for independent snapshots, not a dependency on each sibling.
+            body = {k: v for k, v in body.items() if k != 'parent'}
+            if isinstance(body.get('request'), dict):
+                body['request'] = {k: v for k, v in body['request'].items() if k != 'parent'}
+        deleting = home == str(store.home) and (kind, key) in deleted_records
+        if deleting:
+            if not failed_only or not isinstance(body, dict):
+                continue
+            # The original inputs remain protected when their run/build registration goes away.
+            body = {k: body[k] for k in ('sample', 'inputs', 'input_sha256') if k in body}
+            kind = 'original inputs'
+        try:
+            if failed_only and (kind == 'configs' or kind == 'runs' and isinstance(body.get('config'), str)):
+                from .factory_reset import _database_paths
+                owner = SimpleNamespace(home=Path(home))
+                if kind == 'configs':
+                    refs = list(_database_paths(owner, key, body))
+                else:
+                    refs = [*_paths(body), *_database_paths(owner, body.get('tool'), body['config'], body)]
+            else:
+                if kind == 'configs' and isinstance(body, str):
+                    from .runs import parse_config
+                    body = parse_config(body)
+                refs = list(_paths(body))
+        except (OSError, ValueError, TypeError, KeyError, RuntimeError, yaml.YAMLError):
+            errors.append('A retained configuration cannot be inspected: ' + kind + ' ' + key + ' in ' + home)
+            refs = []
+        inspected.append((home, kind, key, refs))
     dependencies = inspected
     busy = [j for j in store.jobs() if j['status'] in {'queued', 'running'} and j['id'] != own_job]
     unfinished = [r for r in store.all(_RECEIPTS) if r.get('status') != 'completed']
@@ -287,6 +365,13 @@ def _candidates(store, selected=(), own_job=None, *, display_only=False):
             if len(selected) > 1:
                 row['blocked'].append('Recover one interrupted cleanup at a time.')
             continue
+        if failed_only and row.get('failed_jobs'):
+            from .supervision import MonitoringInterrupted, assert_recoverable
+            try:
+                assert_recoverable(store, row['failed_jobs'])
+            except MonitoringInterrupted as exc:
+                row['blocked'].append(str(exc))
+                hard_blocked = True
         if row['paths']:
             row['blocked'].extend(errors)
             hard_blocked = hard_blocked or bool(errors)
@@ -296,18 +381,10 @@ def _candidates(store, selected=(), own_job=None, *, display_only=False):
             hard_blocked = True
         for value in row['paths']:
             target = Path(value)
-            for home, kind, key, body in dependencies:
+            for home, kind, key, refs in dependencies:
                 if home == str(store.home) and ((kind, key) in deleted_records or
                     any(r['kind'] == kind and r['id'] == key for r in row.get('record_deletions', []))):
                     continue
-                if kind == 'configs' and isinstance(body, str):
-                    try:
-                        from .runs import parse_config
-                        body = parse_config(body)
-                    except (ValueError, TypeError):
-                        row['blocked'].append('A saved configuration cannot be inspected: ' + key)
-                        hard_blocked = True
-                refs = list(_paths(body))
                 referenced = any(_inside(p, target) or _inside(target, p) for p in refs)
                 if referenced:
                     row['blocked'].append('Referenced by ' + kind + ' ' + key + (' in ' + home if home != str(store.home) else ''))
@@ -453,7 +530,8 @@ def _manifest_entry(budget, row, path):
     size = 192 + len(json.dumps(row['name'])) + len(json.dumps(row.get('link', '')))
     budget['manifest_bytes'] = budget.get('manifest_bytes', 0) + size
     if budget['manifest_bytes'] > budget['max_manifest_bytes']:
-        raise ValueError('Workspace reset review is incomplete: the estimated inventory metadata reached '
+        label = 'Workspace reset' if budget.get('reset') else 'Cleanup'
+        raise ValueError(label + ' review is incomplete: the estimated inventory metadata reached '
                          + str(budget['max_manifest_bytes'] // (1024 * 1024)) + ' MiB while checking '
                          + str(path) + '. No deletion is authorized; use Storage to review smaller groups before retrying reset.')
 
@@ -513,17 +591,15 @@ def _inventory(value, budget):
             'parent_stamp': parent_stamp, 'manifest': manifest}
 
 
-def _normalize(targets):
-    if not isinstance(targets, list) or not targets or len(targets) > 300:
+def _normalize(targets, *, failed_only=False):
+    if not isinstance(targets, list) or not targets or (not failed_only and len(targets) > 300):
         raise ValueError('Select between one and 300 cleanup targets.')
-    result = []
+    result = set()
     for row in targets:
         if not isinstance(row, dict) or not isinstance(row.get('kind'), str) or not isinstance(row.get('id'), str):
             raise ValueError('Choose registered cleanup targets.')
-        item = {'kind': row['kind'], 'id': row['id']}
-        if item not in result:
-            result.append(item)
-    return sorted(result, key=lambda r: (r['kind'], r['id']))
+        result.add((row['kind'], row['id']))
+    return [{'kind': kind, 'id': key} for kind, key in sorted(result)]
 
 
 def _recovery_paths(receipt):
@@ -548,9 +624,9 @@ def _recovery_paths(receipt):
     return result
 
 
-def _build(store, targets, own_job=None, *, checkpoint=None):
-    targets = _normalize(targets)
-    candidates, checked = _candidates(store, targets, own_job)
+def _build(store, targets, own_job=None, *, checkpoint=None, failed_only=False):
+    targets = _normalize(targets, failed_only=failed_only)
+    candidates, checked = _candidates(store, targets, own_job, failed_only=failed_only)
     indexed = {(r['kind'], r['id']): r for r in candidates}
     selected, blocked = [], []
     for target in targets:
@@ -568,12 +644,14 @@ def _build(store, targets, own_job=None, *, checkpoint=None):
     pairs = {(r['kind'], r['id']) for r in selected}
     if any(k == 'sample_files' and ('sample_registration', i) in pairs for k, i in pairs):
         blocked.append('Choose either unregister or delete original files for each sample, not both.')
-    values = sorted(set(p for row in selected for p in row['paths']))
-    values = [p for p in values if not any(p != other and _inside(Path(p), Path(other)) for other in values)]
+    roots = {Path(p) for row in selected for p in row['paths']}
+    values = sorted(str(p) for p in roots if not any(parent in roots for parent in p.parents))
     inventories = []
-    reset_recovery = any(row['kind'] == 'cleanup_remaining' and
-                         row.get('recovery', {}).get('operation') == 'factory_reset' for row in selected)
-    budget = _scan_budget(reset=reset_recovery, checkpoint=checkpoint)
+    recovery = next((row['recovery'].get('operation') for row in selected if row['kind'] == 'cleanup_remaining'), None)
+    budget = _scan_budget(reset=failed_only or recovery in {'factory_reset', 'failed_cleanup'}, checkpoint=checkpoint)
+    budget['reset'] = recovery == 'factory_reset'
+    if failed_only and blocked:
+        values = []  # First remove blocked candidates and resolve their dependants.
     inventory_complete = True
     for value in values:
         _scan_checkpoint(budget, 'Reviewing managed files', value, force=True)
@@ -582,16 +660,22 @@ def _build(store, targets, own_job=None, *, checkpoint=None):
         except (OSError, ValueError) as exc:
             inventory_complete = False
             blocked.append(str(exc))
+            if failed_only:
+                for row in selected:
+                    if any(_inside(Path(p), Path(value)) for p in row['paths']):
+                        row['blocked'] = [*row['blocked'], str(exc)]
     result = {'targets': targets, 'candidates': selected, 'inventories': inventories, 'blocked': sorted(set(blocked)),
               'inventory_complete': inventory_complete,
               'logical_bytes': sum(r['logical_bytes'] for r in inventories),
               'allocated_bytes': sum(r['allocated_bytes'] for r in inventories), 'checked_workspaces': [str(store.home), *checked]}
+    if failed_only:
+        result.update(scope='failed', job_revision=_failure_revision(store))
     result['signature'] = _hash(result)
     return result
 
 
 def _public_plan(plan):
-    return {**{k: plan[k] for k in ('id', 'signature', 'targets', 'blocked', 'logical_bytes', 'allocated_bytes', 'checked_workspaces')},
+    return {**{k: plan[k] for k in ('id', 'signature', 'targets', 'blocked', 'logical_bytes', 'allocated_bytes', 'checked_workspaces', 'scope', 'skipped') if k in plan},
             'candidates': [_public_candidate(r) for r in plan['candidates']],
             'paths': [{k: r[k] for k in ('path', 'kind', 'logical_bytes', 'allocated_bytes', 'files', 'links')} for r in plan['inventories']],
             'inventory_complete': plan.get('inventory_complete', not plan['blocked']),
@@ -605,6 +689,41 @@ def preview(store, targets, *, checkpoint=None):
         store.put(_PLANS, plan['id'], plan)
         _prune_plans(store)
     return _public_plan(plan)
+
+
+def _failure_revision(store):
+    # A retry can succeed without changing the saved run or install record.
+    with store.connect() as db:
+        jobs = db.execute("SELECT id,status FROM jobs WHERE kind IN ('workflow','install','connect','check',"
+                          "'environments','database_download','database_redownload','database_build') ORDER BY rowid")
+        return _hash([tuple(row) for row in jobs])
+
+
+def preview_failed(store, *, checkpoint=None):
+    """Review the safe subset; a retained failure can protect other failed items."""
+    with _exclusive(store):
+        initial = _base_candidates(store, [], failed_only=True)
+        targets = [{'kind': row['kind'], 'id': row['id']} for row in initial]
+        skipped = []
+        checked = [str(store.home)]
+        while targets:
+            plan = _build(store, targets, checkpoint=checkpoint, failed_only=True)
+            checked = plan['checked_workspaces']
+            if not plan['blocked']:
+                plan.update(id=identifier('cleanup-plan'), created_at=now(), skipped=skipped)
+                store.put(_PLANS, plan['id'], plan)
+                _prune_plans(store)
+                return _public_plan(plan)
+            protected = [row for row in plan['candidates'] if row['blocked']]
+            if not protected:
+                raise ValueError('Cleanup could not verify the selected failures: ' + '; '.join(plan['blocked']))
+            skip_keys = {(row['kind'], row['id']) for row in protected}
+            skipped.extend({k: row[k] for k in ('kind', 'id', 'label', 'blocked')} for row in protected)
+            targets = [t for t in targets if (t['kind'], t['id']) not in skip_keys]
+        return _public_plan({'id': None, 'signature': None, 'scope': 'failed', 'skipped': skipped,
+                             'targets': [], 'candidates': [], 'inventories': [], 'blocked': [],
+                             'checked_workspaces': checked,
+                             'logical_bytes': 0, 'allocated_bytes': 0})
 
 
 def _prune_plans(store, completed=None):
@@ -622,7 +741,7 @@ def _prune_plans(store, completed=None):
 
 
 def _verify(store, plan, own_job=None, *, checkpoint=None):
-    current = _build(store, plan['targets'], own_job, checkpoint=checkpoint)
+    current = _build(store, plan['targets'], own_job, checkpoint=checkpoint, failed_only=plan.get('scope') == 'failed')
     if current['blocked']:
         raise ValueError('Cleanup is blocked: ' + '; '.join(current['blocked']))
     if current['signature'] != plan['signature']:
@@ -664,18 +783,22 @@ def request(store, plan_id, signature, confirmation, acknowledged):
     from .engine import launch_worker
     from .workflow_unlock import ownership
     from contextlib import nullcontext
-    reset_recovery = (len(plan['candidates']) == 1 and
+    large_recovery = (len(plan['candidates']) == 1 and
                       plan['candidates'][0]['kind'] == 'cleanup_remaining' and
-                      plan['candidates'][0].get('recovery', {}).get('operation') == 'factory_reset')
-    with _exclusive(store), ownership(store) if reset_recovery else nullcontext():
-        if reset_recovery:
-            # A large reset recovery has already been reviewed in the background.
+                      plan['candidates'][0].get('recovery', {}).get('operation') in {'factory_reset', 'failed_cleanup'})
+    with _exclusive(store), ownership(store) if large_recovery else nullcontext():
+        if large_recovery:
+            # A large cleanup recovery has already been reviewed in the background.
             # As with factory_reset.request, queue cheaply; the worker performs
             # full fresh identity/process checks before any mutation.
             if plan['blocked']:
                 raise ValueError('Cleanup is blocked: ' + '; '.join(plan['blocked']))
             if any(job['status'] in {'queued', 'running'} for job in store.jobs()):
                 raise ValueError('Finish or cancel all queued/running jobs before recovering cleanup.')
+        elif plan.get('scope') == 'failed':
+            # The worker inventories these potentially large trees under its exclusive locks.
+            if plan.get('job_revision') != _failure_revision(store):
+                raise ValueError('Job status changed since preview. Review failed items again.')
         else:
             _verify(store, plan)
             _check_processes([r['path'] for r in plan['inventories']])
@@ -817,6 +940,8 @@ def execute(ctx):
             receipt = {'id': ctx.job['id'], 'created_at': now(), 'status': 'staging', 'targets': plan['targets'],
                        'candidates': plan['candidates'], 'logical_bytes': plan['logical_bytes'],
                        'allocated_bytes': plan['allocated_bytes'], 'operations': []}
+            if plan.get('scope') == 'failed':
+                receipt['operation'] = 'failed_cleanup'
             for index, inventory in enumerate(plan['inventories']):
                 path = Path(inventory['path'])
                 receipt['operations'].append({'original': str(path),
