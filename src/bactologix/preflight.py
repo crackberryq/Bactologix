@@ -7,6 +7,7 @@ import shutil
 import stat
 
 from . import compute_memory, hardware
+from .local import host_path
 from .runs import parse_config
 from .store import now
 
@@ -28,7 +29,7 @@ def kraken_memory(run, info):
         base = Path(str(cfg.get('base_dir', '.'))).expanduser()
         if not base.is_absolute():
             base = Path(run['folder']) / 'workflow' / base
-        selected = base / str(cfg.get('db_root', 'db')) / str(cfg.get('kraken_db_name', 'standard'))
+        selected = base / host_path(cfg.get('db_root', 'db')) / host_path(cfg.get('kraken_db_name', 'standard'))
         resolved = selected.resolve(strict=True)
         files = []
         for name in ('hash.k2d', 'opts.k2d', 'taxo.k2d'):

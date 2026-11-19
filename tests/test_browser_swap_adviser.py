@@ -7,6 +7,7 @@ import yaml
 from bactologix import swap_adviser
 from test_browser import render_component
 from test_browser_swap import capacity, respond, start_draft
+from test_external_kraken import shared_db
 from test_native import installation, sample, workspace
 
 pytestmark = pytest.mark.skipif(os.environ.get('BACTOLOGIX_BROWSER_TESTS') != '1',
@@ -34,6 +35,41 @@ def page_for(browser, workspace):
     page.goto('https://workspace.test/')
     render_component(page, workspace)
     return page
+
+
+def test_selected_windows_database_is_measured_before_and_after_saving(
+        workspace, installation, sample, monkeypatch, shared_db):
+    from playwright.sync_api import sync_playwright, expect
+    configured_database(workspace, workspace.home, monkeypatch)
+    original = workspace.get('configs', 'hybas')
+    windows, external = shared_db
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True, executable_path=os.environ.get('BACTOLOGIX_BROWSER_EXECUTABLE'))
+        page = page_for(browser, workspace)
+        page.get_by_role('link', name='Pipelines & databases', exact=True).click()
+        databases = page.locator('.setup-steps [data-id="databases"]')
+        capacity_step = page.locator('.setup-steps [data-id="capacity"]')
+        calculate = page.get_by_role('button', name='Calculate swap recommendation')
+        databases.click()
+        page.get_by_label('Kraken2 location', exact=True).fill(windows)
+        capacity_step.click()
+        expect(page.locator('.swap-recommendation')).to_contain_text(windows)
+        calculate.click()
+        request, result = respond(page, workspace, 'recommend_swap')
+        assert request['payload']['kraken_path'] == windows
+        assert result['swap_recommendation']['database']['resolved_path'] == str(external)
+        assert workspace.get('configs', 'hybas') == original
+
+        databases.click()
+        page.get_by_role('button', name='Save for future runs').click()
+        respond(page, workspace, 'save_databases')
+        capacity_step.click()
+        expect(page.get_by_role('button', name='Use recommendation')).to_be_disabled()
+        calculate.click()
+        request, result = respond(page, workspace, 'recommend_swap')
+        assert 'kraken_path' not in request['payload']
+        assert result['swap_recommendation']['database']['resolved_path'] == str(external)
+        browser.close()
 
 
 def test_compute_default_recommendation_fills_only_after_review_and_invalidates_changed_ram(

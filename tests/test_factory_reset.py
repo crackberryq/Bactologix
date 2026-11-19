@@ -137,6 +137,27 @@ def test_separately_confirmed_unlinked_managed_database_can_be_deleted_with_its_
     assert store.get('database_downloads', db['id']) is None
 
 
+def test_dev_reset_preserves_kraken_selected_from_a_shared_drive(store, tmp_path):
+    from bactologix import databases
+
+    managed = Path(database(store)['destination'])
+    shared = tmp_path / 'Shared databases' / 'Kraken2'
+    indices = {name: name.encode() for name in ('hash.k2d', 'opts.k2d', 'taxo.k2d')}
+    for name, content in indices.items():
+        file(shared / name, content)
+    revision = databases.panel(store, 'hybas')['revision']
+    databases.save(store, 'hybas', {'kraken': str(shared)}, revision)
+
+    preview = reset.preview(store, True)
+    assert not preview['blocked'] and managed in paths(preview)
+    execute(store, preview, confirm_db=True)
+
+    assert not managed.exists()
+    assert {p.name: p.read_bytes() for p in shared.iterdir()} == indices
+    selected = next(row for row in databases.panel(store, 'hybas')['rows'] if row['id'] == 'kraken')
+    assert selected['path'] == str(shared)
+
+
 @pytest.mark.parametrize('registration', ['location', 'config', 'reference', 'nested_alias'])
 def test_manual_or_ambiguous_links_are_preserved_even_with_matching_download(store, registration, tmp_path):
     db = database(store)

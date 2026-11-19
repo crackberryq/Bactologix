@@ -1,3 +1,8 @@
+## 0.1.0a114.dev1 — 2026-11-19 · Alpha · Share an existing Kraken2 database
+
+- Connect an existing Kraken2 index from a Windows drive or another local folder to HybAs in Bactologix Dev. **Save for future runs** records its location and **Calculate swap recommendation** reads the index files there.
+- Dev reads the external index in place. Dev-managed downloads, builds and run outputs stay in the workspace.
+
 ## 0.1.0a113.dev1 — 2026-11-19 · Alpha · BUSCO lineage preparation in HybAs 10
 
 - Add HybAs AWARE v10.0.0a7 to the Dev pipeline catalog. It verifies datasets extracted under BUSCO’s `lineages` folder and installs them in the location expected by HybAs. The controller and tool environment versions match v10.0.0a6.

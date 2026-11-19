@@ -331,12 +331,20 @@ def dispatch(store, kind, p):
     if kind == 'recommend_swap':
         from . import swap_adviser
         tool, config = _tool(p), p.get('config')
+        kraken_path = p.get('kraken_path')
+        if 'kraken_path' in p:
+            if tool != 'hybas' or config is not None or p.get('run_id'):
+                raise ValueError('A database picker selection applies only to HybAs compute defaults.')
+            if kraken_path is None:  # The picker explicitly selected “Use pipeline default”.
+                kraken_path = str(databases._hybas_paths(store, {})['kraken'])
+            elif not isinstance(kraken_path, str) or not kraken_path.strip():
+                raise ValueError('Choose a Kraken database folder or select Use pipeline default.')
         if config is not None:
             if not isinstance(config, dict) or config.get('tool') != tool or not isinstance(config.get('text'), str):
                 raise ValueError('The recommendation configuration belongs to another pipeline.')
             config = run_config.compile_config(tool, config['text'], config.get('changes'))
         return {'swap_recommendation': swap_adviser.recommend(store, tool, p.get('memory_mb'),
-                run_id=p.get('run_id'), config=config), 'keep_modal': True}
+                run_id=p.get('run_id'), config=config, kraken_path=kraken_path), 'keep_modal': True}
     if kind == "manage_environments":
         payload = maintenance.environment_request(store, p.get("id"), p.get("selected"), p.get("action"))
         jid = enqueue(store, "environments", payload)
@@ -508,6 +516,8 @@ def dispatch(store, kind, p):
             text = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
             parse_config(text)
         if kind == "save_config":
+            if run_config.normalize_kraken_folder(tool, cfg):
+                text = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
             with activity(store), store.connect() as db:
                 db.execute('BEGIN IMMEDIATE')
                 hardware.sync_config_defaults(db, tool, text)

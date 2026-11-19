@@ -9,6 +9,7 @@ import yaml
 
 from .catalog import DATA
 from .databases import CATALOG
+from .local import host_path
 from .runs import parse_config
 
 
@@ -93,7 +94,8 @@ HELP = {
     'medaka_model_selection_policy': 'Documented default: if metadata is absent or its single basecaller is unsupported, use the pinned Medaka version’s documented default and record the reason. Strict: stop for a model decision. Mixed/incomplete metadata and execution errors never trigger fallback.',
     'medaka_model_review_acknowledged': 'Requires a reviewed Dev model-selection contract. Records your decision to use an explicit model without a matching installed mapping; it does not establish scientific suitability. Older frozen workflows cannot use this control.',
     'medaka_model_review_reason': 'Document why this explicit model is being used and the supporting evidence or research purpose. Requires the reviewed Dev model-selection contract; it never selects a model automatically.',
-    'db_root': 'Your saved database layout is inherited. Use an absolute path when choosing another root.',
+    'db_root': 'Your saved database layout is inherited. To change only Kraken, use the Kraken database folder setting.',
+    'kraken_db_name': 'Enter a folder name under the database root or the full path to an existing Kraken2 index on Linux or Windows.',
     'resources.policy': 'Auto permits native resource preparation; Manual uses resources you have already supplied.',
     'deep.enabled': 'Saved defaults are inherited. Change this only for the new drafts you are creating.',
     'kraken_mem_mb': 'Leave blank to let HybAs AWARE calculate memory from its database. Enter a positive MB value to override.',
@@ -226,6 +228,17 @@ def _assign(cfg, path, value, remove=False):
         target[path[-1]] = value
 
 
+def normalize_kraken_folder(tool, cfg):
+    """Store a pasted absolute Kraken path in the form native tools and storage checks use."""
+    raw = cfg.get('kraken_db_name')
+    if tool == 'hybas' and isinstance(raw, str):
+        path = host_path(raw)
+        if path.is_absolute() and str(path) != raw:
+            cfg['kraken_db_name'] = str(path)
+            return True
+    return False
+
+
 def compile_config(tool, text, changes=None):
     cfg = parse_config(text)
     original_model = cfg.get('medaka_model', '')
@@ -288,7 +301,8 @@ def compile_config(tool, text, changes=None):
                 cfg['medaka_model_reviewed_model'] = cfg.get('medaka_model', '')
             elif 'medaka_model_review_acknowledged' in review_changed and not cfg.get('medaka_model_review_acknowledged'):
                 cfg['medaka_model_reviewed_model'] = ''
-    result = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True) if changes else text
+    normalized = normalize_kraken_folder(tool, cfg)
+    result = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True) if changes or normalized else text
     parse_config(result)
     return result
 

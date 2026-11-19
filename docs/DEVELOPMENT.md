@@ -4,7 +4,7 @@ Bactologix Dev is a separate installation for development of the application, Hy
 
 ## Ownership and storage
 
-The dedicated `bactologix-dev` entry point requires a Dev-owned application environment. The installer creates a separate Conda distribution, application prefix and workspace. Workspace markers reject stable/Dev cross-use, nested workspaces and adoption of old unmarked databases. Dev ignores `BACTOLOGIX_HOME`, ambient Conda discovery and external cache/controller paths. Its configured database/model and native-result paths must resolve inside its own workspace. Common Conda, pip, XDG, model and temporary caches are redirected into that workspace. Symlink escapes are rejected at storage boundaries.
+The dedicated `bactologix-dev` entry point requires a Dev-owned application environment. The installer creates a separate Conda distribution, application prefix and workspace. Workspace markers reject stable/Dev cross-use, nested workspaces and adoption of old unmarked databases. Dev ignores `BACTOLOGIX_HOME`, ambient Conda discovery and external cache/controller paths. Dev can read an existing Kraken2 index outside its workspace. Other configured database, model and native-result paths must resolve inside the workspace. Common Conda, pip, XDG, model and temporary caches are redirected into that workspace. Symlink escapes are rejected at storage boundaries.
 
 The stable entry point rejects a Dev-marked application environment. Stable's existing workspace remains usable; its first use with this version records stable ownership. Windows bootstrap names, shortcuts, control files and browser profiles are separate. Dev uses ports 8601–8620 by default. Updates and process shutdown use each installation's existing environment/workspace/session identity.
 
@@ -19,6 +19,12 @@ Each repository has a `development` branch. The application development branch s
 A development branch push is not an automatic pipeline upgrade. After appropriate checks, add a new exact build to both catalog copies. Keep prior entries. Users select/install the new snapshot explicitly; existing runs retain their frozen source/configuration. Adding an entirely new pipeline also requires its execution adapter, configuration/report integration and tests, not just a registry row.
 
 Application update feeds are separated by PEP 440 development version: Dev accepts `.devN` builds; the regular app excludes them while retaining its existing alpha/prerelease choices. A wheel is installed only into the running application environment after identity/checksum validation. The initial Dev installer bundles its exact wheel and checksum manifest. Public Dev releases use `dev-v<version>` tags and `Bactologix-Dev-<version>.whl` download assets, so older regular updaters and installers cannot select them. The Dev updater verifies the downloaded bytes and restores the canonical wheel filename locally before installation. An older Dev build that does not recognize this release format must use the new Dev setup bundle once. Windows setup updates the separate Dev app environment; Linux/WSL users run `python3 install_bactologix.py --dev --install-conda --upgrade-app` from the extracted bundle. Existing Dev workspaces and runs are preserved.
+
+## Connect an existing Kraken2 database
+
+Under **Databases & models**, open the HybAs AWARE Kraken2 card. Choose the folder that contains `hash.k2d`, `opts.k2d` and `taxo.k2d`. For example, a database stored in `C:\Databases\Kraken2` is available in WSL at `/mnt/c/Databases/Kraken2`.
+
+Use **Check location** to verify the index and **Save for future runs** to reuse it. **Calculate swap recommendation** reads the selected index in place. You can share one copy across applications. Keep the drive mounted and readable when running HybAs. Dev-managed downloads and builds use the Dev workspace.
 
 ## Build and test
 

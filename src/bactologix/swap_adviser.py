@@ -15,6 +15,7 @@ from . import compute_memory, hardware, preflight
 from .catalog import PIPELINES
 from .disk_capacity import CapacityProbe
 from .disk_pause import PAUSE_BYTES, RESUME_BYTES, WARNING_BYTES
+from .local import local_path
 from .runs import parse_config
 from .store import now
 
@@ -53,7 +54,7 @@ def _storage(store, run):
                        'Free space is not a prediction of total output or swap-file growth.')}
 
 
-def recommend(store, tool, memory_mb, *, run_id=None, config=None):
+def recommend(store, tool, memory_mb, *, run_id=None, config=None, kraken_path=None):
     """Return reviewable form values, never save settings or configure OS swap.
 
     ``config`` may be the current unsaved editor text. Without it, a run uses its
@@ -91,7 +92,9 @@ def recommend(store, tool, memory_mb, *, run_id=None, config=None):
 
     if run is None:
         from .databases import _hybas_paths
-        selected = _hybas_paths(store, cfg)['kraken']
+        selected = local_path(kraken_path) if kraken_path is not None else _hybas_paths(store, cfg)['kraken']
+        if kraken_path is not None:
+            result['binding']['kraken_path'] = str(selected)
         probe_cfg = dict(cfg, db_root=str(selected.parent), kraken_db_name=selected.name)
         run = {'tool': tool, 'folder': str(store.home), 'config': yaml.safe_dump(probe_cfg, sort_keys=False)}
     else:

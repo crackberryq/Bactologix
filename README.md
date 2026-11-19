@@ -1,6 +1,10 @@
-# Bactologix 0.1.0a113.dev1 — Experimental development
+# Bactologix 0.1.0a114.dev1 — Experimental development
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
+
+HybAs can reuse an existing Kraken2 database on your Windows drive or another
+local volume. Dev reads the index in place for classification and swap estimates.
+See [Connect an existing Kraken2 database](docs/DEVELOPMENT.md#connect-an-existing-kraken2-database).
 
 HybAs AWARE v10.0.0a7 fixes BUSCO database preparation. The pipeline now
 checks the lineage folder that BUSCO extracts before making the dataset ready
@@ -8,7 +12,7 @@ for use. Existing HybAs v10.0.0a6 tool environments can be reused.
 The Dev workspace also supports [verified isolate export and analysis history](docs/isolate-export.md)
 and reviewed storage cleanup.
 
-**Windows Dev setup:** download [Bactologix-Dev-Setup.exe](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a113.dev1/Bactologix-Dev-Setup.exe) and open it normally. This independent installer includes the exact Dev application wheel and keeps its environment, workspace and shortcuts separate. Internet access is needed for dependencies. A ZIP remains available for manual setup. See [parallel testing](docs/DEVELOPMENT.md).
+**Windows Dev setup:** download [Bactologix-Dev-Setup.exe](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a114.dev1/Bactologix-Dev-Setup.exe) and open it normally. This independent installer includes the exact Dev application wheel and keeps its environment, workspace and shortcuts separate. Internet access is needed for dependencies. A ZIP remains available for manual setup. See [parallel testing](docs/DEVELOPMENT.md).
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 

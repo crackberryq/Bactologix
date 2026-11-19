@@ -15,7 +15,8 @@ import time
 
 import yaml
 
-from .local import local_path, environment_paths
+from .channels import owned
+from .local import environment_paths, host_path, local_path
 from .runs import parse_config, template
 from .store import now
 from .storage_guard import mutation
@@ -38,7 +39,7 @@ def _module(key, name, description, hint):
 CATALOG = {
     "micpscope": [dict(id="reference", name="Application reference database", description="Built reference package for DIAMOND protein similarity searches and linked evidence.", hint="reference-manifest.json", fields=["reference_database"])],
     "hybas": [
-        dict(id="kraken", name="Kraken2", description="Choose the folder containing the three Kraken2 index files.", hint="hash.k2d", fields=[]),
+        dict(id="kraken", name="Kraken2", description="Choose the folder containing hash.k2d, opts.k2d and taxo.k2d. Bactologix can use it in place, including on a Windows drive.", hint="hash.k2d", fields=[]),
         dict(id="busco", name="BUSCO lineage", description="Choose a complete lineage dataset. A matching configured lineage is preferred.", hint="dataset.cfg", fields=[]),
         dict(id="prokka", name="Prokka databases", managed=True, description="Bundled with the annotation tool environment; this HybAs AWARE version does not accept a separate database path."),
     ],
@@ -149,7 +150,7 @@ def _require(root, names):
 def _hybas_paths(store, cfg):
     raw = cfg.get("db_root", "db")
     base = store.home / "resources/hybas/db" if str(raw) == "db" else local_path(raw)
-    return {"kraken": base / str(cfg.get("kraken_db_name", "standard")),
+    return {"kraken": base / host_path(cfg.get("kraken_db_name", "standard")),
             "busco": base / "busco" / str(cfg.get("busco_lineage", "bacteria_odb10"))}
 
 
@@ -264,7 +265,11 @@ def inspect(store, tool, key, value, cfg=None):
         updates = {"reference_database": str(root.resolve())}
         database = root
     elif key == "kraken":
-        _require(root, ("hash.k2d", "opts.k2d", "taxo.k2d"))
+        indexes = ("hash.k2d", "opts.k2d", "taxo.k2d")
+        _require(root, indexes)
+        for name in indexes:
+            if not os.access(root / name, os.R_OK):
+                raise ValueError("Cannot read Kraken index: " + str(root / name))
         database = root
     elif key == "busco":
         _require(root, ("dataset.cfg", "scores_cutoff", "lengths_cutoff"))
@@ -387,7 +392,6 @@ def _scan_checkpoint(deadline):
 def _roots(store, tool, cfg, extra, deadline=None):
     _scan_checkpoint(deadline)
     if store.channel == "dev":
-        from .channels import owned
         return [owned(store, extra, "Database scan folder")] if extra else [store.home / "resources", store.home / "envs"]
     roots = []
     if extra:
@@ -561,12 +565,14 @@ def scan(store, tool, extra=""):
 
 
 def _hybas_layout(store, paths, lineage):
+    owned(store, paths["busco"], "BUSCO lineage")
     identity = {key: str(value) for key, value in paths.items()}
     identity["lineage"] = lineage
     digest = revision(json.dumps(identity, sort_keys=True))[:24]
     root = store.home / "resources/hybas/locations" / digest
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "busco").mkdir(exist_ok=True)
+    # Create only workspace directories and links, even when an index lives elsewhere.
+    owned(store, root, "Database layout")
+    owned(store, root / "busco", "BUSCO layout").mkdir(parents=True, exist_ok=True)
     for key, alias in (("kraken", root / "kraken"), ("busco", root / "busco" / lineage)):
         target = paths[key]
         if alias.is_symlink():
@@ -593,9 +599,8 @@ def save(store, tool, changes, expected_revision):
         _spec(tool, key)
         if value is not None and (not isinstance(value, str) or not value.strip()):
             raise ValueError("Choose a folder or explicitly reset this resource to pipeline defaults.")
-        if value is not None:
-            from .channels import owned
-            owned(store, value, "Database/model")
+        if value is not None and (tool, key) != ("hybas", "kraken"):
+            owned(store, local_path(value), "Database/model")
         checked[key] = inspect(store, tool, key, value, cfg) if value is not None else None
     if tool == "hybas":
         paths = _hybas_paths(store, cfg)
@@ -611,8 +616,12 @@ def save(store, tool, changes, expected_revision):
                     lineage = "bacteria_odb10"
         if not re.fullmatch(r"[A-Za-z0-9_.-]+_odb[0-9]+", lineage):
             raise ValueError("Choose a named BUSCO lineage before saving database locations.")
-        root = _hybas_layout(store, {k: v.resolve() for k, v in paths.items()}, lineage)
-        cfg.update(db_root=str(root), kraken_db_name="kraken", busco_lineage=lineage)
+        paths = {key: path.resolve() for key, path in paths.items()}
+        root = _hybas_layout(store, paths, lineage)
+        # Other workspaces resolve absolute configuration paths when protecting shared data.
+        shared = store.channel == "dev" and not paths["kraken"].is_relative_to(store.home)
+        kraken = str(root / "kraken") if shared else "kraken"
+        cfg.update(db_root=str(root), kraken_db_name=kraken, busco_lineage=lineage)
         # Keep native download actions targeting the selected lineage in this layout.
         previous = cfg.get("busco_download_lineages", [])
         cfg["busco_download_lineages"] = list(dict.fromkeys([lineage, *(previous if isinstance(previous, list) else [])]))

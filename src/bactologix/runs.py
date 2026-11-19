@@ -413,6 +413,7 @@ def bind_paths(cfg, tool, store, installed):
             cfg.pop('reference_database_sha256', None)
         return cfg
     if tool == "hybas":
+        from .local import host_path
         raw = cfg.get("db_root", "db")
         if Path(str(raw)).expanduser().is_absolute():
             cfg["db_root"] = str(absolute_path(raw))
@@ -420,6 +421,13 @@ def bind_paths(cfg, tool, store, installed):
             cfg["db_root"] = str(store.home / "resources/hybas/db")
         else:
             raise ValueError("Set db_root to an absolute path to your shared databases")
+        kraken = host_path(cfg.get("kraken_db_name", "standard"))
+        selected = Path(cfg["db_root"]) / kraken
+        if store.channel == "dev" and not selected.resolve().is_relative_to(store.home):
+            # An absolute dependency lets neighboring workspaces protect the shared index.
+            cfg["kraken_db_name"] = str(selected)
+        elif "kraken_db_name" in cfg:
+            cfg["kraken_db_name"] = str(kraken)
     else:
         resources = cfg.setdefault("resources", {})
         if not isinstance(resources, dict):
