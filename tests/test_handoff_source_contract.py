@@ -1,4 +1,4 @@
-"""Registration checks for the reviewed HybAs 10.0.0a6 handoff source.
+"""Registration checks for the preferred HybAs Dev handoff source.
 
 Native hooks are never executed here. Optional source checks bind the application's
 capability decisions to the exact Git checkout used by the adapter CI jobs.
@@ -29,7 +29,7 @@ HANDOFF_FILES = {
     'app/medaka-model-review.json', 'workflow/lib/medaka_stage.py',
     'workflow/lib/settings.py', 'workflow/lib/library_inputs.py',
     'workflow/lib/workflow_support.py', 'workflow/lib/hybas_report.py',
-    'workflow/lib/rendering_runtime.py',
+    'workflow/lib/rendering_runtime.py', 'workflow/scripts/check_database.py',
     'workflow/envs/medaka.yml', 'workflow/envs/medaka.post-deploy.sh',
     'workflow/envs/qc.yml', 'workflow/envs/qc.post-deploy.sh',
     'workflow/envs/multiqc.yml', 'workflow/envs/multiqc.post-deploy.sh',
@@ -65,7 +65,8 @@ def test_development_registry_copies_match():
 
 
 def test_preferred_handoff_source_has_complete_reviewed_contract(preferred):
-    assert preferred['tag'] == 'v10.0.0a6', 'Register the final reviewed 10a6 source before publishing this handoff update'
+    assert preferred['tag'] == 'v10.0.0a7'
+    assert preferred['database_downloads'] == 1
     assert preferred['adapter_interface'] == 2, 'Older apps must not approve a source requiring browser and model-review controls'
     assert release_contract.reason('hybas', preferred) is None
     assert preferred['configuration_schema'] == 'hybas-v2'

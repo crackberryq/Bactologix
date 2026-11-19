@@ -491,7 +491,7 @@ def execute_download(ctx):
         ctx.check_cancel()
         result = inspect(store, payload["tool"], payload["resource"], row["result_path"])
         row.update(status="completed", result=result, finished=now())
-        ctx.write("Database ready: " + result["path"] + ". Choose Use downloaded, then Save locations.")
+        ctx.write("Database ready: " + result["path"] + ". Choose Select downloaded location, then Save for future runs.")
     except BaseException as exc:
         row.update(status="cancelled" if isinstance(exc, Cancelled) else "failed", error=str(exc))
         raise

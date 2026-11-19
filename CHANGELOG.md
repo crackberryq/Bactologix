@@ -1,3 +1,8 @@
+## 0.1.0a113.dev1 — 2026-11-19 · Alpha · BUSCO lineage preparation in HybAs 10
+
+- Add HybAs AWARE v10.0.0a7 to the Dev pipeline catalog. It verifies datasets extracted under BUSCO’s `lineages` folder and installs them in the location expected by HybAs. The controller and tool environment versions match v10.0.0a6.
+- Select v10.0.0a7 in **Install & update**. Under **Databases & models**, open the HybAs BUSCO card and select **Download and prepare**. Once preparation succeeds, choose **Select downloaded location**, then **Save for future runs**.
+
 ## 0.1.0a112.dev1 — 2026-11-19 · Alpha · Keep environment setup running during brief workspace database locks
 
 - During pipeline setup, keep the installer and its child processes under supervision while retrying a temporary workspace database lock for up to 30 seconds. Read pending stop requests as soon as access returns. If control remains unavailable, stop the owned processes and pause the queue for review.

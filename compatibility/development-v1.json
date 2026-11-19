@@ -5,11 +5,90 @@
     {
       "tool": "hybas",
       "repository": "crackberryq/Bactomics_HybAs",
+      "commit": "44e60aa3795cd5940bea257e0a22f274c2898c88",
+      "tag": "v10.0.0a7",
+      "channel": "prerelease",
+      "development": true,
+      "preferred": true,
+      "name": "HybAs 10 Dev \u2014 BUSCO lineage database preparation (10.0.0a7)",
+      "adapter_interface": 2,
+      "configuration_schema": "hybas-v2",
+      "entry_points": {
+        "workflow": "Hybas.smk",
+        "environment": "environment.yaml"
+      },
+      "runner": {
+        "python": "3.11",
+        "snakemake": "9.27.1"
+      },
+      "tested": true,
+      "test_run": "https://github.com/crackberryq/Bactomics_HybAs/actions/runs/44500963820",
+      "files_sha256": {
+        "Hybas.smk": "bf23eeb51f27d6039f8ffb20070536591d7f62f48017edb82e3211789cbae4a5",
+        "app/aware-outputs.json": "d87e9d3fde8ad0da952b7e2b086ad89d215d6e41e7620c2030aa5b32b4ae12d2",
+        "app/medaka-model-review.json": "dceb1e6499ded353ee127604a927c9e866aa791fd208f654ad0db6707be5e4ba",
+        "config.example.yaml": "ef75acc94e053204885893cd3b7ff6e934f192dcdb8722a23cb7159350fe323d",
+        "environment.yaml": "ed63888a900d10441146f3652e038f0b19db533f8615c84f02ef43b80ff28b90",
+        "workflow/envs/medaka.post-deploy.sh": "4df551493cd9e1c62702be667e3909c58de46257d973fc1144aaf6da1270a1ec",
+        "workflow/envs/medaka.yml": "5f89943d87f9ca57acbe2a90237d599efba43d94e08f7e2ffd9252b3a56ff91b",
+        "workflow/envs/multiqc.post-deploy.sh": "4d33c4b9148e5c716da8f28a315084190b82b77b748fcf50f3680b124aae6acf",
+        "workflow/envs/multiqc.yml": "ccf8b8b862469ad0b9889752e379dd1e850fe8dd2ffd98006dae86ebefc5308a",
+        "workflow/envs/qc.post-deploy.sh": "48674088177c6d02915cfc4de9c77e8892d9905947d8f88e1341dfbb490ce243",
+        "workflow/envs/qc.yml": "fbddd2691c6e1c0dda89747ea9b021ad3194178a6a1b88c363ffdc7602e08376",
+        "workflow/lib/artifact_retention.py": "bb0ae36e5c201f600a24cb127b2db823a11b0a04ac0a13d7b47d0e7691ae6645",
+        "workflow/lib/aware_bundle.py": "35e309b6bb330f16bd79bf2910ef3f05962978e83289e5485fa9ed09a8570203",
+        "workflow/lib/aware_modes.py": "f03012ea2983cfba79acd7834bcfb48a3104f55d903b37ec028f8dae2cfcea46",
+        "workflow/lib/aware_preservation.py": "76dc0b22fcfb974349abc9d7dc41de1dcd512a38f873ec84069080a9b190ce7c",
+        "workflow/lib/aware_statistics.py": "a7dee6fc9ef10ef71146ba7f4ec793bf58ceefea2a199d18befb84ac19b3195c",
+        "workflow/lib/busco_retention.py": "502e42657be3101957f83421ce9837b4db4f75788bed7d6dd3816f2c7a18daf2",
+        "workflow/lib/computational.py": "103ed6a5f85a13ba2abfd5081926627bc0b4da63c7074fe32304cdfd508b86e8",
+        "workflow/lib/flye_retention.py": "9f91f8079e7d5345654f25217442e98bb402f706c2d22325e2dbbb8c2e4d2c16",
+        "workflow/lib/hybas_report.py": "2f41f130337a71a1900f197b3b7fd5f95facbebd6f10d8f044e68d4b9aa68719",
+        "workflow/lib/library_inputs.py": "11c78ce773b4109d00f071f760467c46aaf1af0382d1945f08cc6fb100008517",
+        "workflow/lib/long_reads.py": "e16b5b068d1ecffdebd57bdc5156a75a4bfa70f6116896a4a8783e8e11a4cb7f",
+        "workflow/lib/medaka_stage.py": "e6815fa1bad2dc2494f3e7e70c40559919ebb47f95626ee36b2dd503c5658547",
+        "workflow/lib/native_output_retention.py": "a246533d971bd4dad359f66a74b3a2a21da51489752714c7971d4f1363f23c92",
+        "workflow/lib/rendering_runtime.py": "3face503870c44e71a7b5210d87ec979727bbf89b53641322d97220902331d4f",
+        "workflow/lib/resource_identity.py": "0395c027995eb3d7a6c9029d5e078451f0a5c6dac81ff55b1de207760cee8d9b",
+        "workflow/lib/settings.py": "a845d371154878423948d999735c69495c02903aaae88f6ed5648e403b562fdd",
+        "workflow/lib/workflow_support.py": "20ac07b370625181e03a3126f4ed74525e3d8117305a07a59e4122812020b74a",
+        "workflow/scripts/check_database.py": "08f548e8194b6343a6789e6df2ba07a6a65dea81664b2c073d8abcbd7e3dddae",
+        "workflow/scripts/hybas_research_report.py": "d314ebfd922b23464cc6488bff0922752b417bb9f7730fa95cbc23f3e39b5cb4"
+      },
+      "database_downloads": 1,
+      "validation_scope": "BUSCO database preparation and publication checks, workflow regressions, and native software and adapter checks. No analytical validation claim.",
+      "tested_source_commit": "44e60aa3795cd5940bea257e0a22f274c2898c88",
+      "tested_source_tree": "07e2886763a53364ca52de562af539a3599043a4",
+      "output_retention": {
+        "interface": 1,
+        "strategy": "archive-before-replace",
+        "helper": "workflow/lib/artifact_retention.py"
+      },
+      "compute_memory": {
+        "interface": 1,
+        "swap_policy": "physical_ram_plus_explicit_swap_v1",
+        "helper": "workflow/lib/settings.py"
+      },
+      "medaka_model_review": {
+        "interface": 2,
+        "capability": "app/medaka-model-review.json",
+        "helper": "workflow/lib/medaka_stage.py",
+        "preflight_rule": "medaka_model_preflight"
+      },
+      "browser_preparation": {
+        "interface": 1,
+        "environment": "qc",
+        "policy": "install_or_repair_when_missing"
+      }
+    },
+    {
+      "tool": "hybas",
+      "repository": "crackberryq/Bactomics_HybAs",
       "commit": "bfa43bbbe73484817266e9d7cb39bcf3544262f5",
       "tag": "v10.0.0a6",
       "channel": "prerelease",
       "development": true,
-      "preferred": true,
+      "preferred": false,
       "name": "HybAs 10 Dev \u2014 documented Medaka fallback (10.0.0a6)",
       "adapter_interface": 2,
       "configuration_schema": "hybas-v2",

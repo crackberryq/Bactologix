@@ -22,6 +22,7 @@ HYBAS_DEV = frozenset({
     '7cbd29d942a3d70bc1f6c7be176a75ce4bb7f2a8',
     '73fe6c3e9baec2694e4f863153b6a3e6872df610',
     'bfa43bbbe73484817266e9d7cb39bcf3544262f5',
+    '44e60aa3795cd5940bea257e0a22f274c2898c88',
 })
 GENESCOPE = frozenset({
     'af9502c3040258a69b1efc662a6f11b95e46b729',
