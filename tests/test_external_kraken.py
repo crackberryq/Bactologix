@@ -134,10 +134,13 @@ def test_related_workspace_cleanup_protects_shared_kraken_after_defaults_change(
 
     with monkeypatch.context() as stable:
         stable.setenv('BACTOLOGIX_CHANNEL', 'stable')
-        owner = Store(tmp_path_factory.mktemp('database-owner'))
+        # Storage discovers sibling workspaces. Give the owner a private parent
+        # so unrelated pytest cases cannot become part of the deletion review.
+        owner = Store(tmp_path_factory.mktemp('database-owner') / 'stable')
     owner.put('settings', 'storage-other-workspaces', [str(workspace.home)])
     old = saved_run(owner)
     shared = kraken(Path(old['folder']) / 'shared-index')
+    assert not shared.is_relative_to(workspace.home)
     revision = databases.panel(workspace, 'hybas')['revision']
     config = databases.save(workspace, 'hybas', {'kraken': str(shared)}, revision)
 

@@ -14,6 +14,7 @@ SOURCE = Path(__file__).parents[1] / 'src/bactologix/ui/workspace.js'
 def evaluate(expression, *, setup=''):
     source = SOURCE.read_text()
     helpers = source[source.index('function swapRecommendationKey('):source.index('function syncDefaultCompute(')]
+    helpers += source[source.index('function dbPath('):source.index('function dbState(')]
     apply = source[source.index("else if(action==='use-swap-recommendation'){") + 5:
                    source.index("else if(action==='pipeline-power-preset'){")]
     script = r'''
@@ -22,8 +23,9 @@ const U={view:'configure',drafts:{'compute-memory-hybas':46080,'run-memory':4608
  revision:{id:'saved-run',tool:'hybas',memory_mb:46080},
  revisionConfig:{tool:'hybas',text:'db_root: /saved\n',changes:{}},
  defaultEditors:{hybas:{tool:'hybas',text:'saved',savedText:'saved',changes:{}}},
- asyncTasks:{},swapRecommendations:{},epoch:0};
-const S={resource_defaults:{hybas:{memory_mb:46080}},databases:{hybas:{revision:'one'}},active:{hybas:'source-one'}};
+ databaseStates:{hybas:{revision:'one',checks:{},resets:{}}},asyncTasks:{},swapRecommendations:{},epoch:0};
+const S={resource_defaults:{hybas:{memory_mb:46080}},
+ databases:{hybas:{revision:'one',rows:[{id:'kraken',path:'/saved/kraken'}]}},active:{hybas:'source-one'}};
 const val=(key,fallback)=>U.drafts[key]??fallback;
 const defaultEditor=tool=>U.defaultEditors[tool];
 const defaultsDirty=c=>!!c&&(Object.keys(c.changes).length>0||c.text!==c.savedText);
@@ -63,6 +65,8 @@ def test_use_only_fills_local_form_and_never_sends_save_or_run(scope):
 
 @pytest.mark.parametrize('change', [
     "U.drafts['compute-memory-hybas']=45056;",
+    r"U.drafts[dbPath('hybas','kraken')]=String.raw`C:\Shared data\Kraken`;",
+    "U.databaseStates.hybas.resets.kraken=true;",
     "S.databases.hybas.revision='two';",
     "S.active.hybas='different-source';",
     "U.defaultEditors.hybas.changes.database='different';",
@@ -86,6 +90,20 @@ def test_unsaved_run_database_edits_invalidate_prior_recommendation(change):
     value = evaluate("({fresh:freshSwapRecommendation('run','hybas'),drafts:U.drafts})",
                      setup="remember('run');" + change + "use('run','hybas');")
     assert not value['fresh'] and 'run-swap' not in value['drafts']
+
+
+def test_picker_override_applies_only_to_default_preview_and_distinguishes_reset():
+    value = evaluate('({savedInputs, selected, reset, run})', setup=r"""
+const savedInputs=swapRecommendationInputs('defaults','hybas');
+U.drafts[dbPath('hybas','kraken')]=String.raw`C:\Shared data\Kraken`;
+const selected=swapRecommendationInputs('defaults','hybas');
+const run=swapRecommendationInputs('run','hybas');
+U.databaseStates.hybas.resets.kraken=true;
+const reset=swapRecommendationInputs('defaults','hybas');
+""")
+    assert 'kraken_path' not in value['savedInputs'] and 'kraken_path' not in value['run']
+    assert value['selected']['kraken_path'] == r'C:\Shared data\Kraken'
+    assert value['reset']['kraken_path'] is None
 
 
 def test_run_request_contains_current_editor_fields_and_saved_revision_id():
