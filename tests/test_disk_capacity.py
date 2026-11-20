@@ -335,3 +335,124 @@ def test_stale_or_missing_desktop_reading_can_recover_via_normal_interop(local, 
         result = capacity.CapacityProbe(local, {}).sample()
         assert not result['errors'] and 'windows_sampled_at' not in result
         assert any(r['role'] == 'wsl_backing' for r in result['volumes'] if r['kind'] == 'windows_host')
+
+
+@pytest.fixture
+def mounted_windows_drives(local, desktop_storage, monkeypatch):
+    mount_d, mount_e = local.home / 'D', local.home / 'E'
+    backing = mount_d / 'WSL_Ubuntu'
+    swap_dir = mount_e / 'WSL-Swap'
+    backing.mkdir(parents=True)
+    swap_dir.mkdir(parents=True)
+    native = [
+        dict(host(), volume_path='D:\\'),
+        dict(host(path=r'E:\WSL-Swap\swap.vhdx', role='wsl_swap'), id='windows:e',
+             probe_path=r'E:\WSL-Swap', volume_path='E:\\'),
+    ]
+    mounts = [('D:\\', mount_d), ('E:\\', mount_e)]
+    monkeypatch.setattr(capacity, '_drvfs_mounts', lambda: mounts)
+    probe = capacity.CapacityProbe(local, {})
+    values = {backing: 80, swap_dir: 75}
+    default_read = probe._reading
+
+    def read(path):
+        if path in values:
+            return path.stat().st_dev, values[path], 1000
+        return default_read(path)
+
+    monkeypatch.setattr(probe, '_reading', read)
+
+    def publish(**fields):
+        return desktop_storage(swap_required=True, volumes=native, **fields)
+
+    path = publish()
+    assert not probe.sample()['errors']
+    return SimpleNamespace(probe=probe, publish=publish, file=path, mounts=mounts,
+                           native=native, values=values, backing=backing, swap=swap_dir)
+
+
+@pytest.mark.parametrize('gap', ['missing', 'stale', 'slightly_future'])
+def test_verified_mounts_measure_capacity_during_brief_desktop_gap(mounted_windows_drives, gap):
+    setup = mounted_windows_drives
+    if gap == 'missing':
+        setup.file.unlink()
+    else:
+        stamp = capacity.time.time() + (1 if gap == 'slightly_future' else -10)
+        setup.publish(time=stamp)
+    setup.values.update({setup.backing: 50, setup.swap: 0})
+    started = capacity.time.time()
+    result = setup.probe.sample()
+    assert not result['errors']
+    assert started <= result['windows_sampled_at'] <= capacity.time.time()
+    assert {r['id']: r['available_bytes'] for r in result['volumes']
+            if r['kind'] == 'windows_host'} == {'windows:d': 50, 'windows:e': 0}
+
+
+def test_aging_native_report_does_not_expire_independent_mounted_reads(mounted_windows_drives):
+    setup = mounted_windows_drives
+    stamp = capacity.time.time() - 4.5
+    setup.publish(time=stamp)
+    start = capacity.time.time()
+    check = setup.probe.sample()
+    assert not check['errors'] and check['windows_sampled_at'] >= start
+    assert all(row['observed_by'] == 'drvfs' for row in check['volumes'] if row['kind'] == 'windows_host')
+    setup.native[1]['available_bytes'] = 10
+    setup.publish(time=stamp)
+    limited = setup.probe.sample()
+    assert limited['windows_sampled_at'] == stamp
+    assert next(row for row in limited['volumes'] if row['id'] == 'windows:e')['available_bytes'] == 10
+
+
+def test_mount_identity_must_be_renewed_by_windows(mounted_windows_drives, monkeypatch):
+    setup = mounted_windows_drives
+    setup.file.unlink()
+    original = capacity.time.monotonic()
+    monkeypatch.setattr(capacity.time, 'monotonic', lambda: original + capacity.DESKTOP_BINDING_SECONDS + 1)
+    assert setup.probe.sample()['errors']
+
+
+@pytest.mark.parametrize('change', ['mount_missing', 'directory_replaced', 'volume_changed', 'quota',
+                                    'invalid_record', 'native_error', 'wrong_session', 'clock_jump'])
+def test_a_previous_good_measurement_cannot_mask_lost_verification(mounted_windows_drives, change):
+    setup = mounted_windows_drives
+    if change == 'mount_missing':
+        setup.mounts.pop()
+        setup.file.unlink()
+    elif change == 'directory_replaced':
+        setup.backing.rename(setup.backing.with_name('original'))
+        setup.backing.mkdir()
+        setup.file.unlink()
+    elif change == 'volume_changed':
+        setup.native[1]['id'] = 'windows:replacement'
+        setup.publish(time=capacity.time.time() - 10)
+    elif change == 'quota':
+        setup.native[1]['available_bytes'] = 4
+        setup.publish()
+        current = setup.probe.sample()
+        assert next(r for r in current['volumes'] if r['id'] == 'windows:e')['available_bytes'] == 4
+        setup.file.unlink()
+    elif change == 'invalid_record':
+        setup.file.write_text('{')
+    elif change == 'native_error':
+        setup.publish(errors=['Swap drive could not be identified.'])
+    elif change == 'wrong_session':
+        setup.publish(session='cd' * 16)
+    else:
+        setup.publish(time=capacity.time.time() + 60)
+    assert setup.probe.sample()['errors']
+
+
+@pytest.mark.parametrize('field, replacement', [
+    ('probe_path', r'E:\replacement'), ('volume_path', 'F:\\'), ('total_bytes', 800),
+    ('available_bytes', 0),
+])
+@pytest.mark.parametrize('offset', [-10, 1])
+def test_untimely_native_evidence_cannot_be_overridden(mounted_windows_drives, field, replacement, offset):
+    setup = mounted_windows_drives
+    setup.native[1][field] = replacement
+    setup.publish(time=capacity.time.time() + offset)
+    result = setup.probe.sample()
+    assert result['errors'] or (
+        field == 'available_bytes' and
+        any(row['id'] == 'windows:e' and row['available_bytes'] == 0 for row in result['volumes'])
+    )

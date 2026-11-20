@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 from datetime import datetime, timezone
 import json
+import math
 import ntpath
 import os
 from pathlib import Path
@@ -28,6 +29,7 @@ from .store import now
 WINDOWS_TIMEOUT = 3.0
 MAX_WINDOWS_OUTPUT = 65536
 SAMPLE_MAX_AGE_SECONDS = 5.0
+DESKTOP_BINDING_SECONDS = 30.0
 _PREFIX = 'BACTOLOGIX_CAPACITY_V1:'
 _TEMP_KEYS = {'tmpdir', 'tmp_dir', 'temp_dir', 'temp_directory', 'tmp_directory', 'scratch_dir'}
 
@@ -136,12 +138,20 @@ def _validate_windows_response(response):
     return response
 
 
+class _DesktopReadingGap(ValueError):
+    def __init__(self, message, targets=None):
+        super().__init__(message)
+        self.targets = targets
+
+
 def _desktop_observation(directory, distribution):
     """Read one complete, current observation from this Windows desktop session."""
     root = Path(directory)
     if not root.is_absolute() or not re.fullmatch(r'[0-9a-f]{32}', root.name):
         raise ValueError('Windows desktop storage session directory is invalid.')
     path = root / 'windows-storage.json'
+    if not path.exists() and not path.is_symlink():
+        raise _DesktopReadingGap('Windows desktop storage reading is unavailable.')
     if not path.is_file() or path.is_symlink():
         raise ValueError('Windows desktop storage reading is unavailable.')
     with path.open('rb') as stream:
@@ -153,7 +163,7 @@ def _desktop_observation(directory, distribution):
             or response.get('session') != root.name or response.get('distribution') != distribution):
         raise ValueError('Windows desktop storage reading belongs to a different session or distribution.')
     sampled, received = response.get('time'), time.time()
-    if type(sampled) not in (int, float) or not received - SAMPLE_MAX_AGE_SECONDS <= sampled <= received:
+    if type(sampled) not in (int, float) or not math.isfinite(sampled) or sampled > received + 2:
         raise ValueError('Windows desktop storage reading is stale or has an invalid timestamp.')
     for row in response['volumes']:
         if (row.get('kind') != 'windows_host' or not row['id'].startswith('windows:')
@@ -163,6 +173,11 @@ def _desktop_observation(directory, distribution):
     swap = response.get('swap_required')
     if type(swap) is not bool or sorted(roles) != (['wsl_backing', 'wsl_swap'] if swap else ['wsl_backing']):
         response['errors'].append('Windows desktop could not verify every required backing or swap volume.')
+    if not received - SAMPLE_MAX_AGE_SECONDS <= sampled <= received:
+        message = 'Windows desktop storage reading is stale or has an invalid timestamp.'
+        if response['errors']:
+            raise ValueError(message + ' ' + ' '.join(response['errors']))
+        raise _DesktopReadingGap(message, response['volumes'])
     return response
 
 
@@ -203,6 +218,8 @@ class CapacityProbe:
         self.path_errors = []
         self.host_targets = None
         self.host_identity = None
+        self.desktop_bindings = []
+        self.desktop_binding_expires = 0.0
         self.is_wsl, self.distribution = _wsl_context()
         self._add(store.home, 'Workspace and logs')
         folder = self.run.get('folder')
@@ -327,14 +344,54 @@ class CapacityProbe:
                     errors.append('A required Windows storage volume did not return a capacity reading.')
         return rows, errors
 
+    @staticmethod
+    def _host_identity(targets):
+        return {(r['role'], r['id'].casefold(), _windows_path(r['path']).casefold()) for r in targets}
+
     def _verify_host_identity(self, targets):
         # A change to .wslconfig alone does not move a running VM's swap.
         # Keep monitoring the volume identities selected at the first check.
-        identity = {(r['role'], r['id'].casefold(), _windows_path(r['path']).casefold()) for r in targets}
+        identity = self._host_identity(targets)
         if self.host_identity is not None and identity != self.host_identity:
             return ['Windows backing or swap storage changed during monitoring.']
         self.host_identity = identity
         return []
+
+    def _desktop_mount(self, row, mounts, path, device, total):
+        # Only ordinary Windows drive roots can be independently confirmed
+        # here. Nested volume mounts and different quota totals need Windows.
+        root = _windows_path(row.get('volume_path', ''))
+        if not re.fullmatch(r'[A-Za-z]:\\', root) or total != row['total_bytes']:
+            return None
+        root_path = _mapped_path(root, mounts)
+        if root_path is None or not path.is_relative_to(root_path) or path.resolve(strict=True) != path:
+            return None
+        root_stat, path_stat = root_path.stat(), path.stat()
+        if not path.is_dir() or root_stat.st_dev != device or path_stat.st_dev != device:
+            return None
+        return path, device, root_stat.st_ino, path_stat.st_ino
+
+    def _sample_desktop_bindings(self, mounts, reported):
+        if not self.desktop_bindings or time.monotonic() >= self.desktop_binding_expires:
+            return []
+        by_role = {row['role']: row for row in reported or []}
+        rows = []
+        for row, binding in self.desktop_bindings:
+            report = by_role.get(row['role'])
+            if report and (report['total_bytes'] != row['total_bytes'] or any(
+                    _windows_path(report.get(key, '')).casefold() != _windows_path(row.get(key, '')).casefold()
+                    for key in ('probe_path', 'volume_path'))):
+                raise ValueError('Windows reported a different storage directory or volume.')
+            path = _mapped_path(row['probe_path'], mounts)
+            if path is None:
+                raise ValueError('A verified Windows drive is no longer mounted.')
+            device, available, total = self._reading(path)
+            if self._desktop_mount(row, mounts, path, device, total) != binding:
+                raise ValueError('The verified Windows drive mount or storage directory changed.')
+            if report and report['available_bytes'] < available:
+                raise ValueError('The Windows report shows a lower allowance than the mounted drive can verify.')
+            rows.append({**row, 'available_bytes': available, 'observed_by': 'drvfs'})
+        return rows if time.monotonic() < self.desktop_binding_expires else []
 
     def _host_volumes(self):
         if not self.distribution:
@@ -347,6 +404,8 @@ class CapacityProbe:
                 desktop = _desktop_observation(directory, self.distribution)
                 sampled = desktop['time']
                 desktop_errors = desktop['errors']
+                mounted_read_started = time.time()
+                bindings = []
                 for row in desktop['volumes']:
                     row['observed_by'] = 'windows_desktop'
                     # Retain a low reading from either system. Some Windows storage
@@ -354,14 +413,45 @@ class CapacityProbe:
                     mapped = _mapped_path(row['probe_path'], mounts)
                     if mapped is not None:
                         try:
-                            _, available, _ = self._reading(mapped)
+                            device, available, total = self._reading(mapped)
+                            host_available = row['available_bytes']
                             row['available_bytes'] = min(row['available_bytes'], available)
+                            if available <= host_available:
+                                binding = self._desktop_mount(row, mounts, mapped, device, total)
+                                if binding:
+                                    bindings.append((row, binding))
                         except (OSError, ValueError, RuntimeError):
                             pass
                     observed.append(row)
                 if not desktop_errors:
-                    return observed, self._verify_host_identity(observed), sampled
+                    errors = self._verify_host_identity(observed)
+                    self.desktop_bindings = bindings if not errors and len(bindings) == len(observed) else []
+                    self.desktop_binding_expires = time.monotonic() + DESKTOP_BINDING_SECONDS - (time.time() - sampled)
+                    if self.desktop_bindings:
+                        # Every returned byte count was just measured on its
+                        # matched mount. An aging desktop timestamp must not
+                        # expire those independent readings between polls.
+                        for row in observed:
+                            row['observed_by'] = 'drvfs'
+                        sampled = mounted_read_started
+                    return observed, errors, sampled
+                self.desktop_bindings.clear()
+            except _DesktopReadingGap as exc:
+                desktop_errors = [str(exc)]
+                if exc.targets is not None and self._host_identity(exc.targets) != self.host_identity:
+                    self.desktop_bindings.clear()
+                    self.host_targets = None
+                try:
+                    measured = time.time()
+                    direct = self._sample_desktop_bindings(mounts, exc.targets)
+                    if direct:
+                        return direct, [], measured
+                except (OSError, ValueError, RuntimeError) as mapping_error:
+                    self.desktop_bindings.clear()
+                    self.host_targets = None
+                    desktop_errors.append(str(mapping_error))
             except (OSError, ValueError, UnicodeError, RecursionError) as exc:
+                self.desktop_bindings.clear()
                 desktop_errors = [str(exc)]
         try:
             direct, errors = self._interop_volumes(mounts)

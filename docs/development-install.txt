@@ -1,9 +1,11 @@
 BACTOLOGIX DEV — INDEPENDENT EXPERIMENTAL INSTALLATION
 
 Windows
-1. Download Bactologix-Dev-Setup.exe from the official Dev release and open it
-   normally, without Run as administrator. Choose Start setup on the welcome screen.
-2. For the ZIP fallback, extract it completely and open Bactologix-Dev-Setup.cmd.
+1. If an earlier Dev run is paused, use Stop run, wait for the attempt to stop,
+   and close Bactologix Dev before updating.
+2. Extract the supplied Windows ZIP completely. Open Bactologix-Dev-Setup.cmd
+   and choose Start setup on the welcome screen. For a public Dev release
+   distributed as an EXE, open its Bactologix-Dev-Setup.exe instead.
 3. Setup installs its own Conda and application environment inside your Ubuntu/WSL account.
 4. If Windows requests a restart, use Continue Bactologix-Dev Setup afterwards.
 5. Start the new Bactologix-Dev desktop shortcut. Your ordinary Bactologix shortcut is separate.

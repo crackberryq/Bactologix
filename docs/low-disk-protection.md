@@ -31,12 +31,18 @@ and logs** applies to the Linux filesystem. The Windows Dev launcher from
 its own session and distribution. Use the Windows setup package to install
 this launcher.
 
-For an already paused attempt, leave the app open while Windows executable
-support in Ubuntu is checked. Bactologix retries the check automatically.
-Once every required volume has a fresh reading of at least 15 GiB, choose
-**Resume run** to continue that attempt. If a WSL restart or an app upgrade
-is needed, first choose **Stop run** and wait for the attempt to stop. Reopen
-the same saved run after the restart or upgrade.
+The Windows launcher retries a brief file-sharing conflict when publishing
+a capacity reading. During a brief gap, Bactologix can take fresh readings
+through Ubuntu if it can verify the same mounted Windows drives. If a run
+pauses, open **View log** to see which check
+failed or which measured volume reached the pause threshold. The job log
+keeps that entry even after new readings arrive.
+
+Leave the app open while Bactologix retries the check. Once every required
+volume has a fresh reading of at least 15 GiB, the run page shows **Paused —
+ready to resume**. Choose **Resume run** to continue that attempt. To install a desktop update, choose **Stop run**, wait
+for the attempt to stop, and close Bactologix Dev. After setup, reopen the
+same saved run. Completed outputs and earlier logs remain available.
 
 Linux and Windows free space are separate constraints, not additive capacity.
 A required host check that cannot complete holds the run. Bactologix does not

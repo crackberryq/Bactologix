@@ -214,10 +214,16 @@ class Guard(ProcessOwner):
                     raise
                 self.watch.publish()
             if old_state != 'paused':
+                details = list(errors)
+                for volume in volumes:
+                    available = volume.get('available_bytes')
+                    if type(available) is int and 0 <= available <= PAUSE_BYTES:
+                        label = volume.get('label') or volume.get('path') or 'Required volume'
+                        details.append(f'{label} has {available / GIB:.2f} GiB free (pause threshold 10 GiB).')
                 self.record.update(state='paused', generation=self.record['generation'] + 1,
                     paused_at=now(), pause_kind='processes_suspended' if self.tree else 'before_launch',
-                    reason='monitor_unavailable' if errors else 'low_space')
-                self.write('Storage safety paused this run: ' + ('required capacity checks are unavailable.' if errors else 'a required volume has 10 GiB or less available.'))
+                    reason='monitor_unavailable' if errors else 'low_space', pause_details=details)
+                self.write('Storage safety paused this run: ' + ' '.join(details))
             if errors:
                 self.record['reason'] = 'monitor_unavailable'
             elif low:

@@ -16,7 +16,7 @@ def pause(page, **changes):
     page.evaluate('''changes=>{
       progressJob.disk_safety={id:progressJob.id,run_id:progressJob.payload.run_id,
         state:'paused',generation:3,pause_kind:'processes_suspended',reason:'low_space',
-        volumes:[{label:'Windows D:',path:'/mnt/d',available_bytes:8*1024**3},
+        volumes:[{label:'Windows D:',path:'/mnt/d',available_bytes:(changes.can_resume?18:8)*1024**3},
           {label:'Workspace output',path:'/home/jimi/workspace/runs/output',available_bytes:22*1024**3}],
         errors:[],checked_at:new Date().toISOString(),can_resume:false,resume_requested:false,
         thresholds:{pause_bytes:10*1024**3,resume_bytes:15*1024**3,warning_bytes:20*1024**3},...changes};
@@ -65,6 +65,7 @@ def test_resume_generation_once_and_stop_available(progress_page):
     assert len(events) == 1 and events[0]['kind'] == 'resume_disk_paused_job'
     assert events[0]['payload'] == {'job_id': page.evaluate('progressJob.id'), 'generation': 3}
     pause(page, can_resume=True, resume_requested=True)
+    expect(page.locator('.disk-safety-panel h3')).to_have_text('Paused — resume requested')
     expect(controls.get_by_role('button', name='Resume requested…', exact=True)).to_be_disabled()
     expect(controls.get_by_role('button', name='Stop run', exact=True)).to_be_enabled()
     controls.get_by_role('button', name='Stop run', exact=True).click()
@@ -78,12 +79,14 @@ def test_resume_disables_on_stale_or_offline_snapshot(progress_page):
     button = page.get_by_role('region', name='Run controls').get_by_role('button', name='Resume run', exact=True)
     page.context.set_offline(True)
     expect(button).to_be_disabled()
-    expect(page.locator('#main > .run-progress')).to_contain_text('Paused — low disk space')
+    expect(page.locator('#main > .run-progress')).to_contain_text('Paused — waiting for a fresh check')
+    expect(page.locator('.disk-safety-panel h3')).to_have_text('Paused — waiting for a fresh check')
     page.context.set_offline(False)
     pause(page, can_resume=True)
     expect(button).to_be_enabled()
     page.clock.fast_forward(11000)
     expect(button).to_be_disabled()
+    expect(page.locator('.disk-safety-panel')).not_to_contain_text('ready to resume')
     page.evaluate('progressJob.cancel=1;progressRerender()')
     expect(page.locator('#main > .run-progress')).to_contain_text('Stopping')
 
@@ -92,21 +95,26 @@ def test_before_launch_distinct_from_suspended_tools(progress_page):
     from playwright.sync_api import expect
     page = progress_page
     workspace_drive = {'label': 'Workspace and logs', 'available_bytes': 191 * 1024**3}
+    cause = 'Cannot verify Windows backing storage: <unavailable>'
     pause(page, pause_kind='before_launch', reason='monitor_unavailable', volumes=[workspace_drive],
-          errors=['Cannot verify Windows backing storage: Exec format error'])
+          errors=[cause], pause_details=[cause])
     panel = page.locator('#main > .disk-safety-panel')
     expect(panel).to_contain_text('Waiting for storage check')
     expect(page.locator('#queue-status')).to_contain_text('1 waiting for storage · 0 running')
     expect(panel).to_contain_text('next command has not started')
     expect(panel).not_to_contain_text('processes are suspended')
-    expect(panel).to_contain_text('Cannot verify Windows backing storage')
+    expect(panel.get_by_text(cause, exact=True)).to_have_count(1)
+    expect(panel).not_to_contain_text('Reason for this pause')
     expect(panel).to_contain_text('retries the storage check automatically')
     expect(panel).not_to_contain_text('Free space outside this active run')
     resume = page.get_by_role('region', name='Run controls').get_by_role('button', name='Resume run')
     expect(resume).to_be_disabled()
     pause(page, pause_kind='before_launch', reason='monitor_unavailable', volumes=[workspace_drive],
-          can_resume=True)
-    expect(panel).to_contain_text('Storage has recovered')
+          can_resume=True, pause_details=[cause])
+    expect(panel.get_by_role('heading')).to_have_text('Paused — ready to resume')
+    expect(panel).to_contain_text('Reason for this pause')
+    expect(panel).to_contain_text(cause)
+    expect(panel.locator('unavailable')).to_have_count(0)
     expect(resume).to_be_enabled()
     pause(page, reason='monitor_unavailable')
     expect(panel).to_contain_text('Paused — storage check unavailable')
@@ -118,7 +126,7 @@ def test_activity_page_and_mobile_layout(progress_page):
     pause(page, can_resume=True)
     page.get_by_role('link', name='Activity', exact=True).click()
     card = page.locator('.job-card')
-    expect(card).to_contain_text('Paused — low disk space')
+    expect(card).to_contain_text('Paused — ready to resume')
     expect(card.get_by_role('button', name='Resume run', exact=True)).to_be_enabled()
     expect(card.get_by_role('button', name='Stop', exact=True)).to_be_enabled()
     page.set_viewport_size({'width': 390, 'height': 844})

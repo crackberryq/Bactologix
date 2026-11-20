@@ -1,3 +1,8 @@
+## 0.1.0a119.dev1 — 2026-11-20 · Alpha · WSL storage monitoring
+
+- During brief gaps in Windows storage updates, Bactologix can measure free space through the same drives in Ubuntu when their identities have been verified. The Windows launcher also retries brief file-sharing conflicts when publishing its readings.
+- The run page shows **Paused — ready to resume** when all required drives pass their checks. It retains the original reason for the pause, and **View log** records the specific error or low-space measurement.
+
 ## 0.1.0a118.dev1 — 2026-11-20 · Alpha · Windows storage checks
 
 - The Windows Dev launcher can measure free space on the drives holding the WSL distribution and its swap file when Ubuntu cannot start Windows PowerShell. Install the Windows Dev setup package to update the launcher.

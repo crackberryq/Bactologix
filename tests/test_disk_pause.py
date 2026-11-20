@@ -68,6 +68,7 @@ def test_prelaunch_wait_exact_floor_requires_manual_resume(safety, tmp_path):
         wait_for(lambda: (disk_pause.snapshot(store, jid) or {}).get('state') == 'paused')
         state = disk_pause.snapshot(store, jid)
         assert state['pause_kind'] == 'before_launch'
+        assert state['pause_details'] == ['Fixture disk has 10.00 GiB free (pause threshold 10 GiB).']
         assert not marker.exists()
         with pytest.raises(ValueError):
             disk_pause.request_resume(store, jid, state['generation'])
@@ -135,8 +136,16 @@ def test_owned_detached_tree_stops_writing_resumes_and_cancels(safety, tmp_path)
         values['errors'] = ['Windows backing drive unavailable']
         wait_for(lambda: (current := disk_pause.snapshot(store, jid))['state'] == 'paused'
                  and current['generation'] > state['generation'])
-        assert disk_pause.snapshot(store, jid)['reason'] == 'monitor_unavailable'
-        assert not disk_pause.snapshot(store, jid)['can_resume']
+        state = disk_pause.snapshot(store, jid)
+        assert state['reason'] == 'monitor_unavailable'
+        assert not state['can_resume']
+        assert state['pause_details'] == values['errors']
+        assert store.log_path(jid).read_text().count('Storage safety paused this run: Windows backing drive unavailable') == 1
+        values['errors'] = []
+        wait_for(lambda: disk_pause.snapshot(store, jid)['can_resume'])
+        recovered = disk_pause.snapshot(store, jid)
+        assert recovered['errors'] == []
+        assert recovered['pause_details'] == ['Windows backing drive unavailable']
         store.cancel(jid)
         thread.join(8)
         assert not thread.is_alive()

@@ -14,6 +14,7 @@ try {
     $path = Join-Path $Directory 'windows-storage.json'
     $temporary = $path + '.' + $PID + '.writing'
     while (-not $owner.HasExited) {
+        $cycle = [Diagnostics.Stopwatch]::StartNew()
         $started = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
         try {
             $sample = Get-WindowsStorageCapacity @{operation='discover'; distribution=$Distribution}
@@ -27,13 +28,19 @@ try {
         if ($owner.HasExited) { break }
         try {
             [IO.File]::WriteAllText($temporary, ($sample | ConvertTo-Json -Depth 6 -Compress), $utf8)
-            # Readers see one complete sample. Sharing failures are retried on
-            # the next sample; the consumer rejects a stale previous reading.
-            $null = [BactologixDiskCapacity]::MoveFileEx($temporary, $path, 1)
+            # A reader without delete sharing can briefly prevent replacement.
+            # Retry the same complete observation without advancing its timestamp.
+            $retry = [Diagnostics.Stopwatch]::StartNew()
+            while (-not [BactologixDiskCapacity]::MoveFileEx($temporary, $path, 1)) {
+                $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+                if ($errorCode -notin @(5, 32, 33) -or $retry.ElapsedMilliseconds -ge 1000) { break }
+                if ($owner.WaitForExit(50)) { break }
+            }
         } catch [IO.IOException] {
             # Transient share or media errors also leave the last complete record.
         }
-        if ($owner.WaitForExit(2000)) { break }
+        $remaining = [Math]::Max([long]0, 2000 - $cycle.ElapsedMilliseconds)
+        if ($owner.WaitForExit([int]$remaining)) { break }
     }
 } finally {
     $owner.Dispose()

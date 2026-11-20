@@ -38,6 +38,28 @@ try {
             Start-Sleep -Milliseconds 100
         } while ($deadline.Elapsed.TotalSeconds -lt 20)
         Assert ($report -and $report.time -gt $first) 'Native storage helper did not refresh its report'
+        $reportPath = Join-Path $storageDir 'windows-storage.json'
+        $writingPath = $reportPath + '.' + $monitor.Process.Id + '.writing'
+        $reader = [IO.File]::Open($reportPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try {
+            $previous = Read-Json $reportPath
+            $deadline.Restart()
+            do {
+                $pending = Read-Json $writingPath
+                if ($pending -and $pending.time -gt $previous.time) { break }
+                Start-Sleep -Milliseconds 25
+            } while ($deadline.Elapsed.TotalSeconds -lt 10)
+            Assert ($pending -and $pending.time -gt $previous.time) 'No replacement was available while the file was shared'
+            # Give the atomic move a chance to observe the sharing conflict.
+            Start-Sleep -Milliseconds 150
+        } finally { $reader.Dispose() }
+        $deadline.Restart()
+        do {
+            $report = Read-Json $reportPath
+            if ($report -and $report.time -ge $pending.time) { break }
+            Start-Sleep -Milliseconds 25
+        } while ($deadline.Elapsed.TotalSeconds -lt 10)
+        Assert ($report -and $report.time -eq $pending.time) 'A brief sharing conflict discarded the complete observation'
     } finally {
         if (-not $monitor.Process.HasExited) { $monitor.Process.Kill() }
         $monitor.Process.WaitForExit()
