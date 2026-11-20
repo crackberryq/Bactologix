@@ -1,6 +1,7 @@
 """Start the local UI and open its ready address on Linux, macOS or WSL."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 import ipaddress
 import json
 import os
@@ -334,7 +335,8 @@ def serve(home, host=None, port=None, browser=True, app_window=True, desktop_con
     parent = store.home / 'launcher'
     parent.mkdir(exist_ok=True)
     restarting = False
-    with tempfile.TemporaryDirectory(prefix='server-', dir=parent) as temporary:
+    observer = desktop.watch_heartbeats() if desktop else nullcontext()
+    with observer, tempfile.TemporaryDirectory(prefix='server-', dir=parent) as temporary:
         item = restart.register(store, url)
         app = restart.make_app(temporary, item)
         env = dict(os.environ, BACTOLOGIX_HOME=str(home), BACTOLOGIX_LAUNCH_ID=item['id'], PYTHONUNBUFFERED='1')

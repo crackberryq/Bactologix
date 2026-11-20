@@ -33,7 +33,10 @@ remain running for other applications even after Bactologix stops.
 Completed workflow results and Snakemake metadata remain in place. Reopen the
 saved run and review its log/readiness before continuing; an interrupted step
 may need to run again. Arbitrary file corruption is not automatically repaired.
-An unexpected desktop-supervisor loss requests cancellation after 30 seconds.
+Dev checks the Windows heartbeat independently while the workspace is busy.
+If its regular check runs late, the launcher and worker can use this record to
+confirm the same desktop session stayed connected. Losing contact with the
+desktop supervisor for 30 seconds still requests cancellation.
 
 The executable, shortcut and app share the same b-dot logo. Windows .cmd files themselves
 have a generic system icon; use the desktop shortcut for the branded icon.

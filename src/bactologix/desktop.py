@@ -3,6 +3,7 @@
 The Windows owner controls a dedicated browser profile. Jobs carry the session
 identity in SQLite; shared workers use the existing cooperative cancellation.
 """
+from contextlib import contextmanager
 import errno
 import json
 import math
@@ -10,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import threading
 import time
 import uuid
 from .store import CONTROL_BACKOFF, CONTROL_TIMEOUT, transient_lock
@@ -73,6 +75,27 @@ def _desktop_stop_text(reason):
     return 'The owning desktop session signalled a stop.'
 
 
+def _owner_record(path, owner):
+    try:
+        record = json.loads(path.read_bytes())
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as exc:
+        raise MonitoringInterrupted('Desktop control recovery record is unreadable.') from exc
+    if not isinstance(record, dict) or (record and record.get('session') != owner):
+        raise MonitoringInterrupted('Desktop control recovery record is invalid.')
+    return record
+
+
+def _pulse_covers(pulse, recorded):
+    # The observer starts at a valid local lease. Once a beat is missed for a
+    # full lease it exits permanently; a later single pulse cannot fill a gap.
+    anchor, beat, observed = (pulse.get(k) for k in ('anchor', 'heartbeat', 'monotonic'))
+    return (pulse.get('stopping') is not True and all(_timestamp(t) for t in (anchor, recorded, beat, observed))
+            and anchor <= recorded and 0 <= time.time() - beat < LEASE_SECONDS
+            and 0 <= time.monotonic() - observed < LEASE_SECONDS)
+
+
 def session_stop_reason(session, *, store=None, owner=None):
     if session is not None and (not isinstance(session, dict) or not _timestamp(session.get('last_seen', 0))):
         raise MonitoringInterrupted('Desktop session control metadata is invalid.')
@@ -82,27 +105,25 @@ def session_stop_reason(session, *, store=None, owner=None):
     if recorded_stop:
         return recorded_stop
     recorded = session.get('last_seen', 0)
-    proof = {}
+    proof, pulse = {}, {}
     if store is not None and owner is not None:
         # Only the owning launcher publishes a live proof during contention or
         # a stop on close. Jobs still check their own durable cancellation flag.
         path = _lease_path(store, owner)
-        try:
-            proof = json.loads(path.read_bytes())
-        except FileNotFoundError:
-            pass
-        except (OSError, ValueError) as exc:
-            raise MonitoringInterrupted('Desktop control recovery record is unreadable.') from exc
-        if not isinstance(proof, dict) or (proof and proof.get('session') != owner):
-            raise MonitoringInterrupted('Desktop control recovery record is invalid.')
+        proof = _owner_record(path, owner)
         if proof.get('stopping') is True:
             return _desktop_stop_text(proof.get('reason'))
+        pulse = _owner_record(path.with_suffix('.pulse.json'), owner)
+        if pulse.get('stopping') is True:
+            return _desktop_stop_text(pulse.get('reason'))
     current = time.time()
     if current - recorded <= LEASE_SECONDS:
         return None
     heartbeat = proof.get('heartbeat')
     if (proof.get('recorded') == recorded and _timestamp(heartbeat)
             and 0 <= current - heartbeat < LEASE_SECONDS):
+        return None
+    if _pulse_covers(pulse, recorded):
         return None
     return 'The owning desktop session heartbeat expired.'
 
@@ -133,6 +154,7 @@ class Session:
         self.last_host_heartbeat = None
         self.heartbeat_observed = None
         self.heartbeat_wall = None
+        self.disconnect_detail = ''
         self.nonce = None
         self.phase = 'starting'
         self.reason = ''
@@ -140,6 +162,7 @@ class Session:
         self.last_committed = None
         self.proven_until = 0
         self.proof_path = _lease_path(store, key)
+        self.pulse_path = self.proof_path.with_suffix('.pulse.json')
         self.stop_recorded = False
         self.status_blocked_since = None
         self.publish('')
@@ -243,13 +266,84 @@ class Session:
             'installing_update': any(j['kind'] == 'app_update' and j['status'] == 'running' for j in jobs),
             'browser_request': self.store.get('desktop_browser', self.key)})
 
+    @contextmanager
+    def watch_heartbeats(self):
+        """Keep observing the owning Windows process during blocking launcher calls."""
+        done = threading.Event()
+        thread = threading.Thread(target=self._watch_heartbeats,
+                                  args=(done, self.last_committed), name='desktop-heartbeat', daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            done.set()
+            # A disconnected Windows mount can stall a read. Such a reader is
+            # a daemon and checks done again before publishing any observation.
+            thread.join(timeout=1)
+            if not thread.is_alive():
+                try:
+                    if self.phase == 'stopped' or not _owner_record(self.pulse_path, self.key).get('stopping'):
+                        self.pulse_path.unlink(missing_ok=True)
+                except (OSError, MonitoringInterrupted):
+                    # A leftover observation expires; never mask a launcher
+                    # failure or discard an unreadable potential stop record.
+                    pass
+
+    def _watch_heartbeats(self, done, anchor):
+        observed = self.started if self.heartbeat_observed is None else self.heartbeat_observed
+        observed_wall = anchor if self.heartbeat_wall is None else self.heartbeat_wall
+        previous, published = self.last_host_heartbeat, None
+        while not done.is_set():
+            request = read(self.root / 'request.json')
+            closing = (isinstance(request, dict) and request.get('session') == self.key
+                       and request.get('action') == 'confirm_close')
+            beat = {} if closing else read(self.root / 'heartbeat.json')
+            mono, wall = time.monotonic(), time.time()
+            if done.is_set():
+                return
+            if closing:
+                try:
+                    atomic(self.pulse_path, {'session': self.key, 'stopping': True, 'reason': 'Window closed'})
+                except OSError:
+                    pass  # Existing proofs expire; never renew past a close.
+                return
+            if (mono - observed >= LEASE_SECONDS
+                    or not -HOST_CLOCK_TOLERANCE <= wall - observed_wall < LEASE_SECONDS):
+                return
+            if isinstance(beat, dict) and beat.get('session') == self.key:
+                stamp = beat.get('time')
+                if (_timestamp(stamp) and (previous is None or stamp > previous)
+                        and -HOST_CLOCK_TOLERANCE <= wall - stamp < LEASE_SECONDS):
+                    previous = stamp
+                    observed = mono - max(0, wall - stamp)
+                    observed_wall = min(stamp, wall)
+                    if published is None or mono - published >= min(5., LEASE_SECONDS / 4):
+                        try:
+                            atomic(self.pulse_path, {'session': self.key, 'anchor': anchor,
+                                   'heartbeat': observed_wall, 'monotonic': observed})
+                        except OSError:
+                            pass  # The main loop still owns its normal lease.
+                        else:
+                            published = mono
+            done.wait(min(1., LEASE_SECONDS / 6))
+
     def observe_heartbeat(self):
         """Only an advancing host pulse renews the local lease."""
         heartbeat = read(self.root / 'heartbeat.json')
         monotonic_now, wall_now = time.monotonic(), time.time()
         observed = self.started if self.heartbeat_observed is None else self.heartbeat_observed
         if monotonic_now - observed >= LEASE_SECONDS:
-            return False
+            pulse = _owner_record(self.pulse_path, self.key)
+            if not _pulse_covers(pulse, self.last_committed):
+                stamp = heartbeat.get('time') if isinstance(heartbeat, dict) and heartbeat.get('session') == self.key else None
+                host_age = f'{wall_now - stamp:.1f}s' if _timestamp(stamp) else 'unavailable'
+                last = 'last accepted pulse' if self.heartbeat_observed is not None else 'startup'
+                self.disconnect_detail = (f'At disconnect, {monotonic_now - observed:.1f}s had passed since {last}. '
+                                          f'Latest matching Windows heartbeat age was {host_age}.')
+                return False
+            self.heartbeat_observed = pulse['monotonic']
+            self.heartbeat_wall = pulse['heartbeat']
+            self.last_host_heartbeat = max(self.last_host_heartbeat or 0, self.heartbeat_wall)
         if isinstance(heartbeat, dict) and heartbeat.get('session') == self.key:
             seen = heartbeat.get('time')
             if _timestamp(seen) and (self.last_host_heartbeat is None or seen > self.last_host_heartbeat):
@@ -268,6 +362,11 @@ class Session:
         if not alive:
             closing = (request.get('session') == self.key and request.get('action') == 'confirm_close'
                        and request.get('nonce') != self.nonce)
+            if not closing and not self.pending_stop_reason and self.disconnect_detail:
+                try:
+                    print(self.disconnect_detail, flush=True)
+                except OSError:
+                    pass  # A closed launcher log must not prevent cancellation.
             self.stop('Window closed' if closing else 'Desktop supervisor disconnected; stopping owned work')
         if request.get('session') == self.key and request.get('nonce') != self.nonce:
             action = request.get('action')
@@ -296,8 +395,10 @@ class Session:
             self.record_stop()
             return False
         current = time.time()
-        if self.last_committed is None or not _timestamp(current) or current >= self.proven_until:
+        if self.last_committed is None or not _timestamp(current):
             return False
+        if current >= self.proven_until:
+            return _pulse_covers(_owner_record(self.pulse_path, self.key), self.last_committed)
         if not self.observe_heartbeat() or self.heartbeat_observed is None or time.time() >= self.proven_until:
             return False
         # Publish the pulse's local age. A small Windows clock offset cannot

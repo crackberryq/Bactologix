@@ -1,3 +1,8 @@
+## 0.1.0a124.dev1 — 2026-11-20 · Alpha · Desktop monitoring during a delayed workspace check
+
+- Bactologix Dev watches the Windows launcher's heartbeat independently while it checks the workspace. A delayed check can continue the session when those observations confirm that the same launcher stayed connected throughout the delay.
+- If the supervisor declares a disconnect, the launcher log records how old the last observed heartbeat was and whether a newer matching heartbeat was present. The fix works with the existing Windows launcher.
+
 ## 0.1.0a123.dev1 — 2026-11-20 · Alpha · Storage checks during active runs
 
 - During a running command, **Rechecking storage** appears if a reading is delayed and every monitored volume last had at least 20 GiB free. Bactologix requests another reading and allows the same command to continue if fresh measurements arrive within 15 seconds of the last sample.
