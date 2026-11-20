@@ -199,7 +199,7 @@ def recommend(store, tool, memory_mb, *, run_id=None, config=None, kraken_path=N
         problems.extend(compute_memory.capacity_issues(candidate, info))
     free_swap = memory.get('swap_available_mb')
     result['inputs']['swap_reserve_mb'] = compute_memory.SWAP_RESERVE_MB
-    result['inputs']['usable_swap_mb'] = max(0, free_swap - compute_memory.SWAP_RESERVE_MB) if _known(free_swap) else None
+    result['inputs']['usable_swap_mb'] = compute_memory.usable_swap_mb(free_swap)
     if swap and _known(free_swap):
         extra = _round_gib(max(0, swap + compute_memory.SWAP_RESERVE_MB - free_swap))
         result['inputs']['additional_usable_swap_needed_mb'] = extra

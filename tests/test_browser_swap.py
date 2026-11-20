@@ -28,12 +28,12 @@ def respond(page, store, kind):
     return request, result
 
 
-def capacity(store, monkeypatch):
+def capacity(store, monkeypatch, *, free_swap=500000):
     info = hardware.detect(store.home)
     info['cpu'].update(available=12, logical=12)
     info['memory'] = {'total_mb': 31744, 'available_mb': 30720, 'swap_mb': 500000,
-                      'swap_available_mb': 500000, 'combined_total_mb': 531744,
-                      'combined_available_mb': 530720}
+                      'swap_available_mb': free_swap, 'combined_total_mb': 531744,
+                      'combined_available_mb': 30720 + free_swap}
     monkeypatch.setattr(hardware, 'inventory', lambda store, refresh=False: copy.deepcopy(info))
     store.put('resource_defaults', 'hybas', {'cores': 12, 'memory_mb': 28672, 'preset': 'custom'})
     store.put('configs', 'hybas', 'run_kraken: false\nkraken_decision_mode: "off"\npolish_mode: none\nassembly_mem_mb: 8192\npolishing_mem_mb: 4096\nspades_memory_gb: 8\n')
@@ -131,6 +131,48 @@ def test_swap_opt_in_recovery_save_revision_and_opt_out(workspace, installation,
         start_draft(page, workspace)
         expect(toggle).not_to_be_checked()
         assert not errors, errors
+        browser.close()
+
+
+def test_review_warns_before_saving_excessive_swap_in_drafts_and_revisions(
+        workspace, installation, sample, monkeypatch):
+    from playwright.sync_api import sync_playwright, expect
+    capacity(workspace, monkeypatch, free_swap=73728)
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True, executable_path=os.environ.get('BACTOLOGIX_BROWSER_EXECUTABLE'))
+        page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+        page.route('https://workspace.test/**', lambda route: route.fulfill(body='<html><body></body></html>'))
+        page.goto('https://workspace.test/')
+        render_component(page, workspace)
+        start_draft(page, workspace)
+        page.get_by_label('Allow disk swap for this run', exact=True).check()
+        allowance = page.get_by_label('Additional swap allowance (MB)', exact=True)
+        allowance.fill('85000')
+        review = page.get_by_role('button', name='Review drafts', exact=True)
+        review.click()
+        respond(page, workspace, 'run_config_editor')
+        warning = page.get_by_text('Swap request exceeds available capacity', exact=True)
+        expect(warning).to_be_visible()
+        details = page.get_by_text('You requested 85,000 MB.', exact=False)
+        expect(details).to_contain_text('72,704 MB was usable after the reserve')
+        expect(details).to_contain_text('Reduce the allowance by at least 12,296 MB')
+        page.get_by_role('button', name='Create drafts', exact=True).click()
+        respond(page, workspace, 'create_runs')
+        page.get_by_role('button', name='Edit settings', exact=True).click()
+        respond(page, workspace, 'edit_run_settings')
+        review.click()
+        respond(page, workspace, 'run_config_editor')
+        expect(page.get_by_role('heading', name='Ready to create a revised draft?')).to_be_visible()
+        expect(warning).to_be_visible()
+        expect(page.get_by_role('button', name='Create revised draft', exact=True)).to_be_enabled()
+        page.get_by_role('button', name='Back', exact=True).click()
+        customize_compute(page)
+        allowance.fill('72704')
+        review.click()
+        respond(page, workspace, 'run_config_editor')
+        expect(warning).to_have_count(0)
+        expect(page.get_by_text('Disk swap enabled for this run', exact=True)).to_be_visible()
+        assert workspace.jobs() == []
         browser.close()
 
 

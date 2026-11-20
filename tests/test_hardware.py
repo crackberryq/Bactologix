@@ -19,6 +19,13 @@ def capacity(tmp_path, monkeypatch):
     return store, info
 
 
+@pytest.mark.parametrize('free, usable', [(73728, 72704), (1024, 0), (0, 0), (None, None)])
+def test_run_review_receives_usable_swap_after_reserve(capacity, free, usable):
+    store, info = capacity
+    info['memory']['swap_available_mb'] = free
+    assert h.panel(store)['usable_swap_mb'] == usable
+
+
 def test_preset_budgets_respect_capacity_and_system_reserve(capacity):
     _, info = capacity
     high, medium, low = h.presets(info)

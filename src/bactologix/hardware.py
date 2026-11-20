@@ -350,6 +350,7 @@ def panel(store):
     from .run_config import defaults
     info = inventory(store)
     return {**info, 'presets': presets(info),
+            'usable_swap_mb': compute_memory.usable_swap_mb(info['memory'].get('swap_available_mb')),
             'defaults': {t: run_defaults(store, t) for t in PIPELINES},
             'revisions': {t: revision(defaults(store, t)) for t in PIPELINES}}
 

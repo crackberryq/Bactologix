@@ -72,6 +72,13 @@ def summary(run):
             'this allowance is not an operating-system limit or measured memory use.')
 
 
+def usable_swap_mb(free_mb):
+    """Amount available for an allowance after reserving kernel paging headroom."""
+    if type(free_mb) is not int or free_mb < 0:
+        return None
+    return max(0, free_mb - SWAP_RESERVE_MB)
+
+
 def capacity_issues(run, info):
     """Check an opted-in allowance against current Linux-visible capacity."""
     values = policy(run)
@@ -89,7 +96,7 @@ def capacity_issues(run, info):
     if values['ram_mb'] > max(0, memory['total_mb'] - reserve):
         problems.append(f"The {values['ram_mb']:,} MB RAM budget does not leave the {reserve:,} MB "
                         'system reserve within detected RAM. Reduce the RAM budget in a revised draft.')
-    free_swap = max(0, memory['swap_available_mb'] - SWAP_RESERVE_MB)
+    free_swap = usable_swap_mb(memory['swap_available_mb'])
     if values['swap_mb'] > free_swap:
         problems.append(f"The {values['swap_mb']:,} MB swap allowance exceeds the {free_swap:,} MB "
                         f'usable free swap after a {SWAP_RESERVE_MB:,} MB reserve. '
