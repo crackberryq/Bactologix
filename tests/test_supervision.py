@@ -11,7 +11,7 @@ import time
 import psutil
 import pytest
 
-from bactologix import disk_pause, queue, supervision, worker
+from bactologix import disk_pause, engine, queue, supervision, worker
 from bactologix.engine import Cancelled, Context
 from bactologix.store import Store, now, transient_lock
 
@@ -112,6 +112,7 @@ def test_transient_control_fault_keeps_owned_writer_running_and_stop_works(fixtu
 
 @pytest.mark.parametrize('kind', ['workflow', 'smoke'])
 def test_persistent_control_failure_is_interrupted_not_native_failed(fixture, monkeypatch, kind):
+    monkeypatch.setattr(engine, 'WORKFLOW_CONTROL_GRACE_SECONDS', 1.0)
     store, jid, marker, command, _ = fixture
     with store.connect() as db:
         db.execute('UPDATE jobs SET kind=? WHERE id=?', (kind, jid))
@@ -121,7 +122,10 @@ def test_persistent_control_failure_is_interrupted_not_native_failed(fixture, mo
     started = time.monotonic()
     worker.work(store)
     assert time.monotonic() - started < 5
-    assert faults['attempts'] == 4
+    if kind == 'workflow':
+        assert faults['attempts'] > 4
+    else:
+        assert faults['attempts'] == 4
     assert store.job(jid)['status'] == 'interrupted'
     assert store.queue_snapshot()['paused']
     monitor = supervision.snapshot(store, jid)
@@ -211,6 +215,7 @@ def test_nontransient_sqlite_error_is_not_retried(fixture, monkeypatch):
 
 
 def test_cleanup_unconfirmed_remains_busy_until_identity_checks_pass(fixture, monkeypatch):
+    monkeypatch.setattr(engine, 'WORKFLOW_CONTROL_GRACE_SECONDS', .5)
     store, jid, marker, command, _ = fixture
     inject_control_error(store, marker, monkeypatch, failures=None)
     monkeypatch.setattr(worker, 'execute', lambda ctx: ctx.command(command))
@@ -296,35 +301,95 @@ def test_nonworkflow_detached_descendant_cannot_be_reported_clean_until_stopped(
         ctx.log.close()
 
 
-def test_real_sqlite_writer_contention_does_not_stall_native_safety(fixture):
-    store, jid, marker, command, _ = fixture
+@pytest.mark.parametrize('low_space', [False, True])
+def test_workflow_survives_writer_contention_and_still_enforces_disk_limits(fixture, low_space):
+    store, jid, marker, _, capacity = fixture
     ctx = Context(store, store.claim())
-    thread, outcome = background(ctx, command)
+    finish = marker.with_name('finish')
+    code = ('from pathlib import Path\nimport sys,time\n'
+            'marker,finish=map(Path,sys.argv[1:])\n'
+            'while not finish.exists():\n marker.touch(); time.sleep(.02)\n')
+    thread, outcome = background(ctx, [sys.executable, '-c', code, str(marker), str(finish)])
     try:
         wait_for(marker.exists)
-        with store.connect() as db:
-            db.execute('BEGIN IMMEDIATE')
-            started = time.monotonic()
-            thread.join(3)
-            assert not thread.is_alive(), 'Native safety must not wait for SQLite\'s default 30s timeout'
-            assert time.monotonic() - started < 3
-            assert isinstance(outcome[0], supervision.MonitoringInterrupted)
-            record = supervision.snapshot(store, jid, 'process')
-            assert record['cleanup_confirmed'] and not supervision.remaining(record['identities'])
-        assert supervision.snapshot(store, jid)['state'] == 'interrupted'
+        with store.connect() as writer:
+            writer.execute('BEGIN IMMEDIATE')
+            # WAL readers can still poll cancellation while disk status writes are locked.
+            wait_for(lambda: (supervision.snapshot(store, jid) or {}).get('state') == 'degraded')
+            process = supervision.snapshot(store, jid, 'process')
+            before = marker.stat().st_mtime_ns
+            wait_for(lambda: marker.stat().st_mtime_ns > before)
+            if low_space:
+                capacity['free'] = 9 * disk_pause.GIB
+                wait_for(lambda: psutil.Process(process['pid']).status() == psutil.STATUS_STOPPED)
+                before = marker.stat().st_mtime_ns
+            time.sleep(1)
+            assert thread.is_alive() and supervision.snapshot(store, jid)['state'] == 'degraded'
+            if low_space:
+                assert marker.stat().st_mtime_ns == before
+                writer.execute('UPDATE jobs SET cancel=1 WHERE id=?', (jid,))
+        if not low_space:
+            wait_for(lambda: supervision.snapshot(store, jid)['state'] == 'recovered')
+            finish.touch()
+        thread.join(5)
+        assert not thread.is_alive()
+        if low_space:
+            assert len(outcome) == 1 and isinstance(outcome[0], Cancelled)
+        else:
+            assert not outcome
+            assert supervision.snapshot(store, jid, 'process')['returncode'] == 0
+        process = supervision.snapshot(store, jid, 'process')
+        assert process['cleanup_confirmed'] and not supervision.remaining(process['identities'])
     finally:
+        finish.touch()
         store.cancel(jid)
         thread.join(5)
-        ctx.disk_guard.finish('interrupted')
+        ctx.disk_guard.finish('cancelled' if low_space else 'succeeded')
         ctx.log.close()
 
 
+@pytest.mark.parametrize('error, transient', [('database is locked', True), ('database disk image is malformed', False)])
+def test_disk_status_write_failure_interrupts_workflow_despite_healthy_reads(fixture, monkeypatch, error, transient):
+    store, jid, marker, command, _ = fixture
+    original_put = store.put
+    attempts = []
+    def locked_disk_status(kind, key, value):
+        if kind == 'disk_safety' and value['state'] == 'monitoring' and marker.exists():
+            attempts.append(time.monotonic())
+            raise sqlite3.OperationalError(error)
+        return original_put(kind, key, value)
+    monkeypatch.setattr(store, 'put', locked_disk_status)
+    monkeypatch.setattr(engine, 'WORKFLOW_CONTROL_GRACE_SECONDS', 1.0)
+    monkeypatch.setattr(worker, 'execute', lambda ctx: ctx.command(command))
+    monkeypatch.setattr(worker, 'assert_current', lambda store: None)
+    # Bound the test even if a successful read incorrectly renews the write deadline.
+    worker_thread = threading.Thread(target=worker.work, args=(store,))
+    worker_thread.start()
+    try:
+        worker_thread.join(6)
+        assert not worker_thread.is_alive()
+        if transient:
+            assert len(attempts) > 1 and attempts[-1] - attempts[0] >= 1.0
+        else:
+            assert len(attempts) == 1
+        assert store.job(jid)['status'] == 'interrupted'
+        assert store.queue_snapshot()['paused']
+        process = supervision.snapshot(store, jid, 'process')
+        assert process['cleanup_confirmed'] and not supervision.remaining(process['identities'])
+    finally:
+        store.cancel(jid)
+        worker_thread.join(5)
+
+
+@pytest.mark.parametrize('kind', ['install', 'workflow'])
 @pytest.mark.parametrize('cancel', [False, True])
-def test_setup_keeps_supervising_children_during_real_exclusive_lock(tmp_path, cancel):
-    store = Store(tmp_path / 'workspace')
-    jid = store.submit('install', {})
+def test_native_work_remains_supervised_during_real_exclusive_lock(fixture, tmp_path, kind, cancel):
+    store, jid, *_ = fixture
+    if kind == 'install':
+        with store.connect() as db:
+            db.execute('UPDATE jobs SET kind=? WHERE id=?', (kind, jid))
     ctx = Context(store, store.claim())
-    # Model an installer spawning a package helper after workspace reads fail.
+    # The command spawns a helper after workspace reads fail.
     # Its native identity must be recorded before the database is available again.
     script = tmp_path / 'setup.py'
     script.write_text('''
@@ -379,6 +444,8 @@ else:
         (tmp_path / 'spawn').touch()
         (tmp_path / 'finish').touch()
         thread.join(5)
+        if ctx.disk_guard is not None:
+            ctx.disk_guard.finish('cancelled' if cancel else 'succeeded')
         ctx.log.close()
 
 
@@ -466,19 +533,22 @@ def test_app_update_preserves_desktop_cancellation_exemption(tmp_path):
 
 
 def test_process_identity_must_be_saved_before_native_exec_gate_opens(fixture, monkeypatch):
+    monkeypatch.setattr(engine, 'WORKFLOW_CONTROL_GRACE_SECONDS', .5)
     store, jid, marker, command, _ = fixture
     ctx = Context(store, store.claim())
     original = store.put_process
     calls = []
     def put(jid, value):
         calls.append(value.copy())
-        if len(calls) == 1:
+        if not value['cleanup_confirmed']:
+            assert not marker.exists()
             raise sqlite3.OperationalError('database is locked')
         return original(jid, value)
     monkeypatch.setattr(store, 'put_process', put)
     try:
         with pytest.raises(supervision.MonitoringInterrupted): ctx.command(command)
         assert not marker.exists()
+        assert len([call for call in calls if not call['cleanup_confirmed']]) > 1
         assert calls[0]['identities'] and calls[0]['cleanup_confirmed'] is False
         assert supervision.snapshot(store, jid, 'process')['cleanup_confirmed'] is True
     finally:

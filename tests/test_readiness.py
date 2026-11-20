@@ -168,6 +168,14 @@ def test_recovery_evidence_and_failed_step_are_bounded(workspace, message, categ
     assert len(g['evidence']) <= 1200
 
 
+def test_workspace_lock_interruption_points_back_to_the_existing_run(workspace):
+    jid = workspace.submit('workflow', {'run_id': 'run-fixture', 'action': 'run'})
+    workspace.update_job(jid, status='interrupted', error='Workspace control persistence failed: database is locked')
+    guide = r.job_guidance(workspace, workspace.job(jid))
+    assert guide['run_id'] == 'run-fixture'
+    assert 'workspace database' in guide['title'] and 'same saved run' in guide['text']
+
+
 def test_unknown_interrupted_and_unsafe_logs_keep_uncertainty(workspace, tmp_path):
     jid = workspace.submit('smoke', {})
     external = tmp_path / 'external.log'

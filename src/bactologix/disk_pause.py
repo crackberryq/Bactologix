@@ -14,6 +14,12 @@ PAUSE_BYTES, RESUME_BYTES, WARNING_BYTES = 10 * GIB, 15 * GIB, 20 * GIB
 POLL_SECONDS, STALE_SECONDS = 1.0, 5.0
 THRESHOLDS = {'pause_bytes': PAUSE_BYTES, 'resume_bytes': RESUME_BYTES, 'warning_bytes': WARNING_BYTES}
 
+def _resume_capacity(value):
+    volumes = value.get('volumes') or []
+    return bool(volumes) and not value.get('errors') and all(
+        type(volume.get('available_bytes')) is int and volume['available_bytes'] >= RESUME_BYTES
+        for volume in volumes)
+
 def _fresh(checked_at):
     try:
         age = (datetime.now(timezone.utc) - datetime.fromisoformat(checked_at)).total_seconds()
@@ -118,11 +124,13 @@ class Samples:
 
 
 class Guard(ProcessOwner):
-    def __init__(self, store, job, check_cancel, write, *, initial_env=None):
+    def __init__(self, store, job, check_cancel, write, *, initial_env=None, control_operation=None):
         self.store, self.job = store, job
         self.check_cancel, self.write = check_cancel, write
+        self.control_operation = control_operation
         self.tree, self.watch = None, None
         self.last_publish, self.resume_nonce, self.resume_after = 0, None, None
+        self.publish_pending = False
         run = store.get('runs', job['payload'].get('run_id'), {})
         self.samples = Samples(store, run, initial_env=initial_env)
         self.record = {'id': job['id'], 'run_id': job['payload'].get('run_id'),
@@ -130,11 +138,31 @@ class Guard(ProcessOwner):
             'volumes': [], 'errors': [], 'checked_at': None, 'can_resume': False,
             'thresholds': dict(THRESHOLDS)}
 
-    def publish(self, force=False):
-        if force or time.monotonic() - self.last_publish >= POLL_SECONDS:
+    def _control(self, key, operation, *args, poll=True):
+        if self.control_operation is None:
+            return operation(*args)
+        return self.control_operation(operation, *args, op_key=key, poll=poll)
+
+    def publish(self, force=False, *, poll=True):
+        if force or self.publish_pending or time.monotonic() - self.last_publish >= POLL_SECONDS:
             self.record['updated_at'] = now()
-            self.store.put('disk_safety', self.job['id'], self.record)
+            # Store.put returns the recorded value. None means the supervisor
+            # deferred a locked write. Keep sampling and retry the newest state.
+            saved = self._control('disk-status', self.store.put, 'disk_safety', self.job['id'], self.record, poll=poll)
+            self.publish_pending = saved is None
+            if self.publish_pending:
+                return False
             self.last_publish = time.monotonic()
+        return True
+
+    def _consume_resume(self, request):
+        # Only the matching request may authorize a thaw. Keep the tree frozen
+        # until SQLite confirms that we consumed the reviewed generation/nonce.
+        with self.store.connect(timeout=CONTROL_TIMEOUT) as db:
+            deleted = db.execute("""DELETE FROM items WHERE kind='disk_safety_requests' AND id=?
+                                 AND json_extract(body,'$.generation')=? AND json_extract(body,'$.nonce')=?""",
+                                 (self.job['id'], request['generation'], request['nonce']))
+            return deleted.rowcount == 1
 
     def checkpoint(self):
         while True:
@@ -165,7 +193,7 @@ class Guard(ProcessOwner):
         if not valid:
             errors.append('Required storage capacities are unavailable or invalid.')
         low = valid and any(v['available_bytes'] <= PAUSE_BYTES for v in volumes)
-        ready = valid and not errors and all(v['available_bytes'] >= RESUME_BYTES for v in volumes)
+        ready = _resume_capacity(value)
         old_state = self.record['state']
         self.record.update(volumes=volumes, errors=errors, checked_at=value.get('checked_at'))
         if old_state == 'paused' or errors or low:
@@ -182,36 +210,38 @@ class Guard(ProcessOwner):
                 self.record.update(state='paused', generation=self.record['generation'] + 1,
                     paused_at=now(), pause_kind='processes_suspended' if self.tree else 'before_launch',
                     reason='monitor_unavailable' if errors else 'low_space')
-                self.publish(force=True)
                 self.write('Storage safety paused this run: ' + ('required capacity checks are unavailable.' if errors else 'a required volume has 10 GiB or less available.'))
             if errors:
                 self.record['reason'] = 'monitor_unavailable'
             elif low:
                 self.record['reason'] = 'low_space'
             self.record['can_resume'] = ready
-            request = self.store.get('disk_safety_requests', self.job['id'], {})
-            if request.get('generation') == self.record['generation']:
+            request = self._control('disk-resume-read', self.store.get, 'disk_safety_requests', self.job['id'], {})
+            if request and request.get('generation') == self.record['generation']:
                 if request.get('nonce') != self.resume_nonce:
                     self.resume_nonce, self.resume_after = request.get('nonce'), time.monotonic()
                     self.samples.wake.set()
-                elif completed > self.resume_after:
-                    with self.store.connect(timeout=CONTROL_TIMEOUT) as db:
-                        db.execute("DELETE FROM items WHERE kind='disk_safety_requests' AND id=?", (self.job['id'],))
+                elif completed > self.resume_after and self._control('disk-resume-consume', self._consume_resume, request):
                     if ready:
                         self.check_cancel()
+                        # Reading cancellation after a lock can outlast the
+                        # previous capacity sample. Never thaw on stale data.
+                        latest = self.samples.current()
+                        ready = bool(latest and latest[1] > self.resume_after and _resume_capacity(latest[0]))
+                    if ready:
                         if self.tree is not None:
                             self.tree.resume()
                         self.record.update(state='monitoring', can_resume=False, pause_kind=None, reason=None, resumed_at=now())
                         self.write('Storage checks passed on every required volume; resumed by user request.')
                     else:
+                        self.record['can_resume'] = False
                         self.write('Resume was not applied: fresh storage checks did not meet the 15 GiB requirement.')
-            self.publish(force=old_state != self.record['state'])
-            return self.record['state'] != 'paused'
+            saved = self.publish(force=old_state != self.record['state'])
+            return saved and self.record['state'] != 'paused'
         self.record.update(state='warning' if any(v['available_bytes'] < WARNING_BYTES for v in volumes) else 'monitoring', can_resume=False)
         if self.record['state'] == 'warning' and old_state != 'warning':
             self.write('Storage is running low: less than 20 GiB available. Automatic pause begins at 10 GiB.')
-        self.publish(force=old_state != self.record['state'])
-        return True
+        return self.publish(force=old_state != self.record['state'])
 
     def stop(self):
         # Signals precede writes, which may fail on a full disk.
@@ -230,4 +260,4 @@ class Guard(ProcessOwner):
             self.detach(failed=True)
         finally:
             self.record.update(state='failed' if result == 'failed' else 'finished', result=result, can_resume=False)
-            self.publish(force=True)
+            self.publish(force=True, poll=False)

@@ -222,6 +222,13 @@ def job_guidance(store, job):
         category, title = 'interrupted', 'The worker was interrupted'
         help_text = ('Review the retained outputs and log, then validate the saved run before Run / resume. '
                      'An interruption does not establish which tasks completed. Existing scheduler locks are not removed automatically.')
+        if (job['kind'] == 'workflow' and job['payload'].get('action') in {'run', 'continue'}
+                and 'workspace control' in error.lower()
+                and re.search(r'database(?: table)? is locked|locking protocol', error, re.I)):
+            title = 'The workspace database was locked during monitoring'
+            help_text = ('Open Jobs & progress and refresh. Once the attempt shows Interrupted, resume the queue '
+                         'if paused, then open the same saved run and retry its launch action. '
+                         'Activity keeps the earlier log.')
         evidence = error or 'The job was recorded as interrupted during worker recovery.'
     steps = re.findall(r'(?:Error in rule|Error in checkpoint) ([A-Za-z0-9_.-]{1,120})(?=[:\s]|$)', text)
     return {'title': title, 'text': help_text, 'category': category,

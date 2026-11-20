@@ -22,6 +22,7 @@ from .supervision import MonitoringInterrupted
 
 
 SETUP_CONTROL_GRACE_SECONDS = 30.0
+WORKFLOW_CONTROL_GRACE_SECONDS = 30.0
 
 
 class Cancelled(Exception):
@@ -87,7 +88,8 @@ class Context:
         self.cancel_requested = False
         self.setup_control = (job['kind'] in {'install', 'connect', 'bootstrap', 'environments'} or
                               (job['kind'] == 'check' and (job['payload'].get('setup') or job['payload'].get('repair'))))
-        self.control_deadline = None
+        self.workflow_control = job['kind'] == 'workflow'
+        self.control_deadlines = {}
         self.monitor = {'id': job['id'], 'state': 'healthy', 'retry_count': 0}
         self.native_record = None
         run_id = job['payload'].get('run_id')
@@ -104,7 +106,7 @@ class Context:
             from .channels import environment
             from .disk_pause import Guard
             self.disk_guard = Guard(store, job, self.check_cancel_only, self.write,
-                                    initial_env=environment(store.home))
+                                    initial_env=environment(store.home), control_operation=self.control_operation)
 
     def observation_warning(self):
         if not self.observer_warned:
@@ -147,15 +149,20 @@ class Context:
         if self.refresh_desktop_cancel():
             raise Cancelled("Stopped by user")
 
-    def control_operation(self, operation, *args, poll=False):
-        """Allow setup to ride out a brief SQLite lock without losing the owned installer.
+    def control_operation(self, operation, *args, poll=False, op_key=None):
+        """Keep supervising the native process during brief SQLite contention.
 
-        At a command boundary we must wait for a real result. In the native
-        polling loop, yield to process supervision and try again on the next tick.
+        A polling call can defer to the next tick. At a command boundary a real
+        result is required. Track each operation separately: a working reader
+        cannot establish that a blocked writer has recovered.
         """
-        if not self.setup_control or self.monitor['state'] == 'interrupted':
+        if not (self.setup_control or self.workflow_control) or self.monitor['state'] == 'interrupted':
             return operation(*args)
-        deadline = self.control_deadline or time.monotonic() + SETUP_CONTROL_GRACE_SECONDS
+        key = operation if op_key is None else op_key
+        grace = SETUP_CONTROL_GRACE_SECONDS if self.setup_control else WORKFLOW_CONTROL_GRACE_SECONDS
+        deadline = self.control_deadlines.get(key)
+        if deadline is None:
+            deadline = time.monotonic() + grace
         while True:
             try:
                 result = operation(*args)
@@ -163,17 +170,21 @@ class Context:
                 cause = exc.__cause__ if isinstance(exc, MonitoringInterrupted) else exc
                 if not isinstance(cause, sqlite3.Error) or not transient_lock(cause):
                     raise
-                if isinstance(exc, sqlite3.Error):  # Reads already report their short retries.
+                # Cancellation reads already report short retries through the
+                # store callback. Other control reads may only report exhaustion.
+                if isinstance(exc, sqlite3.Error) or self.monitor['state'] != 'degraded':
                     self.monitor_retry(exc, 1)
-                self.control_deadline = deadline
+                self.control_deadlines[key] = deadline
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
+                    if isinstance(exc, sqlite3.Error):
+                        raise MonitoringInterrupted('Workspace control persistence failed: ' + str(exc)) from exc
                     raise
                 if poll:
                     return None
                 time.sleep(min(.25, remaining))
             else:
-                self.control_deadline = None
+                self.control_deadlines.pop(key, None)
                 return result
 
     def refresh_desktop_cancel(self, *, poll=False):
@@ -181,10 +192,10 @@ class Context:
         if self.cancel_requested:
             return True
         state = self.control_operation(self.store.control_state, self.job['id'], self.monitor_retry, poll=poll)
-        if state is None:  # A setup poll deferred; keep servicing the owned process.
+        if state is None:  # A control poll deferred; keep servicing the owned process.
             return False
-        if self.monitor['state'] == 'degraded':
-            self.monitor_state('recovered', 'Workspace control reads recovered; native execution remained owned.')
+        if self.monitor['state'] == 'degraded' and not self.control_deadlines:
+            self.monitor_state('recovered', 'Workspace control access recovered; native execution remained owned.')
         self.cancel_requested = bool(state['cancel'] or (self.job['kind'] != 'app_update' and state['owner'] and session_value_stopped(state['session'])))
         return self.cancel_requested
 
@@ -286,7 +297,7 @@ class Context:
             owned_tree = owner.tree
             self.remember_processes(proc, argv, owner)
             self.control_operation(self.store.put_process, self.job['id'], self.native_record)
-            if self.setup_control and self.monitor['state'] == 'degraded':
+            if (self.setup_control or self.workflow_control) and self.monitor['state'] == 'degraded':
                 self.check_cancel_only()  # A stop may have arrived while the exec gate was closed.
             os.write(gate_write, b'1')
             native_started = True
@@ -372,7 +383,7 @@ class Context:
                     raise MonitoringInterrupted(self.monitor['detail'], cleanup_confirmed=cleanup_confirmed) from exc
                 if not cleanup_confirmed:
                     raise MonitoringInterrupted(self.monitor['detail'], cleanup_confirmed=False)
-        if self.setup_control and self.monitor['state'] == 'degraded':
+        if (self.setup_control or self.workflow_control) and self.monitor['state'] == 'degraded':
             self.check_cancel_only()  # Reconcile control before advancing past a completed command.
 
 

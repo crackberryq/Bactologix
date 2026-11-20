@@ -4,6 +4,7 @@
 - The calculator shows requested RAM, the RAM HybAs can use, and the effective scheduling budget after adding swap. Applying a recommendation changes only the swap allowance in the draft.
 - Run and revision reviews show the usable swap at the last hardware check and the exact shortfall when the requested allowance exceeds it.
 - **Edit settings** can save changes to an unexecuted draft under its existing run ID, including after a failed validation. Activity keeps the earlier logs. Validate the updated settings before starting the run.
+- Workflow monitoring retries brief SQLite locks while it supervises the running processes and continues to check disk capacity. Jobs & progress explains how to retry the same run after a persistent monitoring lock.
 
 ## 0.1.0a116.dev1 — 2026-11-19 · Alpha · Job network activity
 
