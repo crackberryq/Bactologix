@@ -431,6 +431,6 @@ def apply_custom(store, tool, cores, memory_mb, gpu_mode, expected, hardware_id,
 def workflow_environment(config):
     policy = config.get('bactologix_compute', {})
     if not isinstance(policy, dict) or policy.get('gpu_mode', 'native') not in {'cpu', 'native'}:
-        raise ValueError('Invalid saved GPU policy. Create a revised draft with CPU only or Native tool settings.')
+        raise ValueError('Invalid saved GPU policy. Open Edit settings and select CPU only or Native tool settings.')
     # Never remove a user's CUDA_VISIBLE_DEVICES restriction in native mode.
     return {'CUDA_VISIBLE_DEVICES': ''} if policy.get('gpu_mode') == 'cpu' else {}

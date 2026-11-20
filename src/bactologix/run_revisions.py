@@ -5,13 +5,14 @@ import hashlib
 import json
 from pathlib import Path
 
-from . import compute_memory, run_config
+from . import compute_memory, draft_edits, run_config
 from .runs import check_run_files, create_run, current_controller, tree_digest
 
 
 from .storage_guard import mutation
 
-def source(store, rid, *, full=True):
+def source(store, rid, *, full=True, recheck_input_content=True):
+    draft_edits.recover(store)
     run = store.get('runs', rid)
     if not run:
         raise ValueError('Choose an existing run.')
@@ -24,7 +25,7 @@ def source(store, rid, *, full=True):
         raise ValueError('Wait for the queued or running job to finish before editing this run.')
     current_controller(store, run)
     if full:
-        check_run_files(run)
+        check_run_files(run, full=recheck_input_content)
         if tree_digest(Path(run['folder']) / 'workflow') != run['workflow_sha256']:
             raise ValueError('The saved workflow source changed. Create a new run.')
     return run
@@ -33,6 +34,8 @@ def source(store, rid, *, full=True):
 def signature(run):
     fields = ('id', 'tool', 'sample', 'config', 'config_sha256', 'workflow_sha256', 'commit',
               'installation', 'inputs', 'rule_cache', 'cores', 'memory_mb', 'run_type')
+    if run.get('draft_generation'):
+        fields += ('draft_generation',)
     return hashlib.sha256(json.dumps({k: run.get(k) for k in fields}, sort_keys=True).encode()).hexdigest()
 
 
@@ -44,12 +47,15 @@ def editor(store, rid):
     from .medaka_review import editor_text
     text = editor_text(store, run['tool'], run['config'], run=run)
     return {'edit_run': {k: run[k] for k in ('id', 'tool', 'sample', 'label', 'cores', 'memory_mb')}
-            | {'signature': signature(run), 'swap_mb': compute_memory.policy(run)['swap_mb']}, 'run_config': run_config.editor(run['tool'], text),
+            | {'can_edit_draft': draft_edits.available(store, run, draft_edits.jobs_for(store, run)),
+               'signature': signature(run), 'swap_mb': compute_memory.policy(run)['swap_mb']}, 'run_config': run_config.editor(run['tool'], text),
             'run_config_view': 'settings', 'keep_modal': True}
 
 
 @mutation
 def apply(store, payload):
+    if payload.get("variant") and payload.get("in_place"):
+        raise ValueError("Choose a separate result variant or save an editable draft.")
     if payload.get("variant"):
         from . import variants
         with variants.freeze(store, payload.get("id")):
@@ -68,7 +74,9 @@ def apply(store, payload):
 
 
 def _apply(store, payload):
-    parent = source(store, payload.get('id'))
+    # In-place edits retain the original input hashes. Launch performs the full
+    # content check; verifying staged paths and metadata suffices when saving.
+    parent = source(store, payload.get('id'), recheck_input_content=payload.get('in_place') is not True)
     config = payload.get('config')
     if config is not None:
         if payload.get('signature') != signature(parent):
@@ -92,10 +100,13 @@ def _apply(store, payload):
     cores, memory = int(payload.get('cores', parent['cores'])), int(payload.get('memory_mb', parent['memory_mb']))
     if not 1 <= cores <= 512 or not 512 <= memory <= 2000000:
         raise ValueError('CPU or memory budget is outside the supported range')
+    if payload.get('in_place') is True:
+        return draft_edits.save(store, parent, text, cores, memory, payload.get('signature'))
     child = create_run(store, parent['tool'], parent['sample'], text, cores, memory,
                        parent['id'], parent['label'] + ' · revised', parent['installation'],
                        expected_inputs=parent['inputs'], register=not payload.get('variant'))
     try:
+        child['parent_draft_generation'] = parent.get('draft_generation', 0)
         child['rule_cache'] = parent.get('rule_cache', child['rule_cache'])
         Path(child['folder'], 'bactologix-run.json').write_text(json.dumps(child, indent=2) + '\n')
         if not payload.get('variant'):

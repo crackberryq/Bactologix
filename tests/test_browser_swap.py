@@ -58,7 +58,7 @@ def start_draft(page, store):
     customize_compute(page)
 
 
-def test_swap_opt_in_recovery_save_revision_and_opt_out(workspace, installation, sample, monkeypatch):
+def test_swap_opt_in_recovery_edit_failed_draft_and_opt_out(workspace, installation, sample, monkeypatch):
     from playwright.sync_api import sync_playwright, expect
     capacity(workspace, monkeypatch)
     original_defaults = workspace.get('configs', 'hybas')
@@ -103,7 +103,10 @@ def test_swap_opt_in_recovery_save_revision_and_opt_out(workspace, installation,
         request, _ = respond(page, workspace, 'create_runs')
         assert request['payload']['swap_mb'] == 98304 and request['payload']['memory_mb'] == 28672
         parent, = workspace.all('runs')
-        original_parent = copy.deepcopy(parent)
+        failed = workspace.submit('workflow', {'run_id': parent['id'], 'action': 'dry-run'})
+        workspace.update_job(failed, status='failed', error='Kraken reservation exceeds budget')
+        original_log = 'Kraken reservation exceeds budget'
+        workspace.log_path(failed).write_text(original_log)
         cfg = yaml.safe_load(parent['config'])
         assert cfg['bactologix_compute']['swap_mb'] == 98304
         assert (cfg['assembly_mem_mb'], cfg['polishing_mem_mb'], cfg['spades_memory_gb']) == (8192, 4096, 8)
@@ -116,17 +119,34 @@ def test_swap_opt_in_recovery_save_revision_and_opt_out(workspace, installation,
         expect(page.get_by_label('Additional swap allowance (MB)', exact=True)).to_have_value('98304')
         toggle.uncheck()
         expect(page.get_by_label('Additional swap allowance (MB)', exact=True)).to_have_count(0)
-        page.get_by_role('button', name='Review drafts', exact=True).click()
+        page.get_by_role('button', name='Review changes', exact=True).click()
         respond(page, workspace, 'run_config_editor')
         expect(page.locator('[data-review-budget="swap"]')).to_have_text('Off')
-        page.get_by_role('button', name='Create revised draft', exact=True).click()
-        request, _ = respond(page, workspace, 'revise_run')
+        page.get_by_role('button', name='Save changes', exact=True).click()
+        request, response = respond(page, workspace, 'update_run_draft')
+        assert response['open_run'] == parent['id']
         assert request['payload']['swap_mb'] == 0 and request['payload']['memory_mb'] == 28672
-        child, = [run for run in workspace.all('runs') if run['id'] != parent['id']]
-        assert yaml.safe_load(child['config'])['bactologix_compute']['swap_mb'] == 0
-        assert child['parent'] == parent['id']
-        assert workspace.get('runs', parent['id']) == original_parent
+        edited, = workspace.all('runs')
+        assert edited['id'] == parent['id'] and edited['output'] == parent['output']
+        assert yaml.safe_load(edited['config'])['bactologix_compute']['swap_mb'] == 0
+        expect(page.get_by_role('button', name='Validate run', exact=True)).to_be_enabled()
+        page.get_by_role('button', name='Activity', exact=True).click()
+        attempt = page.locator('.run-job').filter(has_text=failed)
+        expect(attempt).to_contain_text('Earlier draft settings')
+        expect(attempt.get_by_role('button', name='View log')).to_be_enabled()
+        assert workspace.log_path(failed).read_text() == original_log
         assert workspace.get('configs', 'hybas') == original_defaults
+
+        # A settings edit from another tab invalidates this open run's cached checks.
+        from test_run_revisions import request as draft_request
+        page.locator('[data-action="saved-run-tab"][data-id="overview"]').click()
+        second = draft_request(workspace, edited)
+        second['memory_mb'] = 24576
+        dispatch(workspace, 'update_run_draft', second)
+        page.evaluate('w => {Object.assign(window.acceptanceWorkspace,w);window.acceptanceRender(null);}', snapshot(workspace))
+        request, result = respond(page, workspace, 'inspect_run')
+        assert request['payload']['id'] == edited['id'] and result['detail']['draft_generation'] == 2
+        expect(page.locator('.review-stats')).to_contain_text('24576 MB')
         # A fresh draft never opts into disk swap because a previous run did.
         start_draft(page, workspace)
         expect(toggle).not_to_be_checked()
@@ -134,7 +154,7 @@ def test_swap_opt_in_recovery_save_revision_and_opt_out(workspace, installation,
         browser.close()
 
 
-def test_review_warns_before_saving_excessive_swap_in_drafts_and_revisions(
+def test_review_warns_before_saving_excessive_swap_in_new_and_existing_drafts(
         workspace, installation, sample, monkeypatch):
     from playwright.sync_api import sync_playwright, expect
     capacity(workspace, monkeypatch, free_swap=73728)
@@ -160,11 +180,12 @@ def test_review_warns_before_saving_excessive_swap_in_drafts_and_revisions(
         respond(page, workspace, 'create_runs')
         page.get_by_role('button', name='Edit settings', exact=True).click()
         respond(page, workspace, 'edit_run_settings')
+        review = page.get_by_role('button', name='Review changes', exact=True)
         review.click()
         respond(page, workspace, 'run_config_editor')
-        expect(page.get_by_role('heading', name='Ready to create a revised draft?')).to_be_visible()
+        expect(page.get_by_role('heading', name='Save changes to this draft?')).to_be_visible()
         expect(warning).to_be_visible()
-        expect(page.get_by_role('button', name='Create revised draft', exact=True)).to_be_enabled()
+        expect(page.get_by_role('button', name='Save changes', exact=True)).to_be_enabled()
         page.get_by_role('button', name='Back', exact=True).click()
         customize_compute(page)
         allowance.fill('72704')

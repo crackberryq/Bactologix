@@ -95,7 +95,7 @@ def capacity_issues(run, info):
     problems = []
     if values['ram_mb'] > max(0, memory['total_mb'] - reserve):
         problems.append(f"The {values['ram_mb']:,} MB RAM budget does not leave the {reserve:,} MB "
-                        'system reserve within detected RAM. Reduce the RAM budget in a revised draft.')
+                        'system reserve within detected RAM. Open Edit settings and reduce the RAM budget.')
     free_swap = usable_swap_mb(memory['swap_available_mb'])
     if values['swap_mb'] > free_swap:
         problems.append(f"The {values['swap_mb']:,} MB swap allowance exceeds the {free_swap:,} MB "

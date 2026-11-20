@@ -554,9 +554,10 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             revision_yaml = page.get_by_label('Run configuration YAML', exact=True)
             revision_yaml.fill(revision_yaml.input_value() + '\nrevision_note: saved-run editor test\n')
             page.get_by_role('button', name='Back to controls', exact=True).click()
-            page.get_by_role('button', name='Review drafts', exact=True).click()
+            page.get_by_role('button', name='Review changes', exact=True).click()
             expect(page.locator('.run-wizard .review-stats')).to_contain_text('5 cores')
-            page.get_by_role('button', name='Create revised draft', exact=True).click()
+            expect(page.get_by_role('button', name='Save changes', exact=True)).to_be_visible()
+            page.get_by_role('button', name='Save as new draft', exact=True).click()
             expect(page.get_by_role('heading', name='browser.fixture · revised', exact=True)).to_be_visible()
             revised, = [r for r in Store(workspace).all('runs') if r.get('parent') == created['id']]
             revised_config = yaml.safe_load(revised['config'])
@@ -2403,7 +2404,7 @@ def test_full_saved_configuration_comparison(tmp_path, installed):
         page.get_by_label('Search setting paths', exact=True).fill('not a recorded key')
         expect(panel).to_contain_text('No matching rows')
         page.get_by_label('Reference run', exact=True).select_option(runs[1]['id'])
-        expect(panel).to_contain_text('Selection changed')
+        expect(panel).to_contain_text('Selection or saved settings changed')
         expect(panel.locator('table')).to_have_count(0)
         expect(page.get_by_role('button', name='Refresh & download comparison', exact=True)).to_have_count(0)
         page.get_by_role('button', name='Compare configurations', exact=True).click()
@@ -2412,7 +2413,7 @@ def test_full_saved_configuration_comparison(tmp_path, installed):
         expect(panel.locator('thead th').nth(1)).to_contain_text('Right fixture')
         page.locator('.comparison-picker summary').click()
         page.get_by_label('Select ' + runs[2]['label'], exact=True).check()
-        expect(panel).to_contain_text('Selection changed')
+        expect(panel).to_contain_text('Selection or saved settings changed')
         page.get_by_role('button', name='Compare configurations', exact=True).click()
         assert len(respond('compare_saved_runs')['comparison']['runs']) == 3
         expect(panel.locator('thead th')).to_have_count(4)
@@ -2430,6 +2431,19 @@ def test_full_saved_configuration_comparison(tmp_path, installed):
         assert panel.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1'), panel.evaluate('(el) => [...el.children].map(x=>[x.className,x.clientWidth,x.scrollWidth])')
         expect(panel.locator('.table-wrap')).to_be_visible()
         assert store.all('runs') == original and not store.jobs() and errors == []
+
+        # A second tab saves an edit in place. Keep the selection, refresh its comparison.
+        from test_run_revisions import request as draft_request
+        edit = draft_request(store, runs[0])
+        edit['memory_mb'] += 512
+        dispatch(store, 'update_run_draft', edit)
+        page.evaluate('w => {Object.assign(window.acceptanceWorkspace,w);window.acceptanceRender(null);}', snapshot(store))
+        expect(panel).to_contain_text('Selection or saved settings changed')
+        expect(panel.locator('table')).to_have_count(0)
+        page.get_by_role('button', name='Compare configurations', exact=True).click()
+        refreshed = respond('compare_saved_runs')['comparison']['runs']
+        assert next(r for r in refreshed if r['id'] == runs[0]['id'])['draft_generation'] == 1
+        expect(panel.locator('.table-wrap')).to_be_visible()
         browser.close()
 
 

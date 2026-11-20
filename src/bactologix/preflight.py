@@ -173,7 +173,7 @@ def budget(run, info):
             limits.append(('deep.memory_mb', deep.get('memory_mb'), 1))
     for name, value, scale in limits:
         if isinstance(value, (int, float)) and not isinstance(value, bool) and value * scale > scheduling:
-            issues.append(f'{name} ({value}) exceeds the {scheduling:,} MB scheduling budget. Review this limit in a revised draft.')
+            issues.append(f'{name} ({value}) exceeds the {scheduling:,} MB scheduling budget. Open Edit settings to review this limit.')
     issues.extend(compute_memory.capacity_issues(run, info))
     return issues
 

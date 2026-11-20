@@ -36,6 +36,34 @@ def test_legacy_jobs_keep_fifo_without_rewriting_payloads(tmp_path):
     assert store.claim() is None
 
 
+@pytest.mark.parametrize('saved', [{'id': 'run-test'}, {'id': 'run-test', 'draft_generation': 3}])
+def test_workflow_queue_binds_the_draft_seen_by_validation(tmp_path, monkeypatch, saved):
+    from bactologix import engine, runs
+
+    store = Store(tmp_path)
+    rid = saved['id']
+    store.put('runs', rid, saved)
+    payload = {'run_id': rid, 'action': 'dry-run'}
+    monkeypatch.setattr(updates, 'assert_current', lambda store: None)
+    launches = []
+    monkeypatch.setattr(engine, 'launch_worker', launches.append)
+
+    def validate_while_editing(store, rid, action):
+        checked = store.get('runs', rid)
+        store.put('runs', rid, {**checked, 'draft_generation': checked.get('draft_generation', 0) + 1})
+        return checked
+
+    monkeypatch.setattr(runs, 'validate_launch', validate_while_editing)
+    with pytest.raises(ValueError, match='changed or was removed before queueing'):
+        engine.enqueue(store, 'workflow', payload)
+    assert store.jobs() == [] and launches == []
+
+    monkeypatch.setattr(runs, 'validate_launch', lambda store, rid, action: store.get('runs', rid))
+    jid = engine.enqueue(store, 'workflow', payload)
+    assert store.job(jid)['payload'] == payload
+    assert launches == [store]
+
+
 def test_pause_survives_reopen_and_covers_future_jobs(tmp_path):
     store = Store(tmp_path)
     first = store.submit('smoke', {})

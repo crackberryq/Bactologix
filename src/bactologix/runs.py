@@ -311,8 +311,15 @@ def dry_run_current(store, run):
         return False
 
 
+def current_draft_jobs(run, jobs):
+    """Keep earlier attempts in Activity while evaluating the current settings."""
+    previous = set(run.get("previous_draft_jobs", ()))
+    return [job for job in jobs if job["kind"] == "workflow"
+            and job["payload"].get("run_id") == run["id"] and job.get("id") not in previous]
+
+
 def run_status(run, jobs, checked):
-    related = [j for j in jobs if j["kind"] == "workflow" and j["payload"].get("run_id") == run["id"]]
+    related = current_draft_jobs(run, jobs)
     active = next((j for j in related if j["status"] in {"queued", "running"}), None)
     if active:
         return active["status"]
@@ -454,21 +461,7 @@ def bind_paths(cfg, tool, store, installed):
     return cfg
 
 
-@mutation
-def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, parent=None, label=None, installation=None, expected_inputs=None, register=True):
-    spec = PIPELINES[tool]
-    install_id = installation or store.get("settings", "active-" + tool)
-    installed = store.get("installs", install_id)
-    if not installed or not installed.get("ready") or not supported(tool, installed["version"]["commit"], store):
-        raise ValueError("Set up a supported pipeline runner first")
-    if installed.get('setup_mode') == 'first_install' and not installed.get('setup_completed'):
-        raise ValueError('Finish first-time installation in Install & update before creating a run draft')
-    if sample.get("input_manifest"):
-        from .manifest_inputs import require_adapter
-        require_adapter(store, tool, installed)
-    cores, memory_mb = int(cores), int(memory_mb)
-    if cores < 1 or memory_mb < 512:
-        raise ValueError("Choose at least one core and 512 MB memory")
+def prepare_config(store, tool, sample, config_text, memory_mb, installed):
     from .channels import validate_resources
     validate_resources(store, parse_config(config_text))
     cfg = bind_paths(parse_config(config_text), tool, store, installed)
@@ -505,6 +498,46 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
             raise ValueError("This HybAs version does not support identification review. Update the pipeline first.")
         if cfg.get('kraken_review_decision') or cfg.get('kraken_review_decision_sha256'):
             raise ValueError("Identification decisions are managed through Review identification, not draft YAML.")
+    return cfg
+
+
+def freeze_config(cfg, tool, folder, frozen_manifest, cores, memory_mb):
+    if tool != "hybas" or cfg.get("threads") != "auto":
+        cfg["threads"] = cores
+    if tool == "hybas":
+        cfg.pop("input_manifest", None)
+        if frozen_manifest:
+            cfg["input_manifest"] = frozen_manifest["path"]
+        cfg.update(base_dir=str(folder / "outputs"), sample_sheet=str(folder / "samples.tsv"), setup_only=False, admin_mode=False, ci_mode=False)
+        cfg.pop("isolate", None)
+    elif tool == "micpscope":
+        cfg.update(output_dir=str(folder / "outputs"), samples=str(folder / "samples.tsv"), memory_mb=memory_mb)
+    else:
+        cfg.update(bactomics_root=str(folder / "outputs"), samples=str(folder / "samples.tsv"), memory_mb=memory_mb, isolates=[])
+        if 'execution' in cfg:
+            if not isinstance(cfg['execution'], dict):
+                raise ValueError('The execution settings must be a mapping.')
+            cfg['execution'].update(cores=cores, memory_mb=memory_mb)
+        cfg.pop("isolate", None)
+    return yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
+
+
+@mutation
+def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, parent=None, label=None, installation=None, expected_inputs=None, register=True):
+    spec = PIPELINES[tool]
+    install_id = installation or store.get("settings", "active-" + tool)
+    installed = store.get("installs", install_id)
+    if not installed or not installed.get("ready") or not supported(tool, installed["version"]["commit"], store):
+        raise ValueError("Set up a supported pipeline runner first")
+    if installed.get('setup_mode') == 'first_install' and not installed.get('setup_completed'):
+        raise ValueError('Finish first-time installation in Install & update before creating a run draft')
+    if sample.get("input_manifest"):
+        from .manifest_inputs import require_adapter
+        require_adapter(store, tool, installed)
+    cores, memory_mb = int(cores), int(memory_mb)
+    if cores < 1 or memory_mb < 512:
+        raise ValueError("Choose at least one core and 512 MB memory")
+    cfg = prepare_config(store, tool, sample, config_text, memory_mb, installed)
     rid = identifier("run")
     folder = store.home / "runs" / rid
     folder.mkdir()
@@ -519,28 +552,12 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         inputs = stage_inputs(sample, tool, output)
         if expected_inputs is not None and not matching_inputs(expected_inputs, inputs):
             raise ValueError("Original inputs differ from the parent run. Register changed data as a new run, not a comparison variant.")
-        if tool != "hybas" or cfg.get("threads") != "auto":
-            cfg["threads"] = cores
         frozen_manifest = None
-        if tool == "hybas":
-            cfg.pop("input_manifest", None)
-            if sample.get("input_manifest"):
-                from .manifest_inputs import freeze
-                frozen_manifest = freeze(sample, folder)
-                cfg["input_manifest"] = frozen_manifest["path"]
-            cfg.update(base_dir=str(folder / "outputs"), sample_sheet=str(folder / "samples.tsv"), setup_only=False, admin_mode=False, ci_mode=False)
-            cfg.pop("isolate", None)
-        elif tool == "micpscope":
-            cfg.update(output_dir=str(folder / "outputs"), samples=str(folder / "samples.tsv"), memory_mb=memory_mb)
-        else:
-            cfg.update(bactomics_root=str(folder / "outputs"), samples=str(folder / "samples.tsv"), memory_mb=memory_mb, isolates=[])
-            if 'execution' in cfg:
-                if not isinstance(cfg['execution'], dict):
-                    raise ValueError('The execution settings must be a mapping.')
-                cfg['execution'].update(cores=cores, memory_mb=memory_mb)
-            cfg.pop("isolate", None)
+        if sample.get("input_manifest"):
+            from .manifest_inputs import freeze
+            frozen_manifest = freeze(sample, folder)
+        text = freeze_config(cfg, tool, folder, frozen_manifest, cores, memory_mb)
         (folder / "samples.tsv").write_bytes(sample_sheet(sample, tool, output).encode())
-        text = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
         (folder / "config.yaml").write_text(text)
         (folder / "submitted.yaml").write_text(config_text)
         run = {"id": rid, "tool": tool, "sample": copy.deepcopy(sample), "folder": str(folder), "output": str(output),

@@ -129,6 +129,8 @@ def snapshot(store, *, cached=False):
         checked = dry_run_current(store, run)
         status = run_status(run, jobs, checked)
         runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant", "identification", "experimental")} | {
+            "previous_draft_jobs": run.get("previous_draft_jobs", []),
+            "draft_generation": run.get("draft_generation", 0),
             "swap_mb": compute_memory.allowance(cfg),
             "aware_state": run.get("aware"), "status": status, "assessment": assessment.summary(store, run), "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
             "kraken_mode": "off" if cfg.get("run_kraken") is False else kraken_mode,
@@ -595,6 +597,7 @@ def dispatch(store, kind, p):
         return response
     if kind == "inspect_run":
         run = copy.deepcopy(_item(store, "runs", p.get("id")))
+        run.setdefault("draft_generation", 0)
         run['swap_mb'] = compute_memory.policy(run)['swap_mb']
         if run['swap_mb']:
             # This is the explicit Refresh checks path. Background snapshots
@@ -742,12 +745,17 @@ def dispatch(store, kind, p):
         followup.create_followup(store, p.get("id"), p["text"], p.get("reviewed") is True,
                                  p.get('source_id', 'screening'), p.get('scope'))
         return {"message": "Created a reviewed follow-up draft. Check its native dry-run before execution.", "navigate": "runs"}
-    if kind == "revise_run":
-        child = run_revisions.apply(store, p)
-        response = {"message": ("Created a result variant. Review inherited checkpoints and validate before running." if child.get("variant") else "Created a revised draft. The original run is unchanged; check a new dry-run."),
-                    "navigate": "runs", "open_run": child["id"], "keep_modal": False}
-        response.update(dispatch(store, "inspect_run", {"id": child["id"]}))
-        response["keep_modal"] = False
+    if kind in {"update_run_draft", "revise_run"}:
+        in_place = kind == "update_run_draft"
+        saved = run_revisions.apply(store, {**p, "in_place": in_place})
+        if in_place:
+            message = "Saved changes to this draft. Choose Validate run to check the updated settings."
+        elif saved.get("variant"):
+            message = "Created a result variant. Review inherited checkpoints and validate before running."
+        else:
+            message = "Created a revised draft. Validate the new draft before running."
+        response = dispatch(store, "inspect_run", {"id": saved["id"]})
+        response.update(message=message, navigate="runs", open_run=saved["id"], keep_modal=False)
         return response
     if kind == "micp_handoff":
         from .micp_handoff import create

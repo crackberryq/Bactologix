@@ -3,6 +3,7 @@
 - The Kraken swap calculator uses the same physical RAM ceiling as the selected HybAs 10 build. It accounts for Auto, an explicit `total_mem_mb`, and Linux or WSL container limits.
 - The calculator shows requested RAM, the RAM HybAs can use, and the effective scheduling budget after adding swap. Applying a recommendation changes only the swap allowance in the draft.
 - Run and revision reviews show the usable swap at the last hardware check and the exact shortfall when the requested allowance exceeds it.
+- **Edit settings** can save changes to an unexecuted draft under its existing run ID, including after a failed validation. Activity keeps the earlier logs. Validate the updated settings before starting the run.
 
 ## 0.1.0a116.dev1 — 2026-11-19 · Alpha · Job network activity
 

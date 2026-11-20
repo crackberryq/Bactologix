@@ -149,6 +149,19 @@ def test_retry_after_preview_invalidates_bulk_deletion(store):
     assert not any(job['kind'] == 'storage_cleanup' for job in store.jobs())
 
 
+def test_edit_after_preview_protects_failed_validation_draft(store):
+    run = saved_run(store, 'run-edited', completed=False)
+    workflow(store, run, 'failed', 'dry-run')
+    plan = preview(store)
+    assert targets(plan) == {('run', run['id'])}
+    run.update(draft_generation=1, previous_draft_jobs=[store.jobs()[0]['id']])
+    store.put('runs', run['id'], run)
+    with pytest.raises(ValueError, match='draft changed'):
+        queue_cleanup(store, plan)
+    assert ('run', run['id']) not in targets(preview(store))
+    assert Path(run['folder']).is_dir()
+
+
 def test_running_retry_is_preserved(store):
     other = saved_run(store, 'run-retrying', completed=False)
     workflow(store, other, 'failed')

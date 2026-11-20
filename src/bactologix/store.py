@@ -64,6 +64,9 @@ class Store:
                   held INTEGER NOT NULL DEFAULT 0 CHECK(held IN (0,1)));
             """)
 
+        from .draft_edits import recover
+        recover(self)
+
     @contextmanager
     def connect(self, *, timeout=30):
         db = sqlite3.connect(self.home / "workspace.sqlite3", timeout=timeout)
@@ -179,11 +182,11 @@ class Store:
             db.execute("INSERT INTO items VALUES ('settings',?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body",
                        ('active-' + item['tool'], json.dumps(key)))
 
-    def submit(self, kind, payload):
+    def submit(self, kind, payload, *, expected_draft_generation=None):
         with (exclusive(self) if kind in {'storage_cleanup', 'factory_reset'} else activity(self)):
-            return self._submit(kind, payload)
+            return self._submit(kind, payload, expected_draft_generation)
 
-    def _submit(self, kind, payload):
+    def _submit(self, kind, payload, expected_draft_generation):
         jid = identifier("job")
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -201,6 +204,11 @@ class Store:
                 from .variants import lock_active
                 if lock_active(db, payload.get('run_id')):
                     raise ValueError('A variant is copying this run. Wait for the snapshot to finish.')
+                if expected_draft_generation is not None:
+                    run = db.execute("SELECT body FROM items WHERE kind='runs' AND id=?",
+                                     (payload['run_id'],)).fetchone()
+                    if not run or json.loads(run[0]).get('draft_generation', 0) != expected_draft_generation:
+                        raise ValueError('The run changed or was removed before queueing. Reopen the run and try again.')
             pending = db.execute("SELECT kind FROM jobs WHERE status IN ('queued','running')").fetchall()
             if kind == 'isolate_export' and pending:
                 raise ValueError('Finish or cancel queued/running jobs before exporting an isolate snapshot.')

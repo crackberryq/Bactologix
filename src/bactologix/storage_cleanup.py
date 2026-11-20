@@ -198,6 +198,8 @@ def failed_job(store, job):
 
 def _failed_run_jobs(store, run, related):
     """Preserve prior results, researcher review, intentional stops and never-run drafts."""
+    from .runs import current_draft_jobs
+    related = current_draft_jobs(run, related)
     if (not related or run.get('completed') or run.get('previous_completed')
             or run.get('identification', {}).get('state') == 'awaiting_review'
             or run.get('aware', {}).get('state') == 'complete'):
@@ -799,6 +801,11 @@ def request(store, plan_id, signature, confirmation, acknowledged):
             # The worker inventories these potentially large trees under its exclusive locks.
             if plan.get('job_revision') != _failure_revision(store):
                 raise ValueError('Job status changed since preview. Review failed items again.')
+            for item in plan['candidates']:
+                if item['kind'] == 'run':
+                    run = store.get('runs', item['id'])
+                    if not run or run.get('draft_generation', 0) != item['metadata'].get('draft_generation', 0):
+                        raise ValueError('A draft changed since preview. Review failed items again.')
         else:
             _verify(store, plan)
             _check_processes([r['path'] for r in plan['inventories']])

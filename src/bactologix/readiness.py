@@ -196,7 +196,7 @@ def job_guidance(store, job):
          'Review the output, temporary and environment-cache disks and their quotas. Free space deliberately, then review the saved run before resuming.'),
         ('permissions', r'Permission denied|Read-only file system|PermissionError|\[Errno (?:13|30)\]',
          'A file location could not be accessed',
-         'Review the path in the error and its ownership, permissions or mount state. Use a writable location through the existing settings controls; changed run paths require a revised draft.'),
+         'Review the path in the error and its ownership, permissions or mount state. Use Edit settings to select a writable location, then validate the updated settings.'),
         ('environments', r'existing environments only',
          'A matching tool environment is missing or incomplete',
          'Open the saved run and check its environment cache. Install environments only when you choose to, then review the run before retrying.'),

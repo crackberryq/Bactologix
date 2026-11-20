@@ -71,8 +71,10 @@ def enqueue(store, kind, payload):
     assert_current(store)
     if kind == "workflow":
         from .runs import validate_launch
-        validate_launch(store, payload["run_id"], payload["action"])
-    jid = store.submit(kind, payload)
+        run = validate_launch(store, payload["run_id"], payload["action"])
+        jid = store.submit(kind, payload, expected_draft_generation=run.get("draft_generation", 0))
+    else:
+        jid = store.submit(kind, payload)
     launch_worker(store)
     return jid
 
