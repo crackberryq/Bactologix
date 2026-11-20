@@ -1,3 +1,8 @@
+## 0.1.0a118.dev1 — 2026-11-20 · Alpha · Windows storage checks
+
+- The Windows Dev launcher can measure free space on the drives holding the WSL distribution and its swap file when Ubuntu cannot start Windows PowerShell. Install the Windows Dev setup package to update the launcher.
+- The run page distinguishes a failed storage check from a measured shortage. It explains when the check will retry and when you can choose **Resume run**.
+
 ## 0.1.0a117.dev1 — 2026-11-20 · Alpha · Match HybAs 10 memory validation
 
 - The Kraken swap calculator uses the same physical RAM ceiling as the selected HybAs 10 build. It accounts for Auto, an explicit `total_mem_mb`, and Linux or WSL container limits.

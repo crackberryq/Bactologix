@@ -8,6 +8,7 @@ Unverifiable required volumes produce errors, never unlimited-capacity values.
 from __future__ import annotations
 
 import base64
+from datetime import datetime, timezone
 import json
 import ntpath
 import os
@@ -17,107 +18,22 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 
 import yaml
 
+from .desktop import STORAGE_SESSION_DIR
 from .store import now
 
 WINDOWS_TIMEOUT = 3.0
 MAX_WINDOWS_OUTPUT = 65536
+SAMPLE_MAX_AGE_SECONDS = 5.0
 _PREFIX = 'BACTOLOGIX_CAPACITY_V1:'
 _TEMP_KEYS = {'tmpdir', 'tmp_dir', 'temp_dir', 'temp_directory', 'tmp_directory', 'scratch_dir'}
 
 # Payload values are base64 JSON, never interpolated PowerShell source. The
 # script only reads selected registration/configuration metadata and capacity.
-_WINDOWS_SCRIPT = r'''
-$ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
-$payload = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__PAYLOAD__')) | ConvertFrom-Json
-Add-Type -TypeDefinition @'
-using System;
-using System.Text;
-using System.Runtime.InteropServices;
-public static class BactologixDiskCapacity {
- [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
- public static extern bool GetDiskFreeSpaceEx(string path, out ulong available, out ulong total, out ulong free);
- [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
- public static extern bool GetVolumePathName(string path, StringBuilder volume, uint length);
- [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
- public static extern bool GetVolumeNameForVolumeMountPoint(string path, StringBuilder volume, uint length);
-}
-'@ | Out-Null
-$errors = @()
-$targets = @()
-if ($payload.operation -eq 'discover') {
- try {
-  $keys = @(Get-ChildItem -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss' |
-   Where-Object { $_.GetValue('DistributionName') -ceq $payload.distribution })
-  if ($keys.Count -ne 1) { throw 'Current distribution registration is missing or ambiguous.' }
-  $base = [string]$keys[0].GetValue('BasePath')
-  if (-not $base -or -not [IO.Directory]::Exists($base)) { throw 'Current distribution storage directory is unavailable.' }
-  $targets += @{ path=$base; label=('Windows storage for ' + $payload.distribution); role='wsl_backing' }
- } catch { $errors += ('Cannot identify WSL backing storage: ' + $_.Exception.Message) }
- try {
-  $swap = $null; $swapFile = $null; $section = ''
-  $config = Join-Path $env:USERPROFILE '.wslconfig'
-  if ([IO.File]::Exists($config)) {
-   if ((Get-Item -LiteralPath $config).Length -gt 65536) { throw 'WSL configuration exceeds the bounded read limit.' }
-   foreach ($line in [IO.File]::ReadAllLines($config)) {
-    $text = $line.Trim()
-    if ($text -match '^\[([^\]]+)\]\s*$') { $section = $Matches[1].ToLowerInvariant(); continue }
-    if ($section -ne 'wsl2' -or $text.StartsWith('#') -or $text.StartsWith(';')) { continue }
-    if ($text -match '^swap\s*=\s*(.*?)\s*$') { $swap = $Matches[1] }
-    if ($text -match '^swapfile\s*=\s*(.*?)\s*$') { $swapFile = $Matches[1] }
-   }
-  }
-  if ($null -eq $swap -or $swap -notmatch '^0+(?:B|KB|MB|GB|TB)?$') {
-   if (-not $swapFile) { $swapFile = Join-Path ([IO.Path]::GetTempPath()) 'swap.vhdx' }
-   else {
-    if (($swapFile.StartsWith('"') -and $swapFile.EndsWith('"')) -or ($swapFile.StartsWith("'") -and $swapFile.EndsWith("'"))) {
-     $swapFile = $swapFile.Substring(1, $swapFile.Length - 2)
-    }
-    $swapFile = $swapFile.Replace('\\', '\').Replace('/', '\')
-   }
-   if ($swapFile -notmatch '^(?:[A-Za-z]:\\|\\\\[^\\]+\\[^\\]+\\)') { throw 'Swap path is not an absolute Windows path.' }
-   $targets += @{ path=$swapFile; label='Configured Windows swap storage'; role='wsl_swap' }
-  }
- } catch { $errors += ('Cannot identify WSL swap storage: ' + $_.Exception.Message) }
-} elseif ($payload.operation -eq 'sample') { $targets = @($payload.targets) }
-else { throw 'Unknown capacity probe operation.' }
-$volumes = @()
-foreach ($target in $targets) {
- try {
-  $path = [string]$target.path
-  if ($target.probe_path) {
-   $existing = [string]$target.probe_path
-   if (-not [IO.Directory]::Exists($existing)) { throw 'Previously identified storage directory is unavailable.' }
-  } else {
-   $existing = $path
-   if ([IO.File]::Exists($existing)) { $existing = [IO.Path]::GetDirectoryName($existing) }
-   while (-not [IO.Directory]::Exists($existing)) {
-    $parent = [IO.Path]::GetDirectoryName($existing.TrimEnd('\'))
-    if (-not $parent -or $parent -eq $existing) { throw 'No accessible directory for storage path.' }
-    $existing = $parent
-   }
-  }
-  [UInt64]$available = 0; [UInt64]$total = 0; [UInt64]$free = 0
-  if (-not [BactologixDiskCapacity]::GetDiskFreeSpaceEx($existing, [ref]$available, [ref]$total, [ref]$free)) {
-   throw ('Windows free-space query failed (' + [Runtime.InteropServices.Marshal]::GetLastWin32Error() + ').')
-  }
-  $mount = New-Object Text.StringBuilder 32768
-  if ([BactologixDiskCapacity]::GetVolumePathName($existing, $mount, [UInt32]$mount.Capacity)) { $volumePath = $mount.ToString() }
-  else { $volumePath = [IO.Path]::GetPathRoot($existing) }
-  $name = New-Object Text.StringBuilder 1024
-  if ([BactologixDiskCapacity]::GetVolumeNameForVolumeMountPoint($volumePath, $name, [UInt32]$name.Capacity)) { $identity = $name.ToString() }
-  else { $identity = $volumePath }
-  if (-not $identity -or $total -eq 0) { throw 'Windows storage identity or capacity is unavailable.' }
-  $volumes += @{ id=('windows:' + $identity.ToLowerInvariant()); label=$target.label; path=$path;
-   probe_path=$existing; volume_path=$volumePath; role=$target.role; kind='windows_host';
-   available_bytes=$available; total_bytes=$total }
- } catch { $errors += ([string]$target.label + ': ' + $_.Exception.Message) }
-}
-[Console]::WriteLine('BACTOLOGIX_CAPACITY_V1:' + (@{ volumes=@($volumes); errors=@($errors) } | ConvertTo-Json -Depth 5 -Compress))
-'''
+_WINDOWS_SCRIPT = Path(__file__).with_name('data').joinpath('windows_capacity.ps1').read_text(encoding='utf-8')
 
 
 def _unescape_mount(value):
@@ -202,7 +118,10 @@ def _windows_query(payload, mounts):
     records = [line[len(_PREFIX):] for line in lines if line.startswith(_PREFIX)]
     if len(records) != 1:
         raise ValueError('Windows capacity probe did not return one verified response.')
-    response = json.loads(records[0])
+    return _validate_windows_response(json.loads(records[0]))
+
+
+def _validate_windows_response(response):
     if not isinstance(response, dict) or not isinstance(response.get('volumes'), list) or not isinstance(response.get('errors'), list):
         raise ValueError('Windows capacity probe returned an invalid response.')
     if len(response['volumes']) > 4 or len(response['errors']) > 8:
@@ -214,6 +133,36 @@ def _windows_query(payload, mounts):
             raise ValueError('Windows capacity probe returned an invalid volume.')
     if any(not isinstance(item, str) for item in response['errors']):
         raise ValueError('Windows capacity probe returned invalid errors.')
+    return response
+
+
+def _desktop_observation(directory, distribution):
+    """Read one complete, current observation from this Windows desktop session."""
+    root = Path(directory)
+    if not root.is_absolute() or not re.fullmatch(r'[0-9a-f]{32}', root.name):
+        raise ValueError('Windows desktop storage session directory is invalid.')
+    path = root / 'windows-storage.json'
+    if not path.is_file() or path.is_symlink():
+        raise ValueError('Windows desktop storage reading is unavailable.')
+    with path.open('rb') as stream:
+        raw = stream.read(MAX_WINDOWS_OUTPUT + 1)
+    if len(raw) > MAX_WINDOWS_OUTPUT:
+        raise ValueError('Windows desktop storage reading exceeded the response limit.')
+    response = _validate_windows_response(json.loads(raw.decode('utf-8-sig')))
+    if (type(response.get('schema')) is not int or response['schema'] != 1
+            or response.get('session') != root.name or response.get('distribution') != distribution):
+        raise ValueError('Windows desktop storage reading belongs to a different session or distribution.')
+    sampled, received = response.get('time'), time.time()
+    if type(sampled) not in (int, float) or not received - SAMPLE_MAX_AGE_SECONDS <= sampled <= received:
+        raise ValueError('Windows desktop storage reading is stale or has an invalid timestamp.')
+    for row in response['volumes']:
+        if (row.get('kind') != 'windows_host' or not row['id'].startswith('windows:')
+                or any(not ntpath.splitdrive(row[key])[0] or not ntpath.isabs(row[key]) for key in ('path', 'probe_path'))):
+            raise ValueError('Windows desktop storage volume identity is invalid.')
+    roles = [row['role'] for row in response['volumes']]
+    swap = response.get('swap_required')
+    if type(swap) is not bool or sorted(roles) != (['wsl_backing', 'wsl_swap'] if swap else ['wsl_backing']):
+        response['errors'].append('Windows desktop could not verify every required backing or swap volume.')
     return response
 
 
@@ -253,6 +202,7 @@ class CapacityProbe:
         self.anchors = {}
         self.path_errors = []
         self.host_targets = None
+        self.host_identity = None
         self.is_wsl, self.distribution = _wsl_context()
         self._add(store.home, 'Workspace and logs')
         folder = self.run.get('folder')
@@ -343,6 +293,88 @@ class CapacityProbe:
             raise OSError('Filesystem is read-only.')
         return info.st_dev, available, total
 
+    def _interop_volumes(self, mounts):
+        rows, errors = [], []
+        if self.host_targets is None:
+            discovery = _windows_query({'operation': 'discover', 'distribution': self.distribution}, mounts)
+            errors.extend(discovery['errors'])
+            has_backing = any(row.get('role') == 'wsl_backing' for row in discovery['volumes'])
+            if not has_backing:
+                errors.append('WSL backing-drive capacity could not be identified.')
+            if not discovery['errors'] and has_backing:
+                self.host_targets = discovery['volumes']
+            rows.extend(discovery['volumes'])
+        else:
+            fallback = []
+            for target in self.host_targets:
+                mapped = _mapped_path(target['probe_path'], mounts)
+                try:
+                    if mapped is None:
+                        raise OSError('No accessible DrvFs mapping.')
+                    _, available, total = self._reading(mapped)
+                    rows.append({**target, 'kind': 'windows_host', 'available_bytes': available,
+                                 'total_bytes': total})
+                except (OSError, ValueError, RuntimeError):
+                    fallback.append(target)
+            if fallback:
+                try:
+                    result = _windows_query({'operation': 'sample', 'targets': fallback}, mounts)
+                except (OSError, ValueError, UnicodeError, subprocess.SubprocessError) as exc:
+                    return rows, ['Cannot verify Windows backing storage: ' + str(exc)]
+                rows.extend(result['volumes'])
+                errors.extend(result['errors'])
+                if len(result['volumes']) != len(fallback) and not result['errors']:
+                    errors.append('A required Windows storage volume did not return a capacity reading.')
+        return rows, errors
+
+    def _verify_host_identity(self, targets):
+        # A change to .wslconfig alone does not move a running VM's swap.
+        # Keep monitoring the volume identities selected at the first check.
+        identity = {(r['role'], r['id'].casefold(), _windows_path(r['path']).casefold()) for r in targets}
+        if self.host_identity is not None and identity != self.host_identity:
+            return ['Windows backing or swap storage changed during monitoring.']
+        self.host_identity = identity
+        return []
+
+    def _host_volumes(self):
+        if not self.distribution:
+            return [], ['WSL distribution identity is missing; its Windows backing drive cannot be verified.'], None
+        mounts = _drvfs_mounts()
+        observed, desktop_errors, sampled = [], [], None
+        directory = os.environ.get(STORAGE_SESSION_DIR)
+        if directory:
+            try:
+                desktop = _desktop_observation(directory, self.distribution)
+                sampled = desktop['time']
+                desktop_errors = desktop['errors']
+                for row in desktop['volumes']:
+                    row['observed_by'] = 'windows_desktop'
+                    # Retain a low reading from either system. Some Windows storage
+                    # volumes do not have a DrvFs mount; the host measures those too.
+                    mapped = _mapped_path(row['probe_path'], mounts)
+                    if mapped is not None:
+                        try:
+                            _, available, _ = self._reading(mapped)
+                            row['available_bytes'] = min(row['available_bytes'], available)
+                        except (OSError, ValueError, RuntimeError):
+                            pass
+                    observed.append(row)
+                if not desktop_errors:
+                    return observed, self._verify_host_identity(observed), sampled
+            except (OSError, ValueError, UnicodeError, RecursionError) as exc:
+                desktop_errors = [str(exc)]
+        try:
+            direct, errors = self._interop_volumes(mounts)
+        except (OSError, ValueError, UnicodeError, subprocess.SubprocessError) as exc:
+            direct, errors = [], ['Cannot verify Windows backing storage: ' + str(exc)]
+        # A verified alternate covers a failed transport. Partial current
+        # observations still count towards the minimum available capacity.
+        if errors:
+            errors = desktop_errors + errors
+        else:
+            errors = self._verify_host_identity(direct)
+        return observed + direct, errors, sampled if observed else None
+
     def sample(self):
         rows, errors = [], list(self.path_errors)
         with self._paths_lock:
@@ -365,41 +397,11 @@ class CapacityProbe:
                              'path': str(anchor), 'available_bytes': available, 'total_bytes': total})
             except (OSError, ValueError, RuntimeError) as exc:
                 errors.append(label + ': ' + str(exc))
+        host_time = None
         if self.is_wsl:
-            mounts = _drvfs_mounts()
-            if not self.distribution:
-                errors.append('WSL distribution identity is missing; its Windows backing drive cannot be verified.')
-            else:
-                try:
-                    if self.host_targets is None:
-                        discovery = _windows_query({'operation': 'discover', 'distribution': self.distribution}, mounts)
-                        errors.extend(discovery['errors'])
-                        has_backing = any(row.get('role') == 'wsl_backing' for row in discovery['volumes'])
-                        if not has_backing:
-                            errors.append('WSL backing-drive capacity could not be identified.')
-                        if not discovery['errors'] and has_backing:
-                            self.host_targets = discovery['volumes']
-                        rows.extend(discovery['volumes'])
-                    else:
-                        fallback = []
-                        for target in self.host_targets:
-                            mapped = _mapped_path(target['probe_path'], mounts)
-                            try:
-                                if mapped is None:
-                                    raise OSError('No accessible DrvFs mapping.')
-                                _, available, total = self._reading(mapped)
-                                rows.append({**target, 'kind': 'windows_host', 'available_bytes': available,
-                                             'total_bytes': total})
-                            except (OSError, ValueError, RuntimeError):
-                                fallback.append(target)
-                        if fallback:
-                            result = _windows_query({'operation': 'sample', 'targets': fallback}, mounts)
-                            rows.extend(result['volumes'])
-                            errors.extend(result['errors'])
-                            if len(result['volumes']) != len(fallback) and not result['errors']:
-                                errors.append('A required Windows storage volume did not return a capacity reading.')
-                except (OSError, ValueError, UnicodeError, subprocess.SubprocessError) as exc:
-                    errors.append('Cannot verify Windows backing storage: ' + str(exc))
+            host_rows, host_errors, host_time = self._host_volumes()
+            rows.extend(host_rows)
+            errors.extend(host_errors)
         volumes = {}
         for row in rows:
             key = row['id']
@@ -412,4 +414,8 @@ class CapacityProbe:
                     old['labels'].append(row['label'])
                 if row['path'] not in old['paths']:
                     old['paths'].append(row['path'])
-        return {'volumes': list(volumes.values()), 'errors': list(dict.fromkeys(errors)), 'checked_at': now()}
+        result = {'volumes': list(volumes.values()), 'errors': list(dict.fromkeys(errors)), 'checked_at': now()}
+        if host_time is not None:
+            result['windows_sampled_at'] = host_time
+            result['checked_at'] = datetime.fromtimestamp(host_time, timezone.utc).isoformat()
+        return result

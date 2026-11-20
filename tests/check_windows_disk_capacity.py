@@ -3,11 +3,10 @@
 Run with ``python tests/check_windows_disk_capacity.py``. Only synthetic
 registration metadata and temporary .wslconfig fixtures are supplied; native
 Windows capacity calls are real. No user WSL settings or registration change.
-The script literal is extracted without importing Linux-only application code.
+The shared probe is read directly without importing Linux-only application code.
 """
 from __future__ import annotations
 
-import ast
 import base64
 import json
 import os
@@ -17,11 +16,8 @@ import tempfile
 import unittest
 
 
-SOURCE = Path(__file__).resolve().parents[1] / 'src/bactologix/disk_capacity.py'
-TREE = ast.parse(SOURCE.read_text(encoding='utf-8'))
-SCRIPT = next(ast.literal_eval(node.value) for node in TREE.body
-              if isinstance(node, ast.Assign) and any(
-                  isinstance(target, ast.Name) and target.id == '_WINDOWS_SCRIPT' for target in node.targets))
+SOURCE = Path(__file__).resolve().parents[1] / 'src/bactologix/data/windows_capacity.ps1'
+SCRIPT = SOURCE.read_text(encoding='utf-8')
 PREFIX = 'BACTOLOGIX_CAPACITY_V1:'
 
 MOCK_REGISTRY = r'''
@@ -86,6 +82,7 @@ class NativeWindowsCapacityTests(unittest.TestCase):
         self.config.write_text('[wsl2]\nswap=0\n', encoding='utf-8')
         result = self.discover()
         self.assertEqual(result['errors'], [])
+        self.assertIs(result['swap_required'], False)
         self.assertEqual([row['role'] for row in result['volumes']], ['wsl_backing'])
 
     def test_configured_escaped_swap_path_with_spaces(self):
@@ -95,6 +92,7 @@ class NativeWindowsCapacityTests(unittest.TestCase):
         self.config.write_text('[wsl2]\nmemory=50GB\nswap=100GB\nswapfile="' + escaped + '"\n', encoding='utf-8')
         result = self.discover()
         self.assertEqual(result['errors'], [])
+        self.assertIs(result['swap_required'], True)
         rows = {row['role']: row for row in result['volumes']}
         self.assertEqual(set(rows), {'wsl_backing', 'wsl_swap'})
         self.assertEqual(rows['wsl_swap']['path'], str(swap))

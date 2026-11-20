@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a117.dev1 — Experimental development
+# Bactologix 0.1.0a118.dev1 — Experimental development
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
 
@@ -14,7 +14,7 @@ used by failed runs and failed database or pipeline installations. See
 [cleaning up failed work](docs/storage-management.md#clean-up-failed-items).
 The Dev workspace also supports [verified isolate export and analysis history](docs/isolate-export.md).
 
-**Windows Dev setup:** download [Bactologix-Dev-Setup.exe](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a117.dev1/Bactologix-Dev-Setup.exe) and open it normally. This independent installer includes the exact Dev application wheel and keeps its environment, workspace and shortcuts separate. Internet access is needed for dependencies. A ZIP remains available for manual setup. See [parallel testing](docs/DEVELOPMENT.md).
+**Windows Dev setup:** download [Bactologix-Dev-Setup.exe](https://github.com/crackberryq/Bactologix/releases/download/dev-v0.1.0a118.dev1/Bactologix-Dev-Setup.exe) and open it normally. This independent installer includes the exact Dev application wheel and keeps its environment, workspace and shortcuts separate. Internet access is needed for dependencies. A ZIP remains available for manual setup. See [parallel testing](docs/DEVELOPMENT.md).
 
 Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
 

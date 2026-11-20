@@ -24,6 +24,20 @@ holding the current distribution and its configured or default swap location
 when swap is enabled. Queries are read-only. Observed Windows-drive mounts are
 used where available, including custom automount roots.
 
+If a run reports an `Exec format error` for `powershell.exe`, Ubuntu could
+not start the Windows storage check. A free-space reading beside **Workspace
+and logs** applies to the Linux filesystem. The Windows Dev launcher from
+0.1.0a118.dev1 can also report fresh measurements directly from Windows for
+its own session and distribution. Use the Windows setup package to install
+this launcher.
+
+For an already paused attempt, leave the app open while Windows executable
+support in Ubuntu is checked. Bactologix retries the check automatically.
+Once every required volume has a fresh reading of at least 15 GiB, choose
+**Resume run** to continue that attempt. If a WSL restart or an app upgrade
+is needed, first choose **Stop run** and wait for the attempt to stop. Reopen
+the same saved run after the restart or upgrade.
+
 Linux and Windows free space are separate constraints, not additive capacity.
 A required host check that cannot complete holds the run. Bactologix does not
 change `.wslconfig`, resize or compact virtual disks, remove swap, or delete

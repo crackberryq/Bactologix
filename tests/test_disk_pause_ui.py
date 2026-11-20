@@ -54,6 +54,7 @@ def test_pause_alert_once_per_generation_across_poll_and_reopen(pause_workspace)
 @pytest.mark.parametrize('change,title', [
     ({'pause_kind': 'before_launch'}, 'Waiting for storage'),
     ({'reason': 'monitor_unavailable'}, 'Paused — storage check unavailable'),
+    ({'pause_kind': 'before_launch', 'reason': 'monitor_unavailable'}, 'Waiting for storage check'),
 ])
 def test_waiting_and_unavailable_alerts_are_distinct(pause_workspace, change, title):
     jid = job(pause_workspace, status='running')
@@ -63,6 +64,9 @@ def test_waiting_and_unavailable_alerts_are_distinct(pause_workspace, change, ti
     if change.get('pause_kind') == 'before_launch':
         assert 'suspended' not in row['body']
         assert 'No tool process has started for this command' in row['body']
+    if change.get('reason') == 'monitor_unavailable':
+        assert 'retrying the storage check' in row['body']
+        assert 'free space' not in row['body']
 
 
 def test_disabled_job_alerts_and_terminal_attempt_retires_pause(pause_workspace):

@@ -8,6 +8,7 @@ def build(root, destination, channel="stable", wheel=None):
     if channel not in {"stable", "dev"}: raise ValueError("Unknown channel")
     if channel == "dev" and not wheel: raise ValueError("Dev Windows bundle requires its pinned wheel")
     files = {p.name: p for p in (root / 'scripts/windows').glob('*') if p.suffix in {'.ps1', '.cmd', '.vbs'}}
+    files['windows_capacity.ps1'] = root / 'src/bactologix/data/windows_capacity.ps1'
     files.update({name: root / 'src/bactologix/ui' / name for name in ('brand.ico', 'brand.png')})
     files['install_bactologix.py'] = root / 'scripts/install_bactologix.py'
     files['README.txt'] = root / ('docs/development-install.txt' if channel == 'dev' else 'docs/windows-desktop.txt')
@@ -16,7 +17,7 @@ def build(root, destination, channel="stable", wheel=None):
         for name, path in sorted(files.items()):
             output_name = name.replace('Bactologix', 'Bactologix-Dev') if channel == 'dev' else name
             payload = path.read_bytes()
-            if channel == 'dev' and path.suffix in {'.ps1','.cmd','.vbs'}:
+            if channel == 'dev' and name.startswith('Bactologix') and path.suffix in {'.ps1','.cmd','.vbs'}:
                 payload = payload.decode().replace('Bactologix','Bactologix-Dev').replace('bactologix.cli','bactologix.dev_cli').replace("'brand.ico','brand.png'", "'brand.ico','brand.png','dev-package.json','" + Path(wheel).name + "'").replace("'--install-conda','--upgrade-app'","'--dev','--install-conda','--upgrade-app'").encode()
             folder = 'Bactologix-Dev/' if channel == 'dev' else 'Bactologix/'
             info = zipfile.ZipInfo(folder + output_name, date_time=(2026, 1, 1, 0, 0, 0))

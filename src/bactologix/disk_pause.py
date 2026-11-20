@@ -5,13 +5,13 @@ import json
 import threading
 import time
 import uuid
-from .disk_capacity import CapacityProbe
+from .disk_capacity import CapacityProbe, SAMPLE_MAX_AGE_SECONDS
 from .disk_process import OwnedTree, OwnerWatch, ProcessOwner, SuspensionError
 from .store import CONTROL_TIMEOUT, now
 
 GIB = 1024 ** 3
 PAUSE_BYTES, RESUME_BYTES, WARNING_BYTES = 10 * GIB, 15 * GIB, 20 * GIB
-POLL_SECONDS, STALE_SECONDS = 1.0, 5.0
+POLL_SECONDS, STALE_SECONDS = 1.0, SAMPLE_MAX_AGE_SECONDS
 THRESHOLDS = {'pause_bytes': PAUSE_BYTES, 'resume_bytes': RESUME_BYTES, 'warning_bytes': WARNING_BYTES}
 
 def _resume_capacity(value):
@@ -99,9 +99,16 @@ class Samples:
                 with self.lock:
                     # Retry requested paths after failed discovery/registration.
                     self.pending = pending + self.pending
+            completed = time.monotonic()
+            host_time = value.get('windows_sampled_at')
+            if host_time is not None:
+                # A desktop snapshot can span multiple polls. Rereading a
+                # pre-resume measurement must not make it a new observation.
+                completed -= max(0.0, time.time() - host_time)
+                sample_started = min(sample_started, completed)
             with self.lock:
                 if epoch == self.epoch:
-                    self.result = (value, time.monotonic(), sample_started)
+                    self.result = (value, completed, sample_started)
             self.wake.wait(POLL_SECONDS)
             self.wake.clear()
 

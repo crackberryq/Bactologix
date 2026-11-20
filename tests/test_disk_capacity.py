@@ -237,3 +237,101 @@ def test_windows_query_rejects_unverifiable_responses(monkeypatch, response):
         returncode=0, stdout=(capacity._PREFIX + response).encode()))
     with pytest.raises(ValueError):
         capacity._windows_query({'operation': 'discover'}, [])
+
+
+@pytest.fixture
+def desktop_storage(local, monkeypatch):
+    key = 'ab' * 16
+    directory = local.home / 'sessions' / key
+    directory.mkdir(parents=True)
+    monkeypatch.setattr(capacity, '_wsl_context', lambda: (True, 'Ubuntu-22.04'))
+    monkeypatch.setattr(capacity, '_drvfs_mounts', lambda: [])
+    monkeypatch.setenv(capacity.STORAGE_SESSION_DIR, str(directory))
+    def interop_disabled(payload, mounts):
+        raise OSError(8, 'Exec format error', '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe')
+    monkeypatch.setattr(capacity, '_windows_query', interop_disabled)
+    def publish(**fields):
+        record = dict(schema=1, session=key, distribution='Ubuntu-22.04',
+                      time=capacity.time.time(), swap_required=False, volumes=[host()], errors=[])
+        record.update(fields)
+        path = directory / 'windows-storage.json'
+        path.write_text(json.dumps(record), encoding='utf-8-sig')
+        return path
+    return publish
+
+
+def test_desktop_supplies_current_backing_and_separate_swap_without_interop(local, desktop_storage):
+    backing = host(available=80)
+    swap = host(path=r'F:\wsl-swap', role='wsl_swap', available=0)
+    swap['id'] = 'windows:f'
+    desktop_storage(swap_required=True, volumes=[backing, swap])
+    probe = capacity.CapacityProbe(local, {})
+    sample = probe.sample()
+    assert not sample['errors']
+    hosts = {r['id']: r['available_bytes'] for r in sample['volumes'] if r['kind'] == 'windows_host'}
+    assert hosts == {'windows:d': 80, 'windows:f': 0}
+    swap['available_bytes'] = 40
+    desktop_storage(swap_required=True, volumes=[backing, swap])
+    assert next(r for r in probe.sample()['volumes'] if r['id'] == 'windows:f')['available_bytes'] == 40
+
+
+@pytest.mark.parametrize('fields', [
+    {'session': 'cd' * 16}, {'distribution': 'Other'}, {'schema': True},
+    {'time': 0}, {'time': float('nan')}, {'time': float('inf')},
+    {'swap_required': True}, {'volumes': []}, {'swap_required': None},
+    {'errors': ['Swap configuration is inaccessible.']},
+    {'volumes': [dict(host(), available_bytes=-1)]},
+    {'volumes': [dict(host(), id='linux:1')]},
+    {'volumes': [dict(host(), probe_path='relative')]},
+])
+def test_unverified_desktop_storage_and_interop_failure_keep_guard_closed(local, desktop_storage, fields):
+    desktop_storage(**fields)
+    errors = capacity.CapacityProbe(local, {}).sample()['errors']
+    assert errors and any('Exec format error' in e for e in errors)
+
+
+def test_desktop_reading_keeps_lowest_verified_value(local, desktop_storage, monkeypatch):
+    mount = local.home / 'custom' / 'd'
+    (mount / 'WSL_Ubuntu').mkdir(parents=True)
+    monkeypatch.setattr(capacity, '_drvfs_mounts', lambda: [('D:\\', mount)])
+    probe = capacity.CapacityProbe(local, {})
+    original = probe._reading
+    def read(target):
+        if target == mount / 'WSL_Ubuntu':
+            return 10, 30, 1000
+        return original(target)
+    monkeypatch.setattr(probe, '_reading', read)
+    for available, expected in [(80, 30), (5, 5)]:
+        desktop_storage(volumes=[host(available=available)])
+        result = probe.sample()
+        assert not result['errors']
+        observed = next(r for r in result['volumes'] if r['kind'] == 'windows_host')
+        assert observed['available_bytes'] == expected
+
+
+def test_partial_desktop_observation_preserves_low_capacity_when_interop_recovers(local, desktop_storage, monkeypatch):
+    desktop_storage(volumes=[host(available=0)], errors=['Swap lookup failed.'])
+    monkeypatch.setattr(capacity, '_windows_query',
+                        lambda *args: {'volumes': [host(available=100)], 'errors': []})
+    result = capacity.CapacityProbe(local, {}).sample()
+    assert not result['errors']
+    assert next(r for r in result['volumes'] if r['kind'] == 'windows_host')['available_bytes'] == 0
+
+
+def test_swap_configuration_cannot_remove_monitored_host_volume_mid_run(local, desktop_storage):
+    desktop_storage(swap_required=True, volumes=[host(), dict(host(path=r'E:\swap', role='wsl_swap'), id='windows:e')])
+    probe = capacity.CapacityProbe(local, {})
+    assert not probe.sample()['errors']
+    desktop_storage(swap_required=False, volumes=[host()])
+    assert any('changed during monitoring' in error for error in probe.sample()['errors'])
+
+
+def test_stale_or_missing_desktop_reading_can_recover_via_normal_interop(local, desktop_storage, monkeypatch):
+    path = desktop_storage(time=0)
+    monkeypatch.setattr(capacity, '_windows_query', lambda *args: {'volumes': [host()], 'errors': []})
+    for existing in (True, False):
+        if not existing:
+            path.unlink()
+        result = capacity.CapacityProbe(local, {}).sample()
+        assert not result['errors'] and 'windows_sampled_at' not in result
+        assert any(r['role'] == 'wsl_backing' for r in result['volumes'] if r['kind'] == 'windows_host')

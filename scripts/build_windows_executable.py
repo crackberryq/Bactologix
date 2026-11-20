@@ -69,7 +69,8 @@ def payload_files(payload, product):
             content = archive.read(entry)
             result.append({'name': name, 'size': len(content), 'sha256': sha256(content)})
     required = {product + '.ps1', product + '.vbs', product + '.cmd', product + '-Setup.cmd',
-                'brand.ico', 'brand.png', 'install_bactologix.py', 'README.txt'}
+                'brand.ico', 'brand.png', 'install_bactologix.py', 'README.txt',
+                'Watch-WindowsStorage.ps1', 'windows_capacity.ps1'}
     if not required.issubset({item['name'] for item in result}):
         raise ValueError('Windows payload is missing reviewed setup files.')
     if len(result) > 32:
@@ -82,7 +83,7 @@ def source_hashes(root):
              root / 'scripts/windows/SetupBootstrap.cs', root / 'scripts/windows/setup.manifest',
              root / 'scripts/install_bactologix.py', root / 'docs/windows-desktop.txt',
              root / 'pyproject.toml', root / 'src/bactologix/ui/brand.ico',
-             root / 'src/bactologix/ui/brand.png']
+             root / 'src/bactologix/ui/brand.png', root / 'src/bactologix/data/windows_capacity.ps1']
     development = root / 'docs/development-install.txt'
     if development.is_file():
         files.append(development)

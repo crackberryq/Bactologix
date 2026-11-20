@@ -163,7 +163,7 @@ function Install-UbuntuForCurrentUser($View, [string]$Name) {
 }
 function Save-SetupFiles {
     New-Item -ItemType Directory -Force -Path $script:Root | Out-Null
-    foreach ($name in @('Bactologix.ps1','Bactologix.vbs','Bactologix.cmd','Bactologix-Setup.cmd','install_bactologix.py','brand.ico','brand.png')) {
+    foreach ($name in @('Bactologix.ps1','Bactologix.vbs','Bactologix.cmd','Bactologix-Setup.cmd','install_bactologix.py','windows_capacity.ps1','Watch-WindowsStorage.ps1','brand.ico','brand.png')) {
         $source = Join-Path $PSScriptRoot $name; $target = Join-Path $script:Root $name
         if ([IO.Path]::GetFullPath($source) -ne [IO.Path]::GetFullPath($target)) { Copy-Item -LiteralPath $source -Destination $target -Force }
     }
@@ -729,6 +729,21 @@ function Install-Desktop($View) {
     Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Continue Bactologix Setup.lnk') -ErrorAction SilentlyContinue
     Show-SetupOutcome $View 'complete' 'Your workspace is ready.' 'Bactologix is installed and its desktop shortcut is ready. Open it now, or return whenever you are ready to work.'
 }
+function Start-DesktopStorageMonitor([string]$Directory, [string]$Session, [string]$Distribution) {
+    $owner = [Diagnostics.Process]::GetCurrentProcess()
+    try {
+        $helper = Join-Path $PSScriptRoot 'Watch-WindowsStorage.ps1'
+        return Start-Owned (Join-Path $PSHOME 'powershell.exe') @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+            '-File',$helper,'-Distribution',$Distribution,'-Session',$Session,'-Directory',$Directory,
+            '-OwnerId',[string]$owner.Id,'-OwnerStartTicks',[string]$owner.StartTime.ToUniversalTime().Ticks)
+    } finally { $owner.Dispose() }
+}
+function Stop-DesktopStorageMonitor($Monitor) {
+    if (-not $Monitor) { return }
+    try { if (-not $Monitor.Process.HasExited) { $Monitor.Process.Kill() } }
+    catch [InvalidOperationException] {}
+    finally { $Monitor.Process.Dispose() }
+}
 function Run-Desktop($View) {
     Set-SetupPhase $View 'launcher'
     $installed = Read-Json (Join-Path $script:Root 'installation.json')
@@ -742,6 +757,8 @@ function Run-Desktop($View) {
     $request = { param($action) Write-Json (Join-Path $directory 'request.json') @{session=$id; action=$action; nonce=[Guid]::NewGuid().ToString('N')} }
     & $heartbeat
     $task = Start-Owned 'wsl.exe' @('--distribution',$installed.distro,'--exec',$installed.python,'-m','bactologix.cli','--desktop-control',$linuxDirectory,'--desktop-session',$id,'--no-browser')
+    $storageMonitor = $null
+    $storageRetry = [DateTime]::MinValue
     $window = $null; $opened = $false; $closing = $false; $browserRequest = $null; $asked = $false
     $profile = Join-Path $directory 'browser'
     $browserReady = $false; $browserClock = $null
@@ -750,6 +767,27 @@ function Run-Desktop($View) {
     try {
         while (-not $task.Process.WaitForExit(250)) {
             & $heartbeat
+            if ([DateTime]::UtcNow -ge $storageRetry) {
+                $storageRetry = [DateTime]::UtcNow.AddSeconds(10)
+                try {
+                    if ($storageMonitor -and -not $storageMonitor.Process.HasExited) {
+                        # A disconnected volume can block a native filesystem call.
+                        $cutoff = [DateTime]::UtcNow.AddSeconds(-25)
+                        $reportTime = [IO.File]::GetLastWriteTimeUtc((Join-Path $directory 'windows-storage.json'))
+                        if ($storageMonitor.Process.StartTime.ToUniversalTime() -lt $cutoff -and $reportTime -lt $cutoff) {
+                            Stop-DesktopStorageMonitor $storageMonitor
+                            $storageMonitor = $null
+                        }
+                    }
+                    if (-not $storageMonitor -or $storageMonitor.Process.HasExited) {
+                        Stop-DesktopStorageMonitor $storageMonitor
+                        $storageMonitor = $null
+                        $storageMonitor = Start-DesktopStorageMonitor $directory $id $installed.distro
+                    }
+                } catch {
+                    # Direct WSL probing can still work; the next check retries this reader.
+                }
+            }
             $status = Read-Json (Join-Path $directory 'status.json')
             if (-not $status -or $status.session -ne $id) {
                 if ($clock.Elapsed.TotalSeconds -gt 90) { throw 'Desktop startup did not respond. The supervisor will request cancellation; check the session log.' }
@@ -796,6 +834,7 @@ function Run-Desktop($View) {
             [Windows.Forms.Application]::DoEvents()
         }
     } finally {
+        Stop-DesktopStorageMonitor $storageMonitor
         if (-not $task.Process.HasExited -and -not (Read-Json (Join-Path $directory 'status.json'))) {
             $task.Process.Kill() # Only our Windows startup client; no UI or jobs were admitted.
         }

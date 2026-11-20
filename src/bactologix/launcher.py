@@ -321,6 +321,7 @@ def finish_server(store, item, proc, reader, previous_term, desktop, url, restar
 
 
 def serve(home, host=None, port=None, browser=True, app_window=True, desktop_control=None, desktop_session=None):
+    from .desktop import STORAGE_SESSION_DIR
     host = checked_host(host or default_host())
     port = free_port(host, port)
     url = browser_url(host, port)
@@ -338,6 +339,9 @@ def serve(home, host=None, port=None, browser=True, app_window=True, desktop_con
         item = restart.register(store, url)
         app = restart.make_app(temporary, item)
         env = dict(os.environ, BACTOLOGIX_HOME=str(home), BACTOLOGIX_LAUNCH_ID=item['id'], PYTHONUNBUFFERED='1')
+        env.pop(STORAGE_SESSION_DIR, None)
+        if desktop and desktop.root.name == desktop.key:
+            env[STORAGE_SESSION_DIR] = str(desktop.root)
         print(f'Starting Bactologix at {url}\n' + ('Windows desktop supervisor controls this session.' if desktop else 'Keep this terminal open. Press Ctrl+C to stop the app.'), flush=True)
         proc = subprocess.Popen(server_command(host, port, app), env=env, start_new_session=os.name != 'nt',
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)

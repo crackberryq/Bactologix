@@ -91,13 +91,23 @@ def test_resume_disables_on_stale_or_offline_snapshot(progress_page):
 def test_before_launch_distinct_from_suspended_tools(progress_page):
     from playwright.sync_api import expect
     page = progress_page
-    pause(page, pause_kind='before_launch', reason='monitor_unavailable', errors=['Windows host drive could not be checked.'])
+    workspace_drive = {'label': 'Workspace and logs', 'available_bytes': 191 * 1024**3}
+    pause(page, pause_kind='before_launch', reason='monitor_unavailable', volumes=[workspace_drive],
+          errors=['Cannot verify Windows backing storage: Exec format error'])
     panel = page.locator('#main > .disk-safety-panel')
-    expect(panel).to_contain_text('Waiting for storage')
+    expect(panel).to_contain_text('Waiting for storage check')
     expect(page.locator('#queue-status')).to_contain_text('1 waiting for storage · 0 running')
     expect(panel).to_contain_text('next command has not started')
     expect(panel).not_to_contain_text('processes are suspended')
-    expect(panel).to_contain_text('Windows host drive could not be checked')
+    expect(panel).to_contain_text('Cannot verify Windows backing storage')
+    expect(panel).to_contain_text('retries the storage check automatically')
+    expect(panel).not_to_contain_text('Free space outside this active run')
+    resume = page.get_by_role('region', name='Run controls').get_by_role('button', name='Resume run')
+    expect(resume).to_be_disabled()
+    pause(page, pause_kind='before_launch', reason='monitor_unavailable', volumes=[workspace_drive],
+          can_resume=True)
+    expect(panel).to_contain_text('Storage has recovered')
+    expect(resume).to_be_enabled()
     pause(page, reason='monitor_unavailable')
     expect(panel).to_contain_text('Paused — storage check unavailable')
 

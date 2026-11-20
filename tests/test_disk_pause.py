@@ -32,7 +32,8 @@ def safety(tmp_path, monkeypatch):
                 release.wait(20)
             return {'volumes': [{'id': 'fixture', 'label': 'Fixture disk', 'path': str(tmp_path),
                        'available_bytes': values['available'], 'total_bytes': 100 * disk_pause.GIB, 'kind': 'linux'}],
-                    'errors': list(values['errors']), 'checked_at': now()}
+                    'errors': list(values['errors']), 'checked_at': now(),
+                    'windows_sampled_at': values.get('host_time')}
     monkeypatch.setattr(disk_pause, 'CapacityProbe', Capacity)
     monkeypatch.setattr(disk_pause, 'POLL_SECONDS', .05)
     monkeypatch.delenv('BACTOLOGIX_DESKTOP_SESSION', raising=False)
@@ -180,6 +181,30 @@ def test_fast_guarded_command_succeeds_and_finish_is_recorded(safety):
     assert disk_pause.snapshot(store, jid)['state'] == 'finished'
     assert context.disk_guard.tree is None
     assert context.disk_guard.watch is None
+
+
+def test_resume_waits_for_host_observation_after_the_request(safety):
+    store, jid, ctx, values = safety
+    guard = ctx.disk_guard
+    def poll(condition):
+        guard.tick()
+        return condition()
+    values.update(available=0, host_time=time.time())
+    wait_for(lambda: poll(lambda: guard.record['state'] == 'paused'))
+    values.update(available=40 * disk_pause.GIB, host_time=time.time())
+    wait_for(lambda: poll(lambda: guard.record['can_resume']))
+    guard.publish(force=True)
+    disk_pause.request_resume(store, jid, guard.record['generation'])
+    guard.tick()
+    assert guard.resume_after is not None
+    # Repeated reads of the identical host sample cannot authorize this thaw.
+    time.sleep(.15)
+    assert not guard.tick()
+    assert guard.record['state'] == 'paused'
+    assert store.get('disk_safety_requests', jid)
+    values['host_time'] = time.time()
+    wait_for(lambda: poll(lambda: guard.record['state'] == 'monitoring'))
+    assert store.get('disk_safety_requests', jid) is None
 
 
 def test_monitor_failure_before_launch_retains_outputs_and_is_cancellable(safety, tmp_path):

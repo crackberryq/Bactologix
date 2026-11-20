@@ -2,6 +2,7 @@
 /pyproject.toml text eol=lf
 /scripts/*.py text eol=lf
 /scripts/windows/*.ps1 text eol=lf
+/src/bactologix/data/*.ps1 text eol=lf
 /scripts/windows/*.cmd text eol=lf
 /scripts/windows/*.vbs text eol=lf
 /scripts/windows/*.cs text eol=lf

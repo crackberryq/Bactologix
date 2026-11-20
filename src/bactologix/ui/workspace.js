@@ -207,7 +207,11 @@ function monitoringPanel(j){
 function diskSafety(j){return j?.status==='running'?(j.disk_safety||S.jobs.find(row=>row.id===j.id)?.disk_safety):null;}
 function diskPaused(j){return diskSafety(j)?.state==='paused';}
 function storageActivity(){const waiting=S.jobs.filter(j=>diskPaused(j)&&diskSafety(j).pause_kind==='before_launch').length,paused=S.jobs.filter(j=>diskPaused(j)&&diskSafety(j).pause_kind!=='before_launch').length;return {waiting,paused,label:(paused?paused+' storage-paused · ':'')+(waiting?waiting+' waiting for storage · ':'')};}
-function diskPauseTitle(j){const d=diskSafety(j);return d?.pause_kind==='before_launch'?'Waiting for storage':d?.reason==='monitor_unavailable'?'Paused — storage check unavailable':'Paused — low disk space';}
+function diskPauseTitle(j){
+ const d=diskSafety(j);
+ if(d?.pause_kind==='before_launch')return d.errors?.length?'Waiting for storage check':'Waiting for storage';
+ return d?.reason==='monitor_unavailable'?'Paused — storage check unavailable':'Paused — low disk space';
+}
 function runStatusBadge(r){const j=latestRunJob(r);return monitorIssue(j)||diskPaused(j)||j?.status==='running'&&j.cancel?jobStatus(j):statusBadge(r.status);}
 function diskConnectionFresh(){return navigator.onLine&&performance.now()-snapshotReceivedAt<5000;}
 function diskCanResume(j){const d=diskSafety(j);return diskPaused(j)&&!monitorIssue(j)&&d.can_resume===true&&Number.isInteger(d.generation)&&!d.resume_requested&&!j.cancel&&diskConnectionFresh();}
@@ -215,10 +219,16 @@ function diskResumeButton(j){const d=diskSafety(j);return diskPaused(j)?`<button
 function diskSafetyPanel(j){
  const d=diskSafety(j);if(!d||!['paused','warning'].includes(d.state))return '';
  const paused=d.state==='paused',waiting=d.pause_kind==='before_launch',thresholds=d.thresholds||{};
- const floor=storageBytes(thresholds.pause_bytes??10*1024**3),resume=storageBytes(thresholds.resume_bytes??15*1024**3),warning=storageBytes(thresholds.warning_bytes??20*1024**3);
+ const resumeBytes=thresholds.resume_bytes??15*1024**3;
+ const floor=storageBytes(thresholds.pause_bytes??10*1024**3),resume=storageBytes(resumeBytes),warning=storageBytes(thresholds.warning_bytes??20*1024**3);
+ const errors=d.errors||[],needsSpace=(d.volumes||[]).some(v=>Number.isFinite(v.available_bytes)&&v.available_bytes<resumeBytes);
  const title=paused?diskPauseTitle(j):'Storage is running low';
- const explanation=paused?(waiting?'The next command has not started. Storage must be available before it can continue.':'Tool processes are suspended. They still hold memory and other resources. All tool outputs are retained.'):`The run is still working. Storage protection pauses at or below ${floor} free on a monitored drive.`;
- return `<section class="disk-safety-panel" data-disk-safety="${e(j.id)}" aria-label="Storage protection"><div role="status" aria-live="polite"><h3>${e(title)}</h3><p>${e(explanation)}</p></div><ul class="disk-safety-volumes">${(d.volumes||[]).map(v=>`<li><div><strong>${e(v.label||'Monitored storage')}</strong><span class="path-cell">${e(v.path||'Path unavailable')}</span></div><span><strong>${e(storageBytes(v.available_bytes))}</strong> free</span></li>`).join('')}</ul>${d.errors?.length?`<p class="disk-safety-error">${d.errors.map(e).join(' · ')}</p>`:''}<p class="disk-safety-policy">Warning below ${e(warning)} · Pause at or below ${e(floor)} · Resume requires at least ${e(resume)} free on every monitored drive and a successful storage check.</p>${paused?`<p>Free space outside this active run, or use Stop run before Bactologix export or cleanup. Never remove files from the active run.</p><p class="disk-safety-resume">${d.resume_requested?'Resume requested. The worker will check storage again before continuing.':d.can_resume?'Storage has recovered. Choose Resume run to request a fresh check; the run will not restart automatically.':'The run will remain paused until storage recovers and you choose Resume run.'}</p>`:''}<small>Last storage check: ${e(d.checked_at||'Unavailable')}. <span class="disk-safety-connection">${diskConnectionFresh()?'':'Connection is stale; reconnect for current storage and resume controls.'}</span></small></section>`;
+ const explanation=paused?(waiting?'The next command has not started.':'Tool processes are suspended. They still hold memory and other resources. All tool outputs are retained.'):`The run is still working. Storage protection pauses at or below ${floor} free on a monitored drive.`;
+ let resumeMessage='Choose Resume run when every monitored drive has enough free space.';
+ if(d.resume_requested)resumeMessage='Resume requested. The worker will check storage again before continuing.';
+ else if(d.can_resume)resumeMessage='Storage has recovered. Choose Resume run to continue after a fresh check.';
+ else if(errors.length)resumeMessage='Bactologix retries the storage check automatically. You can choose Resume run once all drives pass.';
+ return `<section class="disk-safety-panel" data-disk-safety="${e(j.id)}" aria-label="Storage protection"><div role="status" aria-live="polite"><h3>${e(title)}</h3><p>${e(explanation)}</p></div><ul class="disk-safety-volumes">${(d.volumes||[]).map(v=>`<li><div><strong>${e(v.label||'Monitored storage')}</strong><span class="path-cell">${e(v.path||'Path unavailable')}</span></div><span><strong>${e(storageBytes(v.available_bytes))}</strong> free</span></li>`).join('')}</ul>${d.errors?.length?`<p class="disk-safety-error">${d.errors.map(e).join(' · ')}</p>`:''}<p class="disk-safety-policy">Warning below ${e(warning)} · Pause at or below ${e(floor)} · Resume requires at least ${e(resume)} free on every monitored drive and a successful storage check.</p>${paused&&needsSpace?'<p>Free space outside this active run, or use Stop run before Bactologix export or cleanup. Never remove files from the active run.</p>':''}${paused?`<p class="disk-safety-resume">${e(resumeMessage)}</p>`:''}<small>Last storage check: ${e(d.checked_at||'Unavailable')}. <span class="disk-safety-connection">${diskConnectionFresh()?'':'Connection is stale; reconnect for current storage and resume controls.'}</span></small></section>`;
 }
 function runProgress(r,compact=false){
  // Jobs are newest first. Never carry an earlier attempt's counts into a retry.

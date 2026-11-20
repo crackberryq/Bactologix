@@ -97,7 +97,7 @@ internal static class SetupBootstrap {
             if (total > MaximumBytes) throw new InvalidDataException("The extracted setup exceeds the supported size.");
             expected.Add(item.name, item);
         }
-        foreach (string required in new string[] { BuildInfo.Product + ".ps1", BuildInfo.Product + ".vbs", BuildInfo.Product + ".cmd", BuildInfo.Product + "-Setup.cmd", "brand.ico", "brand.png", "install_bactologix.py", "README.txt" }) {
+        foreach (string required in new string[] { BuildInfo.Product + ".ps1", BuildInfo.Product + ".vbs", BuildInfo.Product + ".cmd", BuildInfo.Product + "-Setup.cmd", "brand.ico", "brand.png", "install_bactologix.py", "windows_capacity.ps1", "Watch-WindowsStorage.ps1", "README.txt" }) {
             if (!expected.ContainsKey(required)) throw new InvalidDataException("The setup is missing a required file.");
         }
         // Validate every name, count and size before writing any payload file.

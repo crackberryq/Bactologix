@@ -98,14 +98,15 @@ def _event_candidates(jobs, runs, pauses, updates):
             continue
         waiting = safety.get('pause_kind') == 'before_launch'
         unavailable = safety.get('reason') == 'monitor_unavailable'
-        title = ('Waiting for storage' if waiting else
+        title = ('Waiting for storage check' if waiting and unavailable else
+                 'Waiting for storage' if waiting else
                  'Paused — storage check unavailable' if unavailable else
                  'Paused — low disk space')
         body = ('No tool process has started for this command. ' if waiting else
                 'Tool processes are suspended and still hold memory. ')
-        body += ('Storage could not be verified. ' if unavailable else
-                 'A monitored drive is below the storage safety threshold. ')
-        body += 'Open the run to review drives, free space and request resume. Outputs are retained.'
+        body += ('Bactologix is retrying the storage check. Open the run to review the latest readings.' if unavailable else
+                 'A monitored drive is below the storage safety threshold. Open the run to review drives and free space.')
+        body += ' Choose Resume run once all drives pass.'
         event = {'category': 'jobs', 'event_type': 'disk_pause', 'title': title,
                  'body': body, 'target': {'kind': 'job', 'id': job['id']}}
         events.append((_identity(['disk_pause', job['id'], safety.get('generation')]), event, False))
