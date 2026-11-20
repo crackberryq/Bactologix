@@ -3,8 +3,8 @@ import sys
 
 import pytest
 
-from bactologix import engine, supervision
-from test_supervision import fixture
+from bactologix import disk_pause, engine, supervision
+from test_supervision import background, fixture, wait_for
 
 
 @pytest.fixture
@@ -34,6 +34,41 @@ def lock_final_writes(monkeypatch, ctx, *, failures=None):
     return states
 
 
+def test_capacity_drop_during_ownership_write_keeps_exec_gate_closed(fixture, monkeypatch):
+    store, jid, marker, command, capacity = fixture
+    ctx = engine.Context(store, store.claim())
+    original_put = store.put_process
+    floor = 10 * disk_pause.GIB
+
+    def put(jid, record):
+        original_put(jid, record)
+        if 'observed_returncode' not in record:
+            capacity['free'] = floor
+            ctx.disk_guard.samples.wake.set()
+            wait_for(lambda: ctx.disk_guard.samples.current()[0]['volumes'][0]['available_bytes'] == floor)
+
+    started = []
+    original_observe = ctx.observe
+
+    def observe(method, *args):
+        if method == 'begin_command':
+            started.append(True)
+        return original_observe(method, *args)
+
+    monkeypatch.setattr(store, 'put_process', put)
+    monkeypatch.setattr(ctx, 'observe', observe)
+    thread, outcome = background(ctx, command)
+    try:
+        wait_for(lambda: (disk_pause.snapshot(store, jid) or {}).get('state') == 'paused')
+        assert not started and not marker.exists()
+    finally:
+        store.cancel(jid)
+        thread.join(10)
+        ctx.disk_guard.finish('cancelled')
+        ctx.log.close()
+    assert not thread.is_alive() and len(outcome) == 1 and isinstance(outcome[0], engine.Cancelled)
+
+
 @pytest.mark.parametrize('code', [0, 7])
 def test_final_write_failure_reports_observed_exit(command_context, monkeypatch, code):
     ctx, store, jid, _, _ = command_context
@@ -56,10 +91,10 @@ def test_final_write_after_monitor_interruption_preserves_original_reason(comman
     writes = lock_final_writes(monkeypatch, ctx, failures=failures)
     tick = ctx.disk_guard.tick
 
-    def interrupt():
+    def interrupt(**kwargs):
         if marker.exists():
             raise supervision.MonitoringInterrupted('Control read interrupted during native work.')
-        return tick()
+        return tick(**kwargs)
 
     monkeypatch.setattr(ctx.disk_guard, 'tick', interrupt)
     with pytest.raises(supervision.MonitoringInterrupted) as caught:

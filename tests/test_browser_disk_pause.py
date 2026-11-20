@@ -120,6 +120,28 @@ def test_before_launch_distinct_from_suspended_tools(progress_page):
     expect(panel).to_contain_text('Paused — storage check unavailable')
 
 
+def test_delayed_reading_rechecks_with_command_still_active(progress_page):
+    from playwright.sync_api import expect
+    page = progress_page
+    pause(page, state='rechecking', pause_kind=None, reason=None,
+          checked_at='2026-11-20T15:01:23+00:00',
+          errors=['Required storage checks are stale.'],
+          volumes=[{'label': 'Windows E:', 'available_bytes': 29 * 1024**3}])
+    controls = page.get_by_role('region', name='Run controls')
+    panel = page.locator('#main > .disk-safety-panel')
+    expect(panel.get_by_role('heading')).to_have_text('Rechecking storage')
+    expect(panel).to_contain_text('from the last reading')
+    expect(panel).to_contain_text('29 GiB')
+    expect(panel).to_contain_text('2026-11-20T15:01:23+00:00')
+    expect(page.locator('#main > .run-progress')).to_contain_text('Rechecking storage')
+    expect(controls.get_by_role('button', name='Resume run')).to_have_count(0)
+    expect(controls.get_by_role('button', name='Stop run')).to_be_enabled()
+    expect(page.locator('#queue-status')).to_contain_text('1 running')
+    pause(page, state='monitoring')
+    expect(panel).to_have_count(0)
+    expect(page.locator('#main > .run-progress')).to_contain_text('Running')
+
+
 def test_activity_page_and_mobile_layout(progress_page):
     from playwright.sync_api import expect
     page = progress_page

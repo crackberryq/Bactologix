@@ -1,3 +1,8 @@
+## 0.1.0a123.dev1 — 2026-11-20 · Alpha · Storage checks during active runs
+
+- During a running command, **Rechecking storage** appears if a reading is delayed and every monitored volume last had at least 20 GiB free. Bactologix requests another reading and allows the same command to continue if fresh measurements arrive within 15 seconds of the last sample.
+- A reading of 10 GiB or less still triggers an immediate pause. A new command and a manual resume each require a fresh storage check. The job log retains the reason for a pause even if the tools take too long to suspend.
+
 ## 0.1.0a122.dev1 — 2026-11-20 · Alpha · Windows desktop connection
 
 - Bactologix rechecks the Windows launcher's heartbeat when a read briefly fails or the Windows and WSL clocks differ slightly. The worker can continue the current job when it confirms the same desktop session is still open.

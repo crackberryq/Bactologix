@@ -11,6 +11,7 @@ import psutil
 
 MAX_MEMBERS = 8192
 STOPPED = {psutil.STATUS_STOPPED, psutil.STATUS_TRACING_STOP}
+STORAGE_SUSPEND_SECONDS = 5.0
 
 class SuspensionError(RuntimeError):
     pass
@@ -57,27 +58,40 @@ class OwnedTree:
                 raise SuspensionError('Cannot inspect an owned workflow process.') from exc
         return {key: process for key, process in self.members.items() if self.alive(process, key)}
 
-    def freeze(self):
-        deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline:
+    def freeze(self, *, timeout=2.0):
+        deadline = time.monotonic() + timeout
+        pending = set()
+        while True:
             members = self.refresh()
+            all_stopped = True
             for identity, process in members.items():
                 try:
-                    if process.status() not in STOPPED:
+                    if process.status() in STOPPED:
+                        pending.discard(identity)
+                        continue
+                    all_stopped = False
+                    if identity not in pending:
+                        # SIGSTOP remains pending while a task is blocked in kernel I/O.
                         process.send_signal(signal.SIGSTOP)
+                        pending.add(identity)
                         self.stopped_by_us.add(identity)
                 except psutil.NoSuchProcess:
                     continue
                 except psutil.Error as exc:
                     raise SuspensionError('Cannot suspend every owned process; stopping this job.') from exc
-            time.sleep(.02)
-            current = self.refresh()
-            try:
-                if set(current) == set(members) and all(p.status() in STOPPED for p in current.values()):
-                    return
-            except psutil.NoSuchProcess:
-                continue
-        raise SuspensionError('Owned processes did not acknowledge suspension; stopping this job.')
+            # A child may have forked before its parent acknowledged SIGSTOP.
+            # Re-enumerate after every known parent has actually stopped.
+            if all_stopped:
+                current = self.refresh()
+                try:
+                    if current.keys() == members.keys() and all(p.status() in STOPPED for p in current.values()):
+                        return
+                except psutil.NoSuchProcess:
+                    pass
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise SuspensionError(f'Owned processes did not acknowledge suspension within {timeout:g} seconds; stopping this job.')
+            time.sleep(min(.05, remaining))
 
     def resume(self):
         for identity in reversed(list(self.stopped_by_us)):

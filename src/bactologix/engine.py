@@ -387,6 +387,9 @@ class Context:
             self.control_operation(self.store.put_process, self.job['id'], self.native_record)
             if (self.setup_control or self.workflow_control) and self.monitor['state'] == 'degraded':
                 self.check_cancel_only()  # A stop may have arrived while the exec gate was closed.
+            if guard is not None:
+                # Recording ownership can outlast a storage reading. Recheck before releasing the command.
+                guard.checkpoint()
             os.write(gate_write, b'1')
             native_started = True
             os.close(gate_write)
@@ -410,7 +413,7 @@ class Context:
                     if elapsed > 30:
                         owner.signal(signal.SIGKILL if elapsed > 60 else signal.SIGTERM)
                 if guard is not None and started_stop is None and not timed_out:
-                    guard.tick()
+                    guard.tick(command_running=True)
                 else:
                     owner.refresh()
                 if started_stop is None and not timed_out:

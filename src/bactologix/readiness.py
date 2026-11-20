@@ -145,6 +145,32 @@ def job_guidance(store, job):
         return None
     from .support import log_tail
     text, scope = log_tail(store, job['id'], max_bytes=24000)
+    if job['kind'] == 'workflow' and job['payload'].get('action') in {'run', 'continue'}:
+        disk = job['disk_safety'] if 'disk_safety' in job else store.get('disk_safety', job['id'])
+        if disk and disk.get('reason') == 'pause_failed':
+            from . import supervision
+            monitoring = job['monitoring'] if 'monitoring' in job else supervision.snapshot(store, job['id'])
+            evidence = [str(detail) for detail in (disk.get('pause_details') or []) + (disk.get('errors') or [])]
+            trigger = disk.get('pause_trigger')
+            if trigger == 'stale' or (not trigger and 'Required storage checks are stale.' in evidence):
+                cause = 'The last storage reading expired.'
+            elif trigger == 'low_space':
+                cause = 'A monitored drive reached the pause threshold.'
+            elif trigger == 'monitor_unavailable':
+                cause = 'A required storage check was unavailable.'
+            else:
+                cause = 'Storage protection requested a pause.'
+            exit_detail = ('The worker confirmed its recorded processes exited.' if
+                           (monitoring or {}).get('cleanup_confirmed') is True else
+                           'Check the workflow lock to verify which processes still own this run.')
+            return {
+                'title': 'Bactologix could not confirm the storage pause',
+                'text': f'{cause} The worker attempted to stop the workflow. {exit_detail}',
+                'category': 'storage_pause', 'run_id': job['payload'].get('run_id'), 'step': None,
+                'evidence': '\n'.join(dict.fromkeys(evidence))[:1200], 'confidence': 'Recorded storage pause failure',
+                'scope': 'Evidence from the storage and process monitoring records for this attempt.',
+                'log_status': scope['status'],
+            }
     if job.get('kind') == 'isolate_export':
         receipt = store.get('isolate_export_receipts', job['id'])
         return {

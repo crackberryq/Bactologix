@@ -12,6 +12,14 @@ standalone Snakemake sessions or other applications.
 | At least 15 GiB on every required volume | Allow explicit resume after a fresh successful capacity check. |
 | A required measurement is unavailable | Hold or suspend until storage monitoring works again. |
 
+During an active command, a delayed reading can briefly show **Rechecking storage**
+if the last complete check found at least 20 GiB free on every required volume.
+The worker requests another reading. If it arrives in time and storage is healthy,
+the same command continues automatically. At 15 seconds from the last sample,
+the worker attempts to suspend the command if readings are still stale. A new
+command or a manual resume always requires fresh measurements. A known low
+volume or a reported measurement error triggers protection immediately.
+
 Limits use binary GiB (1 GiB = 1,073,741,824 bytes) and available space for the
 current user, excluding administrator-reserved space. Checks cover workspace,
 run outputs, workflow location and recognized temporary directories.

@@ -122,3 +122,27 @@ def test_cached_snapshot_refreshes_guard_without_changing_lock_status(workspace,
     second = ui_backend.snapshot(workspace)
     assert second['jobs'][0]['disk_safety']['resume_requested'] is True
     assert 'pid' not in second['jobs'][0]['disk_safety']
+
+
+@pytest.mark.parametrize('trigger,errors,cause', [
+    (None, ['Required storage checks are stale.'], 'last storage reading expired'),
+    ('low_space', ['Required storage checks are stale.'], 'drive reached the pause threshold'),
+    ('monitor_unavailable', ['Storage volume unavailable.'], 'storage check was unavailable'),
+])
+@pytest.mark.parametrize('confirmed', [False, True])
+def test_failed_pause_uses_attempt_evidence_for_recovery(workspace, trigger, errors, cause, confirmed):
+    jid = job(workspace, status='interrupted')
+    failure = 'Owned processes did not acknowledge suspension; stopping this job.'
+    disk = paused_record(jid, state='finished', result='running', reason='pause_failed',
+                         errors=[*errors, failure], pause_trigger=trigger)
+    record = dict(workspace.job(jid), disk_safety=disk, monitoring={'cleanup_confirmed': confirmed},
+                  error='Worker ended unexpectedly. Inspect outputs and logs before resuming.')
+
+    guidance = ui_backend.readiness.job_guidance(workspace, record)
+
+    assert guidance['category'] == 'storage_pause'
+    assert cause in guidance['text']
+    assert ('Check the workflow lock' in guidance['text']) is (not confirmed)
+    assert ('confirmed its recorded processes exited' in guidance['text']) is confirmed
+    assert failure in guidance['evidence']
+    assert guidance['step'] is None

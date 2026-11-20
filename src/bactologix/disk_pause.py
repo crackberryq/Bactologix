@@ -6,12 +6,13 @@ import threading
 import time
 import uuid
 from .disk_capacity import CapacityProbe, SAMPLE_MAX_AGE_SECONDS
-from .disk_process import OwnedTree, OwnerWatch, ProcessOwner, SuspensionError
+from .disk_process import OwnedTree, OwnerWatch, ProcessOwner, STORAGE_SUSPEND_SECONDS, SuspensionError
 from .store import CONTROL_TIMEOUT, now
 
 GIB = 1024 ** 3
 PAUSE_BYTES, RESUME_BYTES, WARNING_BYTES = 10 * GIB, 15 * GIB, 20 * GIB
 POLL_SECONDS, STALE_SECONDS = 1.0, SAMPLE_MAX_AGE_SECONDS
+ACTIVE_RECHECK_MAX_AGE_SECONDS = 15.0
 THRESHOLDS = {'pause_bytes': PAUSE_BYTES, 'resume_bytes': RESUME_BYTES, 'warning_bytes': WARNING_BYTES}
 
 def _resume_capacity(value):
@@ -122,6 +123,7 @@ class Samples:
         value, completed, sample_started = result
         value = dict(value)
         if time.monotonic() - completed > STALE_SECONDS:
+            value['stale_only'] = not value.get('errors')
             value['errors'] = list(value.get('errors') or []) + ['Required storage checks are stale.']
         return value, sample_started
 
@@ -139,6 +141,7 @@ class Guard(ProcessOwner):
         self.last_publish, self.resume_nonce, self.resume_after = 0, None, None
         self.publish_pending = False
         self.control_suspended = False
+        self.recheck_until = None
         run = store.get('runs', job['payload'].get('run_id'), {})
         self.samples = Samples(store, run, initial_env=initial_env)
         self.record = {'id': job['id'], 'run_id': job['payload'].get('run_id'),
@@ -208,14 +211,14 @@ class Guard(ProcessOwner):
         self.watch = OwnerWatch(self.tree)
         self.tick()
 
-    def tick(self):
+    def tick(self, *, command_running=False):
         if self.tree is not None:
             self.tree.refresh()
             self.watch.publish()
         sample = self.samples.current()
         if sample is None:
             return False
-        value, completed = sample
+        value, sample_started = sample
         volumes, errors = value.get('volumes') or [], list(value.get('errors') or [])
         valid = bool(volumes) and all(isinstance(v.get('available_bytes'), int) and not isinstance(v['available_bytes'], bool) and v['available_bytes'] >= 0 for v in volumes)
         if not valid:
@@ -224,16 +227,24 @@ class Guard(ProcessOwner):
         ready = _resume_capacity(value)
         old_state = self.record['state']
         self.record.update(volumes=volumes, errors=errors, checked_at=value.get('checked_at'))
+        if (command_running and self.tree is not None and not self.control_suspended
+                and old_state in {'monitoring', 'rechecking'} and value.get('stale_only')
+                and valid and all(v['available_bytes'] >= WARNING_BYTES for v in volumes)):
+            # Use the original measurement time. Even a stream of newer but
+            # already-stale snapshots cannot restart the current retry window.
+            deadline = sample_started + ACTIVE_RECHECK_MAX_AGE_SECONDS
+            if self.recheck_until is not None:
+                deadline = min(deadline, self.recheck_until)
+            if time.monotonic() < deadline:
+                self.recheck_until = deadline
+                if old_state != 'rechecking':
+                    self.samples.wake.set()
+                    self.write('Storage reading delayed. Rechecking capacity while the current command runs.')
+                self.record.update(state='rechecking', can_resume=False)
+                self.publish(force=old_state != 'rechecking')
+                return False  # A pending recheck never grants launch or resume.
+        self.recheck_until = None
         if old_state == 'paused' or errors or low:
-            if self.tree is not None:
-                try:
-                    self.tree.freeze()
-                except Exception as exc:
-                    # Terminate owned work before attempting failure persistence.
-                    self.record.update(state='failed', reason='pause_failed', can_resume=False,
-                        errors=errors + [str(exc)])
-                    raise
-                self.watch.publish()
             if old_state != 'paused':
                 details = list(errors)
                 for volume in volumes:
@@ -241,10 +252,28 @@ class Guard(ProcessOwner):
                     if type(available) is int and 0 <= available <= PAUSE_BYTES:
                         label = volume.get('label') or volume.get('path') or 'Required volume'
                         details.append(f'{label} has {available / GIB:.2f} GiB free (pause threshold 10 GiB).')
+                trigger = 'low_space' if low else 'monitor_unavailable'
+                if not low and valid and value.get('stale_only'):
+                    trigger = 'stale'
+                self.record.update(pause_trigger=trigger, pause_details=details)
+                try:
+                    self.write('Storage safety pause requested. ' + ' '.join(details))
+                except OSError:
+                    pass  # The log volume itself may be full. Still attempt the suspension.
+            if self.tree is not None:
+                try:
+                    self.tree.freeze(timeout=STORAGE_SUSPEND_SECONDS)
+                except Exception as exc:
+                    # Terminate owned work before attempting failure persistence.
+                    self.record.update(state='failed', reason='pause_failed', can_resume=False,
+                        errors=errors + [str(exc)])
+                    raise
+                self.watch.publish()
+            if old_state != 'paused':
                 self.record.update(state='paused', generation=self.record['generation'] + 1,
                     paused_at=now(), pause_kind='processes_suspended' if self.tree else 'before_launch',
-                    reason='monitor_unavailable' if errors else 'low_space', pause_details=details)
-                self.write('Storage safety paused this run: ' + ' '.join(details))
+                    reason='monitor_unavailable' if errors else 'low_space')
+                self.write('Storage safety paused this run.')
             if errors:
                 self.record['reason'] = 'monitor_unavailable'
             elif low:
@@ -255,7 +284,7 @@ class Guard(ProcessOwner):
                 if request.get('nonce') != self.resume_nonce:
                     self.resume_nonce, self.resume_after = request.get('nonce'), time.monotonic()
                     self.samples.wake.set()
-                elif completed > self.resume_after and self._control('disk-resume-consume', self._consume_resume, request):
+                elif sample_started > self.resume_after and self._control('disk-resume-consume', self._consume_resume, request):
                     if ready:
                         self.check_cancel()
                         # Reading cancellation after a lock can outlast the
@@ -273,6 +302,8 @@ class Guard(ProcessOwner):
             saved = self.publish(force=old_state != self.record['state'])
             return saved and self.record['state'] != 'paused'
         self.record.update(state='warning' if any(v['available_bytes'] < WARNING_BYTES for v in volumes) else 'monitoring', can_resume=False)
+        if old_state == 'rechecking':
+            self.write('Fresh storage readings received. The current command continued without a pause.')
         if self.record['state'] == 'warning' and old_state != 'warning':
             self.write('Storage is running low: less than 20 GiB available. Automatic pause begins at 10 GiB.')
         return self.publish(force=old_state != self.record['state'])
@@ -293,5 +324,11 @@ class Guard(ProcessOwner):
         try:
             self.detach(failed=True)
         finally:
-            self.record.update(state='failed' if result == 'failed' else 'finished', result=result, can_resume=False)
+            pause_failed = self.record.get('reason') == 'pause_failed'
+            if pause_failed and result == 'running':
+                # The worker retains ownership until cleanup is verified. The
+                # failed disk guard has nevertheless interrupted this attempt.
+                result = 'interrupted'
+            self.record.update(state='failed' if pause_failed or result == 'failed' else 'finished',
+                               result=result, can_resume=False)
             self.publish(force=True, poll=False)

@@ -140,7 +140,7 @@ def test_owned_detached_tree_stops_writing_resumes_and_cancels(safety, tmp_path)
         assert state['reason'] == 'monitor_unavailable'
         assert not state['can_resume']
         assert state['pause_details'] == values['errors']
-        assert store.log_path(jid).read_text().count('Storage safety paused this run: Windows backing drive unavailable') == 1
+        assert store.log_path(jid).read_text().count('Storage safety pause requested. Windows backing drive unavailable') == 1
         values['errors'] = []
         wait_for(lambda: disk_pause.snapshot(store, jid)['can_resume'])
         recovered = disk_pause.snapshot(store, jid)
@@ -162,15 +162,18 @@ def test_owned_detached_tree_stops_writing_resumes_and_cancels(safety, tmp_path)
 def test_stalled_probe_pauses_and_does_not_block_stop(safety, tmp_path, monkeypatch):
     store, jid, context, values = safety
     monkeypatch.setattr(disk_pause, 'STALE_SECONDS', .2)
+    monkeypatch.setattr(disk_pause, 'ACTIVE_RECHECK_MAX_AGE_SECONDS', 1.2)
     marker = tmp_path / 'started'
     code = 'from pathlib import Path; import sys,time; Path(sys.argv[1]).touch(); time.sleep(30)'
     thread, result = background(context, [sys.executable, '-c', code, str(marker)])
     try:
         wait_for(marker.exists)
         values['hang'] = True
+        wait_for(lambda: (disk_pause.snapshot(store, jid) or {}).get('state') == 'rechecking')
         wait_for(lambda: (disk_pause.snapshot(store, jid) or {}).get('state') == 'paused')
         state = disk_pause.snapshot(store, jid)
         assert state['reason'] == 'monitor_unavailable'
+        assert state['pause_trigger'] == 'stale'
         assert not state['can_resume']
         started = time.monotonic()
         store.cancel(jid)
@@ -181,6 +184,93 @@ def test_stalled_probe_pauses_and_does_not_block_stop(safety, tmp_path, monkeypa
     finally:
         store.cancel(jid)
         thread.join(3)
+
+
+def test_temporary_storage_delay_keeps_native_writer_running(safety, tmp_path, monkeypatch):
+    store, jid, context, values = safety
+    monkeypatch.setattr(disk_pause, 'STALE_SECONDS', .3)
+    monkeypatch.setattr(disk_pause, 'ACTIVE_RECHECK_MAX_AGE_SECONDS', 4)
+    progress = tmp_path / 'progress'
+    complete = tmp_path / 'complete'
+    code = ('from pathlib import Path\nimport sys,time\n'
+            'with Path(sys.argv[1]).open("ab", buffering=0) as out:\n'
+            '    while not Path(sys.argv[2]).exists():\n'
+            '        out.write(b"x")\n        time.sleep(.02)')
+    thread, result = background(context, [sys.executable, '-c', code, str(progress), str(complete)])
+    try:
+        wait_for(progress.exists)
+        values['host_time'] = time.time() - .5
+        wait_for(lambda: disk_pause.snapshot(store, jid)['state'] == 'rechecking')
+        assert not disk_pause.snapshot(store, jid)['can_resume']
+        written = progress.stat().st_size
+        wait_for(lambda: progress.stat().st_size > written)
+        values['host_time'] = None
+        wait_for(lambda: disk_pause.snapshot(store, jid)['state'] == 'monitoring')
+        assert disk_pause.snapshot(store, jid)['generation'] == 0
+        complete.touch()
+        thread.join(5)
+        assert not thread.is_alive() and result == []
+        log = store.log_path(jid).read_text()
+        assert log.count('Storage reading delayed.') == log.count('Fresh storage readings received.') == 1
+        assert 'Storage safety pause requested.' not in log
+    finally:
+        complete.touch()
+        thread.join(3)
+
+
+@pytest.mark.parametrize(('running', 'prior_gib', 'errors', 'expected_trigger'), [
+    (False, 140, [], 'stale'),  # A checkpoint before exec must still require fresh storage.
+    (True, 19, [], 'stale'),
+    (True, 10, [], 'low_space'),
+    (True, 140, ['Windows swap volume missing'], 'monitor_unavailable'),
+])
+def test_stale_retry_requires_healthy_capacity_and_active_command(safety, monkeypatch,
+                                                                 running, prior_gib, errors, expected_trigger):
+    from unittest.mock import Mock
+    _, _, ctx, _ = safety
+    guard = ctx.disk_guard
+    guard.samples.close()
+    guard.samples.thread.join(1)
+    stamp = time.monotonic() - disk_pause.STALE_SECONDS - .1
+    reading = {'volumes': [{'available_bytes': gib * disk_pause.GIB} for gib in (100, prior_gib)],
+               'errors': errors, 'checked_at': now()}
+    guard.samples.result = (reading, stamp, stamp)
+    with monkeypatch.context() as patch:
+        tree = Mock(spec=disk_pause.OwnedTree)
+        patch.setattr(guard, 'tree', tree)
+        patch.setattr(guard, 'watch', Mock(spec=disk_pause.OwnerWatch))
+        assert not guard.tick(command_running=running)
+        tree.freeze.assert_called_once_with(timeout=disk_pause.STORAGE_SUSPEND_SECONDS)
+        assert guard.record['state'] == 'paused'
+        assert guard.record['pause_trigger'] == expected_trigger
+
+
+def test_repeated_stale_samples_cannot_extend_existing_retry_deadline(safety, monkeypatch):
+    from unittest.mock import Mock
+    _, _, ctx, _ = safety
+    guard = ctx.disk_guard
+    guard.samples.close()
+    guard.samples.thread.join(1)
+    # Delayed observations, even ones with better timestamps, cannot repeatedly
+    # renew this allowance. Use the incident's reported free-space readings.
+    reading = {'volumes': [{'available_bytes': value} for value in
+                           (151188889600, 107370205184, 31515992064)], 'errors': [], 'checked_at': now()}
+    clock = time.monotonic()
+    guard.samples.result = (reading, clock - 8, clock - 8)
+    with monkeypatch.context() as patch:
+        tree = Mock(spec=disk_pause.OwnedTree)
+        patch.setattr(guard, 'tree', tree)
+        patch.setattr(guard, 'watch', Mock(spec=disk_pause.OwnerWatch))
+        patch.setattr(disk_pause.time, 'monotonic', lambda: clock)
+        assert not guard.tick(command_running=True)
+        assert guard.record['state'] == 'rechecking'
+        tree.freeze.assert_not_called()
+        clock += 7
+        guard.samples.result = (reading, clock - 6, clock - 6)
+        assert not guard.tick(command_running=True)
+        assert guard.record['state'] == 'paused'
+        assert guard.record['pause_trigger'] == 'stale'
+        tree.freeze.assert_called_once()
 
 
 def test_fast_guarded_command_succeeds_and_finish_is_recorded(safety):
@@ -304,7 +394,7 @@ def test_pause_verification_failure_terminates_owned_command(safety, tmp_path, m
     try:
         wait_for(marker.exists)
         process = psutil.Process(int(marker.read_text()))
-        def fail_pause(self):
+        def fail_pause(self, *, timeout):
             raise disk_pause.SuspensionError('Fixture cannot verify suspension')
         monkeypatch.setattr(disk_pause.OwnedTree, 'freeze', fail_pause)
         values['available'] = 9 * disk_pause.GIB
@@ -312,8 +402,12 @@ def test_pause_verification_failure_terminates_owned_command(safety, tmp_path, m
         assert not thread.is_alive()
         assert len(result) == 1 and isinstance(result[0], disk_pause.SuspensionError)
         wait_for(lambda: not process.is_running() or process.status() == psutil.STATUS_ZOMBIE)
-        context.disk_guard.finish('failed')
-        assert disk_pause.snapshot(store, jid)['state'] == 'failed'
+        context.disk_guard.finish('running')  # Worker holds the job until it can confirm cleanup.
+        state = disk_pause.snapshot(store, jid)
+        assert state['state'] == 'failed' and state['result'] == 'interrupted'
+        assert state['pause_trigger'] == 'low_space'
+        assert state['pause_details'] == ['Fixture disk has 9.00 GiB free (pause threshold 10 GiB).']
+        assert 'Storage safety pause requested. Fixture disk has 9.00 GiB' in store.log_path(jid).read_text()
     finally:
         store.cancel(jid)
         thread.join(3)

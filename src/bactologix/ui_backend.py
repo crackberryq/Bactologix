@@ -134,10 +134,12 @@ def snapshot(store, *, cached=False):
     from .queue import reconcile_interrupted
     reconcile_interrupted(store)
     records = {r['id']: r for r in store.all('job_telemetry') if isinstance(r, dict) and 'id' in r}
-    jobs = [{**j, "guidance": readiness.job_guidance(store, j),
-             "monitoring": supervision.snapshot(store, j['id']),
-             "disk_safety": disk_pause.snapshot(store, j['id']),
-             "telemetry": telemetry.view(records.get(j['id']), j)} for j in store.jobs()]
+    jobs = store.jobs()
+    for j in jobs:
+        j["monitoring"] = supervision.snapshot(store, j['id'])
+        j["disk_safety"] = disk_pause.snapshot(store, j['id'])
+        j["telemetry"] = telemetry.view(records.get(j['id']), j)
+        j["guidance"] = readiness.job_guidance(store, j)
     app_update = updates.status(store)
     queue_state = store.queue_snapshot()
     # pip briefly replaces package data. Keep the already-rendered workspace
