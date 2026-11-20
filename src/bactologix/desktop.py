@@ -155,7 +155,7 @@ def _lease_records(store, owner):
     return proof, {} if proof.get('stopping') is True else _owner_record(path.with_suffix('.pulse.json'), owner)
 
 
-def session_stop_reason(session, *, store=None, owner=None, job_id=None, check_host=True, confirmed=None,
+def _session_lease_reason(session, *, store=None, owner=None, job_id=None, check_host=True, confirmed=None,
                         lease_records=None):
     if session is not None and (not isinstance(session, dict) or not _timestamp(session.get('last_seen', 0))):
         raise MonitoringInterrupted('Desktop session control metadata is invalid.')
@@ -175,7 +175,8 @@ def session_stop_reason(session, *, store=None, owner=None, job_id=None, check_h
         if pulse.get('stopping') is True:
             return _desktop_stop_text(pulse.get('reason'))
         if pulse.get('expired') is True:
-            return HEARTBEAT_EXPIRED
+            if not check_host:
+                return HEARTBEAT_EXPIRED
     current = time.time()
     if current - recorded <= LEASE_SECONDS:
         return None
@@ -200,17 +201,24 @@ def session_stop_reason(session, *, store=None, owner=None, job_id=None, check_h
             latest = store.get('desktop_sessions', owner)
         if not latest or latest.get('supervisor') != session.get('supervisor'):
             confirmed = None
-        return session_stop_reason(latest, store=store, owner=owner, check_host=False, confirmed=confirmed)
+        return _session_lease_reason(latest, store=store, owner=owner, check_host=False, confirmed=confirmed)
     if _timestamp(confirmed) and confirmed > recorded and -HOST_CLOCK_TOLERANCE <= current - confirmed < LEASE_SECONDS:
         return None
     return HEARTBEAT_EXPIRED
 
 
+def session_stop_reason(session, **options):
+    reason = _session_lease_reason(session, **options)
+    return None if reason == HEARTBEAT_EXPIRED else reason
+
+
 def cached_session_stop_reason(store, owner, session):
     """Verify this previously identified owner while the jobs table is locked."""
-    reason = session_stop_reason(session, store=store, owner=owner, check_host=False)
-    if reason != HEARTBEAT_EXPIRED or not session.get('supervisor'):
+    reason = _session_lease_reason(session, store=store, owner=owner, check_host=False)
+    if reason != HEARTBEAT_EXPIRED:
         return reason
+    if not session.get('supervisor'):
+        return None
     # A delayed worker may wake before the WSL launcher next samples Windows.
     evidence = confirm_windows_owner(session['supervisor'], owner, session['last_seen'], time.time, LEASE_SECONDS)
     if evidence == 'close':
@@ -321,7 +329,7 @@ class Session:
                     terminal = previous.get('cancelled') is True or previous.get('phase') in {'stopping', 'stopped'}
                     if row and not terminal and not self.pending_stop_reason and evidence_error is not None:
                         raise evidence_error
-                    expired = (session_stop_reason(previous, store=self.store, owner=self.key, check_host=False,
+                    expired = (_session_lease_reason(previous, store=self.store, owner=self.key, check_host=False,
                                                    confirmed=self.confirmed, lease_records=records) if row else None)
                     if (expired == HEARTBEAT_EXPIRED and recheck and not self.pending_stop_reason
                             and self.supervisor and self.poll_delayed()):
@@ -331,9 +339,9 @@ class Session:
                     if terminal:
                         selected = 'stopped' if previous.get('phase') == 'stopped' or phase == 'stopped' else 'stopping'
                         reason = previous.get('reason') or reason
-                    elif self.pending_stop_reason or expired:
+                    elif self.pending_stop_reason or (expired and expired != HEARTBEAT_EXPIRED):
                         selected = 'stopping'
-                        reason = reason or 'Desktop session lease expired; stopping owned work'
+                        reason = reason or expired
                     cancelled = terminal or selected in {'stopping', 'stopped'}
                     value = dict(previous, phase=selected, last_seen=time.time(), reason=reason,
                                  cancelled=cancelled, supervisor=self.supervisor)
@@ -404,7 +412,8 @@ class Session:
         self.gate(self.phase, heartbeat=True)
         jobs = self.jobs()
         self.write_status({'session': self.key, 'phase': self.phase, 'url': url,
-            'jobs': len(jobs), 'reason': self.reason,
+            'jobs': len(jobs), 'reason': self.reason or self.disconnect_detail,
+            'desktop_connected': not bool(self.disconnect_detail),
             'installing_update': any(j['kind'] == 'app_update' and j['status'] == 'running' for j in jobs),
             'browser_request': self.store.get('desktop_browser', self.key)})
 
@@ -520,6 +529,16 @@ class Session:
         heartbeat = read(self.root / 'heartbeat.json')
         monotonic_now, wall_now = time.monotonic(), time.time()
         observed = self.started if self.heartbeat_observed is None else self.heartbeat_observed
+        if isinstance(heartbeat, dict) and heartbeat.get('session') == self.key:
+            seen = heartbeat.get('time')
+            if _timestamp(seen) and (self.last_host_heartbeat is None or seen > self.last_host_heartbeat):
+                age = wall_now - seen
+                if -HOST_CLOCK_TOLERANCE <= age < LEASE_SECONDS:
+                    self.last_host_heartbeat = seen
+                    self.heartbeat_observed = monotonic_now - max(age, 0)
+                    self.heartbeat_wall = min(seen, wall_now)
+                    self.last_poll, self.last_poll_wall = monotonic_now, wall_now
+                    return True
         delayed = self.poll_delayed()
         self.last_poll, self.last_poll_wall = monotonic_now, wall_now
         if (monotonic_now - observed >= LEASE_SECONDS
@@ -534,19 +553,11 @@ class Session:
                 host_age = f'{wall_now - stamp:.1f}s' if _timestamp(stamp) else 'unavailable'
                 last = 'last accepted pulse' if self.heartbeat_observed is not None else 'startup'
                 self.disconnect_detail = (f'At disconnect, {monotonic_now - observed:.1f}s had passed since {last}. '
-                                          f'Latest matching Windows heartbeat age was {host_age}.')
+                                          f'Latest matching Windows heartbeat age was {host_age}. Jobs continue.')
                 return False
             self.heartbeat_observed = pulse['monotonic']
             self.heartbeat_wall = pulse['heartbeat']
             self.last_host_heartbeat = max(self.last_host_heartbeat or 0, self.heartbeat_wall)
-        if isinstance(heartbeat, dict) and heartbeat.get('session') == self.key:
-            seen = heartbeat.get('time')
-            if _timestamp(seen) and (self.last_host_heartbeat is None or seen > self.last_host_heartbeat):
-                age = wall_now - seen
-                if -HOST_CLOCK_TOLERANCE <= age < LEASE_SECONDS:
-                    self.last_host_heartbeat = seen
-                    self.heartbeat_observed = monotonic_now - max(age, 0)
-                    self.heartbeat_wall = min(seen, wall_now)
         return True
 
     def tick(self, url, ready):
@@ -555,14 +566,9 @@ class Session:
         if not isinstance(request, dict):
             request = {}
         if not alive:
-            closing = (request.get('session') == self.key and request.get('action') in {'close', 'confirm_close'}
-                       and request.get('nonce') != self.nonce)
-            if not closing and not self.pending_stop_reason and self.disconnect_detail:
-                try:
-                    print(self.disconnect_detail, flush=True)
-                except OSError:
-                    pass  # A closed launcher log must not prevent cancellation.
-            self.stop('Window closed' if closing else 'Desktop supervisor disconnected; stopping owned work')
+            self.disconnect_detail = self.disconnect_detail or 'Desktop heartbeat unavailable. Jobs continue.'
+        else:
+            self.disconnect_detail = ''
         if request.get('session') == self.key and request.get('nonce') != self.nonce:
             action = request.get('action')
             if action in {'close', 'confirm_close'}:

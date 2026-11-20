@@ -86,16 +86,20 @@ def test_close_owns_only_its_jobs_and_blocks_racing_submissions(tmp_path, monkey
     assert store.job(jb)['status'] == store.job(independent)['status'] == 'queued'
 
 
-def test_lost_supervisor_cancels_only_owned_work(tmp_path, monkeypatch):
+def test_lost_supervisor_preserves_job_and_reconnects(tmp_path, monkeypatch):
     store = Store(tmp_path / 'workspace')
     item = session(tmp_path, store)
     monkeypatch.setenv(desktop.ENV, item.key)
     jid = store.submit('smoke', {})
     item.heartbeat_observed -= 100
     desktop.atomic(item.root / 'heartbeat.json', {'session': item.key, 'time': time.time() - 100})
-    assert item.tick('', True)
-    assert store.job(jid)['status'] == 'cancelled'
-    assert desktop.owner_cancelled(store, jid)
+    assert not item.tick('', True)
+    assert not desktop.read(item.root / 'status.json')['desktop_connected']
+    assert not desktop.owner_cancelled(store, jid)
+    desktop.atomic(item.root / 'heartbeat.json', {'session': item.key, 'time': time.time()})
+    assert not item.tick('', True)
+    assert desktop.read(item.root / 'status.json')['desktop_connected']
+    assert store.job(jid)['status'] == 'queued'
 
 
 def test_running_application_update_finishes_before_shutdown(tmp_path, monkeypatch):
@@ -112,14 +116,18 @@ def test_running_application_update_finishes_before_shutdown(tmp_path, monkeypat
     assert item.tick('', True)
 
 
-def test_job_lease_detects_killed_launcher(tmp_path, monkeypatch):
+def test_stale_job_lease_does_not_cancel_worker(tmp_path, monkeypatch):
     store = Store(tmp_path / 'workspace')
     item = session(tmp_path, store)
     monkeypatch.setenv(desktop.ENV, item.key)
     jid = store.submit('smoke', {})
     assert not desktop.owner_cancelled(store, jid)
     store.put('desktop_sessions', item.key, {'phase':'ready', 'last_seen':time.time()-100})
-    assert desktop.owner_cancelled(store, jid)
+    assert not desktop.owner_cancelled(store, jid)
+    store.update_job(jid, status='running')
+    request(item, 'close')
+    assert not item.tick('', True)
+    assert store.job(jid)['cancel'] == 1
 
 
 def test_real_desktop_server_stops_cleanly_and_preserves_unrelated_process(tmp_path):

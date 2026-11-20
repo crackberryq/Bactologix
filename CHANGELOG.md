@@ -1,3 +1,7 @@
+## 0.1.0a129.dev1 — 2026-11-21 · Desktop heartbeat recovery
+
+- Jobs continue when desktop heartbeat measurements lapse. The session status records the disconnect and recovers on a fresh heartbeat. Explicit close and stop requests still stop owned work.
+
 ## 0.1.0a128.dev1 — 2026-11-21 · Alpha · Draft creation and input progress
 
 - **Create drafts** acknowledges the click immediately. During longer input reads, the app shows the current filename and how much of that file it has read. The save button stays disabled while the request is in progress.
