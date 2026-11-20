@@ -207,6 +207,20 @@ def compact(points):
     return result
 
 
+def system_memory_sample():
+    """Measure OS-wide memory in the environment that is running the job."""
+    if psutil is None:
+        return None
+    try:
+        ram = psutil.virtual_memory()
+        swap = psutil.swap_memory()
+    except (OSError, psutil.Error, NotImplementedError):
+        return None
+    return {'sampled_at': now(), 'ram_used_bytes': ram.total - ram.available,
+            'ram_total_bytes': ram.total, 'swap_used_bytes': swap.used,
+            'swap_total_bytes': swap.total}
+
+
 class Recorder:
     def __init__(self, store, job):
         self.store, self.job = store, job
@@ -308,6 +322,7 @@ class Recorder:
         interval = max(0.0, current - self.last)
         sample = self.sampler.sample() if self.sampler else None
         if self.proc is not None or self.pending_download_bytes is not None:
+            self.record['system_memory'] = system_memory_sample()
             network = sample.get('network') if sample else None
             rx = network['rx_bytes'] if network is not None else None
             tx = network['tx_bytes'] if network is not None else None

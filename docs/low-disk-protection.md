@@ -1,99 +1,71 @@
 # Low-disk protection during a run
 
-Bactologix checks available storage before starting or continuing a local
-workflow, during output preservation, and while its tools run. This applies to
-HybAs, BaSIS and GeneScope runs launched through Bactologix. It does not control
-standalone Snakemake sessions or other applications.
+Bactologix checks the physical space available for writes to the workspace, run
+outputs, workflow folders and temporary directories. Under WSL it also checks
+the Windows drives holding the Ubuntu virtual disk and active swap storage.
+The monitor covers local workflows and managed environment and database setup.
+A storage stop applies to the current Bactologix workspace.
 
-| Available space on any required volume | Behavior |
+| Measured free space | What happens |
 | --- | --- |
-| Below 20 GiB | Show a storage warning. |
-| At or below 10 GiB | Hold work before launch, or suspend owned local workflow processes. |
-| At least 15 GiB on every required volume | Allow explicit resume after a fresh successful capacity check. |
-| A required measurement is unavailable | Hold or suspend until storage monitoring works again. |
+| Below 20 GiB and above 10 GiB on any monitored drive | Bactologix warns and work continues. |
+| At or below 10 GiB on any monitored drive | Bactologix stops active work, blocks new starts and retains outputs and logs. **Jobs & progress** shows the affected drive and its last reading. |
+| At least 15 GiB on every monitored drive after a storage stop | You can ask Bactologix to check and clear the stop. You decide which work to resume. |
 
-During an active command, a delayed reading can briefly show **Rechecking storage**
-if the last complete check found at least 20 GiB free on every required volume.
-The worker requests another reading. If it arrives in time and storage is healthy,
-the same command continues automatically. At 15 seconds from the last sample,
-the worker attempts to suspend the command if readings are still stale. A new
-command or a manual resume always requires fresh measurements. A known low
-volume or a reported measurement error triggers protection immediately.
+The monitor uses measured free bytes on each drive. High RAM usage and high use
+of an authorized swap allowance can occur during large jobs. The storage stop
+triggers on actual free disk space. Bactologix does not deduct the swap allowance
+from that measurement. Limits use binary GiB (1 GiB = 1,073,741,824 bytes).
 
-Limits use binary GiB (1 GiB = 1,073,741,824 bytes) and available space for the
-current user, excluding administrator-reserved space. Checks cover workspace,
-run outputs, workflow location and recognized temporary directories.
+## After a workspace storage stop
+
+1. Open **Jobs & progress** and read the storage notice. Identify the drive
+   that reached the threshold and wait for active tools to exit.
+2. Make space on the affected drive. Keep the files and logs for any run you
+   intend to resume. Removing files inside Ubuntu may leave the Windows virtual
+   disk at its previous size.
+3. Choose **Recheck and clear storage stop**. Bactologix measures the original
+   storage locations again. Every monitored drive needs at least 15 GiB free.
+4. Review the saved run and choose **Run / resume** when ready. The queue
+   remains paused after a successful recheck, and earlier waiting jobs stay
+   held. Release the jobs you want to run and explicitly resume the queue.
+   An interrupted tool step may need to run again. Completed outputs and prior
+   attempt logs remain available.
+
+## When a storage reading is unavailable
+
+A missing or stale reading can pause an individual workflow while Bactologix
+tries to verify space. During an active command, **Rechecking storage** appears
+briefly if the last complete measurement showed at least 20 GiB free on every
+monitored drive. If the new reading arrives in time and confirms sufficient
+capacity, the command continues. A stale reading alone cannot trigger a
+workspace-wide low-space stop.
+
+A workflow waiting before a command has no active tool to suspend. Once a
+running command is suspended, its processes retain memory and workspace locks.
+The job log records the failed check. When the run page shows that storage has
+recovered and every required drive has at least 15 GiB free, choose **Resume
+run** to continue the same attempt. **Stop run** ends the attempt and retains
+its outputs and logs. Older attempts may also show this per-run pause after a
+low-space reading.
 
 ## Windows and WSL
 
-Free space inside Ubuntu does not establish that Windows has room for its
-virtual disk to grow. Under WSL, Bactologix also identifies the Windows volume
-holding the current distribution and its configured or default swap location
-when swap is enabled. Queries are read-only. Observed Windows-drive mounts are
-used where available, including custom automount roots.
-
-If a run reports an `Exec format error` for `powershell.exe`, Ubuntu could
-not start the Windows storage check. A free-space reading beside **Workspace
-and logs** applies to the Linux filesystem. The Windows Dev launcher from
-0.1.0a118.dev1 can also report fresh measurements directly from Windows for
-its own session and distribution. Use the Windows setup package to install
-this launcher.
-
-The Windows launcher retries a brief file-sharing conflict when publishing
-a capacity reading. During a brief gap, Bactologix can take fresh readings
-through Ubuntu if it can verify the same mounted Windows drives. If a run
-pauses, open **View log** to see which check
-failed or which measured volume reached the pause threshold. The job log
-keeps that entry even after new readings arrive.
-
-Leave the app open while Bactologix retries the check. Once every required
-volume has a fresh reading of at least 15 GiB, the run page shows **Paused —
-ready to resume**. Choose **Resume run** to continue that attempt. To install a desktop update, choose **Stop run**, wait
-for the attempt to stop, and close Bactologix Dev. After setup, reopen the
-same saved run. Completed outputs and earlier logs remain available.
-
-Linux and Windows free space are separate constraints, not additive capacity.
-A required host check that cannot complete holds the run. Bactologix does not
-change `.wslconfig`, resize or compact virtual disks, remove swap, or delete
-results to make room.
+A WSL job can have ample space visible inside Ubuntu while Windows has too
+little space on its backing or swap drive. Bactologix checks each location
+individually. If Ubuntu reports an `Exec format error` for `powershell.exe`,
+the Windows Dev launcher can provide measurements for its own distribution.
+During a brief reporting gap, Bactologix can also read verified mounted Windows
+drives directly. Open **View log** for the affected location and check.
 
 After changing Windows WSL swap settings, stop WSL and restart it before
-launching new runs. The configured swap path may otherwise differ from the
-location still active in an older WSL session.
-
-## Recover a paused run
-
-1. Read the run's storage notice for the affected locations and reason.
-2. Free space on the affected volume or restore capacity monitoring. Explicitly
-   choose which data to transfer or discard. Deleting Linux files does not
-   necessarily shrink the Windows virtual-disk file immediately.
-3. Wait for fresh measurements: every required volume needs at least 15 GiB.
-4. Use the resume control to continue the suspended attempt. Recovery of free
-   space does not automatically resume it.
-
-**Stop run** remains available. Stopping retains generated outputs and logs;
-a later saved-run resume is separate from continuing suspended processes.
-
-A paused run retains workspace and workflow locks. In-app exports and cleanup
-that require an idle workspace remain blocked. Free unrelated storage outside
-Bactologix, or stop the run before using those operations. **Pause queue** only
-controls subsequent jobs; it is not the storage safety pause.
+launching new runs. The configured swap path may differ from the one still in
+use by an older WSL session.
 
 ## Scope and limits
 
-The monitor samples capacity and suspends identity-checked local children.
-If it cannot establish suspension, it stops the owned job instead of reporting
-that it is safely paused. An independent worker-loss monitor handles owned
-processes if the worker disappears; recovery records an interrupted attempt
-instead of automatically restarting it.
-
-This reduces disk-exhaustion risk but cannot guarantee that a disk never fills.
-In-progress writes, bursts between samples, other applications, quotas, hardware
-failure or an unavailable operating system can defeat a capacity margin.
-Remote jobs and processes that fully detach before observation are outside
-local process ownership. Keep additional headroom and backups of important data.
-
-Automated checks exercise synthetic capacity changes, harmless real writers,
-cancellation, worker loss, Windows capacity queries and browser controls.
-Windows CI does not execute a full WSL analysis. Validate backing-drive and
-swap monitoring on the actual Windows/WSL host before relying on it for long runs.
+The monitor samples free space. In-progress writes and activity from other
+applications can consume space between samples. Standalone Snakemake sessions,
+other Bactologix workspaces and unrelated applications control their own jobs.
+Bactologix keeps previously written outputs and logs when it stops owned
+processes. Inspect the stopped attempt before retrying.

@@ -401,3 +401,45 @@ def test_stop_still_commits_when_local_lease_record_is_unwritable(session, monke
     item.stop('Window closed')
     assert store.job(jid)['cancel'] == 1
     assert store.get('desktop_sessions', item.key)['cancelled']
+
+
+def test_heartbeat_file_read_does_not_hold_sqlite_writer_lock(session, monkeypatch):
+    store, item = session
+    reading, release = threading.Event(), threading.Event()
+    original = desktop._owner_record
+    outcome = []
+
+    def delayed(path, owner):
+        if path == item.pulse_path:
+            reading.set()
+            assert release.wait(5)
+        return original(path, owner)
+
+    def publish():
+        try:
+            item.gate('ready', heartbeat=True)
+        except BaseException as exc:
+            outcome.append(exc)
+
+    monkeypatch.setattr(desktop, '_owner_record', delayed)
+    thread = threading.Thread(target=publish)
+    thread.start()
+    try:
+        assert reading.wait(2)
+        store.put('disk_safety', 'job-test', {'state': 'running'})
+        assert store.get('disk_safety', 'job-test')['state'] == 'running'
+    finally:
+        release.set()
+        thread.join(3)
+    assert not thread.is_alive() and not outcome
+
+
+def test_last_window_close_reaches_owned_worker_while_database_is_busy(session):
+    store, item = session
+    saved = store.get('desktop_sessions', item.key)
+    request(item, 'close')
+    with store.connect() as writer:
+        writer.execute('BEGIN IMMEDIATE')
+        assert not item.record_contended_lease()
+        assert 'Window closed' in desktop.session_stop_reason(saved, store=store, owner=item.key, check_host=False)
+    assert item.tick('', True)

@@ -47,7 +47,13 @@ def display_snapshot(store, *, cached=False):
             if not display_busy(exc):
                 raise
             prior = _SNAPSHOTS.get(store.home)
-            return {**copy.deepcopy(prior), 'workspace_busy': True} if prior is not None else None
+            if prior is None:
+                return None
+            from . import disk_stop
+            state = copy.deepcopy(prior)
+            state['workspace_busy'] = True
+            state['queue']['storage_stop'] = disk_stop.snapshot(store)
+            return state
         if not state['app_update']['active_job'] and not state['app_update']['restart_required']:
             try:
                 update_checks.tick(store)
@@ -805,6 +811,10 @@ def dispatch(store, kind, p):
         check_run_files(run)
         create_run(store, "basis", {"id": run["sample"]["id"], "path": run["output"], "mode": run["sample"]["mode"]}, store.get("configs", "basis", template("basis")), run["cores"], run["memory_mb"], run["id"], run["label"] + " · BaSIS")
         return {"message": "Created a new draft.", "navigate": "runs"}
+    if kind == 'release_storage_stop':
+        from . import disk_stop
+        disk_stop.release(store, p.get('id'))
+        return {'message': 'Storage check passed. The queue remains paused. Choose which jobs to run.'}
     if kind == 'queue_control':
         state = queue.change(store, p.get('action'), p.get('revision'), p.get('id'))
         if p.get('action') in {'resume', 'release'} and not state['paused']:
@@ -833,6 +843,14 @@ def dispatch(store, kind, p):
         disk_pause.request_resume(store, p["job_id"], p["generation"])
         return {"message": "Resume requested. Storage will be checked again before the run continues."}
     if kind == "cancel_job":
+        from .desktop import request_live_job_stop
+        try:
+            sent = request_live_job_stop(store, p["id"])
+        except OSError:
+            sent = False
+        if sent:
+            store.cancel(p["id"], sent_to_worker=True)
+            return {"message": "Stop requested for the running job. The job log will be retained."}
         from .queue import reconcile_interrupted
         recovered = reconcile_interrupted(store)
         if p["id"] in recovered:

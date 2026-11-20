@@ -156,3 +156,40 @@ def test_activity_page_and_mobile_layout(progress_page):
     if folder := os.environ.get('BACTOLOGIX_UI_PREVIEWS'):
         Path(folder).mkdir(parents=True, exist_ok=True)
         page.screenshot(path=str(Path(folder) / 'storage-pause-mobile.png'), full_page=True)
+
+
+def test_workspace_disk_stop_blocks_queue_and_requires_deliberate_recovery(progress_page):
+    from playwright.sync_api import expect
+    page = progress_page
+    page.evaluate('''() => {
+      acceptanceWorkspace.queue.storage_stop = {id:'critical-event', blocked:true,
+        reason:'Workspace storage stop. Windows swap storage reached the 10 GiB limit.',
+        volumes:[{label:'Configured Windows swap storage',path:'E:/WSL-Swap',available_bytes:9*1024**3}],
+        checked_at:'2026-11-20T21:00:00Z',errors:[]};
+      acceptanceWorkspace.queue.paused = true;
+      progressRerender();
+    }''')
+    expect(page.get_by_role('region', name='Workspace storage stop')).to_contain_text('Windows swap storage')
+    expect(page.get_by_role('button', name='Queue blocked by storage')).to_be_disabled()
+    page.get_by_role('button', name='Review storage stop').click()
+    panel = page.get_by_role('region', name='Workspace storage stop')
+    expect(panel).to_contain_text('9 GiB free')
+    expect(panel).to_contain_text('2026-11-20T21:00:00Z')
+    expect(page.get_by_role('button', name='Resume queue', exact=True)).to_have_count(0)
+    expect(page.get_by_role('button', name='Start / recover queue')).to_be_disabled()
+    page.set_viewport_size({'width':390,'height':844})
+    assert_workspace_fits_viewport(page, 'global storage stop')
+    panel.get_by_role('button', name='Recheck and clear storage stop').click()
+    event = page.evaluate('acceptanceEvents.at(-1).value')
+    assert event['kind'] == 'release_storage_stop' and event['payload'] == {'id':'critical-event'}
+    page.evaluate('''() => {
+      delete acceptanceWorkspace.queue.storage_stop;
+      acceptanceWorkspace.queue.pause_reason = 'storage_recovered';
+      progressJob.status = 'cancelled';
+      progressJob.disk_safety = {reason:'workspace_disk_stop',state:'finished'};
+      progressRerender();
+    }''')
+    expect(page.get_by_role('region', name='Queue controls')).to_contain_text('Storage check passed')
+    expect(page.get_by_role('button', name='Resume queue', exact=True)).to_be_enabled()
+    expect(page.locator('.job-card .pill').filter(has_text='Stopped · low disk space')).to_be_visible()
+    assert page.evaluate("acceptanceEvents.filter(x=>x.value.kind==='queue_control').length") == 0

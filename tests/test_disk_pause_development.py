@@ -137,22 +137,14 @@ def test_running_job_rechecks_verified_drives_during_desktop_gap(dev, desktop_st
         size = progress.stat().st_size
         wait_for(lambda: progress.stat().st_size > size)
 
-        free[swap] = 10 * gib
-        wait_for(lambda: state().get('state') == 'paused')
-        first = state()
-        assert first['reason'] == 'low_space' and first['pause_kind'] == 'processes_suspended'
-        assert not first['can_resume']
-        size = progress.stat().st_size
         free[swap] = 15 * gib
-        wait_for(lambda: state().get('can_resume'))
-        assert progress.stat().st_size == size
-        disk_pause.request_resume(dev, jid, first['generation'])
-        wait_for(lambda: state().get('state') == 'monitoring' and progress.stat().st_size > size)
+        wait_for(lambda: state().get('state') == 'warning')
+        size = progress.stat().st_size
+        wait_for(lambda: progress.stat().st_size > size)
 
         mounts.pop()  # The verified swap volume disappears while the process is writing.
         wait_for(lambda: state().get('state') == 'paused')
         second = state()
-        assert second['generation'] == first['generation'] + 1
         assert second['reason'] == 'monitor_unavailable' and not second['can_resume']
         with pytest.raises(ValueError, match='fresh check'):
             disk_pause.request_resume(dev, jid, second['generation'])

@@ -59,18 +59,22 @@ class OwnedTree:
         return {key: process for key, process in self.members.items() if self.alive(process, key)}
 
     def freeze(self, *, timeout=2.0):
+        # Give the known processes their acknowledgement window after discovery.
+        members = self.refresh()
         deadline = time.monotonic() + timeout
         pending = set()
+        final_check = False
         while True:
-            members = self.refresh()
-            all_stopped = True
+            first_active = None
             for identity, process in members.items():
                 try:
-                    if process.status() in STOPPED:
+                    status = process.status()
+                    if status in STOPPED:
                         pending.discard(identity)
                         continue
-                    all_stopped = False
-                    if identity not in pending:
+                    if first_active is None:
+                        first_active = (identity[0], status)
+                    if identity not in pending and time.monotonic() < deadline:
                         # SIGSTOP remains pending while a task is blocked in kernel I/O.
                         process.send_signal(signal.SIGSTOP)
                         pending.add(identity)
@@ -81,17 +85,24 @@ class OwnedTree:
                     raise SuspensionError('Cannot suspend every owned process; stopping this job.') from exc
             # A child may have forked before its parent acknowledged SIGSTOP.
             # Re-enumerate after every known parent has actually stopped.
-            if all_stopped:
+            if first_active is None:
                 current = self.refresh()
                 try:
                     if current.keys() == members.keys() and all(p.status() in STOPPED for p in current.values()):
                         return
                 except psutil.NoSuchProcess:
                     pass
+            if final_check:
+                detail = (f'Last observed PID {first_active[0]} was {first_active[1]}.'
+                          if first_active else 'Could not confirm the same stopped processes in two consecutive checks.')
+                raise SuspensionError(f'Owned processes did not acknowledge suspension within {timeout:g} seconds; stopping this job. {detail}')
             remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise SuspensionError(f'Owned processes did not acknowledge suspension within {timeout:g} seconds; stopping this job.')
-            time.sleep(min(.05, remaining))
+            if remaining > 0:
+                time.sleep(min(.05, remaining))
+            members = self.refresh()
+            # Even if the signal pass exhausted the window, observe its result
+            # once. A process discovered after expiry receives no new signal.
+            final_check = time.monotonic() >= deadline
 
     def resume(self):
         for identity in reversed(list(self.stopped_by_us)):

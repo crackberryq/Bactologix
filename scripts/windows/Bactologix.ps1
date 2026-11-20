@@ -759,7 +759,7 @@ function Run-Desktop($View) {
     $task = Start-Owned 'wsl.exe' @('--distribution',$installed.distro,'--exec',$installed.python,'-m','bactologix.cli','--desktop-control',$linuxDirectory,'--desktop-session',$id,'--no-browser')
     $storageMonitor = $null
     $storageRetry = [DateTime]::MinValue
-    $window = $null; $opened = $false; $closing = $false; $browserRequest = $null; $asked = $false
+    $window = $null; $opened = $false; $closing = $false; $browserRequest = $null
     $profile = Join-Path $directory 'browser'
     $browserReady = $false; $browserClock = $null
     $clock = [Diagnostics.Stopwatch]::StartNew()
@@ -811,21 +811,10 @@ function Run-Desktop($View) {
                 $browserReady = $presence.ready
                 if ($browserClosed) {
                     Close-OwnedBrowser $profile
-                    & $request 'close'; $closing = $true
+                    & $request 'confirm_close'; $closing = $true
                 } elseif (-not $browserReady -and $browserClock.Elapsed.TotalSeconds -gt 30) {
                     throw 'The dedicated browser did not become ready. Check local browser policies; this session will stop.'
                 }
-            }
-            if ($status.phase -eq 'ready') { $asked = $false }
-            if ($status.phase -eq 'confirming' -and -not $asked) {
-                $asked = $true
-                # Keep the lease alive while the native dialog is open.
-                $timer = New-Object Windows.Forms.Timer; $timer.Interval = 1000
-                $timer.Add_Tick($heartbeat); $timer.Start()
-                try { $answer = [Windows.Forms.MessageBox]::Show("$($status.jobs) job(s) belong to this window. Stop them and exit? Completed work is retained. Select No to reopen Bactologix.", 'Stop analyses and exit?', 'YesNo', 'Question') }
-                finally { $timer.Stop(); $timer.Dispose() }
-                if ($answer -eq 'Yes') { & $request 'confirm_close' }
-                else { & $request 'reopen'; $opened = $false }
             }
             if ($status.phase -eq 'stopping') {
                 $message = if ($status.installing_update) { 'Finishing the application update safely before exit.' } else { 'Stopping only this session''s jobs and allowing cleanup. Other Ubuntu work stays running.' }

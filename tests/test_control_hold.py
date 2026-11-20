@@ -7,7 +7,7 @@ import time
 import psutil
 import pytest
 
-from bactologix import disk_pause, engine, supervision, worker
+from bactologix import desktop, disk_pause, engine, supervision, worker
 from test_supervision import background, fixture, wait_for
 
 
@@ -42,30 +42,24 @@ def test_same_command_waits_through_long_control_outage(fixture, monkeypatch, ki
                 locker.execute('PRAGMA locking_mode=EXCLUSIVE')
                 locker.execute('BEGIN EXCLUSIVE')
                 wait_for(lambda: monitoring().get('control_hold') is True)
-                assert monitoring()['control_operation'] in {'job and desktop controls', 'disk-status'}
+                assert monitoring()['control_operation'] == 'job and desktop controls'
                 assert native.status() == psutil.STATUS_STOPPED
                 stamp = marker.stat().st_mtime_ns
                 if after == 'low-space':
                     capacity['free'] = 8 * disk_pause.GIB
-                    wait_for(lambda: ctx.disk_guard.record['state'] == 'paused')
+                    wait_for(lambda: not supervision.remaining([identity]))
                 if after == 'stop':
                     locker.execute('UPDATE jobs SET cancel=1 WHERE id=?', (jid,))
                 time.sleep(.3)
                 assert marker.stat().st_mtime_ns == stamp
-            if after == 'stop':
+            if after in {'stop', 'low-space'}:
                 thread.join(6)
                 assert len(outcome) == 1 and isinstance(outcome[0], engine.Cancelled)
             else:
                 wait_for(lambda: monitoring().get('state') == 'recovered')
                 assert native.create_time() == identity['created']
-                if after == 'low-space':
-                    assert native.status() == psutil.STATUS_STOPPED
-                    assert marker.stat().st_mtime_ns == stamp
-                    capacity['free'] = 40 * disk_pause.GIB
-                    wait_for(lambda: (disk_pause.snapshot(store, jid) or {}).get('can_resume'))
-                    disk_pause.request_resume(store, jid, ctx.disk_guard.record['generation'])
                 wait_for(lambda: marker.stat().st_mtime_ns > stamp)
-        if after != 'stop':
+        if after == 'resume':
             done.touch()
             thread.join(6)
             assert not outcome
@@ -76,7 +70,7 @@ def test_same_command_waits_through_long_control_outage(fixture, monkeypatch, ki
         store.cancel(jid)
         thread.join(8)
         if ctx.disk_guard is not None:
-            ctx.disk_guard.finish('cancelled' if after == 'stop' else 'succeeded')
+            ctx.disk_guard.finish('succeeded' if after == 'resume' else 'cancelled')
         ctx.log.close()
 
 
@@ -98,8 +92,11 @@ def test_worker_wal_stays_open_without_blocking_user_writes(fixture, monkeypatch
         # stall while readers and independent storage checks continue.
         with store.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            wait_for(lambda: (supervision.snapshot(store, jid) or {}).get('control_hold') is True)
-            assert supervision.snapshot(store, jid)['control_operation'] == 'disk-status'
+            wait_for(lambda: (supervision.snapshot(store, jid) or {}).get('state') == 'degraded')
+            time.sleep(.5)  # The normal grace expired. Storage readings still protect the job.
+            stamp = marker.stat().st_mtime_ns
+            wait_for(lambda: marker.stat().st_mtime_ns > stamp)
+            assert not supervision.snapshot(store, jid).get('control_hold')
             assert store.job(jid)['status'] == 'running'
             db.execute('UPDATE jobs SET cancel=1 WHERE id=?', (jid,))
         wait_for(lambda: store.job(jid)['status'] == 'cancelled')
@@ -110,8 +107,88 @@ def test_worker_wal_stays_open_without_blocking_user_writes(fixture, monkeypatch
         thread.join(8)
 
 
+@pytest.mark.parametrize('action', ['recover', 'stop', 'close', 'expire'])
+def test_desktop_owned_native_command_during_exclusive_lock(fixture, monkeypatch, action):
+    from bactologix.ui_backend import dispatch
+
+    store, jid, marker, _, _ = fixture
+    owner, anchor = 'e' * 32, time.time()
+    store.put('job_owners', jid, owner)
+    store.put('desktop_sessions', owner, {'phase': 'ready', 'last_seen': anchor})
+    monkeypatch.setattr(desktop, 'LEASE_SECONDS', 2.0)
+    monkeypatch.setattr(engine, 'WORKFLOW_CONTROL_GRACE_SECONDS', 1.0)
+    ctx = engine.Context(store, store.claim())
+    pulse = desktop._lease_path(store, owner).with_suffix('.pulse.json')
+    done = marker.with_name('finish')
+    with desktop.job_stop_channel(store, ctx.job):
+        thread, outcome = background(ctx, writer_command(marker, done))
+        try:
+            wait_for(marker.exists)
+            identities = supervision.snapshot(store, jid, 'process')['identities']
+            with store.connect() as locker:
+                locker.execute('PRAGMA locking_mode=EXCLUSIVE')
+                locker.execute('BEGIN EXCLUSIVE')
+                wait_for(lambda: (supervision.snapshot(store, jid) or {}).get('state') == 'degraded')
+                # Outlast the durable lease and the SQLite grace. The worker
+                # can verify the same desktop, native process, and disk locally.
+                until = time.monotonic() + 2.25
+                while time.monotonic() < until:
+                    desktop.atomic(pulse, {'session': owner, 'anchor': anchor, 'heartbeat': time.time(),
+                                           'monotonic': time.monotonic()})
+                    time.sleep(.09)
+                before = marker.stat().st_mtime_ns
+                wait_for(lambda: marker.stat().st_mtime_ns > before)
+                assert not supervision.snapshot(store, jid).get('control_hold')
+                if action == 'stop':
+                    result = dispatch(store, 'cancel_job', {'id': jid})
+                    assert 'Stop requested' in result['message']
+                elif action == 'close':
+                    desktop.atomic(pulse, {'session': owner, 'stopping': True, 'reason': 'Window closed'})
+                if action != 'recover':
+                    wait_for(lambda: not supervision.remaining(identities))
+            if action == 'recover':
+                wait_for(lambda: supervision.snapshot(store, jid)['state'] == 'recovered')
+                assert supervision.snapshot(store, jid, 'process')['identities'] == identities
+                done.touch()
+            thread.join(8)
+            assert not thread.is_alive()
+            if action == 'recover':
+                assert not outcome
+            else:
+                assert len(outcome) == 1 and isinstance(outcome[0], engine.Cancelled)
+                expected = {'stop': 'stop request', 'close': 'Window closed', 'expire': 'heartbeat expired'}
+                assert expected[action] in str(outcome[0])
+            assert supervision.snapshot(store, jid, 'process')['cleanup_confirmed']
+        finally:
+            done.touch()
+            store.cancel(jid)
+            thread.join(8)
+            ctx.disk_guard.finish('succeeded' if action == 'recover' else 'cancelled')
+            ctx.log.close()
+
+
+def test_cached_desktop_cannot_authorize_a_new_command(fixture, monkeypatch):
+    store, jid, marker, _, _ = fixture
+    owner = 'e' * 32
+    store.put('job_owners', jid, owner)
+    store.put('desktop_sessions', owner, {'phase': 'ready', 'last_seen': time.time()})
+    monkeypatch.setattr(engine, 'WORKFLOW_CONTROL_GRACE_SECONDS', .2)
+    ctx = engine.Context(store, store.claim())
+    try:
+        ctx.command([sys.executable, '-c', 'pass'])
+        with store.connect() as locker:
+            locker.execute('PRAGMA locking_mode=EXCLUSIVE')
+            locker.execute('BEGIN EXCLUSIVE')
+            with pytest.raises(supervision.MonitoringInterrupted, match='database is locked'):
+                ctx.command([sys.executable, '-c', 'import sys; open(sys.argv[1], "x").close()', str(marker)])
+        assert not marker.exists()
+    finally:
+        ctx.disk_guard.finish('interrupted')
+        ctx.log.close()
+
+
 def test_unverifiable_suspension_interrupts_without_another_claim(fixture, monkeypatch):
-    from bactologix.disk_process import OwnedTree, SuspensionError
+    from bactologix.disk_process import OwnedTree, STORAGE_SUSPEND_SECONDS, SuspensionError
     from test_supervision import inject_control_error
     store, jid, marker, command, _ = fixture
     second = store.submit('smoke', {})
@@ -119,7 +196,8 @@ def test_unverifiable_suspension_interrupts_without_another_claim(fixture, monke
     monkeypatch.setattr(worker, 'assert_current', lambda store: None)
     monkeypatch.setattr(worker, 'execute', lambda ctx: ctx.command(command))
     inject_control_error(store, marker, monkeypatch, failures=None, message='database is locked')
-    def cannot_suspend(tree):
+    def cannot_suspend(tree, *, timeout):
+        assert timeout == STORAGE_SUSPEND_SECONDS
         raise SuspensionError('Fixture: one process could not be suspended')
     monkeypatch.setattr(OwnedTree, 'freeze', cannot_suspend)
     worker.work(store)

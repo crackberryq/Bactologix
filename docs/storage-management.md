@@ -4,10 +4,18 @@ Bactologix separates storage measurement from permanent cleanup. Open **Storage*
 to see the registered cleanup candidates. Opening the page does not start a drive
 scan or delete anything, and age alone never triggers deletion.
 
-During local analysis, [low-disk protection](low-disk-protection.md) monitors
-required Linux and WSL host volumes. A storage-paused run retains its locks;
-stop it before in-app cleanup or exports that require an idle workspace.
-No storage threshold automatically authorizes file removal.
+During local analysis, a measured **10 GiB free or less** on any monitored drive
+stops workspace runs and blocks the queue. Make space on the affected drive,
+then open **Jobs & progress** and choose **Recheck and clear storage stop**.
+Clearing the stop requires a fresh reading of at least 15 GiB on every monitored
+drive. The queue stays paused until you resume it. A workflow paused because a
+storage measurement is unavailable retains its locks. Use **Stop run** before
+performing cleanup or exports that require an idle workspace.
+[Low-disk protection and recovery](low-disk-protection.md)
+
+You can use **Storage** to free space while the workspace is stopped. Finish or
+cancel other queued work, then preview and confirm the cleanup as usual. The
+storage stop stays active until you explicitly recheck and clear it.
 
 ## Restore an archived run
 

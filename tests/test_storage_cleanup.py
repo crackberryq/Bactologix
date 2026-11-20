@@ -288,3 +288,29 @@ def test_workspace_locks_cannot_be_deleted_as_sample_inputs(tmp_path, other_work
     store.put('samples', 'malformed', {'id': 'malformed', 'path': str(tmp_path / 'inputs'), 'inputs': [{'path': str(lock)}]})
     preview = plan(store, ('sample_files', 'malformed'))
     assert any('workspace' in reason.lower() for reason in preview['blocked'])
+
+
+def test_critical_disk_stop_allows_only_reviewed_idle_cleanup(tmp_path):
+    from bactologix import disk_stop
+    from bactologix.store import now
+    store = Store(tmp_path / 'workspace')
+    run = saved_run(store)
+    output = Path(run['output']) / 'report.html'
+    volume = dict(id='disk', kind='linux', label='Fixture drive', path=str(store.home),
+                  available_bytes=0, total_bytes=100 * 1024**3)
+    disk_stop.trip(store, {'id': 'low-job'}, dict(checked_at=now(), volumes=[volume]), [volume])
+    preview = plan(store, ('run', run['id']))
+    assert not preview['blocked']
+    with pytest.raises(ValueError, match='DELETE'):
+        cleanup.request(store, preview['id'], preview['signature'], '', False)
+    assert store.claim() is None and output.is_file()
+    jid = cleanup.request(store, preview['id'], preview['signature'], 'DELETE', True)
+    job = store.claim()
+    assert job['id'] == jid and disk_stop.stop_reason(store, job) is None
+    assert disk_stop.stop_reason(store, {**job, 'payload': {}})
+    ctx = SimpleNamespace(store=store, job=job, check_cancel=lambda: None, write=lambda _: None, lock_fd=None)
+    cleanup.execute(ctx)
+    store.update_job(jid, status='succeeded')
+    assert not output.exists() and disk_stop.snapshot(store)['blocked']
+    with pytest.raises(ValueError, match='Workspace storage stop'):
+        store.submit('smoke', {})

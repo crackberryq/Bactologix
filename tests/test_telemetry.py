@@ -32,6 +32,21 @@ def point(start=0, end=2, cpu=1, rss=50, observed=1, unavailable=0):
                 processes_peak=2 if observed else None, observed=observed, unavailable=unavailable)
 
 
+def test_system_memory_preserves_high_swap_and_zero_capacity(tmp_path, monkeypatch):
+    store = Store(tmp_path)
+    jid, recorder = record_job(store)
+    monkeypatch.setattr(t.psutil, 'virtual_memory', lambda: SimpleNamespace(total=1024, available=624))
+    swap = SimpleNamespace(total=1000, used=900)
+    monkeypatch.setattr(t.psutil, 'swap_memory', lambda: swap)
+    recorder.begin_download('download')
+    reading = store.get('job_telemetry', jid)['system_memory']
+    assert (reading['ram_used_bytes'], reading['swap_used_bytes'], reading['swap_total_bytes']) == (400, 900, 1000)
+    assert reading['sampled_at'] and not store.job(jid)['cancel']
+    swap.total = swap.used = 0
+    recorder.end_download()
+    assert store.get('job_telemetry', jid)['system_memory']['swap_total_bytes'] == 0
+
+
 def test_log_progress_handles_parallel_steps_and_checkpoint_replanning():
     p = t.Progress()
     for line in ['localrule alpha:', '    input: retained', '    jobid: 3', '',

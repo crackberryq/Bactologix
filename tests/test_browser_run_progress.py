@@ -291,3 +291,52 @@ def test_job_network_readings(progress_page):
     expect(detail).to_contain_text('Download 4 KiB/s (16 KiB total)')
     expect(detail.get_by_role('img', name='Download rate over elapsed job time; peak 2 KiB/s')).to_be_visible()
     expect(detail.get_by_role('img', name='Upload rate over elapsed job time; peak 1 KiB/s')).to_be_visible()
+
+
+def test_resource_dialog_fits_viewport_and_separates_swap_from_disk(progress_page):
+    from playwright.sync_api import expect
+
+    page = progress_page
+    measured(page)
+    page.get_by_role('button', name='Resource use', exact=True).click()
+    page.evaluate('''() => {
+      const gib = 1024 ** 3, sampled = new Date().toISOString();
+      progressJob.disk_safety = {state:'normal', checked_at:sampled, volumes:[
+        {label:'Workspace and logs', path:'/home/test/workspace', available_bytes:140*gib},
+        {label:'Windows swap drive', path:'E:/WSL-Swap', available_bytes:32*gib}
+      ]};
+      const summary = {...progressJob.telemetry, system:'Linux', architecture:'x86_64',
+        pipeline:'hybas', config_sha256:'c'.repeat(64), job_status:'running',
+        system_memory:{ram_used_bytes:40*gib, ram_total_bytes:50*gib, swap_used_bytes:90*gib,
+          swap_total_bytes:100*gib, sampled_at:sampled}};
+      const points = [{start_s:0, end_s:2, observed:1, unavailable:0, cpu_s:2,
+        rss_peak_mb:2048, observed_network_s:2, observed_tx_s:2, rx_bytes:1024, tx_bytes:512}];
+      acceptanceRender({id:'resource-layout-fixture', ok:true, keep_modal:true,
+        usage:{id:progressJob.id, summary, points}});
+    }''')
+    dialog = page.get_by_role('dialog', name='Resource use & progress')
+    memory = dialog.get_by_role('region', name='System memory')
+    expect(memory).to_contain_text('40 GiB / 50 GiB')
+    expect(memory).to_contain_text('90 GiB / 100 GiB')
+    drives = dialog.get_by_role('region', name='Free disk space')
+    expect(drives).to_contain_text('140 GiB')
+    expect(drives).to_contain_text('32 GiB')
+    expect(dialog.get_by_text('Running', exact=True)).to_be_visible()
+
+    charts = dialog.locator('.usage-chart')
+    expect(charts.get_by_role('img')).to_have_count(4)
+    footer = dialog.locator('.modal-foot')
+    for width, height, chart_rows in [(1536, 864, 1), (1366, 768, 1), (390, 844, 4), (320, 568, 4)]:
+        page.set_viewport_size({'width': width, 'height': height})
+        assert charts.evaluate_all('nodes => new Set(nodes.map(n => n.offsetTop)).size') == chart_rows
+        assert dialog.locator('.modal-body').evaluate('n => n.scrollWidth <= n.clientWidth + 1')
+        expect(dialog.locator('.modal-head')).to_be_in_viewport(ratio=1)
+        for name in ('Close', 'Refresh', 'CSV', 'JSON', 'Download record (ZIP)'):
+            expect(footer.get_by_role('button', name=name, exact=True)).to_be_in_viewport(ratio=1)
+
+    provenance = dialog.locator('summary').filter(has_text='Measurement scope & provenance')
+    provenance.click()
+    expect(dialog.get_by_text('Configuration SHA-256:', exact=False)).to_contain_text('c' * 64)
+    assert dialog.locator('.modal-body').evaluate('n => n.scrollWidth <= n.clientWidth + 1')
+    footer.get_by_role('button', name='Close', exact=True).click()
+    expect(dialog).to_have_count(0)

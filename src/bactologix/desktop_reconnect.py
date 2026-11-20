@@ -72,7 +72,7 @@ def confirm(identity, key, after, now, lease):
         try:
             first = None
             while time.monotonic() < deadline:
-                if _request(directory, key) == 'confirm_close':
+                if _request(directory, key) in {'close', 'confirm_close'}:
                     result.append('close')
                     return
                 beat = _read(directory, 'heartbeat.json')
@@ -91,7 +91,7 @@ def confirm(identity, key, after, now, lease):
                 else:
                     live = stamp > first
                 if live:
-                    if _request(directory, key) == 'confirm_close':
+                    if _request(directory, key) in {'close', 'confirm_close'}:
                         result.append('close')
                     elif fresh(beat, 5):
                         result.append(stamp)

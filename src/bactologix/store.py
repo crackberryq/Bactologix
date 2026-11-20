@@ -212,7 +212,15 @@ class Store:
             return self._submit(kind, payload, expected_draft_generation)
 
     def _submit(self, kind, payload, expected_draft_generation):
+        from . import disk_stop
         jid = identifier("job")
+        blocked = disk_stop.snapshot(self)
+        if blocked:
+            if kind != 'storage_cleanup' or not blocked.get('id'):
+                raise ValueError(blocked['reason'])
+            # This cleanup goes through the existing idle-workspace, preview,
+            # confirmation and worker ownership checks.
+            payload = {**payload, 'storage_stop_id': blocked['id']}
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             owner = os.environ.get('BACTOLOGIX_DESKTOP_SESSION')
@@ -291,26 +299,45 @@ class Store:
                        (*fields.values(), jid))
 
     def claim(self):
+        from . import disk_stop
+        # Production callers own worker.lock, which also serializes both trip and release.
+        stop = disk_stop.snapshot(self)
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             from .queue import control
-            paused = control(db)['paused']
+            if stop:
+                eligibility = "j.kind='storage_cleanup' AND json_extract(j.payload,'$.storage_stop_id')=?"
+                parameter = stop.get('id')
+            else:
+                eligibility = "(?=0 OR j.kind='workflow_unlock')"
+                parameter = control(db)['paused']
             row = db.execute("SELECT j.id FROM jobs j LEFT JOIN job_queue q ON q.job_id=j.id "
                              "WHERE j.status='queued' AND j.cancel=0 AND COALESCE(q.held,0)=0 "
-                             "AND (?=0 OR j.kind='workflow_unlock') "
-                             "ORDER BY COALESCE(q.position,j.rowid),j.rowid LIMIT 1", (int(paused),)).fetchone()
+                             f"AND {eligibility} ORDER BY COALESCE(q.position,j.rowid),j.rowid LIMIT 1",
+                             (parameter,)).fetchone()
             if not row:
                 return None
             db.execute("UPDATE jobs SET status='running',started=? WHERE id=?", (now(), row[0]))
         return self.job(row[0])
 
     def queue_snapshot(self):
+        from . import disk_stop
         from .queue import snapshot
         with self.connect() as db:
             db.execute('BEGIN')
-            return snapshot(db)
+            result = snapshot(db)
+        stop = disk_stop.snapshot(self)
+        if stop:
+            result.update(paused=True, pause_reason='workspace_disk_stop', storage_stop=stop)
+        return result
 
-    def cancel(self, jid):
+    def cancel(self, jid, *, sent_to_worker=False):
+        from .desktop import request_live_job_stop
+        if not sent_to_worker:
+            try:
+                sent_to_worker = request_live_job_stop(self, jid)
+            except OSError:
+                pass  # Still try the durable SQLite flag when local signalling fails.
         # This mutation is idempotent. Retry its entire short transaction only
         # after connect() has rolled back and closed the failed attempt. Re-read
         # status each time: a queued application update may now be installing.
@@ -324,7 +351,11 @@ class Store:
                     db.execute("UPDATE jobs SET cancel=1,status=CASE WHEN status='queued' THEN 'cancelled' ELSE status END WHERE id=? AND status IN ('queued','running')", (jid,))
                 return
             except sqlite3.Error as exc:
-                if not transient_lock(exc) or attempt >= len(CONTROL_BACKOFF):
+                if not transient_lock(exc):
+                    raise
+                if attempt >= len(CONTROL_BACKOFF):
+                    if sent_to_worker:
+                        return  # The running worker has an independent, persisted Stop request.
                     raise
                 time.sleep(CONTROL_BACKOFF[attempt])
 

@@ -98,3 +98,17 @@ def test_streamlit_workspace_stays_mounted_across_exclusive_lock(tmp_path, monke
             locker.execute('BEGIN EXCLUSIVE')
             check(True)
         check(False)
+
+
+def test_file_based_storage_stop_visible_from_last_view_during_sqlite_lock(store):
+    from bactologix import disk_stop
+    from bactologix.store import now
+    previous = ui_backend.display_snapshot(store)
+    sample = {'id':'linux:1','label':'Workspace','path':str(store.home),'available_bytes':0}
+    with store.connect() as locker:
+        locker.execute('PRAGMA locking_mode=EXCLUSIVE')
+        locker.execute('BEGIN EXCLUSIVE')
+        disk_stop.trip(store, {'id':'running'}, {'volumes':[sample], 'checked_at':now()}, [sample])
+        state = ui_backend.display_snapshot(store)
+    assert state['workspace_busy'] and state['queue']['storage_stop']['blocked']
+    assert not previous['queue'].get('storage_stop')

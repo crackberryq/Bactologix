@@ -54,11 +54,11 @@ class SyntheticCapacity:
     def include_command(self, cwd=None, extra_env=None):
         pass
     def sample(self):
-        available = (9 if (directory / 'low-space').exists() else 40) * 1024**3
+        errors = ['Storage probe unavailable'] if (directory / 'probe-unavailable').exists() else []
         return {'volumes': [{'id': 'fixture', 'label': 'Software fixture disk',
-                    'path': str(directory), 'available_bytes': available,
+                    'path': str(directory), 'available_bytes': 40 * 1024**3,
                     'total_bytes': 100 * 1024**3, 'kind': 'linux'}],
-                'errors': [], 'checked_at': now()}
+                'errors': errors, 'checked_at': now()}
 
 disk_pause.CapacityProbe = SyntheticCapacity
 store = Store(home)
@@ -143,7 +143,7 @@ def test_killed_paused_worker_reaps_owned_writers_and_releases_lock(tmp_path, de
             wait_for(started)
             records = [identity(tmp_path / (role + '.identity.json')) for role in ('root', 'child')]
             assert all(records)
-            (tmp_path / 'low-space').touch()
+            (tmp_path / 'probe-unavailable').touch()
             wait_for(lambda: store.get('disk_safety', jid, {}).get('state') == 'paused')
             for record in records:
                 process = owned_process(record)

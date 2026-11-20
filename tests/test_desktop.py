@@ -39,16 +39,14 @@ def test_close_owns_only_its_jobs_and_blocks_racing_submissions(tmp_path, monkey
     assert not a.tick('http://127.0.0.1:8501', True)
     assert a.phase == 'ready'
     request(a, 'close')
-    assert not a.tick('http://127.0.0.1:8501', True)
-    assert a.phase == 'confirming'
+    assert a.tick('http://127.0.0.1:8501', True)
+    assert a.phase == 'stopping'
     monkeypatch.setenv(desktop.ENV, a.key)
     with pytest.raises(ValueError, match='closing'):
         store.submit('smoke', {})
     request(a, 'reopen')
-    a.tick('', True)
-    assert a.phase == 'ready' and store.job(ja)['status'] == 'queued'
-    request(a, 'confirm_close')
     assert a.tick('', True)
+    assert a.phase == 'stopping'
     assert store.job(ja)['status'] == 'cancelled'
     assert store.job(jb)['status'] == store.job(independent)['status'] == 'queued'
 

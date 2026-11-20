@@ -87,7 +87,9 @@ class Context:
         self.lock_fds = tuple(fd for fd in (lock_fd, environment_fd) if fd is not None)
         self.log = store.log_path(job["id"]).open("a", buffering=1)
         self.cancel_reason = None
-        self.setup_control = (job['kind'] in {'install', 'connect', 'bootstrap', 'environments'} or
+        self.verified_desktop = None
+        self.setup_control = (job['kind'] in {'install', 'connect', 'bootstrap', 'environments',
+                                              'database_download', 'database_redownload', 'database_build'} or
                               (job['kind'] == 'check' and (job['payload'].get('setup') or job['payload'].get('repair'))))
         self.workflow_control = job['kind'] == 'workflow'
         self.control_deadlines = {}
@@ -106,7 +108,7 @@ class Context:
         except Exception:
             self.observation_warning()
         self.disk_guard = None
-        if job['kind'] == 'workflow' and job['payload'].get('action') in {'run', 'continue'}:
+        if self.setup_control or self.workflow_control:
             from .channels import environment
             from .disk_pause import Guard
             self.disk_guard = Guard(store, job, self.check_cancel_only, self.write,
@@ -182,6 +184,18 @@ class Context:
                 self.control_deadlines[key] = deadline
                 self.controls_restored_at = None
                 remaining = deadline - time.monotonic()
+                # A disk-status write publishes a reading that the guard
+                # has already enforced. A busy writer must not suspend a
+                # running process (or obstruct its shutdown). At command
+                # boundaries we still require the current state to be saved.
+                if poll and op_key == 'disk-status' and (self.control_owner is not None or self.cancel_reason):
+                    return None
+                # The owner was verified with SQLite before this command was
+                # released. The caller checks its independent stop and live
+                # desktop records on every deferred read, including this one.
+                if (poll and op_key == 'job and desktop controls'
+                        and self.control_owner is not None and self.verified_desktop is not None):
+                    return None
                 if remaining <= 0:
                     if poll and self.control_owner is not None and CONTROL_HOLD_SECONDS > 0:
                         self.hold_for_control(op_key or operation.__name__, cause)
@@ -199,7 +213,11 @@ class Context:
     def hold_for_control(self, key, error):
         if self.control_held_at is not None:
             return
-        self.verify_control_freeze()
+        try:
+            self.verify_control_freeze()
+        except MonitoringInterrupted as exc:
+            raise MonitoringInterrupted(f'{exc} Blocked workspace operation: {key}.',
+                                        cleanup_confirmed=False) from exc
         self.control_held_at = time.monotonic()
         if self.disk_guard is not None:
             self.disk_guard.control_suspended = True
@@ -209,10 +227,10 @@ class Context:
         self.write(detail + ' ' + str(error))
 
     def verify_control_freeze(self):
-        from .disk_process import SuspensionError
+        from .disk_process import STORAGE_SUSPEND_SECONDS, SuspensionError
         import psutil
         try:
-            self.control_owner.tree.freeze()
+            self.control_owner.tree.freeze(timeout=STORAGE_SUSPEND_SECONDS)
             self.control_owner.refresh()
         except (SuspensionError, psutil.Error) as exc:
             raise MonitoringInterrupted('Could not verify suspension during workspace control recovery: '
@@ -260,8 +278,13 @@ class Context:
         self.write(detail)
 
     def refresh_desktop_cancel(self, *, poll=False):
-        from .desktop import recorded_session_stop, session_stop_reason
+        from . import desktop, disk_stop
         if self.cancel_reason is not None:
+            return True
+        self.cancel_reason = disk_stop.stop_reason(self.store, self.job)
+        if not self.cancel_reason and self.job['kind'] != 'app_update':
+            self.cancel_reason = desktop.job_stop_reason(self.store, self.job['id'])
+        if self.cancel_reason:
             return True
         def read_reason():
             state = self.store.control_state(self.job['id'], self.monitor_retry)
@@ -269,18 +292,25 @@ class Context:
                 # A desktop close sets the same durable job flag.
                 reason = 'A stop request was recorded for this job.'
                 if state['owner'] and self.job['kind'] != 'app_update':
-                    detail = recorded_session_stop(state['session'])
+                    detail = desktop.recorded_session_stop(state['session'])
                     if detail:
                         reason += ' ' + detail
                 return reason
             if self.job['kind'] != 'app_update' and state['owner']:
-                return session_stop_reason(state['session'], store=self.store, owner=state['owner'],
-                                           job_id=self.job['id']) or ''
+                reason = desktop.session_stop_reason(state['session'], store=self.store, owner=state['owner'],
+                                                     job_id=self.job['id'])
+                if not reason:
+                    self.verified_desktop = (state['owner'], state['session'])
+                return reason or ''
+            self.verified_desktop = None
             return ''
 
         reason = self.control_operation(read_reason, poll=poll, op_key='job and desktop controls')
-        if reason is None:  # A control poll deferred; keep servicing the owned process.
-            return False
+        if reason is None:
+            if self.verified_desktop is not None:
+                owner, session = self.verified_desktop
+                self.cancel_reason = desktop.cached_session_stop_reason(self.store, owner, session)
+            return bool(self.cancel_reason)
         if self.monitor['state'] == 'degraded' and not self.control_deadlines and self.control_held_at is None:
             self.monitor_state('recovered', 'Workspace control access recovered; native execution remained owned.')
         self.cancel_reason = reason or None

@@ -59,14 +59,15 @@ def test_capacity_drop_during_ownership_write_keeps_exec_gate_closed(fixture, mo
     monkeypatch.setattr(ctx, 'observe', observe)
     thread, outcome = background(ctx, command)
     try:
-        wait_for(lambda: (disk_pause.snapshot(store, jid) or {}).get('state') == 'paused')
+        thread.join(8)
+        assert not thread.is_alive() and len(outcome) == 1
+        assert isinstance(outcome[0], engine.Cancelled) and 'Workspace storage stop' in str(outcome[0])
         assert not started and not marker.exists()
     finally:
         store.cancel(jid)
         thread.join(10)
         ctx.disk_guard.finish('cancelled')
         ctx.log.close()
-    assert not thread.is_alive() and len(outcome) == 1 and isinstance(outcome[0], engine.Cancelled)
 
 
 @pytest.mark.parametrize('code', [0, 7])

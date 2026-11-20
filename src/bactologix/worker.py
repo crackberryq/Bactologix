@@ -14,7 +14,7 @@ from .supervision import MonitoringInterrupted
 
 
 def work(store, desktop_owner=None):
-    from .desktop import session_stopped
+    from .desktop import job_stop_channel, session_stopped
     with (store.home / "worker.lock").open("a+") as lock:
         # Waiting launchers also close the idle-shutdown race: a job submitted as
         # the previous worker exits always has a worker waiting to acquire the lock.
@@ -46,19 +46,20 @@ def work(store, desktop_owner=None):
             ctx = Context(store, job, lock.fileno())
             status = 'running'
             try:
-                ctx.check_cancel()
-                ctx.write("Bactologix started " + now())
-                ctx.write(f"Bactologix worker version {__version__}")
-                with environment_lock(exclusive=job["kind"] == "app_update") as environment_fd:
-                    ctx.lock_fds = (lock.fileno(), environment_fd)
-                    assert_current(store)
-                    # Keeping one idle connection open prevents each short
-                    # telemetry/control transaction from becoming SQLite's
-                    # last WAL connection and triggering close/reopen cleanup.
-                    workspace = store.keep_wal_open() if ctx.setup_control or ctx.workflow_control else nullcontext()
-                    with workspace:
-                        execute(ctx)
-                ctx.check_cancel()
+                with job_stop_channel(store, job):
+                    ctx.check_cancel()
+                    ctx.write("Bactologix started " + now())
+                    ctx.write(f"Bactologix worker version {__version__}")
+                    with environment_lock(exclusive=job["kind"] == "app_update") as environment_fd:
+                        ctx.lock_fds = (lock.fileno(), environment_fd)
+                        assert_current(store)
+                        # Keeping one idle connection open prevents each short
+                        # telemetry/control transaction from becoming SQLite's
+                        # last WAL connection and triggering close/reopen cleanup.
+                        workspace = store.keep_wal_open() if ctx.setup_control or ctx.workflow_control else nullcontext()
+                        with workspace:
+                            execute(ctx)
+                    ctx.check_cancel()
                 status = 'succeeded'
                 store.update_job(job["id"], status="succeeded", finished=now())
             except Cancelled as exc:

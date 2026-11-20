@@ -290,7 +290,7 @@ def _build(store, delete_databases=False, own_job=None, *, checkpoint=None):
         target(store.home / relative, 'Dedicated workspace package/cache files')
     for key in jobs:
         if key != own_job and _SAFE_ID.fullmatch(key):
-            for suffix in ('.log', '.monitor.json', '.process.json'):
+            for suffix in ('.log', '.monitor.json', '.process.json', '.stop.json'):
                 target(store.home / 'logs' / (key + suffix), 'Historical job log or monitoring record')
     related, homes, errors = cleanup._other_workspaces(store)
     blocked.extend(errors)

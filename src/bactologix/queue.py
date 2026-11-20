@@ -39,6 +39,11 @@ def change(store, action, expected, jid=None):
         raise ValueError('Choose a queue control action.')
     if not isinstance(expected, str):
         raise ValueError('Refresh the queue before changing it.')
+    if action in {'resume', 'release'}:
+        from .disk_stop import stop_reason
+        blocked = stop_reason(store)
+        if blocked:
+            raise ValueError(blocked)
     with store.connect() as db:
         db.execute('BEGIN IMMEDIATE')
         current = snapshot(db)

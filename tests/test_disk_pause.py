@@ -59,20 +59,20 @@ def background(context, command):
     return thread, result
 
 
-def test_prelaunch_wait_exact_floor_requires_manual_resume(safety, tmp_path):
+def test_missing_storage_before_launch_requires_fresh_capacity_and_manual_resume(safety, tmp_path):
     store, jid, context, values = safety
-    values['available'] = 10 * disk_pause.GIB
+    values['errors'] = ['Output volume unavailable']
     marker = tmp_path / 'launched'
     thread, result = background(context, [sys.executable, '-c', 'from pathlib import Path; Path(__import__("sys").argv[1]).touch()', str(marker)])
     try:
         wait_for(lambda: (disk_pause.snapshot(store, jid) or {}).get('state') == 'paused')
         state = disk_pause.snapshot(store, jid)
         assert state['pause_kind'] == 'before_launch'
-        assert state['pause_details'] == ['Fixture disk has 10.00 GiB free (pause threshold 10 GiB).']
+        assert state['pause_details'] == ['Output volume unavailable']
         assert not marker.exists()
         with pytest.raises(ValueError):
             disk_pause.request_resume(store, jid, state['generation'])
-        values['available'] = 14 * disk_pause.GIB
+        values.update(errors=[], available=14 * disk_pause.GIB)
         time.sleep(.15)
         assert not disk_pause.snapshot(store, jid)['can_resume']
         values['available'] = 15 * disk_pause.GIB
@@ -115,7 +115,7 @@ def test_owned_detached_tree_stops_writing_resumes_and_cancels(safety, tmp_path)
     try:
         wait_for(lambda: all((tmp_path / (role + '.out')).exists() for role in ('parent', 'child')))
         processes = [psutil.Process(int((tmp_path / (role + '.pid')).read_text())) for role in ('parent', 'child')]
-        values['available'] = 9 * disk_pause.GIB
+        values['errors'] = ['Output volume unavailable']
         wait_for(lambda: (disk_pause.snapshot(store, jid) or {}).get('state') == 'paused')
         state = disk_pause.snapshot(store, jid)
         assert state['pause_kind'] == 'processes_suspended'
@@ -124,14 +124,14 @@ def test_owned_detached_tree_stops_writing_resumes_and_cancels(safety, tmp_path)
         time.sleep(.25)
         assert sizes() == stopped_sizes
         assert store.job(jid)['status'] == 'running'
-        values['available'] = 40 * disk_pause.GIB
+        values['errors'] = []
         wait_for(lambda: disk_pause.snapshot(store, jid)['can_resume'])
         time.sleep(.15)
         assert sizes() == stopped_sizes
         disk_pause.request_resume(store, jid, state['generation'])
         wait_for(lambda: all(a > b for a, b in zip(sizes(), stopped_sizes)))
         # SIGCONT precedes saving the resumed state; output growth alone can
-        # still leave the previous low-space pause visible in the database.
+        # still leave the previous storage pause visible in the database.
         wait_for(lambda: disk_pause.snapshot(store, jid)['state'] == 'monitoring')
         values['errors'] = ['Windows backing drive unavailable']
         wait_for(lambda: (current := disk_pause.snapshot(store, jid))['state'] == 'paused'
@@ -151,6 +151,38 @@ def test_owned_detached_tree_stops_writing_resumes_and_cancels(safety, tmp_path)
         assert not thread.is_alive()
         assert len(result) == 1 and isinstance(result[0], Cancelled)
         wait_for(lambda: all(not p.is_running() or p.status() == psutil.STATUS_ZOMBIE for p in processes))
+    finally:
+        store.cancel(jid)
+        thread.join(3)
+        for process in processes:
+            if process.is_running() and process.status() != psutil.STATUS_ZOMBIE:
+                process.kill()
+
+
+def test_critical_space_stops_owned_writers_and_keeps_existing_outputs(safety, tmp_path):
+    from bactologix import disk_stop
+
+    store, jid, context, values = safety
+    script = tmp_path / 'writer.py'
+    script.write_text(WRITER)
+    kept = tmp_path / 'previous-output'
+    kept.write_bytes(b'completed task output')
+    thread, result = background(context, [sys.executable, str(script), str(tmp_path), 'parent'])
+    processes = []
+    try:
+        wait_for(lambda: all((tmp_path / (role + '.out')).exists() for role in ('parent', 'child')))
+        processes = [psutil.Process(int((tmp_path / (role + '.pid')).read_text())) for role in ('parent', 'child')]
+        values['available'] = 10 * disk_pause.GIB
+        thread.join(8)
+        assert not thread.is_alive()
+        assert len(result) == 1 and isinstance(result[0], Cancelled)
+        assert 'Workspace storage stop' in str(result[0])
+        wait_for(lambda: all(not process.is_running() or process.status() == psutil.STATUS_ZOMBIE
+                             for process in processes))
+        assert kept.read_bytes() == b'completed task output'
+        values['available'] = 40 * disk_pause.GIB
+        assert disk_stop.snapshot(store)['blocked']
+        assert not context.disk_guard.record['can_resume']
     finally:
         store.cancel(jid)
         thread.join(3)
@@ -221,7 +253,7 @@ def test_temporary_storage_delay_keeps_native_writer_running(safety, tmp_path, m
 @pytest.mark.parametrize(('running', 'prior_gib', 'errors', 'expected_trigger'), [
     (False, 140, [], 'stale'),  # A checkpoint before exec must still require fresh storage.
     (True, 19, [], 'stale'),
-    (True, 10, [], 'low_space'),
+    (True, 10, [], 'stale'),
     (True, 140, ['Windows swap volume missing'], 'monitor_unavailable'),
 ])
 def test_stale_retry_requires_healthy_capacity_and_active_command(safety, monkeypatch,
@@ -288,9 +320,9 @@ def test_resume_waits_for_host_observation_after_the_request(safety):
     def poll(condition):
         guard.tick()
         return condition()
-    values.update(available=0, host_time=time.time())
+    values.update(errors=['Output volume unavailable'], host_time=time.time())
     wait_for(lambda: poll(lambda: guard.record['state'] == 'paused'))
-    values.update(available=40 * disk_pause.GIB, host_time=time.time())
+    values.update(errors=[], host_time=time.time())
     wait_for(lambda: poll(lambda: guard.record['can_resume']))
     guard.publish(force=True)
     disk_pause.request_resume(store, jid, guard.record['generation'])
@@ -335,15 +367,17 @@ def test_resume_requires_new_sample_and_never_retries_rejected_request(safety):
     guard.samples.close()
     class ControlledSamples:
         def __init__(self):
-            self.available = 9 * disk_pause.GIB
+            self.available = 14 * disk_pause.GIB
+            self.errors = ['Output volume unavailable']
             self.started = time.monotonic()
             self.wake = threading.Event()
         def current(self):
-            return {'volumes': [{'available_bytes': self.available}], 'errors': [], 'checked_at': now()}, self.started
+            return {'volumes': [{'available_bytes': self.available}], 'errors': self.errors, 'checked_at': now()}, self.started
         def close(self):
             pass
     sample = guard.samples = ControlledSamples()
     assert not guard.tick()
+    sample.errors.clear()
     sample.available = 40 * disk_pause.GIB
     guard.tick()
     guard.publish(force=True)
@@ -354,7 +388,7 @@ def test_resume_requires_new_sample_and_never_retries_rejected_request(safety):
     assert not guard.tick()  # Existing measurement cannot satisfy a new request.
     assert guard.record['state'] == 'paused'
     sample.started = time.monotonic()
-    sample.available = 9 * disk_pause.GIB
+    sample.available = 14 * disk_pause.GIB
     assert not guard.tick()
     assert store.get('disk_safety_requests', jid) is None
     sample.available = 40 * disk_pause.GIB
@@ -367,7 +401,7 @@ def test_resume_requires_new_sample_and_never_retries_rejected_request(safety):
     check_cancel = guard.check_cancel
     def capacity_falls_while_checking_cancel():
         check_cancel()
-        sample.available = 9 * disk_pause.GIB
+        sample.available = 14 * disk_pause.GIB
         sample.started = time.monotonic()
     guard.check_cancel = capacity_falls_while_checking_cancel
     assert not guard.tick()
@@ -397,7 +431,7 @@ def test_pause_verification_failure_terminates_owned_command(safety, tmp_path, m
         def fail_pause(self, *, timeout):
             raise disk_pause.SuspensionError('Fixture cannot verify suspension')
         monkeypatch.setattr(disk_pause.OwnedTree, 'freeze', fail_pause)
-        values['available'] = 9 * disk_pause.GIB
+        values['errors'] = ['Output volume unavailable']
         thread.join(8)
         assert not thread.is_alive()
         assert len(result) == 1 and isinstance(result[0], disk_pause.SuspensionError)
@@ -405,9 +439,9 @@ def test_pause_verification_failure_terminates_owned_command(safety, tmp_path, m
         context.disk_guard.finish('running')  # Worker holds the job until it can confirm cleanup.
         state = disk_pause.snapshot(store, jid)
         assert state['state'] == 'failed' and state['result'] == 'interrupted'
-        assert state['pause_trigger'] == 'low_space'
-        assert state['pause_details'] == ['Fixture disk has 9.00 GiB free (pause threshold 10 GiB).']
-        assert 'Storage safety pause requested. Fixture disk has 9.00 GiB' in store.log_path(jid).read_text()
+        assert state['pause_trigger'] == 'monitor_unavailable'
+        assert state['pause_details'] == ['Output volume unavailable']
+        assert 'Storage safety pause requested. Output volume unavailable' in store.log_path(jid).read_text()
     finally:
         store.cancel(jid)
         thread.join(3)

@@ -60,21 +60,24 @@ def _storage(store, run):
     observed = CapacityProbe(store, run).sample()
     volumes = observed.get('volumes', [])
     errors = list(observed.get('errors', []))
+    warnings = []
     if not volumes:
         errors.append('Required storage capacity could not be measured.')
     for volume in volumes:
         free = volume.get('available_bytes')
         if not _known(free):
             errors.append('A required storage volume did not return valid free space.')
+        elif free <= PAUSE_BYTES:
+            errors.append(f"{volume.get('label', 'Required storage')} has {free / 1024 ** 3:.1f} GiB free. "
+                          'Workspace runs stop at or below 10 GiB free.')
         elif free < WARNING_BYTES:
-            errors.append(f"{volume.get('label', 'Required storage')}: {free / 1024 ** 3:.1f} GiB free. "
-                          'Free at least 20 GiB before applying a new swap recommendation; '
-                          'additional space for results and temporary files is still needed.')
-    return {**observed, 'errors': list(dict.fromkeys(errors)),
+            warnings.append(f"{volume.get('label', 'Required storage')} has less than 20 GiB free. "
+                            'The workspace stops runs if measured free space falls to 10 GiB or less.')
+    return {**observed, 'errors': list(dict.fromkeys(errors)), 'warnings': warnings,
             'thresholds': {'pause_bytes': PAUSE_BYTES, 'resume_bytes': RESUME_BYTES,
                            'warning_bytes': WARNING_BYTES},
-            'notice': ('The run guard pauses at 10 GiB or less and requires at least 15 GiB to resume. '
-                       'This recommendation keeps the existing 20 GiB warning headroom. '
+            'notice': ('A storage stop can be cleared after every monitored drive has at least 15 GiB free. '
+                       'The swap allowance is a memory budget. '
                        'Free space is not a prediction of total output or swap-file growth.')}
 
 
@@ -176,6 +179,7 @@ def recommend(store, tool, memory_mb, *, run_id=None, config=None, kraken_path=N
     if swap:
         result['warnings'].append('Disk swap is much slower than RAM. Loading a large database can involve severe paging and long runtimes.')
     result['storage'] = _storage(store, run)
+    result['warnings'].extend(result['storage'].get('warnings', []))
     problems = list(result['storage']['errors'])
     if swap and v2 and not review.get('compute_memory'):
         problems.append('This HybAs version does not support additional swap. Select a version with swap support and create a new draft.')

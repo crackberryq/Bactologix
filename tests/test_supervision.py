@@ -156,7 +156,7 @@ def test_cancel_received_during_retry_is_honoured(fixture, monkeypatch):
         ctx.log.close()
 
 
-def test_low_disk_guard_still_pauses_after_transient_control_read(fixture, monkeypatch):
+def test_low_disk_stops_after_transient_control_read(fixture, monkeypatch):
     store, jid, marker, command, capacity = fixture
     ctx = Context(store, store.claim())
     inject_control_error(store, marker, monkeypatch, failures=2)
@@ -164,15 +164,11 @@ def test_low_disk_guard_still_pauses_after_transient_control_read(fixture, monke
     try:
         wait_for(lambda: (supervision.snapshot(store, jid) or {}).get('state') == 'degraded')
         capacity['free'] = 9 * disk_pause.GIB
-        wait_for(lambda: (store.get('disk_safety', jid) or {}).get('state') == 'paused')
-        record = supervision.snapshot(store, jid, 'process')
-        assert psutil.Process(record['pid']).status() == psutil.STATUS_STOPPED
-        before = marker.read_text()
-        time.sleep(.2)
-        assert marker.read_text() == before
-        store.cancel(jid)
-        thread.join(5)
+        thread.join(8)
         assert not thread.is_alive() and isinstance(outcome[0], Cancelled)
+        assert 'Workspace storage stop' in str(outcome[0])
+        record = supervision.snapshot(store, jid, 'process')
+        assert record['cleanup_confirmed'] and not supervision.remaining(record['identities'])
     finally:
         store.cancel(jid)
         thread.join(5)
@@ -323,13 +319,11 @@ def test_workflow_survives_writer_contention_and_still_enforces_disk_limits(fixt
             wait_for(lambda: marker.stat().st_mtime_ns > before)
             if low_space:
                 capacity['free'] = 9 * disk_pause.GIB
-                wait_for(lambda: psutil.Process(process['pid']).status() == psutil.STATUS_STOPPED)
-                before = marker.stat().st_mtime_ns
-            time.sleep(1)
-            assert thread.is_alive() and supervision.snapshot(store, jid)['state'] == 'degraded'
-            if low_space:
-                assert marker.stat().st_mtime_ns == before
-                writer.execute('UPDATE jobs SET cancel=1 WHERE id=?', (jid,))
+                # Even a blocked SQLite writer cannot keep the native process running after a
+                # fresh critical measurement. The final database reconciliation can wait.
+                wait_for(lambda: not supervision.remaining(process['identities']))
+            else:
+                assert thread.is_alive()
         if not low_space:
             wait_for(lambda: supervision.snapshot(store, jid)['state'] == 'recovered')
             finish.touch()
@@ -351,7 +345,7 @@ def test_workflow_survives_writer_contention_and_still_enforces_disk_limits(fixt
 
 
 @pytest.mark.parametrize('error, transient', [('database is locked', True), ('database disk image is malformed', False)])
-def test_disk_status_write_failure_interrupts_workflow_despite_healthy_reads(fixture, monkeypatch, error, transient):
+def test_disk_status_defers_a_locked_writer_and_reports_corruption(fixture, monkeypatch, error, transient):
     monkeypatch.setattr(engine, 'CONTROL_HOLD_SECONDS', .3)
     store, jid, marker, command, _ = fixture
     original_put = store.put
@@ -365,18 +359,22 @@ def test_disk_status_write_failure_interrupts_workflow_despite_healthy_reads(fix
     monkeypatch.setattr(engine, 'WORKFLOW_CONTROL_GRACE_SECONDS', 1.0)
     monkeypatch.setattr(worker, 'execute', lambda ctx: ctx.command(command))
     monkeypatch.setattr(worker, 'assert_current', lambda store: None)
-    # Bound the test even if a successful read incorrectly renews the write deadline.
     worker_thread = threading.Thread(target=worker.work, args=(store,))
     worker_thread.start()
     try:
-        worker_thread.join(6)
-        assert not worker_thread.is_alive()
         if transient:
-            assert len(attempts) > 1 and attempts[-1] - attempts[0] >= 1.0
+            wait_for(lambda: attempts and attempts[-1] - attempts[0] >= 1.5)
+            before = marker.stat().st_mtime_ns
+            wait_for(lambda: marker.stat().st_mtime_ns > before)
+            assert store.job(jid)['status'] == 'running'
+            store.cancel(jid)
+            wait_for(lambda: store.job(jid)['status'] == 'cancelled')
         else:
+            worker_thread.join(6)
+            assert not worker_thread.is_alive()
             assert len(attempts) == 1
-        assert store.job(jid)['status'] == 'interrupted'
-        assert store.queue_snapshot()['paused']
+            assert store.job(jid)['status'] == 'interrupted'
+            assert store.queue_snapshot()['paused']
         process = supervision.snapshot(store, jid, 'process')
         assert process['cleanup_confirmed'] and not supervision.remaining(process['identities'])
     finally:

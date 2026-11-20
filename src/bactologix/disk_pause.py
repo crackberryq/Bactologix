@@ -123,6 +123,7 @@ class Samples:
         value, completed, sample_started = result
         value = dict(value)
         if time.monotonic() - completed > STALE_SECONDS:
+            value['stale'] = True
             value['stale_only'] = not value.get('errors')
             value['errors'] = list(value.get('errors') or []) + ['Required storage checks are stale.']
         return value, sample_started
@@ -223,10 +224,27 @@ class Guard(ProcessOwner):
         valid = bool(volumes) and all(isinstance(v.get('available_bytes'), int) and not isinstance(v['available_bytes'], bool) and v['available_bytes'] >= 0 for v in volumes)
         if not valid:
             errors.append('Required storage capacities are unavailable or invalid.')
-        low = valid and any(v['available_bytes'] <= PAUSE_BYTES for v in volumes)
+        critical = [v for v in volumes if type(v.get('available_bytes')) is int and 0 <= v['available_bytes'] <= PAUSE_BYTES]
+        if critical and not value.get('stale') and _fresh(value.get('checked_at')):
+            from . import disk_stop
+            from .engine import Cancelled
+            self.record.update(state='stopping', reason='workspace_disk_stop', pause_trigger='workspace_disk_stop',
+                               volumes=volumes, checked_at=value['checked_at'], can_resume=False, errors=errors)
+            reason = disk_stop.trip(self.store, self.job, value, critical)
+            self.record['pause_details'] = [reason]
+            # Context retains ownership through its native-command cleanup.
+            # Never wait for a SQLite write before stopping the tools.
+            raise Cancelled(reason)
         ready = _resume_capacity(value)
         old_state = self.record['state']
         self.record.update(volumes=volumes, errors=errors, checked_at=value.get('checked_at'))
+        workflow_run = self.job['kind'] == 'workflow' and self.job['payload'].get('action') in {'run', 'continue'}
+        if not workflow_run and errors:
+            # Setup operations use measured capacity for the workspace stop.
+            # A workflow-only user-resumable pause cannot be serviced by setup.
+            self.record.update(state='unavailable', reason='monitor_unavailable', can_resume=False)
+            self.publish(force=old_state != 'unavailable')
+            return True
         if (command_running and self.tree is not None and not self.control_suspended
                 and old_state in {'monitoring', 'rechecking'} and value.get('stale_only')
                 and valid and all(v['available_bytes'] >= WARNING_BYTES for v in volumes)):
@@ -244,17 +262,10 @@ class Guard(ProcessOwner):
                 self.publish(force=old_state != 'rechecking')
                 return False  # A pending recheck never grants launch or resume.
         self.recheck_until = None
-        if old_state == 'paused' or errors or low:
+        if old_state == 'paused' or errors:
             if old_state != 'paused':
                 details = list(errors)
-                for volume in volumes:
-                    available = volume.get('available_bytes')
-                    if type(available) is int and 0 <= available <= PAUSE_BYTES:
-                        label = volume.get('label') or volume.get('path') or 'Required volume'
-                        details.append(f'{label} has {available / GIB:.2f} GiB free (pause threshold 10 GiB).')
-                trigger = 'low_space' if low else 'monitor_unavailable'
-                if not low and valid and value.get('stale_only'):
-                    trigger = 'stale'
+                trigger = 'stale' if value.get('stale_only') else 'monitor_unavailable'
                 self.record.update(pause_trigger=trigger, pause_details=details)
                 try:
                     self.write('Storage safety pause requested. ' + ' '.join(details))
@@ -272,12 +283,10 @@ class Guard(ProcessOwner):
             if old_state != 'paused':
                 self.record.update(state='paused', generation=self.record['generation'] + 1,
                     paused_at=now(), pause_kind='processes_suspended' if self.tree else 'before_launch',
-                    reason='monitor_unavailable' if errors else 'low_space')
+                    reason='monitor_unavailable')
                 self.write('Storage safety paused this run.')
             if errors:
                 self.record['reason'] = 'monitor_unavailable'
-            elif low:
-                self.record['reason'] = 'low_space'
             self.record['can_resume'] = ready
             request = self._control('disk-resume-read', self.store.get, 'disk_safety_requests', self.job['id'], {})
             if request and request.get('generation') == self.record['generation']:
@@ -305,7 +314,7 @@ class Guard(ProcessOwner):
         if old_state == 'rechecking':
             self.write('Fresh storage readings received. The current command continued without a pause.')
         if self.record['state'] == 'warning' and old_state != 'warning':
-            self.write('Storage is running low: less than 20 GiB available. Automatic pause begins at 10 GiB.')
+            self.write('Storage is running low: less than 20 GiB available. All runs stop at or below 10 GiB free on a monitored drive.')
         return self.publish(force=old_state != self.record['state'])
 
     def stop(self):

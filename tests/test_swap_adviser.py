@@ -243,16 +243,20 @@ def test_insufficient_or_unknown_capacity_never_offers_applicable_values(setup, 
         assert 'Container limits' in ' '.join(result['warnings'])
 
 
-@pytest.mark.parametrize('free', [0, 10 * GIB, 15 * GIB, 20 * GIB - 1])
+@pytest.mark.parametrize('free', [0, 10 * GIB, 10 * GIB + 1, 15 * GIB, 20 * GIB - 1])
 @pytest.mark.parametrize('volume', [0, 1, 2])
-def test_linux_backing_and_swap_volume_warning_headroom_all_matter(setup, free, volume):
+def test_measured_free_space_separates_critical_stops_from_warnings(setup, free, volume):
     workspace, _, _, disks, _, _ = setup
     disks['volumes'][volume]['available_bytes'] = free
     result = adviser.recommend(workspace, 'hybas', 46080)
-    assert not result['can_apply'] and result['proposal'] is None
     assert result['storage']['thresholds'] == {
         'pause_bytes': 10 * GIB, 'resume_bytes': 15 * GIB, 'warning_bytes': 20 * GIB}
-    assert 'at least 20 GiB' in ' '.join(result['problems'])
+    if free <= 10 * GIB:
+        assert not result['can_apply'] and result['proposal'] is None
+        assert 'at or below 10 GiB' in ' '.join(result['problems'])
+    else:
+        assert result['can_apply'] and result['proposal']['swap_mb'] > free // MIB
+        assert disks['volumes'][volume]['label'] in ' '.join(result['warnings'])
 
 
 def test_exact_warning_boundary_can_be_reviewed_but_is_not_a_disk_growth_guarantee(setup):

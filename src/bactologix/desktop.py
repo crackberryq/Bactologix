@@ -47,6 +47,50 @@ def read(path):
         return {}
 
 
+@contextmanager
+def job_stop_channel(store, job):
+    """Only the live worker holds this lock, on a descriptor never passed to children."""
+    if job['kind'] == 'app_update':
+        yield
+        return
+    import fcntl
+    with store.log_path(job['id']).open('rb') as channel:
+        fcntl.flock(channel, fcntl.LOCK_EX)
+        yield
+
+
+def request_live_job_stop(store, jid):
+    """Deliver Stop without the workspace database, only for this live attempt."""
+    if os.name != 'posix':
+        return False
+    import fcntl
+    from .supervision import save
+    try:
+        channel = store.log_path(jid).open('rb')
+    except FileNotFoundError:
+        return False
+    with channel:
+        try:
+            fcntl.flock(channel, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            save(store, jid, {'id': jid, 'stop': True}, 'stop')
+            return True
+    return False
+
+
+def job_stop_reason(store, jid):
+    from .supervision import snapshot
+    try:
+        request = snapshot(store, jid, 'stop')
+    except (OSError, ValueError, TypeError) as exc:
+        raise MonitoringInterrupted('Cannot read the stop request for this job.') from exc
+    if request is None:
+        return None
+    if request.get('id') != jid or request.get('stop') is not True:
+        raise MonitoringInterrupted('Invalid stop request for this job.')
+    return 'A stop request was recorded for this job.'
+
+
 def owner_cancelled(store, jid):
     state = store.control_state(jid)
     return bool(state['owner']) and session_value_stopped(state['session'], store=store, owner=state['owner'])
@@ -105,7 +149,14 @@ def _pulse_covers(pulse, recorded):
             and 0 <= time.monotonic() - observed < LEASE_SECONDS)
 
 
-def session_stop_reason(session, *, store=None, owner=None, job_id=None, check_host=True, confirmed=None):
+def _lease_records(store, owner):
+    path = _lease_path(store, owner)
+    proof = _owner_record(path, owner)
+    return proof, {} if proof.get('stopping') is True else _owner_record(path.with_suffix('.pulse.json'), owner)
+
+
+def session_stop_reason(session, *, store=None, owner=None, job_id=None, check_host=True, confirmed=None,
+                        lease_records=None):
     if session is not None and (not isinstance(session, dict) or not _timestamp(session.get('last_seen', 0))):
         raise MonitoringInterrupted('Desktop session control metadata is invalid.')
     if not session:
@@ -118,11 +169,9 @@ def session_stop_reason(session, *, store=None, owner=None, job_id=None, check_h
     if store is not None and owner is not None:
         # Only the owning launcher publishes a live proof during contention or
         # a stop on close. Jobs still check their own durable cancellation flag.
-        path = _lease_path(store, owner)
-        proof = _owner_record(path, owner)
+        proof, pulse = lease_records if lease_records is not None else _lease_records(store, owner)
         if proof.get('stopping') is True:
             return _desktop_stop_text(proof.get('reason'))
-        pulse = _owner_record(path.with_suffix('.pulse.json'), owner)
         if pulse.get('stopping') is True:
             return _desktop_stop_text(pulse.get('reason'))
         if pulse.get('expired') is True:
@@ -155,6 +204,18 @@ def session_stop_reason(session, *, store=None, owner=None, job_id=None, check_h
     if _timestamp(confirmed) and confirmed > recorded and -HOST_CLOCK_TOLERANCE <= current - confirmed < LEASE_SECONDS:
         return None
     return HEARTBEAT_EXPIRED
+
+
+def cached_session_stop_reason(store, owner, session):
+    """Verify this previously identified owner while the jobs table is locked."""
+    reason = session_stop_reason(session, store=store, owner=owner, check_host=False)
+    if reason != HEARTBEAT_EXPIRED or not session.get('supervisor'):
+        return reason
+    # A delayed worker may wake before the WSL launcher next samples Windows.
+    evidence = confirm_windows_owner(session['supervisor'], owner, session['last_seen'], time.time, LEASE_SECONDS)
+    if evidence == 'close':
+        return _desktop_stop_text('Window closed')
+    return session_stop_reason(session, store=store, owner=owner, check_host=False, confirmed=evidence)
 
 
 def session_value_stopped(session, *, store=None, owner=None):
@@ -216,6 +277,15 @@ class Session:
         # failed transaction has rolled back; never republish a cached lease row.
         for attempt in range(len(CONTROL_BACKOFF) + 1):
             try:
+                # A delayed file read must not hold SQLite's only writer lock.
+                # Each retry rereads the evidence; a terminal SQLite row always wins.
+                evidence_error = None
+                records = ({}, {})
+                if not self.pending_stop_reason:
+                    try:
+                        records = _lease_records(self.store, self.key)
+                    except MonitoringInterrupted as exc:
+                        evidence_error = exc
                 with self.store.connect(timeout=CONTROL_TIMEOUT) as db:
                     db.execute('BEGIN IMMEDIATE')
                     row = db.execute("SELECT body FROM items WHERE kind='desktop_sessions' AND id=?", (self.key,)).fetchone()
@@ -223,8 +293,10 @@ class Session:
                     if not isinstance(previous, dict):
                         raise ValueError('Desktop session control metadata is invalid.')
                     terminal = previous.get('cancelled') is True or previous.get('phase') in {'stopping', 'stopped'}
-                    expired = (session_stop_reason(previous, store=self.store, owner=self.key,
-                                                   check_host=False, confirmed=self.confirmed) if row else None)
+                    if row and not terminal and not self.pending_stop_reason and evidence_error is not None:
+                        raise evidence_error
+                    expired = (session_stop_reason(previous, store=self.store, owner=self.key, check_host=False,
+                                                   confirmed=self.confirmed, lease_records=records) if row else None)
                     if (expired == HEARTBEAT_EXPIRED and recheck and not self.pending_stop_reason
                             and self.supervisor and self.poll_delayed()):
                         raise _RecheckOutsideTransaction()
@@ -345,7 +417,7 @@ class Session:
         while not done.is_set():
             request = read(self.root / 'request.json')
             closing = (isinstance(request, dict) and request.get('session') == self.key
-                       and request.get('action') == 'confirm_close')
+                       and request.get('action') in {'close', 'confirm_close'})
             beat = {} if closing else read(self.root / 'heartbeat.json')
             mono, wall = time.monotonic(), time.time()
             if done.is_set():
@@ -457,7 +529,7 @@ class Session:
         if not isinstance(request, dict):
             request = {}
         if not alive:
-            closing = (request.get('session') == self.key and request.get('action') == 'confirm_close'
+            closing = (request.get('session') == self.key and request.get('action') in {'close', 'confirm_close'}
                        and request.get('nonce') != self.nonce)
             if not closing and not self.pending_stop_reason and self.disconnect_detail:
                 try:
@@ -467,14 +539,8 @@ class Session:
             self.stop('Window closed' if closing else 'Desktop supervisor disconnected; stopping owned work')
         if request.get('session') == self.key and request.get('nonce') != self.nonce:
             action = request.get('action')
-            if action == 'close' and self.phase != 'stopping':
-                self.gate('confirming')
-                if not self.jobs():
-                    self.stop()
-            elif action == 'confirm_close':
+            if action in {'close', 'confirm_close'}:
                 self.stop()
-            elif action == 'reopen' and self.phase == 'confirming':
-                self.gate('ready' if ready else 'starting')
             self.nonce = request.get('nonce')
         if self.phase == 'starting' and ready:
             self.gate('ready')
@@ -486,7 +552,7 @@ class Session:
     def record_contended_lease(self):
         """Bridge an observed, continuous Windows owner across a failed SQLite poll."""
         request = read(self.root / 'request.json')
-        if isinstance(request, dict) and request.get('session') == self.key and request.get('action') == 'confirm_close':
+        if isinstance(request, dict) and request.get('session') == self.key and request.get('action') in {'close', 'confirm_close'}:
             self.pending_stop_reason = self.pending_stop_reason or 'Window closed'
         if self.pending_stop_reason or self.phase in {'stopping', 'stopped'}:
             self.record_stop()

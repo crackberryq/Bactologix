@@ -1,3 +1,10 @@
+## 0.1.0a126.dev1 — 2026-11-20 · Alpha · Workspace stop controls and resource monitoring
+
+- Closing the last Bactologix desktop window stops its work. The worker can receive a Stop request while the workspace database is busy.
+- During an active command, the worker can keep monitoring disk space, the desktop session and Stop requests while it retries a busy database. Starting another command requires fresh controls.
+- A measured 10 GiB or less on a monitored drive stops active work and blocks the workspace queue. Use **Jobs & progress** to check recovery after every required drive reaches 15 GiB free, then choose the work to resume.
+- The **Resource use** window fits the screen and shows system RAM, swap and remaining disk space separately. A high percentage of swap use alone does not trigger a stop.
+
 ## 0.1.0a125.dev1 — 2026-11-20 · Alpha · Reconnecting after a delayed WSL heartbeat check
 
 - When WSL resumes after a long gap in desktop monitoring, Bactologix can check whether the same Windows launcher is responding before interrupting its job. The worker can recover even when it checks the session before the main launcher does.

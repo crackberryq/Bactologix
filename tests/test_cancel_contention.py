@@ -187,3 +187,35 @@ def test_retried_stop_reaches_live_native_command_after_real_contention(tmp_path
         store.cancel(jid)
         command.join(5)
         ctx.log.close()
+
+
+def test_live_stop_channel_works_through_ui_during_persistent_database_lock(tmp_path):
+    from bactologix import desktop
+    from bactologix.ui_backend import dispatch
+    store = Store(tmp_path)
+    jid = store.submit('smoke', {})
+    other = store.submit('smoke', {})
+    job = store.claim()
+    assert job['id'] == jid
+    store.log_path(jid).touch()
+    with desktop.job_stop_channel(store, job), store.connect() as writer:
+        writer.execute('BEGIN IMMEDIATE')
+        result = dispatch(store, 'cancel_job', {'id': jid})
+        assert 'Stop requested' in result['message']
+        assert writer.execute('SELECT cancel FROM jobs WHERE id=?', (jid,)).fetchone()[0] == 0
+        assert desktop.job_stop_reason(store, jid) == 'A stop request was recorded for this job.'
+        assert desktop.job_stop_reason(store, other) is None
+    assert not desktop.request_live_job_stop(store, jid)
+
+
+def test_running_app_update_is_excluded_from_independent_stop(tmp_path):
+    from bactologix import desktop
+    store = Store(tmp_path)
+    jid = store.submit('app_update', {})
+    job = store.claim()
+    store.log_path(jid).touch()
+    with desktop.job_stop_channel(store, job):
+        assert not desktop.request_live_job_stop(store, jid)
+        assert desktop.job_stop_reason(store, jid) is None
+        with pytest.raises(ValueError, match='cannot be cancelled'):
+            store.cancel(jid)
