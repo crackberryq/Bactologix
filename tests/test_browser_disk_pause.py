@@ -43,7 +43,7 @@ def test_pause_visible_static_and_survives_polling(progress_page):
     expect(page.get_by_role('region', name='Execution status')).not_to_contain_text('Running')
     measured(page)
     expect(page.locator('.job-progress')).not_to_contain_text('Receiving updates')
-    expect(page.locator('.job-progress')).to_contain_text('Steps at pause')
+    expect(page.locator('.job-progress .usage-step')).to_have_text('Task at pause assembly')
     page.evaluate('progressState.background=true;progressRerender()')
     expect(bar).to_contain_text('Paused — low disk space')
     assert page.locator('.app-shell').evaluate('n=>getComputedStyle(n).opacity') == '1'

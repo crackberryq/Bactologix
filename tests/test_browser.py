@@ -1452,7 +1452,7 @@ def test_job_progress_resource_history_and_downloads(tmp_path, worker_lease):
         dialog.get_by_role('button', name='Refresh', exact=True).click()
         respond('job_metrics')
         expect(dialog).to_contain_text('Partial record')
-        expect(dialog).to_contain_text('Last reported steps: software_check')
+        expect(dialog.locator('.usage-step')).to_have_text('Last reported task software_check')
         page.set_viewport_size({'width': 390, 'height': 844})
         assert dialog.evaluate('(node) => node.scrollWidth <= node.clientWidth+1')
         assert dialog.locator('.modal-body').evaluate('(node) => node.scrollWidth <= node.clientWidth+1')
