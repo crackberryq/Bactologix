@@ -240,6 +240,24 @@ def test_resume_requires_new_sample_and_never_retries_rejected_request(safety):
     disk_pause.request_resume(store, jid, generation)
     guard.tick()
     sample.started = time.monotonic()
+    check_cancel = guard.check_cancel
+    def capacity_falls_while_checking_cancel():
+        check_cancel()
+        sample.available = 9 * disk_pause.GIB
+        sample.started = time.monotonic()
+    guard.check_cancel = capacity_falls_while_checking_cancel
+    assert not guard.tick()
+    assert guard.record['state'] == 'paused'
+    assert store.get('disk_safety_requests', jid) is None
+
+    guard.check_cancel = check_cancel
+    sample.available = 40 * disk_pause.GIB
+    sample.started = time.monotonic()
+    assert not guard.tick()
+    guard.publish(force=True)
+    disk_pause.request_resume(store, jid, generation)
+    guard.tick()
+    sample.started = time.monotonic()
     assert guard.tick()
 
 
