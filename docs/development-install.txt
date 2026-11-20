@@ -29,6 +29,10 @@ Storage
 - Default Dev ports: 8601–8620 (regular application: 8501–8520)
 
 Inside the application
+To close a Windows desktop session, choose Workspace tools → Close Bactologix
+and confirm Close desktop session. This stops the session's queued and running
+jobs. It works with the existing Windows shortcut after an in-app update.
+
 Use Install & update to install a designated development snapshot of HybAs, BaSIS or GeneScope. Pipeline versions are pinned to exact source commits with compatibility contracts. Refreshing the catalog does not replace installed versions or existing runs. BaSIS and GeneScope initially use tested baseline commits designated for development; new work proceeds on their separate development branches.
 
 The Dev application only offers .dev application updates. Public Dev releases use dev-v tags and separate Dev download assets. Older Dev builds that cannot discover this format need this setup bundle once. Windows setup updates the separate Dev application environment. On Linux/WSL add --upgrade-app to the installer command above to replace an existing Dev app version; without it the existing installation is preserved. Workspaces and saved runs remain preserved.

@@ -1,6 +1,5 @@
 import copy
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -31,7 +30,7 @@ def test_large_native_database_warns_with_swap_without_blocking_or_rewriting(tmp
     run, info, native = fixture(tmp_path)
     before = copy.deepcopy(run)
     monkeypatch.setattr(preflight.hardware, 'inventory', lambda *a, **k: info)
-    monkeypatch.setattr(preflight.hardware, 'detect', lambda *a, **k: info)
+    monkeypatch.setattr(preflight.hardware, 'memory_capacity', lambda: info['memory'])
     measured = preflight.kraken_memory(run, info)
     assert measured['core_bytes'] == 98_605_320_723
     assert measured['estimated_full_load_mb'] == 113868
@@ -44,7 +43,7 @@ def test_large_native_database_warns_with_swap_without_blocking_or_rewriting(tmp
     assert next(row for row in panel['rows'] if row['id'] == 'kraken_memory')['level'] == 'warning'
     preflight.assert_launch(run, 'run')  # Explicitly opted-in, sufficient swap remains allowed.
     messages = []
-    preflight.log_kraken_warnings(SimpleNamespace(store=None, write=messages.append), run)
+    preflight.log_kraken_warnings(messages.append, run)
     assert len(messages) == 1 and 'severe paging' in messages[0]
     assert run == before
 
@@ -71,7 +70,9 @@ def test_unused_kraken_does_not_probe_database(tmp_path, monkeypatch, kind):
         run['tool'] = 'basis'
     run['config'] = yaml.safe_dump(cfg)
     monkeypatch.setattr(Path, 'resolve', lambda *a, **k: pytest.fail('Unused DB probed'))
+    monkeypatch.setattr(preflight.hardware, 'memory_capacity', lambda: pytest.fail('Unused DB queried RAM'))
     assert preflight.kraken_memory(run, info) is None
+    preflight.log_kraken_warnings(lambda _: pytest.fail('Unexpected advisory'), run)
 
 
 def test_small_missing_and_unknown_ram_are_not_mislabelled_as_large_db(tmp_path):

@@ -2222,7 +2222,7 @@ def test_version_compatibility_overview_preserves_saved_bindings(tmp_path, insta
 
 
 def test_job_history_filters_pages_export_and_active_visibility(tmp_path, installed, worker_lease):
-    """Real Chromium component uses stored attempts without submitting or editing work."""
+    """History filters, downloads and clearing affect the activity list independently of execution."""
     import json
     from playwright.sync_api import sync_playwright, expect
     from bactologix.ui_backend import snapshot, dispatch
@@ -2253,7 +2253,7 @@ def test_job_history_filters_pages_export_and_active_visibility(tmp_path, instal
     original = store.jobs()
     original_run = store.get('runs', run['id'])
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, executable_path=os.environ.get('BACTOLOGIX_BROWSER_EXECUTABLE'))
         page = browser.new_page(viewport={'width': 1440, 'height': 1100})
         page.clock.install(time='2026-10-28T12:00:00Z')
         page.clock.pause_at('2026-10-28T12:00:10Z')
@@ -2333,6 +2333,46 @@ def test_job_history_filters_pages_export_and_active_visibility(tmp_path, instal
         assert len(store.jobs()) == len(original) and store.get('runs', run['id']) == original_run
         assert [j for j in store.jobs() if j['id'] != running] == [j for j in original if j['id'] != running]
         assert [e['value']['kind'] for e in page.evaluate('window.acceptanceEvents')] == ['inspect_run']
+        # Clearing from a filtered view applies to the whole history, after confirmation.
+        clear = panel.get_by_role('button', name='Clear job history', exact=True)
+        clear.click()
+        dialog = page.get_by_role('dialog', name='Clear job history?', exact=True)
+        expect(dialog).to_contain_text('including those outside the current filters')
+        dialog.get_by_role('button', name='Close', exact=True).click()
+        expect(panel).to_contain_text('1–1 of 1 matching attempts · 32 total history')
+        assert len(page.evaluate('window.acceptanceEvents')) == 1
+        clear.click()
+        dialog.get_by_role('button', name='Clear job history', exact=True).click()
+        request = page.evaluate('window.acceptanceEvents.at(-1).value')
+        assert request['kind'] == 'clear_job_history' and request['payload'] == {}
+        result = dispatch(store, request['kind'], request['payload'])
+        page.evaluate('''({workspace,response}) => {
+            Object.assign(window.acceptanceWorkspace,workspace);
+            window.acceptanceRender(response);
+        }''', {'workspace': snapshot(store), 'response': {'id': request['id'], 'ok': True, **result}})
+        expect(dialog).to_have_count(0)
+        expect(panel).to_contain_text('Job history is empty.')
+        expect(panel.locator('.job-card')).to_have_count(0)
+        expect(panel.get_by_role('button', name='Download matching history')).to_be_disabled()
+        expect(clear).to_be_disabled()
+        expect(page.get_by_label('Search history', exact=True)).to_have_value('')
+        expect(active.locator('.job-card')).to_have_attribute('data-job-id', waiting)
+        expect(page.locator('[data-waiting-job="' + waiting + '"]')).to_be_visible()
+        assert store.get('runs', run['id']) == original_run
+        store.update_job(waiting, status='succeeded')
+        # Reopen the app to read persisted visibility and the latest completion.
+        page.close()
+        reopened = browser.new_page()
+        reopened.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(reopened, store)
+        reopened.get_by_role('link', name='Activity', exact=True).click()
+        history_panel = reopened.get_by_role('region', name='Job history', exact=True)
+        expect(history_panel.locator('.job-card')).to_have_attribute('data-job-id', waiting)
+        expect(history_panel).to_contain_text('1–1 of 1 matching attempts · 1 total history')
+        expect(history_panel.get_by_role('button', name='Clear job history', exact=True)).to_be_enabled()
+        with reopened.expect_download() as event:
+            history_panel.get_by_role('button', name='Download matching history').click()
+        assert [j['id'] for j in json.loads(Path(event.value.path()).read_text())['jobs']] == [waiting]
         assert errors == []
         browser.close()
 
@@ -2656,10 +2696,37 @@ def test_job_status_column_and_browser_switch(tmp_path):
         positions = badges.evaluate_all('(nodes)=>nodes.map(n=>n.getBoundingClientRect().left)')
         assert max(positions)-min(positions) < 1
         page.locator('.workspace-tools > summary').click()
+        expect(page.get_by_role('button', name='Close Bactologix', exact=True)).to_have_count(0)
         page.get_by_role('button', name='Restart as browser', exact=True).click()
         req = page.evaluate('window.acceptanceEvents.at(-1).value')
         assert req['kind'] == 'restart_as_browser' and req['payload'] == {}
         browser.close()
+
+
+def test_close_desktop_shows_feedback_before_supervisor_response(tmp_path, monkeypatch):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix import desktop
+    key = 'a' * 32
+    monkeypatch.setenv(desktop.ENV, key)
+    monkeypatch.setenv(desktop.STORAGE_SESSION_DIR, str(tmp_path / key))
+    store = Store(tmp_path / 'workspace')
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True, executable_path=os.environ.get('BACTOLOGIX_BROWSER_EXECUTABLE'))
+        page = browser.new_page(viewport={'width': 1440, 'height': 1000})
+        render_component(page, store)
+        page.locator('.workspace-tools > summary').click()
+        page.get_by_role('button', name='Close Bactologix', exact=True).click()
+        expect(page.get_by_role('heading', name='Close Bactologix?')).to_be_visible()
+        assert not page.evaluate('window.acceptanceEvents.some(e=>e.value.kind==="close_desktop")')
+        page.get_by_role('button', name='Close desktop session', exact=True).click()
+        expect(page.get_by_role('heading', name='Closing Bactologix…')).to_be_visible()
+        req = page.evaluate('window.acceptanceEvents.at(-1).value')
+        assert req['kind'] == 'close_desktop' and req['payload'] == {}
+        page.evaluate('req=>window.acceptanceRender({id:req.id,ok:false,message:"Desktop unavailable."})', req)
+        expect(page.get_by_role('button', name='Close desktop session', exact=True)).to_be_enabled()
+        expect(page.get_by_role('dialog')).to_contain_text('Desktop unavailable.')
+        browser.close()
+
 def test_saved_report_section_links_and_print(tmp_path):
     from playwright.sync_api import sync_playwright, expect
     from bactologix.ui_backend import dispatch
@@ -2856,8 +2923,20 @@ def test_workflow_lock_review_and_guarded_unlock(tmp_path, installed, monkeypatc
             page.evaluate('''({workspace,response})=>{Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}''',
                           {'workspace':snapshot(store),'response':{'id':req['id'],'ok':True,**result}})
             return result
+        lock_list=page.get_by_role('region',name='Workflow locks to review',exact=True)
+        expect(lock_list).to_contain_text(run['label'])
+        if with_pam:
+            history=page.get_by_role('region',name='Job history',exact=True)
+            history.get_by_role('button',name='Clear job history',exact=True).click()
+            page.get_by_role('dialog').get_by_role('button',name='Clear job history',exact=True).click()
+            respond()
+            expect(history).to_contain_text('Job history is empty.')
+            expect(lock_list).to_contain_text(run['id'])
+            review=lock_list.get_by_role('button',name='Review lock',exact=True)
+        else:
+            review=panel.get_by_role('button',name='Check workflow lock',exact=True)
         lease=worker_lease(store)
-        panel.get_by_role('button',name='Check workflow lock',exact=True).click()
+        review.click()
         respond()
         expect(page.get_by_role('button',name='Unlock workflow',exact=True)).to_be_disabled()
         expect(page.get_by_role('dialog')).to_contain_text('currently in use')
@@ -2868,6 +2947,7 @@ def test_workflow_lock_review_and_guarded_unlock(tmp_path, installed, monkeypatc
         page.get_by_role('button',name='Unlock workflow',exact=True).click()
         result=respond()
         assert store.job(result['unlock_job'])['kind']=='workflow_unlock'
+        expect(lock_list).to_have_count(0)
         assert store.queue_snapshot()['paused']
         assert store.job(jid)['status']=='failed'
         assert store.get('runs',run['id'])==run

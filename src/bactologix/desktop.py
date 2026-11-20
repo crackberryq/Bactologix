@@ -233,6 +233,32 @@ def request_browser(store):
     return True
 
 
+def close_directory():
+    """Use the control directory passed to this UI by its desktop supervisor."""
+    key = os.environ.get(ENV, '')
+    directory = Path(os.environ.get(STORAGE_SESSION_DIR, ''))
+    if re.fullmatch(r'[a-f0-9]{32}', key) and directory.is_absolute() and directory.name == key:
+        return directory
+    return None
+
+
+def request_close():
+    directory = close_directory()
+    if directory is None:
+        raise ValueError('Open Bactologix from its Windows desktop shortcut to close a desktop session.')
+    status = read(directory / 'status.json')
+    if not isinstance(status, dict) or status.get('session') != directory.name or status.get('phase') not in {'ready', 'stopping'}:
+        raise ValueError('The desktop session could not be verified. Check the desktop window and try again.')
+    nonce = uuid.uuid4().hex
+    temporary = directory / ('close-' + nonce + '.writing')
+    try:
+        temporary.write_text(json.dumps({'session': directory.name, 'action': 'confirm_close', 'nonce': nonce}),
+                             encoding='utf-8')
+        os.replace(temporary, directory / 'request.json')
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 class Session:
     def __init__(self, store, directory, key):
         if not re.fullmatch(r'[a-f0-9]{32}', key or ''):

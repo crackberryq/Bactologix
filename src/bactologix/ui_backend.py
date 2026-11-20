@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import copy
+from functools import lru_cache
 import getpass
 import json
 from pathlib import Path
@@ -14,16 +15,17 @@ import yaml
 
 from . import __version__
 from .catalog import DATA, PIPELINES, fetch_versions, supported, versions
-from .engine import doctor, enqueue, launch_worker
+from .engine import doctor, enqueue, enqueue_workflows, launch_worker
 from .local import browse_folders, discover_environments, discover_installations, inspect_installation, local_path
 from .runs import (absolute_path, clone_runs, command, create_run,
-                   parse_config, register_sample, remove_sample, archive_runs, reports, template, validate_launch,
+                   parse_config, register_sample, remove_sample, archive_runs, reports, template,
                    dry_run_current, run_status, check_run_files)
 from .store import identifier, display_read, transient_lock
 from .storage_guard import activity
 from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, storage_cleanup, compatibility, comparisons, sample_imports
 from . import setup_state, assessment, compute_memory
 from . import isolate_actions
+from . import desktop
 from . import reference_catalog
 from . import database_builder, followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
@@ -109,12 +111,20 @@ def flatten(value, prefix=()):
 
 
 def configuration_fields(tool, text):
+    rows = _small_field_rows(tool, text) if len(text) <= 16384 else _field_rows(tool, text)
+    return [{"name": name, "path": list(path), "yaml": value} for name, path, value in rows]
+
+
+def _field_rows(tool, text):
     defaults = json.loads((DATA / "config-catalog.json").read_text())["defaults"][tool]
     fields = flatten(defaults)
     fields.update(flatten(parse_config(text)))
-    return [{"name": name, "path": row["path"], "yaml": yaml.safe_dump(
-        row["value"], sort_keys=False, allow_unicode=True).removesuffix("...\n").strip()}
-        for name, row in sorted(fields.items())]
+    return tuple((name, tuple(row["path"]), yaml.safe_dump(
+        row["value"], sort_keys=False, allow_unicode=True).removesuffix("...\n").strip())
+        for name, row in sorted(fields.items()))
+
+
+_small_field_rows = lru_cache(maxsize=12)(_field_rows)
 
 
 def workspace_label():
@@ -136,18 +146,25 @@ def snapshot(store, *, cached=False):
     # dispatch and workers still perform fresh authorization checks.
     if cached and store.home in _SNAPSHOTS:
         return copy.deepcopy(_SNAPSHOTS[store.home])
-    from . import disk_pause, notifications, supervision
+    from . import disk_pause, notifications, supervision, workflow_unlock
     from .queue import reconcile_interrupted
     reconcile_interrupted(store)
-    records = {r['id']: r for r in store.all('job_telemetry') if isinstance(r, dict) and 'id' in r}
     jobs = store.jobs()
+    records = store.job_display_records()
+    workflow_jobs = {}
     for j in jobs:
+        jid = j['id']
+        if j['kind'] == 'workflow':
+            workflow_jobs.setdefault(j['payload'].get('run_id'), []).append(j)
+        if jid in records['job_history_hidden']:
+            j['history_hidden'] = True
         j["monitoring"] = supervision.snapshot(store, j['id'])
-        j["disk_safety"] = disk_pause.snapshot(store, j['id'])
-        j["telemetry"] = telemetry.view(records.get(j['id']), j)
-        j["guidance"] = readiness.job_guidance(store, j)
-    app_update = updates.status(store)
+        j["disk_safety"] = disk_pause.display_state(j, records['disk_safety'].get(jid),
+                                                 records['disk_safety_requests'].get(jid, {}))
+        j["telemetry"] = telemetry.view(records['job_telemetry'].get(jid), j)
+    readiness.history_guidance(store, jobs)
     queue_state = store.queue_snapshot()
+    app_update = updates.status(store, jobs=jobs, queue=queue_state)
     # pip briefly replaces package data. Keep the already-rendered workspace
     # available until restart instead of reading those files during replacement.
     if (app_update["active_job"] or app_update["restart_required"]) and store.home in _SNAPSHOTS:
@@ -156,22 +173,23 @@ def snapshot(store, *, cached=False):
                 "notifications": notifications.panel(store, jobs, cached.get('runs', []))}
     runs = []
     archived = {r["id"] for r in store.all("run_visibility") if r.get("archived")}
-    for run in store.all("runs"):
+    saved_runs = store.all("runs")
+    for run in saved_runs:
         cfg = parse_config(run["config"])
         kraken_mode = run.get('identification', {}).get('selection', {}).get('mode', cfg.get('kraken_decision_mode'))
-        run_jobs = [j for j in jobs if j["kind"] == "workflow" and j["payload"].get("run_id") == run["id"]]
+        run_jobs = workflow_jobs.get(run['id'], ())
         active = next((j for j in run_jobs if j["status"] in {"queued", "running"}), None)
         checked = dry_run_current(store, run)
-        status = run_status(run, jobs, checked)
+        status = run_status(run, run_jobs, checked)
+        followup_sources = followup.source_options(store, run) if status == "completed" else []
         runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant", "identification", "experimental")} | {
             "previous_draft_jobs": run.get("previous_draft_jobs", []),
             "draft_generation": run.get("draft_generation", 0),
             "swap_mb": compute_memory.allowance(cfg),
-            "aware_state": run.get("aware"), "status": status, "assessment": assessment.summary(store, run), "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
+            "aware_state": run.get("aware"), "status": status, "assessment": assessment.summary(store, run, run_jobs=run_jobs), "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
             "kraken_mode": "off" if cfg.get("run_kraken") is False else kraken_mode,
             "can_micp_handoff": run["tool"] == "hybas" and status == "completed",
-            "can_followup": followup.available(run, store) and status == "completed",
-            "followup_sources": followup.source_options(store, run) if status == "completed" else [],
+            "can_followup": bool(followup_sources), "followup_sources": followup_sources,
             "followup_transition": run.get('followup_transition'),
             "review_enabled": cfg.get("kraken_review_before_filtering", False), "strategy": cfg.get("polish_mode", "—"), "can_handoff": run["tool"] == "hybas" and status == "completed" and all(
                 Path(run["output"], "annotation", run["sample"]["id"] + ext).is_file() for ext in (".fna", ".faa", ".gff"))})
@@ -189,14 +207,17 @@ def snapshot(store, *, cached=False):
         if not report.get("refresh") and report.get("run") in coverage:
             report = {**report, "assessment": coverage[report["run"]]}
         report_rows.append(report)
+    hardware_panel = hardware.panel(store)
     result = {"channel": store.channel, "application_title": "Bactologix Dev" if store.channel == "dev" else "Bactologix", "version": __version__, "workspace": str(store.home), "workspace_label": workspace_label(), "doctor": doctor(store),
+            "desktop_close_available": desktop.close_directory() is not None,
             "notifications": notifications.panel(store, jobs, runs),
             "setup_overview": {t: setup_state.overview(store, t) for t in PIPELINES},
             "pipelines": PIPELINES, "installs": [installation_status(i, jobs, store) for i in store.all("installs")],
-            "app_update": app_update, "hardware": hardware.panel(store), "workstation_checks": workstation.history(store),
-            "resource_defaults": {t: hardware.run_defaults(store, t) for t in PIPELINES},
+            "app_update": app_update, "hardware": hardware_panel, "workstation_checks": workstation.history(store),
+            "resource_defaults": hardware_panel["defaults"],
             "active": {t: store.get("settings", "active-" + t) for t in PIPELINES},
             "catalogs": catalogs, "samples": store.all("samples"), "runs": runs,
+            "workflow_locks": workflow_unlock.review_list(store, saved_runs, jobs, archived),
             "isolate_exports": isolate_actions.export_history(store),
             "jobs": jobs, "queue": queue_state, "reports": report_rows, "configs": configs,
             "fields": {t: configuration_fields(t, configs[t]) for t in PIPELINES},
@@ -250,6 +271,15 @@ def dispatch(store, kind, p):
     """Only named UI commands are allowed. Browser-supplied objects are not trusted."""
     if not isinstance(p, dict):
         raise ValueError("Invalid action payload")
+    if kind == 'close_desktop':
+        if p:
+            raise ValueError('The desktop close request takes no parameters.')
+        desktop.request_close()
+        return {'desktop_closing': True, 'keep_modal': True}
+    if kind == 'clear_job_history':
+        cleared = store.clear_job_history()
+        noun = 'attempt' if cleared == 1 else 'attempts'
+        return {'cleared': cleared, 'message': f'Cleared {cleared} finished {noun} from job history.'}
     if kind in {'mark_notifications_read', 'clear_notifications', 'save_notification_settings', 'claim_desktop_notifications', 'check_notification_updates'}:
         from . import notifications, update_checks
         if kind == 'mark_notifications_read':
@@ -266,7 +296,9 @@ def dispatch(store, kind, p):
         started = update_checks.tick(store, force=True)
         return {'message': 'Checking update availability in the background.' if started else 'A check is already running, was requested recently, or is disabled for this session.', 'keep_modal': True}
     isolate_readonly = (isolate_actions.ACTIONS - {'preview_isolate_export', 'start_isolate_export'}) | {'inspect_output_files', 'open_output_folder'}
-    if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "inspect_storage_cleanup", "inspect_storage_cleanup_receipt", "download_storage", "inspect_compatibility", "download_compatibility", "compare_saved_runs", "download_comparison", "preview_samples", "refresh_app_releases", "cancel_job"} | isolate_readonly:
+    # Workflow submission checks the current application in enqueue_workflows;
+    # Store.submit checks for a competing update inside its write transaction.
+    if kind not in {"workflow", "refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "inspect_storage_cleanup", "inspect_storage_cleanup_receipt", "download_storage", "inspect_compatibility", "download_compatibility", "compare_saved_runs", "download_comparison", "preview_samples", "refresh_app_releases", "cancel_job"} | isolate_readonly:
         updates.assert_current(store)
         if updates.status(store)["active_job"]:
             raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
@@ -750,7 +782,6 @@ def dispatch(store, kind, p):
                      'can_continue': bool(run and run.get('aware',{}).get('state') in {'complete','continuation_ready'} and parse_config(run['config']).get('aware_run_until') == 'aware')}, 'keep_modal': True}
         if kind == 'continue_aware':
             aware_outputs.continue_assembly(store, rid, p.get('token'))
-            validate_launch(store, rid, 'continue')
             enqueue(store, 'workflow', {'run_id':rid, 'action':'continue'})
             return {'message':'Assembly continuation queued.', 'navigate':'jobs'}
         samples = aware_outputs.commit(store, path, p.get('token'), p.get('selected'))
@@ -771,14 +802,7 @@ def dispatch(store, kind, p):
         action = p.get("action")
         if action not in {"dry-run", "prepare", "run", "check-environments", "continue"}:
             raise ValueError("Unknown workflow action")
-        for rid in ids:
-            validate_launch(store, rid, action)
-        queued = []
-        for rid in ids:
-            try:
-                queued.append(enqueue(store, "workflow", {"run_id": rid, "action": action}))
-            except Exception as exc:
-                raise ValueError(f"Queued {len(queued)} job(s). {rid}: {exc}") from exc
+        queued = enqueue_workflows(store, [{"run_id": rid, "action": action} for rid in ids])
         return {"message": f"Queued {len(queued)} jobs in order.", "navigate": "jobs"}
     if kind == "clone":
         raise ValueError("Independent polishing clones have been replaced. Open a completed run and choose Create variant to reuse results.")

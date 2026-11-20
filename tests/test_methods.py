@@ -198,6 +198,13 @@ def test_evidence_links_and_oversize_are_not_followed(workspace, run, monkeypatc
     (root / 'run_summary.json').symlink_to(secret)
     (root / 'tool_versions.tsv').write_text('x' * 128)
     monkeypatch.setattr(methods, 'LIMIT', 100)
+    original_open = Path.open
+
+    def record_open(path, *args, **kwargs):
+        assert path != root / 'tool_versions.tsv', 'Size is already over the limit'
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'open', record_open)
     evidence = methods.collect(run)
     assert not evidence['files'] and len(evidence['warnings']) == 2
     assert 'DO NOT READ' not in json.dumps(evidence)

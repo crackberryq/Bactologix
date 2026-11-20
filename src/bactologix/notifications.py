@@ -174,7 +174,7 @@ def panel(store, jobs=None, runs=None):
     # Read the guard's public snapshot before taking the notification write
     # transaction. Polling this panel never probes a drive or controls a process.
     from . import disk_pause
-    pauses = [(job, disk_pause.snapshot(store, job['id'])) for job in jobs
+    pauses = [(job, job['disk_safety'] if 'disk_safety' in job else disk_pause.snapshot(store, job['id'])) for job in jobs
               if job.get('kind') == 'workflow' and job.get('status') == 'running']
     if runs is None:
         from .runs import run_status

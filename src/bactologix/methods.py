@@ -13,6 +13,7 @@ import html
 import io
 import json
 import re
+import stat
 from pathlib import Path
 import zipfile
 
@@ -51,11 +52,16 @@ def _read(root, relative):
     path = root / rel
     if any(p.is_symlink() for p in (path, *path.parents)):
         raise ValueError('Linked Methods evidence is not read: ' + relative)
-    if not path.exists():
+    try:
+        info = path.stat()
+    except (FileNotFoundError, NotADirectoryError):
         return None
-    if not path.is_file():
+    if not stat.S_ISREG(info.st_mode):
         raise ValueError('Methods evidence is not a regular file: ' + relative)
+    if info.st_size > LIMIT:
+        raise ValueError('Methods evidence exceeds 8 MB: ' + relative)
     with path.open('rb') as handle:
+        # A producer may grow the file between the metadata check and this read.
         raw = handle.read(LIMIT + 1)
     if len(raw) > LIMIT:
         raise ValueError('Methods evidence exceeds 8 MB: ' + relative)

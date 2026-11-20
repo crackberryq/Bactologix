@@ -104,3 +104,66 @@ def test_methods_export_keeps_hashes_and_legacy_limits_without_rereading(workspa
         row.pop('sha256')
     doc = methods.build(workspace, run)
     assert 'original content identity unverified' in doc['text']
+
+
+def test_queue_defers_content_read_to_worker_and_rechecks_capacity(workspace, installation, sample, monkeypatch):
+    from bactologix import compute_memory, engine, hardware
+    from bactologix.ui_backend import dispatch
+    from test_run_integrity import Execution
+    from test_compute_memory import host
+
+    run = runs.create_run(workspace, 'hybas', sample, compute_memory.with_swap('{}', 1024), 1, 1024)
+    run['dry_run_ok'] = True
+    workspace.put('runs', run['id'], run)
+    monkeypatch.setattr(engine, 'launch_worker', lambda _: None)
+    monkeypatch.setattr(engine, 'find_conda', lambda _: '/fixture/conda')
+    fingerprint = runs._fingerprint
+    reads, capacity_checks = [], []
+
+    def count_read(path):
+        reads.append(str(path))
+        return fingerprint(path)
+
+    def capacity():
+        capacity_checks.append(True)
+        return host()['memory']
+
+    monkeypatch.setattr(runs, '_fingerprint', count_read)
+    monkeypatch.setattr(hardware, 'memory_capacity', capacity)
+    monkeypatch.setattr(hardware, 'gpu_inventory', lambda: pytest.fail('Launch must not probe GPU drivers'))
+    dispatch(workspace, 'workflow', {'ids': [run['id']], 'action': 'run'})
+    assert reads == []
+    assert len(capacity_checks) == 1
+    ctx = Execution(workspace, workspace.claim())
+    runs.execute_workflow(ctx)
+    assert sorted(reads) == sorted(row['path'] for row in run['inputs'])
+    assert len(capacity_checks) == 2
+    assert ctx.commands
+
+
+def test_worker_catches_input_replacement_after_queue_before_native_command(workspace, installation, sample, monkeypatch):
+    from bactologix import engine
+    from test_run_integrity import Execution
+
+    run = runs.create_run(workspace, 'hybas', sample, '{}')
+    monkeypatch.setattr(engine, 'launch_worker', lambda _: None)
+    engine.enqueue(workspace, 'workflow', {'run_id': run['id'], 'action': 'dry-run'})
+    replace_preserving_metadata(Path(run['inputs'][0]['path']))
+    ctx = Execution(workspace, workspace.claim())
+    with pytest.raises(ValueError, match='SHA-256 content mismatch'):
+        runs.execute_workflow(ctx)
+    assert ctx.commands == []
+
+
+def test_batch_rejects_unready_selection_before_queueing_first_run(workspace, installation, sample, monkeypatch):
+    from bactologix import engine
+    from bactologix.ui_backend import dispatch
+
+    first = runs.create_run(workspace, 'hybas', sample, '{}')
+    invalid = runs.create_run(workspace, 'hybas', sample, '{}')
+    first['dry_run_ok'] = True
+    workspace.put('runs', first['id'], first)
+    monkeypatch.setattr(engine, 'launch_worker', lambda _: pytest.fail('Prevalidation should block the batch'))
+    with pytest.raises(ValueError, match='successful native dry-run'):
+        dispatch(workspace, 'workflow', {'ids': [first['id'], invalid['id']], 'action': 'run'})
+    assert workspace.jobs() == []

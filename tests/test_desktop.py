@@ -26,6 +26,41 @@ def request(item, action, key=None):
     desktop.atomic(item.root / 'request.json', {'session': key or item.key, 'action': action, 'nonce': uuid.uuid4().hex})
 
 
+def test_close_menu_signals_owned_session_while_database_is_locked(tmp_path, monkeypatch):
+    from bactologix.ui_backend import dispatch
+    store = Store(tmp_path / 'workspace')
+    item = session(tmp_path, store)
+    monkeypatch.setenv(desktop.ENV, item.key)
+    monkeypatch.setenv(desktop.STORAGE_SESSION_DIR, str(item.root))
+    jid = store.submit('smoke', {})
+    with store.connect() as writer:
+        writer.execute('BEGIN EXCLUSIVE')
+        assert dispatch(store, 'close_desktop', {})['desktop_closing']
+        signal = desktop.read(item.root / 'request.json')
+        assert signal['session'] == item.key and signal['action'] == 'confirm_close' and signal['nonce']
+        assert not item.record_contended_lease()
+    assert item.tick('', True)
+    assert store.job(jid)['status'] == 'cancelled'
+
+
+def test_close_menu_only_accepts_its_own_session(tmp_path, monkeypatch):
+    from bactologix.ui_backend import dispatch
+    store = Store(tmp_path / 'workspace')
+    item = session(tmp_path, store)
+    monkeypatch.delenv(desktop.ENV, raising=False)
+    monkeypatch.setenv(desktop.STORAGE_SESSION_DIR, str(item.root))
+    assert desktop.close_directory() is None
+    with pytest.raises(ValueError, match='desktop shortcut'):
+        dispatch(store, 'close_desktop', {})
+    monkeypatch.setenv(desktop.ENV, item.key)
+    with pytest.raises(ValueError, match='no parameters'):
+        dispatch(store, 'close_desktop', {'id': 'other'})
+    desktop.atomic(item.root / 'status.json', {'session': 'other', 'phase': 'ready'})
+    with pytest.raises(ValueError, match='could not be verified'):
+        dispatch(store, 'close_desktop', {})
+    assert not (item.root / 'request.json').exists()
+
+
 def test_close_owns_only_its_jobs_and_blocks_racing_submissions(tmp_path, monkeypatch):
     store = Store(tmp_path / 'workspace')
     a, b = session(tmp_path, store), session(tmp_path, store)

@@ -108,10 +108,10 @@ def test_capacity_is_rechecked_at_queue_and_worker_but_not_environment_setup(wor
     run = create_run(workspace, 'hybas', sample, memory.with_swap('{}', 98304), 12, 28672)
     current = host()
     refreshes = []
-    def inventory(store, refresh=False):
-        refreshes.append(refresh)
-        return copy.deepcopy(current)
-    monkeypatch.setattr(hardware, 'inventory', inventory)
+    def capacity():
+        refreshes.append(True)
+        return copy.deepcopy(current['memory'])
+    monkeypatch.setattr(hardware, 'memory_capacity', capacity)
     validate_launch(workspace, run['id'], 'dry-run')
     current['memory']['swap_available_mb'] = 0
     with pytest.raises(ValueError, match='Pre-run memory checks'):

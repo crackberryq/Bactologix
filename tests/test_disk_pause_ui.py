@@ -1,6 +1,4 @@
 """Storage pause presentation and durable alerts use software-only records."""
-from copy import deepcopy
-
 import pytest
 
 from bactologix import disk_pause, notifications, ui_backend
@@ -112,13 +110,13 @@ def test_cached_snapshot_refreshes_guard_without_changing_lock_status(workspace,
     guard = paused_record(jid)
     monkeypatch.setattr(queue, 'reconcile_interrupted', lambda store: [])
     monkeypatch.setattr(ui_backend.readiness, 'job_guidance', lambda store, job: None)
-    monkeypatch.setattr(ui_backend.updates, 'status', lambda store: {'active_job': 'update', 'restart_required': False})
-    monkeypatch.setattr(disk_pause, 'snapshot', lambda store, key: deepcopy(guard) if key == jid else None)
+    monkeypatch.setattr(ui_backend.updates, 'status', lambda store, **kw: {'active_job': 'update', 'restart_required': False})
+    workspace.put('disk_safety', jid, guard)
     monkeypatch.setitem(ui_backend._SNAPSHOTS, workspace.home, {'runs': []})
     first = ui_backend.snapshot(workspace)
     assert first['jobs'][0]['disk_safety']['state'] == 'paused'
     assert first['jobs'][0]['status'] == 'running'
-    guard.update(resume_requested=True)
+    workspace.put('disk_safety_requests', jid, {'generation': guard['generation']})
     second = ui_backend.snapshot(workspace)
     assert second['jobs'][0]['disk_safety']['resume_requested'] is True
     assert 'pid' not in second['jobs'][0]['disk_safety']

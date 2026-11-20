@@ -33,10 +33,15 @@ def snapshot(store, jid):
     if not record:
         return None
     job = store.job(jid)
+    request = store.get('disk_safety_requests', jid, {})
+    return display_state(job, record, request)
+
+def display_state(job, record, request):
+    if not record:
+        return None
     live = bool(job and job['status'] == 'running' and not job.get('cancel'))
     record['live'] = live
     record['can_resume'] = bool(live and record.get('state') == 'paused' and record.get('can_resume') and _fresh(record.get('checked_at')))
-    request = store.get('disk_safety_requests', jid, {})
     record['resume_requested'] = bool(live and record.get('state') == 'paused' and request.get('generation') == record.get('generation'))
     return record
 

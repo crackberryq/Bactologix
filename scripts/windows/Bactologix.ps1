@@ -628,7 +628,7 @@ function Browser-State([string]$Profile) {
     try {
         $request = [Net.HttpWebRequest]::Create("http://127.0.0.1:$($endpoint.port)/json/list")
         $request.CachePolicy = [Net.Cache.RequestCachePolicy]::new([Net.Cache.RequestCacheLevel]::NoCacheNoStore)
-        $request.Proxy = $null; $request.Timeout = 1000
+        $request.Proxy = $null; $request.Timeout = 1000; $request.ReadWriteTimeout = 1000
         $response = $request.GetResponse()
         try {
             $reader = New-Object IO.StreamReader($response.GetResponseStream())
@@ -637,15 +637,32 @@ function Browser-State([string]$Profile) {
         return @{ reachable=$true; pages=@($rows | Where-Object { $_.type -eq 'page' }).Count }
     } catch { return @{ reachable=$false; pages=0 } }
 }
-function Update-BrowserPresence($Presence, $Observed, [double]$Seconds) {
+function Get-OwnedWindowState($Process, $Presence) {
+    try {
+        if ($Process.HasExited) { return 'exited' }
+        if (-not $Presence.saw_owned_window) {
+            $Process.Refresh()
+            if ($Process.MainWindowHandle -ne [IntPtr]::Zero) { return 'window' }
+        }
+        return 'running'
+    } catch { return 'unknown' }
+}
+function Update-BrowserPresence($Presence, $Observed, [double]$Seconds, [string]$OwnerState = 'unknown') {
     if ($Observed.reachable -and $Observed.pages -gt 0) {
-        $Presence.ready = $true; $Presence.missing_since = $null
+        $Presence.ready = $true; $Presence.missing_since = $null; $Presence.exit_since = $null
+        if ($OwnerState -eq 'window') { $Presence.saw_owned_window = $true }
+        # The browser can hand off to another process. The original handle is
+        # no longer proof of exit if the profile still serves pages after it exits.
+        if ($OwnerState -eq 'exited') { $Presence.saw_owned_window = $false }
         return $false
     }
     if (-not $Presence.ready) { return $false }
     if ($null -eq $Presence.missing_since) { $Presence.missing_since = $Seconds }
-    # A resize, minimization or busy browser is not a close event. Require a
-    # sustained absence; the heartbeat continues during this grace period.
+    if ($Presence.saw_owned_window -and $OwnerState -eq 'exited' -and -not $Observed.reachable) {
+        if ($null -eq $Presence.exit_since) { $Presence.exit_since = $Seconds }
+        if ($Seconds - $Presence.exit_since -ge 1) { return $true }
+    } else { $Presence.exit_since = $null }
+    # Keep the longer grace if only the page probe failed or returned no pages.
     return ($Seconds - $Presence.missing_since -ge 10)
 }
 function Send-BrowserCloseRequest($Endpoint) {
@@ -680,6 +697,11 @@ function Close-OwnedBrowser([string]$Profile) {
         catch { Write-Verbose ('Browser close attempt ' + $attempt + '/3: ' + $_.Exception.Message) }
         if ($attempt -lt 3) { Start-Sleep -Milliseconds 250 }
     }
+}
+
+function Request-DesktopClose($View, [scriptblock]$Request) {
+    Show-Stage $View 'Closing Bactologix' 'Requesting a stop for this desktop session.'
+    & $Request 'confirm_close'
 }
 
 function Save-Log($Task, [string]$Path) {
@@ -801,22 +823,25 @@ function Run-Desktop($View) {
                 $presence = @{ ready=$false; missing_since=$null }
                 $browserClock = [Diagnostics.Stopwatch]::StartNew(); $View.Form.Hide()
             }
-            if ($status.browser_request -and $status.browser_request -ne $browserRequest) {
+            if (-not $closing -and $status.phase -eq 'ready' -and $status.browser_request -and $status.browser_request -ne $browserRequest) {
                 $browserRequest = $status.browser_request
                 $null = Start-Owned $browser @("--user-data-dir=$profile",'--disable-background-mode','--new-window',$status.url)
+                $presence.saw_owned_window = $false; $presence.exit_since = $null; $presence.missing_since = $null
             }
-            if ($opened -and -not $closing) {
+            if ($opened -and -not $closing -and $status.phase -ne 'stopping') {
                 $browserState = Browser-State $profile
-                $browserClosed = Update-BrowserPresence $presence $browserState $browserClock.Elapsed.TotalSeconds
+                $ownerState = Get-OwnedWindowState $window.Process $presence
+                $browserClosed = Update-BrowserPresence $presence $browserState $browserClock.Elapsed.TotalSeconds $ownerState
                 $browserReady = $presence.ready
                 if ($browserClosed) {
-                    Close-OwnedBrowser $profile
-                    & $request 'confirm_close'; $closing = $true
+                    $closing = $true
+                    Request-DesktopClose $View $request
                 } elseif (-not $browserReady -and $browserClock.Elapsed.TotalSeconds -gt 30) {
                     throw 'The dedicated browser did not become ready. Check local browser policies; this session will stop.'
                 }
             }
             if ($status.phase -eq 'stopping') {
+                $closing = $true
                 $message = if ($status.installing_update) { 'Finishing the application update safely before exit.' } else { 'Stopping only this session''s jobs and allowing cleanup. Other Ubuntu work stays running.' }
                 Show-Stage $View 'Closing Bactologix' $message
             }

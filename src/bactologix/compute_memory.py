@@ -32,7 +32,7 @@ def policy(run, config=None):
 
 
 def require_adapter(store, tool, commit, config, source):
-    """HybAs v2 must explicitly support the frozen swap policy in its review."""
+    """Check swap support. Return True if the full source preflight has run."""
     if tool != 'hybas' or not allowance(config):
         return
     from .release_contract import approval, preflight
@@ -50,6 +50,7 @@ def require_adapter(store, tool, commit, config, source):
     # A marker alone never establishes support: verify the immutable reviewed
     # helper and workflow files in the installed/frozen source before using it.
     preflight(store, tool, commit, source)
+    return True
 
 
 def with_swap(text, value):

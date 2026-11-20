@@ -32,7 +32,7 @@ def archived_locked(workspace, installation, sample, monkeypatch):
     monkeypatch.setattr(storage_cleanup, '_other_workspaces', lambda _: ([], [], []))
     return run
 
-@pytest.mark.parametrize('entry', ['storage-row', 'cleanup-preview', 'run-activity', 'jobs'])
+@pytest.mark.parametrize('entry', ['storage-row', 'cleanup-preview', 'run-activity', 'jobs', 'jobs-locks'])
 def test_restore_locked_archived_run_preserves_all_files_and_exposes_lock_review(workspace, archived_locked, entry):
     from playwright.sync_api import sync_playwright, expect
     run = archived_locked
@@ -81,7 +81,13 @@ def test_restore_locked_archived_run_preserves_all_files_and_exposes_lock_review
         else:
             page.get_by_role('link', name='Activity', exact=True).click()
             expect(page.get_by_role('button', name='Check workflow lock', exact=True)).to_have_count(0)
-            page.get_by_role('button', name='Restore run to review lock', exact=True).click()
+            if entry == 'jobs-locks':
+                section = page.get_by_role('region', name='Workflow locks to review', exact=True)
+                expect(section).to_contain_text('Archived')
+                expect(section.get_by_role('button', name='Review lock', exact=True)).to_have_count(0)
+                section.get_by_role('button', name='Restore to review lock', exact=True).click()
+            else:
+                page.get_by_role('button', name='Restore run to review lock', exact=True).click()
         request, _ = respond(page, workspace, 'restore_runs')
         assert request['payload'] == {'ids': [run['id']]}
         respond(page, workspace, 'inspect_run')
@@ -96,7 +102,7 @@ def test_restore_locked_archived_run_preserves_all_files_and_exposes_lock_review
         assert not {'execute_storage_cleanup', 'unlock_workflow', 'workflow'}.intersection(sent)
         page.set_viewport_size({'width': 1440, 'height': 1100})
         page.get_by_role('link', name='Storage', exact=True).click()
-        if entry in {'run-activity', 'jobs'}:
+        if entry in {'run-activity', 'jobs', 'jobs-locks'}:
             respond(page, workspace, 'inspect_storage')
             page.get_by_role('button', name='Load cleanup candidates', exact=True).click()
         else:

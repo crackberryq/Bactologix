@@ -2,6 +2,7 @@
 from __future__ import annotations
 import copy
 import csv
+from functools import lru_cache
 import hashlib
 import io
 import json
@@ -19,6 +20,14 @@ from . import __version__
 from .storage_guard import mutation
 
 def parse_config(text):
+    # The same saved YAML is used by several panels in each refresh. Give every
+    # caller its own object, including editors that update nested settings.
+    if len(text) <= 16384:
+        return copy.deepcopy(_small_config(text))
+    return _parse_yaml(text)
+
+
+def _parse_yaml(text):
     if len(text.encode()) > 2 * 1024 * 1024:
         raise ValueError("Configuration exceeds 2 MB")
     cfg = yaml.safe_load(text)
@@ -32,6 +41,9 @@ def parse_config(text):
     if len(encoded) > 4 * 1024 * 1024:
         raise ValueError("Expanded configuration exceeds 4 MB")
     return cfg
+
+
+_small_config = lru_cache(maxsize=32)(_parse_yaml)
 
 
 def template(tool):
@@ -392,14 +404,21 @@ def stage_inputs(sample, tool, destination):
 
 
 def tree_digest(folder):
+    root = Path(folder)
+    ignored = {".git", ".snakemake", "__pycache__"}
+    files = []
+    for directory, children, names in os.walk(root, followlinks=False):
+        # Native state can contain hundreds of thousands of entries. Prune it
+        # before descent while retaining the original Path ordering for hashes.
+        children[:] = [name for name in children if name not in ignored]
+        for name in names:
+            path = Path(directory) / name
+            if name not in ignored and path.suffix != ".pyc" and path.is_file():
+                files.append(path)
     digest = hashlib.sha256()
-    for path in sorted(Path(folder).rglob("*")):
-        rel = path.relative_to(folder)
-        if any(part in {".git", ".snakemake", "__pycache__"} for part in rel.parts) or path.suffix == ".pyc":
-            continue
-        if path.is_file():
-            digest.update(str(rel).encode() + b"\0")
-            digest.update(path.read_bytes())
+    for path in sorted(files):
+        digest.update(str(path.relative_to(root)).encode() + b"\0")
+        digest.update(path.read_bytes())
     return digest.hexdigest()
 
 
@@ -628,7 +647,8 @@ def clone_runs(store, parent_id, aware_free=False, strategies=None):
     return created
 
 
-def validate_launch(store, rid, action, check_busy=True, *, check_memory_capacity=True):
+def validate_launch(store, rid, action, check_busy=True, *, check_memory_capacity=True,
+                    full_inputs=True, write_warning=None):
     if action not in {"dry-run", "prepare", "run", "check-environments", "continue"}:
         raise ValueError("Unsupported workflow action")
     run = store.get("runs", rid)
@@ -636,15 +656,18 @@ def validate_launch(store, rid, action, check_busy=True, *, check_memory_capacit
         raise ValueError("Unknown run")
     if store.get("run_visibility", rid, {}).get("archived"):
         raise ValueError("Restore this run from Archived before starting a job.")
-    if check_busy and any(j["kind"] == "workflow" and j["payload"]["run_id"] == rid and j["status"] in {"queued", "running"} for j in store.jobs()):
-        raise ValueError("This run already has a queued or active job")
+    if check_busy:
+        with store.connect() as db:
+            if rid in _active_run_ids(db):
+                raise ValueError("This run already has a queued or active job")
     current_controller(store, run)
     from .release_contract import preflight
-    preflight(store, run["tool"], run["commit"], Path(run["folder"]) / "workflow")
     from .compute_memory import require_adapter as require_memory_adapter
-    require_memory_adapter(store, run['tool'], run['commit'], parse_config(run['config']), Path(run['folder']) / 'workflow')
     from .medaka_review import require_adapter as require_medaka_review_adapter
-    require_medaka_review_adapter(store, run['tool'], run['commit'], parse_config(run['config']), Path(run['folder']) / 'workflow')
+    config, source = parse_config(run['config']), Path(run['folder']) / 'workflow'
+    if not require_memory_adapter(store, run['tool'], run['commit'], config, source):
+        preflight(store, run["tool"], run["commit"], source)
+    require_medaka_review_adapter(store, run['tool'], run['commit'], config, source)
     if not supported(run["tool"], run["commit"], store):
         raise ValueError("This source version has no reviewed execution adapter")
     if action == "continue" and not (run.get("identification", {}).get("decision_path") or run.get("aware", {}).get("continuation_path")):
@@ -653,10 +676,12 @@ def validate_launch(store, rid, action, check_busy=True, *, check_memory_capacit
         raise ValueError("Awaiting researcher review. Open Review identification to choose the target.")
     if action not in {"dry-run", "continue"} and not dry_run_current(store, run):
         raise ValueError("A successful native dry-run with the current runner is required before preparing tools or running")
-    check_run_files(run)
-    from .preflight import assert_launch
-    assert_launch(run, "run" if action == "continue" else action, store=store,
-                  check_memory_capacity=check_memory_capacity)
+    check_run_files(run, full=full_inputs)
+    from .preflight import assert_launch, log_kraken_warnings
+    info = assert_launch(run, "run" if action == "continue" else action, store=store,
+                         check_memory_capacity=check_memory_capacity)
+    if write_warning is not None and action in {"run", "continue"}:
+        log_kraken_warnings(write_warning, run, info)
     return run
 
 
@@ -708,16 +733,13 @@ def command(store, run, action):
 
 def execute_workflow(ctx):
     payload, store = dict(ctx.job["payload"]), ctx.store
-    run = validate_launch(store, payload["run_id"], payload["action"], check_busy=False)
+    run = validate_launch(store, payload["run_id"], payload["action"], check_busy=False, write_warning=ctx.write)
     from .variants import verify
     from .aware_outputs import verify_sample
     verify_sample(run["sample"])
     verify(run)  # Full hashes at execution, not on every UI readiness refresh.
     if tree_digest(Path(run["folder"]) / "workflow") != run["workflow_sha256"]:
         raise ValueError("The run's workflow source changed; create a new draft")
-    if payload['action'] in {'run', 'continue'}:
-        from .preflight import log_kraken_warnings
-        log_kraken_warnings(ctx, run)
     if payload["action"] == "check-environments":
         from .readiness import check_environments
         check_environments(ctx, run)

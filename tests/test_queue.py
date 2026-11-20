@@ -48,7 +48,8 @@ def test_workflow_queue_binds_the_draft_seen_by_validation(tmp_path, monkeypatch
     launches = []
     monkeypatch.setattr(engine, 'launch_worker', launches.append)
 
-    def validate_while_editing(store, rid, action):
+    def validate_while_editing(store, rid, action, *, full_inputs):
+        assert not full_inputs
         checked = store.get('runs', rid)
         store.put('runs', rid, {**checked, 'draft_generation': checked.get('draft_generation', 0) + 1})
         return checked
@@ -58,10 +59,39 @@ def test_workflow_queue_binds_the_draft_seen_by_validation(tmp_path, monkeypatch
         engine.enqueue(store, 'workflow', payload)
     assert store.jobs() == [] and launches == []
 
-    monkeypatch.setattr(runs, 'validate_launch', lambda store, rid, action: store.get('runs', rid))
+    monkeypatch.setattr(runs, 'validate_launch', lambda store, rid, action, **kwargs: store.get('runs', rid))
     jid = engine.enqueue(store, 'workflow', payload)
     assert store.job(jid)['payload'] == payload
     assert launches == [store]
+
+
+@pytest.mark.parametrize('fail_second', [False, True])
+def test_checked_workflow_batch_starts_one_worker_for_saved_jobs(tmp_path, monkeypatch, fail_second):
+    from bactologix import engine, runs
+
+    store = Store(tmp_path)
+    launches = []
+    monkeypatch.setattr(engine, 'launch_worker', launches.append)
+    monkeypatch.setattr(runs, 'validate_launch', lambda store, rid, action, **kwargs: store.get('runs', rid))
+    first, second = 'run-first', 'run-second'
+    for rid in (first, second):
+        store.put('runs', rid, {'id': rid})
+    payloads = [{'run_id': rid, 'action': 'dry-run'} for rid in (first, second)]
+    if fail_second:
+        # A competing transaction changes the second draft after validation.
+        submit = store.submit
+        def submit_after_edit(kind, payload, **kwargs):
+            if payload['run_id'] == second:
+                store.put('runs', second, {'id': second, 'draft_generation': 1})
+            return submit(kind, payload, **kwargs)
+        monkeypatch.setattr(store, 'submit', submit_after_edit)
+        with pytest.raises(ValueError, match='Queued 1 job.*changed'):
+            engine.enqueue_workflows(store, payloads)
+    else:
+        assert len(engine.enqueue_workflows(store, payloads)) == 2
+    assert launches == [store]
+    saved = [store.job(row['id'])['payload'] for row in store.queue_snapshot()['waiting']]
+    assert saved == (payloads[:1] if fail_second else payloads)
 
 
 def test_pause_survives_reopen_and_covers_future_jobs(tmp_path):

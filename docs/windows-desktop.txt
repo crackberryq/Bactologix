@@ -21,7 +21,12 @@ BACTOLOGIX FOR WINDOWS (alpha)
    with Ubuntu running invisibly. Setup and startup failures remain visible.
 
 Closing the last dedicated session window stops its server and its active jobs.
-The launcher allows ten seconds for transient browser response delays. You can
+Workspace tools → Close Bactologix lets you close the session from inside the
+app. Confirm Close desktop session to see progress and send the stop request
+directly, including with an older Windows launcher.
+The updated Windows launcher can confirm closure after one second when a
+previously observed dedicated browser process has exited and its endpoint is
+gone. An uncertain browser observation retains the ten-second grace. You can
 resize or minimize the window while working. Reopening the app leaves stopped
 runs available for manual resume. Cleanup is visible until the owned work stops. An in-progress app update finishes first
 so its environment is not left half-installed. Independent Ubuntu terminals,

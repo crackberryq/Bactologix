@@ -241,14 +241,10 @@ def gpu_inventory():
             'status': 'NVIDIA driver detected' if cards else 'GPU driver unavailable' if smi else 'No NVIDIA driver detected'}
 
 
-def detect(home):
-    logical = os.cpu_count() or 1
-    try:
-        usable = len(os.sched_getaffinity(0))
-    except (AttributeError, OSError):
-        usable = logical
-    limits = cgroup_limits()
-    usable = min(usable, limits['cores'] or usable)
+def memory_capacity(limits=None):
+    """Read current RAM, swap and container limits without probing GPU drivers or disks."""
+    if limits is None:
+        limits = cgroup_limits()
     mem_kib = {key: int(value) for key, value in re.findall(r'^(\w+):\s+(\d+)\s+kB', _read('/proc/meminfo'), re.M)}
     mem = {key: value // 1024 for key, value in mem_kib.items()}
     paging = paging_limits()
@@ -266,6 +262,18 @@ def detect(home):
         available = min(available, limits['available_mb'])
     if total is not None and available is not None:
         available = min(total, available)
+    return {'total_mb': total, 'available_mb': available, 'limit_bytes': limit_bytes,
+            **paging_memory(mem, total, available, paging)}
+
+
+def detect(home):
+    logical = os.cpu_count() or 1
+    try:
+        usable = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        usable = logical
+    limits = cgroup_limits()
+    usable = min(usable, limits['cores'] or usable)
     cpuinfo = _read('/proc/cpuinfo')
     model = re.search(r'^(?:model name|Hardware)\s*:\s*(.+)', cpuinfo, re.M)
     physical = set()
@@ -282,8 +290,7 @@ def detect(home):
               'wsl': 'microsoft' in platform.release().lower(),
               'cpu': {'model': model[1] if model else platform.machine(), 'logical': logical,
                       'physical': len(physical) or None, 'available': max(1, usable)},
-              'memory': {'total_mb': total, 'available_mb': available, 'limit_bytes': limit_bytes,
-                         **paging_memory(mem, total, available, paging)},
+              'memory': memory_capacity(limits),
               'disk': storage, 'gpu': gpu_inventory()}
     result['id'] = hashlib.sha256(json.dumps(result, sort_keys=True).encode()).hexdigest()
     return result

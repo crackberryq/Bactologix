@@ -286,6 +286,32 @@ class Store:
             rows = db.execute("SELECT j.*,COALESCE(q.held,0) AS held,COALESCE(q.position,j.rowid) AS queue_position FROM jobs j LEFT JOIN job_queue q ON q.job_id=j.id ORDER BY j.rowid DESC").fetchall()
         return [dict(row, payload=json.loads(row["payload"])) for row in rows]
 
+    def job_display_records(self):
+        """Read the per-job display records together for a single workspace snapshot."""
+        def read(db):
+            records = {kind: {} for kind in (
+                'disk_safety', 'disk_safety_requests', 'job_telemetry', 'job_history_hidden')}
+            rows = db.execute("SELECT kind,id,body FROM items WHERE kind IN (?,?,?,?)", tuple(records))
+            for kind, jid, body in rows:
+                records[kind][jid] = json.loads(body)
+            return records
+        return self.control_read(read)
+
+    def cleared_job_ids(self):
+        with self.connect() as db:
+            return {row[0] for row in db.execute("SELECT id FROM items WHERE kind='job_history_hidden'")}
+
+    def clear_job_history(self):
+        # Select by current status in the write statement. A queued or running
+        # attempt can finish later, even if it was submitted before this clear.
+        with self.connect() as db:
+            return db.execute("""
+                INSERT INTO items(kind,id,body)
+                SELECT 'job_history_hidden', id, 'true' FROM jobs
+                WHERE status IN ('succeeded','failed','cancelled','interrupted')
+                ON CONFLICT(kind,id) DO NOTHING
+            """).rowcount
+
     def job(self, jid):
         with self.connect() as db:
             row = db.execute("SELECT j.*,COALESCE(q.held,0) AS held,COALESCE(q.position,j.rowid) AS queue_position FROM jobs j LEFT JOIN job_queue q ON q.job_id=j.id WHERE j.id=?", (jid,)).fetchone()

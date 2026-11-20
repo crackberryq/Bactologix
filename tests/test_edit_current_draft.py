@@ -25,6 +25,7 @@ def failed_attempt(store, run, action):
 
 def test_failed_dry_run_edits_same_id_and_keeps_the_previous_attempt(workspace, installation, sample, monkeypatch):
     monkeypatch.setattr('bactologix.hardware.inventory', lambda *args, **kwargs: host())
+    monkeypatch.setattr('bactologix.hardware.memory_capacity', lambda: host()['memory'])
     run = create_run(workspace, 'hybas', sample, 'kraken_decision_mode: aware\nrun_kraken: true\n', 12, 28672)
     jid = failed_attempt(workspace, run, 'dry-run')
     previous_log = workspace.log_path(jid).read_bytes()

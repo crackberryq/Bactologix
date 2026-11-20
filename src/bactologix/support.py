@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+from contextlib import contextmanager
 from datetime import datetime
 import hashlib
 import importlib.metadata
@@ -122,20 +123,41 @@ class Redactor:
         return text
 
 
-def log_tail(store, jid, *, max_bytes=MAX_LOG_BYTES):
-    """Read one regular local log, refusing redirected directories/files and special files."""
+@contextmanager
+def open_log(store, jid):
+    """Open one regular local log without following redirected paths."""
     path = store.log_path(jid)
     workspace = directory = descriptor = None
     try:
         if not hasattr(os, 'O_NOFOLLOW'):
-            return '', {'status': 'unavailable on this platform', 'truncated': False}
+            raise NotImplementedError
         workspace = os.open(store.home, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         directory = os.open('logs', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=workspace)
         descriptor = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
         size = os.fstat(descriptor)
-        if not stat.S_ISREG(size.st_mode):
-            return '', {'status': 'not a regular file', 'truncated': False}
-        offset = max(0, size.st_size - max_bytes)
+        status = 'included' if stat.S_ISREG(size.st_mode) else 'not a regular file'
+    except NotImplementedError:
+        status = 'unavailable on this platform'
+    except FileNotFoundError:
+        status = 'not found'
+    except OSError:
+        status = 'unavailable (permissions or unsafe link)'
+    try:
+        yield (descriptor, size, status) if status == 'included' else (None, None, status)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if directory is not None:
+            os.close(directory)
+        if workspace is not None:
+            os.close(workspace)
+
+
+def read_log_tail(descriptor, size, status, max_bytes):
+    if descriptor is None:
+        return '', {'status': status, 'truncated': False}
+    try:
+        offset = max(0, size - max_bytes)
         os.lseek(descriptor, offset, os.SEEK_SET)
         content = os.read(descriptor, max_bytes)
         if offset:
@@ -148,17 +170,13 @@ def log_tail(store, jid, *, max_bytes=MAX_LOG_BYTES):
                          else '[OVERSIZED LOG LINE REMOVED]' for row in rows)
         return text, {'status': 'included' if content else 'empty', 'truncated': truncated,
                       'oversized_lines_removed': oversized, 'max_bytes': max_bytes, 'max_lines': MAX_LOG_LINES}
-    except FileNotFoundError:
-        return '', {'status': 'not found', 'truncated': False}
     except OSError:
         return '', {'status': 'unavailable (permissions or unsafe link)', 'truncated': False}
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
-        if directory is not None:
-            os.close(directory)
-        if workspace is not None:
-            os.close(workspace)
+
+
+def log_tail(store, jid, *, max_bytes=MAX_LOG_BYTES):
+    with open_log(store, jid) as (descriptor, info, status):
+        return read_log_tail(descriptor, info.st_size if info else 0, status, max_bytes)
 
 
 def _installation(store, item):

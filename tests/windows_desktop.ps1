@@ -237,6 +237,27 @@ public static class ControlFileFixture {
     Assert (Update-BrowserPresence $presence $absent 23) 'Sustained close was not detected'
     Assert (-not (Update-BrowserPresence $presence $present 24)) 'Live browser did not recover'
     Assert (-not (Update-BrowserPresence $presence @{reachable=$true;pages=0} 25)) 'One empty tab response triggered shutdown'
+    $presence = @{}
+    Assert (-not (Update-BrowserPresence $presence $present 0 'window')) 'Observed live primary window closed'
+    Assert (-not (Update-BrowserPresence $presence $absent 1 'running')) 'Unreachable live browser was stopped'
+    Assert (-not (Update-BrowserPresence $presence $absent 2 'exited')) 'One missing observation stopped a session'
+    Assert (-not (Update-BrowserPresence $presence $absent 2.9 'exited')) 'Confirmed exit grace was shortened'
+    Assert (Update-BrowserPresence $presence $absent 3 'exited') 'An exited dedicated browser waited for the full fallback grace'
+    Assert (-not (Update-BrowserPresence $presence $present 3.1 'exited')) 'A handed-off browser was treated as closed'
+    Assert (-not (Update-BrowserPresence $presence $absent 4 'exited')) 'A browser handoff was interrupted'
+    Assert (-not (Update-BrowserPresence $presence $absent 6 'exited')) 'Old process exit was used against its replacement'
+    Assert (-not (Update-BrowserPresence $presence $present 7 'exited')) 'Recovered replacement browser was stopped'
+    $presence = @{}
+    Assert (-not (Update-BrowserPresence $presence $present 0 'running')) 'Unverified browser window was stopped'
+    Assert (-not (Update-BrowserPresence $presence $absent 1 'exited')) 'A launcher stub was counted as the owner'
+    Assert (-not (Update-BrowserPresence $presence $absent 3 'exited')) 'An exited launcher stub shortened the grace'
+    $savedStage = (Get-Item Function:Show-Stage).ScriptBlock
+    try {
+        $script:CloseSequence = @()
+        function Show-Stage { param($View,$Title,$Detail) $script:CloseSequence += $Title }
+        Request-DesktopClose $null { param($Action) $script:CloseSequence += $Action }
+        Assert (($script:CloseSequence -join ',') -eq 'Closing Bactologix,confirm_close') 'Close did not show feedback before signalling the supervisor'
+    } finally { Set-Item Function:Show-Stage $savedStage }
     Write-Output 'Control-file sharing, bounded retry, preservation and browser grace checks passed.'
 
     # Cancellation before an acknowledgement is not delivery. Exercise retries

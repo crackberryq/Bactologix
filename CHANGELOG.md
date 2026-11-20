@@ -1,3 +1,11 @@
+## 0.1.0a127.dev1 — 2026-11-21 · Alpha · Faster run controls, job history and workflow locks
+
+- **Jobs & progress → Clear job history** hides finished attempts across all filters. Saved runs retain their logs and outputs. Queued and running jobs appear in history when they finish.
+- **Workflow locks to review** shows saved runs with leftover scheduler locks even after their history has been cleared. Choose **Review lock** to check ownership before requesting a native unlock.
+- **Run / resume** checks input metadata when queueing. The worker verifies saved input fingerprints before native execution. Live RAM and swap checks read available capacity directly.
+- A lock check on a workflow with no lock returns before inspecting inputs. Background progress refreshes reuse unchanged history and configuration data.
+- On Windows, **Workspace tools → Close Bactologix** shows closing progress and sends the stop request directly. The updated Windows launcher also recognizes a confirmed exit of its dedicated browser sooner.
+
 ## 0.1.0a126.dev1 — 2026-11-20 · Alpha · Workspace stop controls and resource monitoring
 
 - Closing the last Bactologix desktop window stops its work. The worker can receive a Stop request while the workspace database is busy.

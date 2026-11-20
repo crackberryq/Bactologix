@@ -68,10 +68,11 @@ def fetch_releases():
     return {"checked_at": now(), "releases": records}
 
 
-def status(store):
+def status(store, *, jobs=None, queue=None):
     state = store.get("settings", "app-update", {})
-    queue_paused = store.queue_snapshot()["paused"]
-    active = next((j for j in store.jobs() if j["kind"] == "app_update" and j["status"] in {"queued", "running"}), None)
+    queue_paused = (store.queue_snapshot() if queue is None else queue)["paused"]
+    jobs = store.jobs() if jobs is None else jobs
+    active = next((j for j in jobs if j["kind"] == "app_update" and j["status"] in {"queued", "running"}), None)
     try:
         installed = importlib.metadata.version("bactologix")
     except importlib.metadata.PackageNotFoundError:
@@ -92,7 +93,7 @@ def status(store):
             "automatic_restart": automatic, "queue_paused": queue_paused,
             "launcher": {k: launcher[k] for k in ('id', 'version', 'url')} if launcher else None,
             "last_update": state, "all_update": store.get("settings", "all-update", {}), "can_install": platform.system() == "Linux" and not restart and not queue_paused
-            and not any(j["status"] in {"queued", "running"} for j in store.jobs())}
+            and not any(j["status"] in {"queued", "running"} for j in jobs)}
 
 
 def assert_current(store):

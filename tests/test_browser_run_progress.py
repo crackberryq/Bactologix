@@ -340,3 +340,26 @@ def test_resource_dialog_fits_viewport_and_separates_swap_from_disk(progress_pag
     assert dialog.locator('.modal-body').evaluate('n => n.scrollWidth <= n.clientWidth + 1')
     footer.get_by_role('button', name='Close', exact=True).click()
     expect(dialog).to_have_count(0)
+
+
+def test_running_overview_polls_progress_and_rechecks_once_after_completion(progress_page):
+    from playwright.sync_api import expect
+    page = progress_page
+    page.locator('.primary-run-tabs [data-action="saved-run-tab"][data-id="overview"]').click()
+    page.evaluate('window.acceptanceEvents.length=0')
+    for _ in range(2):
+        page.clock.run_for(4010)
+        assert page.evaluate('acceptanceEvents.at(-1).value.kind') == 'refresh'
+        page.evaluate("""() => {acceptanceRender({id:progressState.pending,ok:true});}""")
+    page.clock.run_for(4010)
+    page.evaluate("""() => {
+      progressJob.status='succeeded';
+      const run=acceptanceWorkspace.runs.find(r=>r.id===progressJob.payload.run_id);
+      run.busy=false;run.status='completed';
+      acceptanceRender({id:progressState.pending,ok:true});
+    }""")
+    assert page.evaluate('acceptanceEvents.map(x=>x.value.kind)') == ['refresh']*3+['inspect_run']
+    page.evaluate('progressRerender()')
+    expect(page.get_by_role('button', name='Refresh checks', exact=True)).to_be_enabled()
+    page.get_by_role('button', name='Refresh checks', exact=True).click()
+    assert page.evaluate('acceptanceEvents.at(-1).value.kind') == 'inspect_run'

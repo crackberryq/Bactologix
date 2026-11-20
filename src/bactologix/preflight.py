@@ -40,7 +40,8 @@ def kraken_memory(run, info):
             files.append({'name': name, 'resolved_path': str(target), 'bytes': measured.st_size})
         total = sum(item['bytes'] for item in files)
         estimate = int(total / MIB * 1.2) + 1024
-        physical = info.get('memory', {}).get('total_mb')
+        memory = hardware.memory_capacity() if info is None else info.get('memory', {})
+        physical = memory.get('total_mb')
         known_ram = isinstance(physical, int) and not isinstance(physical, bool) and physical > 0
         text = (f'Selected Kraken database: {total / (1024 * MIB):.2f} GiB across its three index files. '
                 f'Estimated full-load requirement with headroom: {estimate / 1024:.2f} GiB '
@@ -74,16 +75,15 @@ def kraken_warnings(run, info):
     return [result['text']] if result and result['level'] == 'warning' else []
 
 
-def log_kraken_warnings(ctx, run):
+def log_kraken_warnings(write, run, info=None):
     """Refresh cheap capacity diagnostics at worker launch without changing policy."""
     if run.get('tool') != 'hybas':
         return
     try:
-        info = hardware.inventory(ctx.store, refresh=True)
         for warning in kraken_warnings(run, info):
-            ctx.write('Pre-run warning: ' + warning)
+            write('Pre-run warning: ' + warning)
     except (OSError, ValueError, TypeError, RuntimeError, KeyError) as exc:
-        ctx.write('Kraken memory advisory unavailable: ' + str(exc))
+        write('Kraken memory advisory unavailable: ' + str(exc))
 
 
 def destination(path, label):
@@ -220,10 +220,12 @@ def assert_launch(run, action, store=None, *, check_memory_capacity=True):
             problems.append(item['label'] + ': less than 1 MB free disk space. ' + item['path'])
     if problems:
         raise ValueError('Pre-run checks: ' + ' '.join(problems) + ' Restore access/free space, then refresh run checks.')
+    info = None
     if check_memory_capacity and action in {'dry-run', 'run'} and compute_memory.policy(run)['swap_mb']:
         # Refresh at both queue submission and worker launch; a prior capacity
         # observation does not reserve memory while a run is waiting.
-        info = hardware.inventory(store, refresh=True) if store is not None else hardware.detect(Path(run['folder']))
+        info = {'memory': hardware.memory_capacity()}
         problems = compute_memory.capacity_issues(run, info)
         if problems:
             raise ValueError('Pre-run memory checks: ' + ' '.join(problems))
+    return info

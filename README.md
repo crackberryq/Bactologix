@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a126.dev1 — Experimental development
+# Bactologix 0.1.0a127.dev1 — Experimental development
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
 
@@ -160,6 +160,15 @@ Search by job ID, run label, sample ID or action; combine status, pipeline and j
 type filters, and choose newest or oldest submission order. History includes
 attempts for archived runs. Each page shows up to 25 attempts; filters remain in
 this open workspace across navigation and status refreshes, but reset on browser reload.
+
+**Clear job history** hides all finished attempts in this workspace, including
+those outside the current filters. Saved runs retain their activity, logs and
+outputs. Jobs that finish after you clear history appear in the list.
+
+**Workflow locks to review** lists saved runs with leftover scheduler locks.
+Choose **Review lock** beside a run to check ownership. When Bactologix confirms
+that it can unlock the workflow, choose **Unlock workflow**. You can then review
+the run and decide when to resume it.
 
 **Review run** opens the saved run for successful and unsuccessful attempts.
 Missing run records remain searchable by their recorded ID. Pipeline attribution

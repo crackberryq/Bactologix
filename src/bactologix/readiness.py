@@ -145,6 +145,43 @@ def job_guidance(store, job):
         return None
     from .support import log_tail
     text, scope = log_tail(store, job['id'], max_bytes=24000)
+    return _job_guidance(store, job, text, scope)
+
+
+def history_guidance(store, jobs):
+    """Reuse a finished job's display hints only while the opened log and evidence match."""
+    from .support import open_log, read_log_tail
+    previous = getattr(store, '_history_hints', {})
+    current = {}
+    for job in jobs:
+        if job['status'] not in {'failed', 'interrupted'}:
+            job['guidance'] = None
+            continue
+        # Receipt-driven hints can change independently of the log. They use its
+        # inclusion status only; recompute the hint from fresh records each time.
+        from_receipt = job['kind'] in {'isolate_export', 'storage_cleanup'} or (
+            job['kind'] == 'workflow' and job['payload'].get('action') in {'run', 'continue'}
+            and (job['disk_safety'] or {}).get('reason') == 'pause_failed')
+        jid = job['id']
+        with open_log(store, jid) as (descriptor, info, status):
+            stamp = (info.st_dev, info.st_ino, info.st_ctime_ns, info.st_mtime_ns, info.st_size) if info else status
+            key = (stamp, job['kind'], job['status'], job.get('error'), job['payload'].get('action'),
+                   job['payload'].get('run_id'), from_receipt)
+            prior = previous.get(jid)
+            if prior and prior[0] == key:
+                if from_receipt:
+                    job['guidance'] = _job_guidance(store, job, '', {'status': prior[1]['log_status']})
+                else:
+                    job['guidance'] = prior[1].copy()
+            else:
+                text, scope = read_log_tail(descriptor, info.st_size if info else 0, status, 24000)
+                job['guidance'] = _job_guidance(store, job, text, scope)
+            if job['guidance']['log_status'] != 'unavailable (permissions or unsafe link)':
+                current[jid] = (key, job['guidance'].copy())
+    store._history_hints = current
+
+
+def _job_guidance(store, job, text, scope):
     if job['kind'] == 'workflow' and job['payload'].get('action') in {'run', 'continue'}:
         disk = job['disk_safety'] if 'disk_safety' in job else store.get('disk_safety', job['id'])
         if disk and disk.get('reason') == 'pause_failed':

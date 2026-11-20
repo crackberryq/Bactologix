@@ -1,5 +1,9 @@
 # Workflow lock recovery
 
+In **Jobs & progress**, look for **Workflow locks to review**. Choose **Review lock**
+beside the saved run, even if you previously cleared its job history. Multiple
+attempts can refer to the same lock.
+
 Use **Check workflow lock** on the failed job, review the result, and choose **Unlock workflow** when enabled. This runs native Snakemake `--unlock` using the frozen run's runner, workflow and configuration. It does not start an analysis. The queue remains paused after unlocking; review the run before resuming.
 
 If the run is archived, restore it first using **Runs → Archived → Restore** or

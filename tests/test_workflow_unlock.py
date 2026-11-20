@@ -33,16 +33,13 @@ def low_swap_locked(workspace, installation, sample, monkeypatch):
     output.write_text('retained output')
     inventory_calls = []
 
-    def inventory(store, refresh=False):
-        inventory_calls.append(refresh)
-        return {'checked_at': '2026-11-18T18:30:45+00:00',
-                'cpu': {'available': 12},
-                'memory': {'total_mb': 49152, 'available_mb': 49004,
-                           'swap_mb': 98304, 'swap_available_mb': 73728,
-                           'combined_total_mb': 147456,
-                           'combined_available_mb': 122732}}
+    def capacity():
+        inventory_calls.append(True)
+        return {'total_mb': 49152, 'available_mb': 49004,
+                'swap_mb': 98304, 'swap_available_mb': 73728,
+                'combined_total_mb': 147456, 'combined_available_mb': 122732}
 
-    monkeypatch.setattr(hardware, 'inventory', inventory)
+    monkeypatch.setattr(hardware, 'memory_capacity', capacity)
     monkeypatch.setattr('bactologix.engine.find_conda', lambda _: '/fixture/conda')
     monkeypatch.setattr('bactologix.engine.launch_worker', lambda _: None)
     monkeypatch.setattr(unlock.psutil, 'process_iter', lambda: [])
@@ -441,3 +438,36 @@ def test_pam_identity_rechecked_before_native_unlock(locked,monkeypatch):
 def test_systemd_binary_check_rejects_user_executable(tmp_path):
     binary=tmp_path/'systemd';binary.write_text('fake')
     assert not unlock._trusted_systemd_executable(str(binary))
+
+
+def test_lock_free_check_skips_source_and_sample_reads(low_swap_locked, monkeypatch):
+    store, run, locks, _, _ = low_swap_locked
+    (locks / '0.input.lock').unlink()
+    monkeypatch.setattr(unlock, 'validate_launch', lambda *a, **kw: pytest.fail('No preflight for an absent lock'))
+    monkeypatch.setattr(unlock, 'command', lambda *a: pytest.fail('No command for an absent lock'))
+    plan = unlock.preview(store, run['id'])
+    assert not plan['allowed'] and 'No workflow lock remains' in plan['message']
+
+
+def test_checked_lock_preserves_input_validation_in_worker(low_swap_locked, monkeypatch):
+    from test_input_identity import replace_preserving_metadata
+    store, run, locks, _, _ = low_swap_locked
+    fingerprint = runs._fingerprint
+    reads = []
+
+    def count_read(path):
+        reads.append(path)
+        return fingerprint(path)
+
+    monkeypatch.setattr(runs, '_fingerprint', count_read)
+    plan = unlock.preview(store, run['id'])
+    assert plan['allowed']
+    jid = unlock.request(store, run['id'], plan['signature'])
+    assert reads == []
+    job = store.claim()
+    assert job['id'] == jid
+    replace_preserving_metadata(Path(run['inputs'][0]['path']))
+    with unlock.ownership(store), pytest.raises(ValueError, match='SHA-256 content mismatch'):
+        unlock.execute(SimpleNamespace(store=store, job=job,
+                                      command=lambda *_a, **_kw: pytest.fail('Changed input must block native unlock')))
+    assert reads and (locks / '0.input.lock').is_file()

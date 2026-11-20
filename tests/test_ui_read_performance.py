@@ -9,6 +9,26 @@ from bactologix.ui_backend import dispatch
 from test_native import workspace, installation, sample
 
 
+def test_repeated_configuration_reads_return_independent_fresh_values(monkeypatch):
+    from bactologix import runs, ui_backend
+
+    text = 'nested:\n  display_test: [one, two]\n'
+    fields = ui_backend.configuration_fields('hybas', text)
+    match = next(row for row in fields if row['name'] == 'nested.display_test')
+    match['path'].clear()
+    runs.parse_config(text)['nested']['display_test'].clear()
+    with monkeypatch.context() as patch:
+        patch.setattr(runs.yaml, 'safe_load', lambda *a: pytest.fail('Already parsed identical YAML'))
+        patch.setattr(ui_backend.yaml, 'safe_dump', lambda *a, **kw: pytest.fail('Already formatted identical fields'))
+        assert runs.parse_config(text)['nested']['display_test'] == ['one', 'two']
+        again = ui_backend.configuration_fields('hybas', text)
+        assert next(row for row in again if row['name'] == 'nested.display_test')['path'] == ['nested', 'display_test']
+    edited = text.replace('two', 'three')
+    assert runs.parse_config(edited)['nested']['display_test'] == ['one', 'three']
+    assert 'three' in next(row['yaml'] for row in ui_backend.configuration_fields('hybas', edited)
+                           if row['name'] == 'nested.display_test')
+
+
 def test_editor_displays_saved_config_without_reading_raw_data(workspace, installation, sample, monkeypatch):
     run = create_run(workspace, 'hybas', sample, 'threads: 1\n')
     with monkeypatch.context() as patch:

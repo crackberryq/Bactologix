@@ -64,19 +64,44 @@ def launch_worker(store):
                          stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True, env=env)
 
 
-def enqueue(store, kind, payload):
-    if kind not in {"install", "connect", "bootstrap", "check", "workflow", "smoke", "workstation", "app_update", "environments", "database_download", "database_redownload", "database_build", "report_refresh", "storage_cleanup", "factory_reset", "isolate_export"}:
-        raise ValueError("Unknown operation")
+def _check_queue_platform(store):
     if platform.system() != "Linux":
         raise RuntimeError("Run this app inside Linux or WSL2 to execute jobs.")
     from .updates import assert_current
     assert_current(store)
+
+
+def enqueue_workflows(store, payloads):
+    """Check the whole selection before enqueueing, binding each saved draft revision."""
+    from .runs import validate_launch
+    _check_queue_platform(store)
+    checked = []
+    for payload in payloads:
+        run = validate_launch(store, payload["run_id"], payload["action"], full_inputs=False)
+        checked.append((payload, run.get("draft_generation", 0)))
+    queued = []
+    try:
+        for payload, generation in checked:
+            queued.append(store.submit("workflow", payload, expected_draft_generation=generation))
+    except Exception as exc:
+        if queued:
+            raise ValueError(f"Queued {len(queued)} job(s). {exc}") from exc
+        raise
+    finally:
+        if queued:
+            # A single workspace worker claims the queue in order, including
+            # any attempts saved before a later submission failed.
+            launch_worker(store)
+    return queued
+
+
+def enqueue(store, kind, payload):
     if kind == "workflow":
-        from .runs import validate_launch
-        run = validate_launch(store, payload["run_id"], payload["action"])
-        jid = store.submit(kind, payload, expected_draft_generation=run.get("draft_generation", 0))
-    else:
-        jid = store.submit(kind, payload)
+        return enqueue_workflows(store, [payload])[0]
+    if kind not in {"install", "connect", "bootstrap", "check", "smoke", "workstation", "app_update", "environments", "database_download", "database_redownload", "database_build", "report_refresh", "storage_cleanup", "factory_reset", "isolate_export"}:
+        raise ValueError("Unknown operation")
+    _check_queue_platform(store)
+    jid = store.submit(kind, payload)
     launch_worker(store)
     return jid
 
