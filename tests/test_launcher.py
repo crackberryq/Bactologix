@@ -145,12 +145,14 @@ def test_failed_server_does_not_open_another_healthy_streamlit(monkeypatch, tmp_
     monkeypatch.setattr(l, 'free_port', lambda *args: 8501)
     def start(*args, env, **kwargs):
         assert env.get(STORAGE_SESSION_DIR) == (str(control) if desktop else None)
+        assert env.get(ENV) == (key if desktop else None)
         return Failed()
     monkeypatch.setattr(l.subprocess, 'Popen', start)
     monkeypatch.setattr(l, 'healthy', lambda url: pytest.fail('Failed child has no listening signal'))
     monkeypatch.setattr(l, 'open_browser', lambda url: pytest.fail('Failed server must not open a browser'))
     options = {'desktop_control': control, 'desktop_session': key} if desktop else {}
     assert l.serve(tmp_path, '127.0.0.1', **options) == 1
+    assert ENV not in os.environ
 
 
 @pytest.mark.parametrize('no_browser', [False, True])
