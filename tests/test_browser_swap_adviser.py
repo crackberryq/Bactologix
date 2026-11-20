@@ -88,13 +88,23 @@ def test_compute_default_recommendation_fills_only_after_review_and_invalidates_
         calculate.click()
         expect(page.get_by_role('link', name='Samples', exact=True)).to_be_enabled()
         request, response = respond(page, workspace, 'recommend_swap')
+        inputs = response['swap_recommendation']['inputs']
         amount = response['swap_recommendation']['proposal']['swap_mb']
         assert request['payload']['memory_mb'] == 28672
+        panel = page.locator('.swap-recommendation')
+        for label, value in (
+            ('Chosen RAM budget', inputs['ram_budget_mb']),
+            ('RAM HybAs can use', inputs['effective_ram_mb']),
+            ('Effective HybAs budget with recommended swap', inputs['effective_budget_mb']),
+        ):
+            row = panel.locator('dl > div').filter(has=page.get_by_text(label, exact=True))
+            expect(row.locator('dd')).to_have_text(f'{value:,} MB')
         expect(page.locator('#compute-swap-enabled-hybas')).not_to_be_checked()
         expect(page.locator('.swap-recommendation')).to_contain_text('Disk swap is much slower than RAM')
         page.get_by_role('button', name='Use recommendation', exact=True).click()
         expect(page.locator('#compute-swap-enabled-hybas')).to_be_checked()
         expect(page.get_by_label('Default additional swap allowance (MB)', exact=True)).to_have_value(str(amount))
+        expect(page.get_by_label('Default RAM (MB)', exact=True)).to_have_value('28672')
         assert workspace.get('configs', 'hybas') == original and workspace.jobs() == []
         page.get_by_label('Default RAM (MB)', exact=True).fill('24576')
         expect(page.get_by_role('button', name='Use recommendation', exact=True)).to_be_disabled()

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import re
 
 import yaml
 
@@ -16,6 +17,7 @@ from .catalog import PIPELINES
 from .disk_capacity import CapacityProbe
 from .disk_pause import PAUSE_BYTES, RESUME_BYTES, WARNING_BYTES
 from .local import local_path
+from .release_contract import approval
 from .runs import parse_config
 from .store import now
 
@@ -29,6 +31,33 @@ def _known(value):
 
 def _round_gib(value):
     return ((max(0, value) + GIB_MB - 1) // GIB_MB) * GIB_MB
+
+
+def _hybas_review(store, saved_run):
+    if saved_run is None:
+        install = store.get('installs', store.get('settings', 'active-hybas'), {})
+        commit = install.get('version', {}).get('commit')
+    else:
+        commit = saved_run.get('commit')
+    return approval(store, 'hybas', commit) if commit else None
+
+
+def _hybas_effective_ram(ram, cfg, memory):
+    """Match the HybAs v2 controller's total_mem_mb ceiling before it adds swap."""
+    limit = memory.get('limit_bytes')
+    if 'limit_bytes' not in memory and _known(memory.get('total_mb')):
+        limit = memory['total_mb'] * MIB  # Rounded down in earlier inventories.
+    if not _known(limit) or not limit:
+        raise ValueError('The physical RAM or container limit HybAs uses could not be measured. Refresh hardware detection and recalculate.')
+    value = cfg.get('total_mem_mb', 'auto')
+    if isinstance(value, str) and value.strip().lower() == 'auto':
+        # Native total_mem_mb uses decimal MB; the Kraken index estimate uses MiB.
+        return min(ram, int(limit * 0.8) // 1_000_000)
+    if not re.fullmatch(r'[0-9]+', str(value).strip()) or int(value) < 1:
+        raise ValueError('HybAs total_mem_mb must be auto or a positive integer.')
+    if int(value) > limit // 1_000_000:
+        raise ValueError('HybAs total_mem_mb exceeds the detected host or container memory limit. Reduce it or select auto and recalculate.')
+    return min(ram, int(value))
 
 
 def _storage(store, run):
@@ -90,6 +119,7 @@ def recommend(store, tool, memory_mb, *, run_id=None, config=None, kraken_path=N
                              'Its tool-specific resource checks still apply; no swap amount has been guessed.')
         return result
 
+    review = _hybas_review(store, run)
     if run is None:
         from .databases import _hybas_paths
         selected = local_path(kraken_path) if kraken_path is not None else _hybas_paths(store, cfg)['kraken']
@@ -122,18 +152,8 @@ def recommend(store, tool, memory_mb, *, run_id=None, config=None, kraken_path=N
     elif type(explicit) is not int or not 1 <= explicit <= compute_memory.MAX_MB:
         raise ValueError('Kraken memory must be auto or a positive whole number of MB.')
     required = max(estimate, explicit or 0)
-    swap = _round_gib(required - ram)
-    result['available'] = True
     result['inputs'].update(core_bytes=footprint['core_bytes'], estimated_kraken_mb=estimate,
-                            configured_kraken_mb=explicit, required_budget_mb=required,
-                            calculated_swap_mb=swap)
-    result['formula'] = ('Kraken index bytes × 1.2, converted to MiB, plus 1,024 MiB; use a higher '
-                         'explicit Kraken memory setting when present. Subtract the chosen RAM budget '
-                         'and round any additional allowance up to the next 1,024 MiB.')
-    result['warnings'].append('This is a planning estimate, not measured resident memory. Other stages and concurrent jobs can require more memory.')
-    if swap:
-        result['warnings'].append('Disk swap is much slower than RAM. Loading a large database can involve severe paging and long runtimes.')
-
+                            configured_kraken_mb=explicit, required_budget_mb=required)
     info = hardware.inventory(store, refresh=True)
     result['hardware_checked_at'] = info.get('checked_at')
     result['binding']['hardware_id'] = info.get('id')
@@ -141,8 +161,29 @@ def recommend(store, tool, memory_mb, *, run_id=None, config=None, kraken_path=N
     result['inputs'].update({key: memory.get(key) for key in (
         'total_mb', 'available_mb', 'swap_mb', 'swap_available_mb',
         'combined_total_mb', 'combined_available_mb')})
+    v2 = review is not None and review.get('configuration_schema') == 'hybas-v2'
+    try:
+        effective = _hybas_effective_ram(ram, cfg, memory) if v2 else ram
+    except ValueError as exc:
+        result.update(state='needs_attention', message=str(exc), problems=[str(exc)])
+        return result
+    swap = _round_gib(required - effective)
+    result['available'] = True
+    result['inputs'].update(effective_ram_mb=effective, effective_budget_mb=effective + swap,
+                            calculated_swap_mb=swap)
+    result['formula'] = ('Kraken index bytes × 1.2, converted to MiB, plus 1,024 MiB. A higher explicit '
+                         'Kraken setting takes precedence. Subtract the RAM HybAs can use and round '
+                         'the additional swap up to the next 1,024 MiB.')
+    if v2:
+        result['formula'] += (' HybAs caps RAM at the chosen budget and total_mem_mb. Auto uses '
+                              '80% of the host or container RAM limit, measured in decimal MB.')
+    result['warnings'].append('This is a planning estimate, not measured resident memory. Other stages and concurrent jobs can require more memory.')
+    if swap:
+        result['warnings'].append('Disk swap is much slower than RAM. Loading a large database can involve severe paging and long runtimes.')
     result['storage'] = _storage(store, run)
     problems = list(result['storage']['errors'])
+    if swap and v2 and not review.get('compute_memory'):
+        problems.append('This HybAs version does not support additional swap. Select a version with swap support and create a new draft.')
     if not all(_known(memory.get(key)) for key in ('total_mb', 'available_mb')):
         problems.append('Usable RAM could not be verified. Detect hardware again before applying a recommendation.')
     else:
@@ -177,7 +218,7 @@ def recommend(store, tool, memory_mb, *, run_id=None, config=None, kraken_path=N
         return result
     result.update(can_apply=True, state='ready',
                   proposal={'memory_mb': ram, 'swap_mb': swap, 'allow_swap': bool(swap)},
-                  message=(f'Use {ram:,} MB RAM plus {swap:,} MB additional swap allowance '
-                           f'({ram + swap:,} MB total scheduling budget) for the selected Kraken estimate.'
-                           if swap else 'The selected Kraken estimate fits within this RAM budget. No additional swap allowance is needed for Kraken.'))
+                  message=(f'With {ram:,} MB RAM requested, HybAs can use {effective:,} MB RAM. '
+                           f'Adding {swap:,} MB swap gives Kraken an effective scheduling budget of {effective + swap:,} MB.'
+                           if swap else f'The selected Kraken estimate fits within the {effective:,} MB of RAM HybAs can use.'))
     return result

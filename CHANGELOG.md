@@ -1,3 +1,8 @@
+## 0.1.0a117.dev1 — 2026-11-20 · Alpha · Match HybAs 10 memory validation
+
+- The Kraken swap calculator uses the same physical RAM ceiling as the selected HybAs 10 build. It accounts for Auto, an explicit `total_mem_mb`, and Linux or WSL container limits.
+- The calculator shows requested RAM, the RAM HybAs can use, and the effective scheduling budget after adding swap. Applying a recommendation changes only the swap allowance in the draft.
+
 ## 0.1.0a116.dev1 — 2026-11-19 · Alpha · Job network activity
 
 - **Jobs & progress** shows live download and upload rates for each monitored job. **Resource use** shows observed totals, transfer history and when data last moved. Setup downloads by child processes such as Conda and MOB-suite are included.

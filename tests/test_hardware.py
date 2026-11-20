@@ -59,15 +59,44 @@ def test_wsl_detection_honors_affinity_and_memory_limit(tmp_path, monkeypatch):
     monkeypatch.setattr(h.os, 'sched_getaffinity', lambda _: set(range(8)))
     monkeypatch.setattr(h.platform, 'release', lambda: 'microsoft-standard-WSL2')
     monkeypatch.setattr(h, 'cgroup_limits', lambda: {'cores': 4, 'total_mb': 4096, 'available_mb': 2048})
+    group_bytes = 4096 * h.MIB + 123456
+    (tmp_path / 'memory.max').write_text(str(group_bytes))
+    (tmp_path / 'memory.current').write_text(str(2048 * h.MIB))
     paging = h.paging_limits(tmp_path, '')
     monkeypatch.setattr(h, 'paging_limits', lambda: paging)
     monkeypatch.setattr(h, 'gpu_inventory', lambda: {'cards': []})
     monkeypatch.setattr(h, '_read', lambda path: 'MemTotal: 16777216 kB\nMemAvailable: 8388608 kB\nSwapTotal: 2097152 kB' if path == '/proc/meminfo' else '')
     info = h.detect(tmp_path)
     assert info['wsl'] and info['cpu']['available'] == 4
-    assert info['memory'] == {'total_mb': 4096, 'available_mb': 2048, 'swap_mb': 2048,
+    assert info['memory'] == {'total_mb': 4096, 'limit_bytes': group_bytes, 'available_mb': 2048, 'swap_mb': 2048,
                               'swap_available_mb': None, 'combined_total_mb': 6144,
                               'combined_available_mb': None}
+
+
+@pytest.mark.parametrize('fs,controllers,limit_name', [
+    ('cgroup2', '', 'memory.max'), ('cgroup', 'memory', 'memory.limit_in_bytes')])
+def test_exact_bytes_from_namespaced_memory_mount(tmp_path, monkeypatch, fs, controllers, limit_name):
+    mount = tmp_path / 'cgroup mount'
+    leaf = mount / 'worker'
+    leaf.mkdir(parents=True)
+    physical_kib = 51_395_040
+    limit_bytes = 50_190 * h.MIB + 12345
+    escaped_mount = str(mount).replace(' ', r'\040')
+    controls = {
+        '/proc/meminfo': f'MemTotal: {physical_kib} kB',
+        '/proc/self/cgroup': f'1:{controllers}:/tenant/worker',
+        '/proc/self/mountinfo': f'57 1 0:33 /tenant {escaped_mount} ro - {fs} cgroup rw,{controllers}',
+    }
+    original_read = h._read
+    monkeypatch.setattr(h, '_read', lambda p: controls[p] if p in controls else original_read(p))
+    monkeypatch.setattr(h, 'gpu_inventory', dict)
+    (mount / limit_name).write_text(str(limit_bytes))
+    assert h.detect(tmp_path)['memory']['limit_bytes'] == limit_bytes
+    (leaf / limit_name).write_text('unreadable')
+    assert h.detect(tmp_path)['memory']['limit_bytes'] is None
+    (leaf / limit_name).unlink()
+    (mount / limit_name).unlink()
+    assert h.detect(tmp_path)['memory']['limit_bytes'] == physical_kib * 1024
 
 
 def test_cuda_driver_and_toolkit_are_distinct_and_optional(monkeypatch):

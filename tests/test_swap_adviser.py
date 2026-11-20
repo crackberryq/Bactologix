@@ -11,6 +11,8 @@ from test_native import workspace
 
 MIB = 1024 ** 2
 GIB = 1024 ** 3
+HYBAS_10_SWAP = '44e60aa3795cd5940bea257e0a22f274c2898c88'
+HYBAS_10_NO_SWAP = '0d334449d69fe2208b79affad2f5162ac801be05'
 
 
 def database(tmp_path, size=98_605_320_723):
@@ -62,7 +64,7 @@ def setup(workspace, tmp_path, monkeypatch):
     return workspace, config, info, disks, calls, folder
 
 
-def test_real_incident_dimensions_produce_rounded_usable_allowance_without_mutation(setup, monkeypatch):
+def test_legacy_scheduler_produces_rounded_usable_allowance_without_mutation(setup, monkeypatch):
     workspace, config, info, disks, calls, folder = setup
     before = copy.deepcopy(workspace.all('configs'))
     def forbidden(*args, **kwargs):
@@ -82,6 +84,85 @@ def test_real_incident_dimensions_produce_rounded_usable_allowance_without_mutat
     assert workspace.all('configs') == before
     assert not workspace.jobs()
     assert calls[0] == 'hardware' and calls[1]['memory_mb'] == 46080
+
+
+@pytest.fixture
+def hybas10_setup(setup, monkeypatch):
+    workspace, _, info, *_ = setup
+    monkeypatch.setattr(workspace, 'channel', 'dev')
+    workspace.put('installs', 'current-hybas', {'version': {'commit': HYBAS_10_SWAP}})
+    workspace.put('settings', 'active-hybas', 'current-hybas')
+    # This host's exact ceiling resolves to 42,102 native MB. Prematurely
+    # truncating to MiB would resolve to 42,101 MB instead.
+    memory = info['memory']
+    limit = 52_627_500_000
+    total = limit // MIB
+    memory.update(limit_bytes=limit, total_mb=total, available_mb=total,
+                  combined_total_mb=total + memory['swap_mb'],
+                  combined_available_mb=total + memory['swap_available_mb'])
+    return setup
+
+
+def test_hybas10_swap_covers_reported_kraken_reservation(hybas10_setup):
+    workspace, *_ = hybas10_setup
+    result = adviser.recommend(workspace, 'hybas', 46080)
+    inputs = result['inputs']
+    assert result['can_apply'], result['message']
+    assert inputs['estimated_kraken_mb'] == inputs['required_budget_mb'] == 113868
+    assert inputs['ram_budget_mb'] == 46080
+    assert inputs['effective_ram_mb'] == 42102
+    assert inputs['usable_swap_mb'] == inputs['calculated_swap_mb'] == 72704
+    assert inputs['effective_budget_mb'] == 114806
+    assert result['proposal'] == {'memory_mb': 46080, 'swap_mb': 72704, 'allow_swap': True}
+
+
+def test_hybas10_requirement_between_native_and_chosen_ram_needs_swap(hybas10_setup):
+    workspace, config, _, _, _, folder = hybas10_setup
+    with (folder / 'hash.k2d').open('wb') as handle:
+        handle.truncate(100 * MIB)
+    cfg = yaml.safe_load(config)
+    cfg['kraken_mem_mb'] = 44000
+    result = adviser.recommend(workspace, 'hybas', 46080, config=yaml.safe_dump(cfg))
+    assert result['can_apply']
+    assert result['inputs']['required_budget_mb'] == 44000
+    assert result['proposal']['swap_mb'] == 2048
+
+
+def test_hybas10_refuses_a_recommendation_one_mb_past_usable_swap(hybas10_setup):
+    workspace, _, info, *_ = hybas10_setup
+    info['memory']['swap_available_mb'] -= 1
+    result = adviser.recommend(workspace, 'hybas', 46080)
+    assert result['inputs']['usable_swap_mb'] == 72703
+    assert result['inputs']['calculated_swap_mb'] == 72704
+    assert not result['can_apply'] and result['proposal'] is None
+
+
+@pytest.mark.parametrize('total_setting,chosen,effective,swap', [
+    ('auto', 41984, 41984, 72704),
+    (41984, 46080, 41984, 72704),
+    (46080, 46080, 46080, 68608),
+])
+def test_hybas10_honors_selected_and_native_ram_limits(hybas10_setup, total_setting, chosen, effective, swap):
+    workspace, config, *_ = hybas10_setup
+    cfg = yaml.safe_load(config)
+    cfg['total_mem_mb'] = total_setting
+    result = adviser.recommend(workspace, 'hybas', chosen, config=yaml.safe_dump(cfg))
+    assert result['can_apply'], result['message']
+    assert result['inputs']['effective_ram_mb'] == effective
+    assert result['proposal']['swap_mb'] == swap
+
+
+def test_hybas10_uses_frozen_source_when_active_pipeline_changes(hybas10_setup):
+    workspace, config, *_ = hybas10_setup
+    frozen = {'id': 'run-frozen', 'tool': 'hybas', 'commit': HYBAS_10_SWAP,
+              'folder': str(workspace.home), 'memory_mb': 46080, 'config': config}
+    workspace.put('runs', frozen['id'], frozen)
+    workspace.put('installs', 'current-hybas', {'version': {'commit': HYBAS_10_NO_SWAP}})
+    old_draft = adviser.recommend(workspace, 'hybas', 46080)
+    assert not old_draft['can_apply'] and old_draft['proposal'] is None
+    saved = adviser.recommend(workspace, 'hybas', 46080, run_id=frozen['id'])
+    assert saved['can_apply'] and saved['proposal']['swap_mb'] == 72704
+    assert workspace.get('runs', frozen['id']) == frozen
 
 
 def test_saved_run_and_unsaved_override_are_read_only_and_use_exact_paths(setup, tmp_path):

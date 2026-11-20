@@ -36,7 +36,7 @@ def test_wsl_large_active_swap_keeps_ram_and_swap_separate(tmp_path, monkeypatch
     monkeypatch.setattr(h, 'gpu_inventory', lambda: {})
     info = h.detect(tmp_path)
     assert info['wsl']
-    assert info['memory'] == {'total_mb': 31744, 'available_mb': 30720,
+    assert info['memory'] == {'total_mb': 31744, 'limit_bytes': 32505856 * 1024, 'available_mb': 30720,
                               'swap_mb': 499712, 'swap_available_mb': 499712,
                               'combined_total_mb': 531456, 'combined_available_mb': 530432}
     # Existing automatic tool/RAM defaults must not grow to include swap.

@@ -50,8 +50,25 @@ def _positive(value):
         return None
 
 
+def _cgroup_mounts():
+    """Map controller types to visible mounts and their roots in the hierarchy."""
+    mounts = {}
+    for line in _read('/proc/self/mountinfo').splitlines():
+        before, _, after = line.partition(' - ')
+        parts, info = before.split(), after.split()
+        if len(parts) < 5 or len(info) < 3 or info[0] not in {'cgroup', 'cgroup2'}:
+            continue
+        roots = [Path(re.sub(r'\\([0-7]{3})', lambda match: chr(int(match[1], 8)), field))
+                 for field in parts[3:5]]
+        controllers = {'v2'} if info[0] == 'cgroup2' else {'cpu', 'memory'} & set(info[2].split(','))
+        for controller in controllers:
+            mounts.setdefault(controller, []).append(roots)
+    return mounts
+
+
 def _cgroup_folders(root, membership=None):
     """Visible controller ancestors, including a namespaced mount root."""
+    mounts = _cgroup_mounts() if membership is None and root == Path('/sys/fs/cgroup') else {}
     membership = _read('/proc/self/cgroup') if membership is None else membership
     groups = [(root, root, 'v2')]
     for line in membership.splitlines():
@@ -59,17 +76,20 @@ def _cgroup_folders(root, membership=None):
         if len(parts) != 3:
             continue
         _, controllers, location = parts
-        relative = Path(location.lstrip('/'))
-        if '..' in relative.parts:
+        member = Path(location)
+        if not member.is_absolute() or '..' in member.parts:
             continue
-        if not controllers:
-            groups.append((root, root / relative, 'v2'))
-        else:
-            for controller in ('cpu', 'memory'):
-                if controller in controllers.split(','):
-                    for name in {controller, controllers}:
-                        base = root / name
-                        groups.append((base, base / relative, controller))
+        types = {'cpu', 'memory'} & set(controllers.split(',')) if controllers else {'v2'}
+        for controller in types:
+            visible = mounts.get(controller)
+            if visible is None:
+                bases = [root] if controller == 'v2' else [root / name for name in {controller, controllers}]
+                visible = [(Path('/'), base) for base in bases]
+            for hierarchy_root, base in visible:
+                if member == Path('/'):
+                    groups.append((base, base, controller))
+                elif member.is_relative_to(hierarchy_root):
+                    groups.append((base, base / member.relative_to(hierarchy_root), controller))
     seen = set()
     for base, leaf, version in groups:
         for folder in (leaf, *leaf.parents):
@@ -139,7 +159,7 @@ def paging_limits(root=Path('/sys/fs/cgroup'), membership=None):
                 row['total_known'] = row['available_known'] = False
                 continue
             limit = int(raw)
-            row['totals'].append(limit // MIB)
+            row['totals'].append(limit)
             usage = _controller_value(folder / usage_name)
             if limit == 0:
                 row['available'].append(0)
@@ -147,7 +167,8 @@ def paging_limits(root=Path('/sys/fs/cgroup'), membership=None):
                 row['available_known'] = False
             else:
                 row['available'].append(max(0, limit - int(usage)) // MIB)
-    return {name: {'total_mb': min(row['totals']) if row['totals'] else None,
+    return {name: {'total_mb': min(row['totals']) // MIB if row['totals'] else None,
+                   'total_bytes': min(row['totals']) if row['totals'] else None,
                    'available_mb': min(row['available']) if row['available'] else None,
                    'total_known': row['total_known'], 'available_known': row['available_known']}
             for name, row in rows.items()}
@@ -228,7 +249,15 @@ def detect(home):
         usable = logical
     limits = cgroup_limits()
     usable = min(usable, limits['cores'] or usable)
-    mem = {key: int(value) // 1024 for key, value in re.findall(r'^(\w+):\s+(\d+)\s+kB', _read('/proc/meminfo'), re.M)}
+    mem_kib = {key: int(value) for key, value in re.findall(r'^(\w+):\s+(\d+)\s+kB', _read('/proc/meminfo'), re.M)}
+    mem = {key: value // 1024 for key, value in mem_kib.items()}
+    paging = paging_limits()
+    limit_bytes = None
+    if mem_kib.get('MemTotal') and paging['ram']['total_known']:
+        limit_bytes = mem_kib['MemTotal'] * 1024
+        group_limit = paging['ram']['total_bytes']
+        if group_limit is not None:
+            limit_bytes = min(limit_bytes, group_limit)
     total = mem.get('MemTotal')
     available = mem.get('MemAvailable')
     if total is not None and limits['total_mb'] is not None:
@@ -253,8 +282,8 @@ def detect(home):
               'wsl': 'microsoft' in platform.release().lower(),
               'cpu': {'model': model[1] if model else platform.machine(), 'logical': logical,
                       'physical': len(physical) or None, 'available': max(1, usable)},
-              'memory': {'total_mb': total, 'available_mb': available,
-                         **paging_memory(mem, total, available, paging_limits())},
+              'memory': {'total_mb': total, 'available_mb': available, 'limit_bytes': limit_bytes,
+                         **paging_memory(mem, total, available, paging)},
               'disk': storage, 'gpu': gpu_inventory()}
     result['id'] = hashlib.sha256(json.dumps(result, sort_keys=True).encode()).hexdigest()
     return result
