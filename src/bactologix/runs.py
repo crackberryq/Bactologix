@@ -523,7 +523,7 @@ def freeze_config(cfg, tool, folder, frozen_manifest, cores, memory_mb):
 
 
 @mutation
-def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, parent=None, label=None, installation=None, expected_inputs=None, register=True):
+def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, parent=None, label=None, installation=None, expected_inputs=None, register=True, *, auto_swap=False):
     spec = PIPELINES[tool]
     install_id = installation or store.get("settings", "active-" + tool)
     installed = store.get("installs", install_id)
@@ -537,9 +537,35 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
     cores, memory_mb = int(cores), int(memory_mb)
     if cores < 1 or memory_mb < 512:
         raise ValueError("Choose at least one core and 512 MB memory")
+    submitted = parse_config(config_text)
+    policy = submitted.get('bactologix_compute')
+    if isinstance(policy, dict) and 'auto_swap' in policy:
+        # This preference belongs to future drafts. The saved input and the
+        # frozen workflow both record a concrete allowance.
+        del policy['auto_swap']
+        config_text = yaml.safe_dump(submitted, sort_keys=False, allow_unicode=True)
+    if auto_swap:
+        from . import compute_memory, swap_adviser
+        if tool != 'hybas' or parent is not None:
+            raise ValueError('Automatic swap sizing applies to new HybAs drafts.')
+        config_text = compute_memory.with_swap(config_text, 0)
     cfg = prepare_config(store, tool, sample, config_text, memory_mb, installed)
     rid = identifier("run")
     folder = store.home / "runs" / rid
+    if auto_swap:
+        candidate = {'tool': tool, 'folder': str(folder), 'output': str(folder / 'outputs' / sample['id']),
+                     'controller': installed['controller'], 'rule_cache': installed.get('rule_cache') or str(store.home / 'envs' / tool),
+                     'commit': installed['version']['commit'], 'config': yaml.safe_dump(cfg, sort_keys=False)}
+        recommendation = swap_adviser.recommend(store, tool, memory_mb, draft_run=candidate)
+        if recommendation['state'] == 'not_needed':
+            amount = 0
+        elif recommendation['can_apply']:
+            amount = recommendation['proposal']['swap_mb']
+        else:
+            raise ValueError(' '.join([recommendation['message'], *recommendation.get('problems', [])]))
+        cfg.setdefault('bactologix_compute', {})['swap_mb'] = amount
+        config_text = compute_memory.with_swap(config_text, amount)
+        compute_memory.require_adapter(store, tool, candidate['commit'], cfg, installed['source'])
     folder.mkdir()
     try:
         source = Path(installed["source"])

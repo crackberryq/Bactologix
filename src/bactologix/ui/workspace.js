@@ -48,12 +48,20 @@ function clearWizard(){
 function openWizard(){U.view='draft';U.modal=null;U.error='';writeRoute();render();$('#main').focus({preventScroll:true});$('.workspace-shell').scrollIntoView({block:'start'});}
 function unfinishedPipeline(){const tool=U.wizard?.kind==='edit-run'?(U.revision||runBy(U.wizard.id))?.tool:val('run-tool','hybas');return S.pipelines[tool]?.name||'pipeline';}
 function wizardBanner(){return U.wizard&&U.view!=='draft'?`<section class="draft-recovery" aria-label="Unfinished draft"><div><strong>Unfinished ${e(unfinishedPipeline())} ${U.wizard.kind==='edit-run'&&!editingCurrentDraft()?'revision':'draft'}</strong><p>${e(wizardSaveStatus())}</p></div><div class="button-row">${btn('resume-wizard','Resume editing',true)}${btn('discard-wizard','Discard edits')}</div></section>`:'';}
-function editSavedRun(id,variant=false){
+function calculateSavedDraftSwap(id){
+ if(wizardKind()!=='edit-run'||!editingCurrentDraft()||U.revision.id!==id||U.revision.tool!=='hybas'||!U.revisionConfig)return;
+ if(U.runConfigTab==='review')U.runConfigTab='settings';
+ U.runComputeOpen=true;
+ const section=$('.run-wizard .compute-summary');if(section)section.open=true;
+ calculateSwap('revision','hybas');
+ $('.run-wizard .swap-recommendation')?.scrollIntoView({block:'center'});
+}
+function editSavedRun(id,variant=false,recalculateSwap=false){
  if(U.wizard){
-  if(U.wizard.kind==='edit-run'&&U.wizard.id===id&&!!U.wizard.variant===variant){openWizard();return;}
-  draftInputs();persistWizard();modal('editor-conflict',id,{variant});return;
+  if(U.wizard.kind==='edit-run'&&U.wizard.id===id&&!!U.wizard.variant===variant){openWizard();if(recalculateSwap)calculateSavedDraftSwap(id);return;}
+  draftInputs();persistWizard();modal('editor-conflict',id,{variant,recalculateSwap});return;
  }
- request('edit_run_settings',{id,...(variant?{variant:true}:{})});
+ request('edit_run_settings',{id,...(variant?{variant:true}:{}),...(recalculateSwap?{recalculate_swap:true}:{})});
 }
 function beforeUnload(event){draftInputs();persistWizard();if(U.wizardStorageError&&U.wizard){event.preventDefault();event.returnValue='';}}
 restoreWizard();
@@ -104,13 +112,12 @@ function renderToast(){const t=$('#toast'),saved=U.toast;clearTimeout(toastTimer
 function toast(message,error=false){U.toast={message,error,until:Date.now()+6500};renderToast();}
 function download(name,content,type='text/plain'){const url=URL.createObjectURL(new Blob([content],{type}));const a=document.createElement('a');a.href=url;a.download=name;root.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);}
 function asyncContext(){return JSON.stringify([U.asyncEpoch||0,U.view,U.runId,U.resourceTool,U.setupTool,U.setupTab,U.setupStep,U.runDetailTab,U.runConfigTab,U.modal?.kind,U.modal?.id,U.wizard?.id]);}
-function swapReadContext(){return JSON.stringify([Object.fromEntries(Object.entries(U.drafts).filter(([key])=>/^(compute-|run-|revision-)/.test(key))),U.runConfigs,U.revisionConfig,U.defaultEditors,{kraken_path:pendingKrakenPath()}]);}
 function asyncCurrent(task){
  if(task.cancelled||task.context!==asyncContext())return false;
  const p=task.payload;
  if(task.kind==='scan_databases')return (p.root||'')===val('dbscan-'+p.tool,'');
  if(task.kind==='check_database')return p.path===val(dbPath(p.tool,p.id),S.databases[p.tool]?.rows.find(r=>r.id===p.id)?.path||'');
- if(task.kind==='recommend_swap')return task.fields===swapReadContext();
+ if(task.kind==='recommend_swap')return swapRequestCurrent(task.origin?.swap);
  if(task.kind==='scan_storage')return !!p.include_external===!!val('storage-external',false);
  if(task.kind==='factory_reset_preview')return !!p.delete_databases===!!val('reset-databases',false);
  return true;
@@ -121,17 +128,18 @@ function asyncProgress(){
  const labels={scan_databases:'Scanning database folders',check_database:'Checking database location',edit_run_settings:'Opening saved run settings',factory_reset_preview:'Reviewing workspace reset',database_redownload_preview:'Reviewing database download',recommend_swap:'Reviewing RAM and swap',inspect_storage:'Loading registered storage locations',inspect_storage_cleanup:'Checking cleanup candidates',scan_storage:'Measuring registered storage',preview_storage_cleanup:'Reviewing selected cleanup paths'};
  return `<section class="async-checks" aria-label="Background checks">${rows.map(([id,task])=>`<div class="async-check" role="status"><div><strong>${e(labels[task.kind]||'Checking saved information')}</strong><span class="secondary-line">${task.progress?e(task.progress.stage)+' · '+e(Number(task.progress.entries||0).toLocaleString())+' entries checked · '+e(task.progress.elapsed_seconds)+'s elapsed':'You can continue using the workspace.'}</span>${task.progress?.path?`<span class="secondary-line path-cell">${e(task.progress.path)}</span>`:''}<span class="async-check-progress" aria-hidden="true"></span></div>${btn('cancel-ui-task','Cancel check',false,id)}</div>`).join('')}</section>`;
 }
-function request(kind,payload={},background=false){
+function request(kind,payload={},background=false,swap=null){
+ if(kind==='recommend_swap'&&!swapRequestCurrent(swap))return;
  const observation=asyncActions.has(kind);
  if(observation&&Object.values(U.asyncTasks).some(task=>task.kind===kind&&asyncCurrent(task)&&JSON.stringify(task.payload)===JSON.stringify(payload)))return;
- if(U.pending){if(!background&&U.background){U.queuedRequest={kind,payload:structuredClone(payload)};renderBusy();}return;}
+ if(U.pending){if(!background&&U.background){U.queuedRequest={kind,payload:structuredClone(payload),swap,context:asyncContext()};renderBusy();}return;}
  if(['poll_ui_task','cancel_ui_task'].includes(kind))U.pendingTaskToken=payload.token;
- U.background=background||observation;U.requestOrigin={kind,view:U.view,runId:U.runId};
+ U.background=background||observation;U.requestOrigin={kind,view:U.view,runId:U.runId,...(swap?{swap}:{})};
  if(kind==='inspect_methods'||kind==='inspect_output_files')U.requestOrigin.draftGeneration=runBy(payload.id)?.draft_generation??0;
  U.pending=Array.from(crypto.getRandomValues(new Uint32Array(4)),x=>x.toString(16)).join('-');
  if(observation){
   for(const task of Object.values(U.asyncTasks))if(task.kind===kind)task.cancelled=true;
-  U.asyncTasks[U.pending]={requestId:U.pending,kind,payload:structuredClone(payload),origin:structuredClone(U.requestOrigin),context:asyncContext(),fields:kind==='recommend_swap'?swapReadContext():null};
+  U.asyncTasks[U.pending]={requestId:U.pending,kind,payload:structuredClone(payload),origin:structuredClone(U.requestOrigin),context:asyncContext()};
   if(storageActions.has(kind))U.storageLoads[kind]={id:U.pending,state:'running',message:''};
  }
  setTriggerValue('action',{id:U.pending,kind,payload});renderBusy();
@@ -176,12 +184,12 @@ function browse(target,path='',nearest=false){U.browserReturn=U.modal?{...U.moda
 function draftInputs(){if($('.notification-preferences'))U.notificationPreferencesOpen=$('.notification-preferences').open;const compute=$('.run-wizard .compute-summary');if(compute)U.runComputeOpen=compute.open;if($('[data-cleanup-history]'))U.cleanupHistoryOpen=$('[data-cleanup-history]').open;if($('[data-storage-details]'))U.storageDetailsOpen=$('[data-storage-details]').open;U.recoveryOpen ||= {};for(const el of $$('.recovery-panel'))U.recoveryOpen[el.dataset.recoveryJob]=el.open;for(const el of $$('input[id],textarea[id],select[id]')){if(el.type==='file')continue;U.drafts[el.id]=el.type==='checkbox'?el.checked:el.value;}if(wizardKind()==='new-run'&&U.runBudgetTool&&$('#run-cores')){U.runBudgets||={};U.runBudgets[U.runBudgetTool]={cores:val('run-cores'),memory_mb:val('run-memory'),swap_mb:draftSwap('run')};}}
 function draftBudget(tool){U.runBudgets||={};return U.runBudgets[tool]||={...(S.resource_defaults?.[tool]||{cores:4,memory_mb:16000,swap_mb:0})};}
 function draftSwap(prefix,fallback=0){return val(prefix+'-swap-enabled',Number(fallback)>0)?Number(val(prefix+'-swap',fallback)):0;}
-function swapDraftError(prefix){const enabled=val(prefix+'-swap-enabled',false),swap=draftSwap(prefix),memory=Number(val(prefix+'-memory',0));return enabled&&(!Number.isInteger(swap)||swap<1||!Number.isFinite(memory)||swap+memory>2000000)?'Enter a positive whole-number swap allowance. RAM plus swap must not exceed 2,000,000 MB.':'';}
+function swapDraftError(prefix){if(autoSwapSelected(prefix,val('run-tool','hybas')))return '';const enabled=val(prefix+'-swap-enabled',false),swap=draftSwap(prefix),memory=Number(val(prefix+'-memory',0));return enabled&&(!Number.isInteger(swap)||swap<1||!Number.isFinite(memory)||swap+memory>2000000)?'Enter a positive whole-number swap allowance. RAM plus swap must not exceed 2,000,000 MB.':'';}
 function setSwapDraft(prefix,amount=0){setDraft(prefix+'-swap-enabled',Number(amount)>0);const toggle=$('#'+prefix+'-swap-enabled');if(toggle)toggle.checked=Number(amount)>0;setDraft(prefix+'-swap',amount);}
 function computeTotal(memory,swap){const total=Number(memory)+Number(swap);return Number.isFinite(total)&&total>=0?total.toLocaleString()+' MB':'Check the memory values';}
 function syncComputeBudget(prefix){
  const memory=val(prefix+'-memory',0),swap=draftSwap(prefix),cores=val(prefix+'-cores',0),summary=$('[data-compute-summary="'+prefix+'"]'),total=$('[data-scheduling-total="'+prefix+'"]');
- if(summary)summary.textContent=cores+' CPU threads · '+memory+' MB RAM'+(swap>0?' + '+swap+' MB swap':'')+' per run';
+ if(summary)summary.textContent=cores+' CPU threads · '+memory+' MB RAM'+(autoSwapSelected(prefix,val('run-tool','hybas'))?' · automatic swap':swap>0?' + '+swap+' MB swap':'')+' per run';
  if(total)total.textContent=computeTotal(memory,swap);
 }
 function krakenLabel(r){return r.tool==='hybas'?({off:'Off',manual:'Manual',auto:'Auto',aware:'AWARE'}[r.kraken_mode]||r.kraken_mode||'Pipeline default'):'—';}
@@ -760,10 +768,25 @@ function configuration(){
  `<div class="tabs configuration-pipelines">${Object.keys(S.pipelines).map(x=>`<button class="tab ${t===x?'active':''}" data-action="config-tool" data-id="${x}">${S.pipelines[x].name}${defaultsDirty(defaultEditor(x))?'<span class="unsaved-dot" aria-label="Unsaved changes"></span>':''}</button>`).join('')}</div>${computeDefaults(t)}<section class="card defaults-editor"><div class="defaults-header"><div><strong>${e(S.pipelines[t].name)} defaults</strong><p>Category tabs for everyday changes. Advanced contains every setting.</p></div>${badge('Future runs','green')}</div><div class="defaults-toolbar"><div class="button-row"><label class="btn upload-label">${icon('file')}Import YAML<input type="file" id="yaml-upload" accept=".yaml,.yml" class="visually-hidden" ${!c?'disabled':''}></label>${btn('download-yaml','Download YAML',false,'','download',!c)}${btn('check-run-config','Check settings',false,'','check',!c)}</div>${btn('reload-run-defaults','Reload saved defaults',false,'','',!c)}</div>${stale?notice('Saved defaults changed','Download your edits to keep a copy, then reload saved defaults before saving. New database selections or changes from another window are protected.',true):''}<div class="defaults-content">${body}</div><div class="defaults-footer"><div><strong id="default-save-status">${defaultsDirty(c)?'Unsaved changes':'Saved defaults'}</strong><p>Changes apply to future drafts. Existing runs keep their saved settings.</p></div>${btn('save-config','Save defaults',true,t,'check',!c||stale)}</div></section>`;
 }
 function runEditor(){return wizardKind()==='edit-run'?U.revisionConfig:wizardKind()==='new-run'?U.runConfigs?.[val('run-tool','hybas')]:U.view==='configure'?defaultEditor():U.runConfigs?.[val('run-tool','hybas')];}
+function autoSwapSelected(scope,tool){
+ if(tool!=='hybas'||(scope!=='defaults'&&(scope!=='run'||wizardKind()!=='new-run')))return false;
+ return val(scope+'-auto-swap-'+tool,S.resource_defaults?.hybas?.auto_swap===true)===true;
+}
+function autoSwapControl(scope){
+ const label=scope==='defaults'?'Calculate swap for each new HybAs draft':'Calculate swap automatically for this draft';
+ return `<label class="check-field"><input id="${scope}-auto-swap-hybas" type="checkbox" ${autoSwapSelected(scope,'hybas')?'checked':''}> ${label}</label>`;
+}
 function computeDefaults(tool,showPresets=true){
  const h=S.hardware,p=S.resource_defaults?.[tool];if(!h||!p)return '';
+ const automatic=autoSwapSelected('defaults',tool);
  const dirty=defaultsDirty(defaultEditor(tool)),mode=tool==='micpscope'?'cpu':(p.gpu_mode||'native'),enabled=val('compute-swap-enabled-'+tool,Number(p.swap_mb)>0),swap=enabled?Number(val('compute-swap-'+tool,p.swap_mb||0)):0;
- return `<section class="card compute-defaults" aria-label="Default compute resources"><div class="card-head"><div><h2>Default compute resources</h2><p>${e(S.pipelines[tool].name)} · used by each new run; saved runs keep their limits.</p></div>${showPresets?btn('open-compute-hardware','Hardware & CUDA details',false,tool,'cpu'):''}</div>${showPresets?`<div class="power-grid">${h.presets.map(x=>`<article class="power-card ${x.id}"><h3>${e(x.label)}</h3><p>${x.cores} CPU threads · ${(x.memory_mb/1024).toLocaleString()} GB RAM</p>${btn('pipeline-power-preset','Use '+x.label,x.id==='medium',tool+':'+x.id,'check',dirty||!x.available)}</article>`).join('')}</div>`:''}<div class="padded"><p>Saved: <strong>${p.cores} CPU threads · ${(p.memory_mb/1024).toLocaleString()} GB RAM${Number(p.swap_mb)>0?' + '+e(p.swap_mb)+' MB swap':' · swap off'}</strong>. Power presets change CPU and physical RAM; the saved swap allowance is kept.</p><div class="form-grid">${field('compute-cores-'+tool,'Default CPU threads',p.cores,'number','min="1" max="'+h.cpu.available+'" step="1"')}${field('compute-memory-'+tool,'Default RAM (MB)',p.memory_mb,'number','min="1024" step="1"')}${select('compute-gpu-'+tool,'GPU / CUDA policy',tool==='micpscope'?[['cpu','CPU tools — CUDA not supported']]:[['native','Native tool settings'],['cpu','CPU only — hide CUDA devices']],mode)}</div><p>${tool==='micpscope'?'GeneScope’s current search and report tools run on CPU.':'Native mode preserves GPU visibility and each tool’s own settings; it does not force GPU use or install CUDA. CPU-only mode hides CUDA devices for the run.'}</p><div class="compute-default-swap"><label class="check-field"><input type="checkbox" id="compute-swap-enabled-${tool}" ${enabled?'checked':''} aria-describedby="compute-swap-help-${tool}"> Allow disk swap by default for ${e(S.pipelines[tool].name)}</label><p id="compute-swap-help-${tool}" class="settings-note">New ${e(S.pipelines[tool].name)} drafts inherit this allowance. You can change it or turn it off for an individual run. Saving does not create or allocate swap; available RAM, Linux/WSL swap and operating-system limits are checked before validation and launch.</p>${enabled?`<div class="form-grid run-budget-grid">${field('compute-swap-'+tool,'Default additional swap allowance (MB)',p.swap_mb||0,'number','min="1" max="2000000" step="512" aria-describedby="compute-swap-help-'+tool+'"')}<div class="field"><span>Requested scheduling budget</span><strong data-default-scheduling-total="${tool}">${e(computeTotal(val('compute-memory-'+tool,p.memory_mb),swap))}</strong></div></div><p class="settings-note">Disk swap can be substantially slower. It stays separate from physical RAM and individual tool memory settings.</p>`:''}</div>${swapRecommendationPanel('defaults',tool)}${dirty?notice('Unsaved pipeline settings','Save or reload your pending settings before changing compute defaults.',true):''}${btn('save-pipeline-compute','Save compute defaults',true,tool,'check',dirty)}</div></section>`;
+ return `<section class="card compute-defaults" aria-label="Default compute resources"><div class="card-head"><div><h2>Default compute resources</h2><p>${e(S.pipelines[tool].name)} · used by each new run; saved runs keep their limits.</p></div>${showPresets?btn('open-compute-hardware','Hardware & CUDA details',false,tool,'cpu'):''}</div>${showPresets?`<div class="power-grid">${h.presets.map(x=>`<article class="power-card ${x.id}"><h3>${e(x.label)}</h3><p>${x.cores} CPU threads · ${(x.memory_mb/1024).toLocaleString()} GB RAM</p>${btn('pipeline-power-preset','Use '+x.label,x.id==='medium',tool+':'+x.id,'check',dirty||!x.available)}</article>`).join('')}</div>`:''}<div class="padded"><p>Saved: <strong>${p.cores} CPU threads · ${(p.memory_mb/1024).toLocaleString()} GB RAM${p.auto_swap?' · automatic swap':Number(p.swap_mb)>0?' + '+e(p.swap_mb)+' MB swap':' · swap off'}</strong>. Power presets change CPU and physical RAM; the saved swap allowance is kept.</p><div class="form-grid">${field('compute-cores-'+tool,'Default CPU threads',p.cores,'number','min="1" max="'+h.cpu.available+'" step="1"')}${field('compute-memory-'+tool,'Default RAM (MB)',p.memory_mb,'number','min="1024" step="1"')}${select('compute-gpu-'+tool,'GPU / CUDA policy',tool==='micpscope'?[['cpu','CPU tools — CUDA not supported']]:[['native','Native tool settings'],['cpu','CPU only — hide CUDA devices']],mode)}</div><p>${tool==='micpscope'?'GeneScope’s current search and report tools run on CPU.':'Native mode preserves GPU visibility and each tool’s own settings; it does not force GPU use or install CUDA. CPU-only mode hides CUDA devices for the run.'}</p>${tool==='hybas'?autoSwapControl('defaults'):''}${automatic?'<p class="settings-note">Each new draft uses its selected Kraken database and current capacity to save an allowance.</p>':`<div class="compute-default-swap"><label class="check-field"><input type="checkbox" id="compute-swap-enabled-${tool}" ${enabled?'checked':''} aria-describedby="compute-swap-help-${tool}"> Allow disk swap by default for ${e(S.pipelines[tool].name)}</label><p id="compute-swap-help-${tool}" class="settings-note">New ${e(S.pipelines[tool].name)} drafts inherit this allowance. You can change it or turn it off for an individual run. Saving does not create or allocate swap; available RAM, Linux/WSL swap and operating-system limits are checked before validation and launch.</p>${enabled?`<div class="form-grid run-budget-grid">${field('compute-swap-'+tool,'Default additional swap allowance (MB)',p.swap_mb||0,'number','min="1" max="2000000" step="1" aria-describedby="compute-swap-help-'+tool+'"')}<div class="field"><span>Requested scheduling budget</span><strong data-default-scheduling-total="${tool}">${e(computeTotal(val('compute-memory-'+tool,p.memory_mb),swap))}</strong></div></div><p class="settings-note">Disk swap can be substantially slower. It stays separate from physical RAM and individual tool memory settings.</p>`:''}</div>${swapRecommendationPanel('defaults',tool)}`}${dirty?notice('Unsaved pipeline settings','Save or reload your pending settings before changing compute defaults.',true):''}${btn('save-pipeline-compute','Save compute defaults',true,tool,'check',dirty)}</div></section>`;
+}
+function resetDefaultAutoSwap(tool,enabled){
+ if(tool!=='hybas')return;
+ const id='defaults-auto-swap-hybas';
+ U.drafts[id]=enabled===true;
+ const checkbox=$('#'+id);if(checkbox)checkbox.checked=U.drafts[id];
 }
 function defaultSwap(tool){return val('compute-swap-enabled-'+tool,Number(S.resource_defaults?.[tool]?.swap_mb)>0)?Number(val('compute-swap-'+tool,S.resource_defaults?.[tool]?.swap_mb||0)):0;}
 function setDefaultSwapDraft(tool,amount){setDraft('compute-swap-enabled-'+tool,Number(amount)>0);const toggle=$('#compute-swap-enabled-'+tool);if(toggle)toggle.checked=Number(amount)>0;setDraft('compute-swap-'+tool,amount||0);}
@@ -781,12 +804,46 @@ function swapRecommendationInputs(scope,tool){
  const path=scope==='defaults'?pendingKrakenPath():undefined;
  return {tool,memory_mb:Number(val(prefix,budget?.memory_mb||0)),...(scope==='revision'?{run_id:U.revision?.id}:{}),...(c?{config:{tool:c.tool,text:c.text,changes:c.changes}}:{}),...(scope==='defaults'?{revision:S.databases?.[tool]?.revision}:{}),...(path===undefined?{}:{kraken_path:path})};
 }
-function swapRecommendationContext(scope,tool){return JSON.stringify([asyncContext(),swapRecommendationInputs(scope,tool),S.active?.[tool],scope==='defaults'?defaultsDirty(defaultEditor(tool)):false]);}
+function swapRecommendationContext(scope,tool){
+ const defaults=scope==='defaults';
+ const budget=defaults?S.resource_defaults?.[tool]:scope==='revision'?U.revision:draftBudget(tool);
+ const enabled=val(defaults?'compute-swap-enabled-'+tool:scope+'-swap-enabled',Number(budget?.swap_mb)>0);
+ const amount=Number(val(defaults?'compute-swap-'+tool:scope+'-swap',budget?.swap_mb||0));
+ return JSON.stringify([asyncContext(),swapRecommendationInputs(scope,tool),S.active?.[tool],defaults&&defaultsDirty(defaultEditor(tool)),autoSwapSelected(scope,tool),enabled,enabled?amount:0]);
+}
+function swapRequestCurrent(swap){
+ return !!swap&&Date.now()-swap.requestedAt<300000&&swap.context===swapRecommendationContext(swap.scope,swap.tool);
+}
+function calculateSwap(scope,tool){
+ if(!['defaults','run','revision'].includes(scope)||tool!=='hybas')return;
+ if(scope==='defaults'&&defaultsDirty(defaultEditor(tool))){toast('Save or reload pending pipeline settings before calculating swap.',true);return;}
+ const payload=swapRecommendationInputs(scope,tool);
+ if(scope!=='defaults'&&!payload.config){toast('Open the draft settings before calculating swap.',true);return;}
+ const context=swapRecommendationContext(scope,tool);
+ delete U.swapRecommendations?.[swapRecommendationKey(scope,tool)];
+ request('recommend_swap',payload,false,{scope,tool,context,requestedAt:Date.now()});
+ render();
+}
+function receiveSwapRecommendation(swap,result){
+ if(!swapRequestCurrent(swap))return;
+ const {scope,tool}=swap;
+ const amount=result.proposal?.swap_mb;
+ const filled=result.can_apply===true&&Number.isInteger(amount)&&amount>=0&&result.proposal.memory_mb===swapRecommendationInputs(scope,tool).memory_mb;
+ if(filled){
+  if(scope==='defaults')setDefaultSwapDraft(tool,amount);
+  else{setSwapDraft(scope,amount);invalidateSetupAdvice();persistWizard();}
+ }
+ U.swapRecommendations ||= {};
+ U.swapRecommendations[swapRecommendationKey(scope,tool)]={result,filled,context:swapRecommendationContext(scope,tool),receivedAt:Date.now()};
+}
 function freshSwapRecommendation(scope,tool){const row=U.swapRecommendations?.[swapRecommendationKey(scope,tool)];return !!row&&row.context===swapRecommendationContext(scope,tool)&&Date.now()-row.receivedAt<300000;}
 function swapRecommendationPanel(scope,tool){
  if(tool!=='hybas')return '';
  const key=swapRecommendationKey(scope,tool),saved=U.swapRecommendations?.[key],r=saved?.result,fresh=freshSwapRecommendation(scope,tool),dirty=scope==='defaults'&&defaultsDirty(defaultEditor(tool));
- const pending=Object.values(U.asyncTasks||{}).some(task=>task.kind==='recommend_swap'&&asyncCurrent(task));
+ const pending=Object.values(U.asyncTasks||{}).some(task=>task.origin?.swap?.scope===scope&&task.origin.swap.tool===tool&&asyncCurrent(task))||swapRequestCurrent(U.queuedRequest?.swap)&&U.queuedRequest.swap.scope===scope;
+ const outcome=saved?.filled
+  ? (scope==='defaults'?'Allowance filled. Save compute defaults to use it for future drafts.':'Allowance filled. Save the draft to keep this value.')
+  : 'Calculation could not fill an allowance. Review the details below.';
  let sourceNote='Uses the Kraken database and settings currently selected in this draft.';
  if(scope==='defaults'){
   const path=pendingKrakenPath();
@@ -807,10 +864,15 @@ function swapRecommendationPanel(scope,tool){
   ['Effective HybAs budget with recommended swap',inputs.effective_budget_mb],
   ['Usable free swap after reserve',inputs.usable_swap_mb]
  ];
- return `<section class="swap-recommendation" data-swap-scope="${scope}" data-swap-tool="${tool}" aria-label="Kraken swap recommendation"><div class="button-row"><strong>Need help choosing swap?</strong>${btn('calculate-swap','Calculate swap recommendation',false,scope+':'+tool,'cpu',dirty||pending)}</div><p class="settings-note">${e(sourceNote)} The check reads file sizes and available capacity; it does not download or allocate anything.</p>${r?`<div role="status"><p>${e(r.message)}</p>${r.available?`<dl class="review-settings">${amounts.map(([label,value])=>`<div><dt>${e(label)}</dt><dd>${mb(value)}</dd></div>`).join('')}</dl>`:''}${r.problems?.length?`<ul>${r.problems.map(x=>'<li>'+e(x)+'</li>').join('')}</ul>`:''}${r.warnings?.length?`<ul>${r.warnings.map(x=>'<li>'+e(x)+'</li>').join('')}</ul>`:''}<p class="settings-note">${e(r.notice)}</p><p class="settings-note" data-swap-stale ${fresh?'hidden':''}>Settings or capacity review changed. Calculate again before using this recommendation.</p>${btn('use-swap-recommendation','Use recommendation',true,scope+':'+tool,'check',!fresh||!r.can_apply||dirty)}${r.formula?`<details class="guided-details"><summary>Calculation and storage checks</summary><p>${e(r.formula)}</p><p>${e(r.database?.resolved_path||'')}</p>${(r.storage?.volumes||[]).map(v=>`<p>${e(v.label)}: ${Number.isFinite(v.available_bytes)?(v.available_bytes/1073741824).toFixed(1)+' GiB free':'Not verified'}</p>`).join('')}<p>${e(r.storage?.notice||'')}</p></details>`:''}</div>`:''}</section>`;
+ return `<section class="swap-recommendation" data-swap-scope="${scope}" data-swap-tool="${tool}" aria-label="Kraken swap recommendation"><div class="button-row"><strong>Need help choosing swap?</strong>${btn('calculate-swap',pending?'Calculating swap…':'Calculate and fill swap allowance',false,scope+':'+tool,'cpu',dirty||pending)}</div><p class="settings-note">${e(sourceNote)} The check reads file sizes and available capacity; it does not download or allocate anything.</p>${r?`<div role="status"><p data-swap-outcome ${fresh?'':'hidden'}><strong>${e(outcome)}</strong></p><p>${e(r.message)}</p>${r.available?`<dl class="review-settings">${amounts.map(([label,value])=>`<div><dt>${e(label)}</dt><dd>${mb(value)}</dd></div>`).join('')}</dl>`:''}${r.problems?.length?`<ul>${r.problems.map(x=>'<li>'+e(x)+'</li>').join('')}</ul>`:''}${r.warnings?.length?`<ul>${r.warnings.map(x=>'<li>'+e(x)+'</li>').join('')}</ul>`:''}<p class="settings-note">${e(r.notice)}</p><p class="settings-note" data-swap-stale ${fresh?'hidden':''}>This calculation is out of date. Calculate again for the current settings.</p>${r.formula?`<details class="guided-details"><summary>Calculation and storage checks</summary><p>${e(r.formula)}</p><p>${e(r.database?.resolved_path||'')}</p>${(r.storage?.volumes||[]).map(v=>`<p>${e(v.label)}: ${Number.isFinite(v.available_bytes)?(v.available_bytes/1073741824).toFixed(1)+' GiB free':'Not verified'}</p>`).join('')}<p>${e(r.storage?.notice||'')}</p></details>`:''}</div>`:''}</section>`;
 }
 function syncSwapRecommendation(){
- for(const panel of $$('[data-swap-scope]')){const scope=panel.dataset.swapScope,tool=panel.dataset.swapTool,row=U.swapRecommendations?.[swapRecommendationKey(scope,tool)],fresh=freshSwapRecommendation(scope,tool),dirty=scope==='defaults'&&defaultsDirty(defaultEditor(tool));const button=panel.querySelector('[data-action="use-swap-recommendation"]');if(button)button.disabled=!fresh||!row?.result.can_apply||dirty;const stale=panel.querySelector('[data-swap-stale]');if(stale)stale.hidden=fresh;}
+ for(const panel of $$('[data-swap-scope]')){
+  const fresh=freshSwapRecommendation(panel.dataset.swapScope,panel.dataset.swapTool);
+  const stale=panel.querySelector('[data-swap-stale]'),outcome=panel.querySelector('[data-swap-outcome]');
+  if(stale)stale.hidden=fresh;
+  if(outcome)outcome.hidden=!fresh;
+ }
 }
 function syncDefaultCompute(tool){const total=$('[data-default-scheduling-total="'+tool+'"]');if(total)total.textContent=computeTotal(val('compute-memory-'+tool,S.resource_defaults?.[tool]?.memory_mb||0),defaultSwap(tool));}
 function runFieldValue(c,f){return Object.hasOwn(c.changes,f.key)?c.changes[f.key]:f.kind==='yaml'?f.yaml:f.value;}
@@ -971,13 +1033,14 @@ function reviewSwapNotice(requested){
  return notice('Disk swap enabled for this run','Available RAM and swap will be checked before validation and launch. Paging to disk can be substantially slower. Individual tool memory settings stay unchanged.',true);
 }
 function runReview(c,chosen,budget={cores:val('run-cores',S.resource_defaults?.[c.tool]?.cores??4),memory_mb:val('run-memory',S.resource_defaults?.[c.tool]?.memory_mb??16000),swap_mb:draftSwap('run')}){
+ const automatic=autoSwapSelected('run',c.tool);
  const v=name=>{const f=c.fields.find(f=>f.name===name);return f?runFieldValue(c,f):'—';};
  const pairs=c.tool==='micpscope'?[['Input','Annotated protein FASTA'],['Workflow','Protein properties + report']]:c.tool==='hybas'?[['AWARE+ mode',v('aware_mode')==='legacy'?(v('run_kraken')?v('kraken_decision_mode'):'off'):v('aware_mode')],['Polishing',v('polish_mode')],['BUSCO',v('run_busco')==='auto'?'Auto':v('run_busco')===true||v('run_busco')==='true'?'On':'Off'],['Prokka',v('run_prokka')==='auto'?'Auto':v('run_prokka')===true||v('run_prokka')==='true'?'On':'Off'],['MultiQC',v('run_multiqc')==='auto'?'Auto':v('run_multiqc')===true||v('run_multiqc')==='true'?'On':'Off']]:[['Enabled modules',c.fields.filter(f=>f.name.startsWith('modules.')&&f.name.endsWith('.enabled')&&runFieldValue(c,f)===true).length],['AWARE',v('deep.aware.enabled')?'On':'Off'],['DeepSafe',v('deep.enabled')?'On':'Off']];
  const revision=U.wizard?.kind==='edit-run',variant=revision&&U.revision?.variant;
  const current=editingCurrentDraft();
  const title=current?'Save changes to this draft?':variant?'Ready to create a variant?':revision?'Ready to create a revised draft?':'Ready to create your drafts?';
  const detail=current?'Save changes keeps this run ID and its job history. Validate the updated settings before launching.':variant?'Your variant gets its own run. Validate the variant before launching it.':revision?'These settings will be saved in a new revision. Select Validate run on the revised draft.':'Each sample gets its own saved run. Nothing starts until you launch it.';
- return `<div class="settings-intro"><div><h3>${title}</h3><p>${detail}</p></div></div><div class="review-stats"><div><span>Samples</span><strong>${chosen.length}</strong></div><div><span>CPU per run</span><strong data-review-budget="cores">${e(budget.cores)} cores</strong></div><div><span>Physical RAM budget</span><strong data-review-budget="memory">${e(budget.memory_mb)} MB</strong></div><div><span>Additional disk swap</span><strong data-review-budget="swap">${Number(budget.swap_mb)>0?e(budget.swap_mb)+' MB':'Off'}</strong></div>${Number(budget.swap_mb)>0?`<div><span>Requested scheduling budget</span><strong>${e(computeTotal(budget.memory_mb,budget.swap_mb))}</strong></div>`:''}</div>${reviewSwapNotice(budget.swap_mb)}<dl class="review-settings">${pairs.map(([k,v])=>`<div><dt>${e(k)}</dt><dd>${e(v)}</dd></div>`).join('')}</dl><div class="review-samples">${chosen.map(s=>`<div>${icon('samples')}<strong>${e(s.id)}</strong><span>${e(readMode(s.mode))}</span></div>`).join('')||'<p>No samples selected. Return to Samples to choose one.</p>'}</div><p class="settings-note">Validate the saved settings before launching the run.</p>`;
+ return `<div class="settings-intro"><div><h3>${title}</h3><p>${detail}</p></div></div><div class="review-stats"><div><span>Samples</span><strong>${chosen.length}</strong></div><div><span>CPU per run</span><strong data-review-budget="cores">${e(budget.cores)} cores</strong></div><div><span>Physical RAM budget</span><strong data-review-budget="memory">${e(budget.memory_mb)} MB</strong></div><div><span>Additional disk swap</span><strong data-review-budget="swap">${automatic?'Automatic':Number(budget.swap_mb)>0?e(budget.swap_mb)+' MB':'Off'}</strong></div>${!automatic&&Number(budget.swap_mb)>0?`<div><span>Requested scheduling budget</span><strong>${e(computeTotal(budget.memory_mb,budget.swap_mb))}</strong></div>`:''}</div>${automatic?'<p class="settings-note">Creating the draft calculates and saves the allowance using current capacity.</p>':reviewSwapNotice(budget.swap_mb)}<dl class="review-settings">${pairs.map(([k,v])=>`<div><dt>${e(k)}</dt><dd>${e(v)}</dd></div>`).join('')}</dl><div class="review-samples">${chosen.map(s=>`<div>${icon('samples')}<strong>${e(s.id)}</strong><span>${e(readMode(s.mode))}</span></div>`).join('')||'<p>No samples selected. Return to Samples to choose one.</p>'}</div><p class="settings-note">Validate the saved settings before launching the run.</p>`;
 }
 function wizardPage(){
  if(!U.wizard)return heading('RUN DRAFT','No unfinished draft.','Start a new draft from your registered samples.',btn('new-run','Create run drafts',true));
@@ -1001,9 +1064,9 @@ const runPurposes=[
  ['micpscope','Explore application genes','Review proteins with an optional application database.','Annotated protein FASTA; coordinates optional','resources']
 ];
 function runComputeBudget(tool,revision=null){
- const prefix=revision?'revision':'run',budget=revision||draftBudget(tool),cores=val(prefix+'-cores',budget.cores),memory=val(prefix+'-memory',budget.memory_mb),enabled=val(prefix+'-swap-enabled',Number(budget.swap_mb)>0),swap=draftSwap(prefix,budget.swap_mb||0),available=S.hardware?.memory?.swap_available_mb;
+ const prefix=revision?'revision':'run',automatic=autoSwapSelected(prefix,tool),budget=revision||draftBudget(tool),cores=val(prefix+'-cores',budget.cores),memory=val(prefix+'-memory',budget.memory_mb),enabled=val(prefix+'-swap-enabled',Number(budget.swap_mb)>0),swap=draftSwap(prefix,budget.swap_mb||0),available=S.hardware?.memory?.swap_available_mb;
  const availability=Number.isFinite(available)?Math.floor(available).toLocaleString()+' MB of Linux/WSL swap available at the last hardware check.':'Available Linux/WSL swap has not been established. Capacity will be checked before validation and launch.';
- return `<details class="compute-summary" ${U.runComputeOpen?'open':''}><summary>Customize compute resources <span data-compute-summary="${prefix}">${e(cores)} CPU threads · ${e(memory)} MB RAM${swap>0?' + '+e(swap)+' MB swap':''} per run</span></summary><p class="settings-note">These limits start from the pipeline’s saved compute defaults. Changes here apply only to this draft; other runs and pipeline defaults stay unchanged.</p><div class="form-grid run-budget-grid">${field(prefix+'-cores','CPU cores per run',cores,'number','min="1" max="512"')}${field(prefix+'-memory','Physical RAM budget (MB)',memory,'number','min="512" max="2000000" step="512"')}</div><label class="check-field"><input type="checkbox" id="${prefix}-swap-enabled" ${enabled?'checked':''} aria-describedby="${prefix}-swap-help"> Allow disk swap for this run</label><p id="${prefix}-swap-help" class="settings-note">${e(availability)} This is separate from physical RAM and does not increase individual tool memory settings.</p>${enabled?`<div class="form-grid run-budget-grid">${field(prefix+'-swap','Additional swap allowance (MB)',val(prefix+'-swap',budget.swap_mb||0),'number','min="1" max="2000000" step="512" aria-describedby="'+prefix+'-swap-help"')}<div class="field"><span>Requested scheduling budget</span><strong data-scheduling-total="${prefix}">${e(computeTotal(memory,swap))}</strong></div></div>${notice('Disk swap can be substantially slower','Use only the additional allowance this run needs. Available RAM, swap and operating-system limits are checked again before validation and launch.',true)}`:''}${swapRecommendationPanel(prefix,tool)}</details>`;
+ return `<details class="compute-summary" ${U.runComputeOpen?'open':''}><summary>Customize compute resources <span data-compute-summary="${prefix}">${e(cores)} CPU threads · ${e(memory)} MB RAM${automatic?' · automatic swap':swap>0?' + '+e(swap)+' MB swap':''} per run</span></summary><p class="settings-note">These limits start from the pipeline’s saved compute defaults. Changes here apply only to this draft; other runs and pipeline defaults stay unchanged.</p><div class="form-grid run-budget-grid">${field(prefix+'-cores','CPU cores per run',cores,'number','min="1" max="512"')}${field(prefix+'-memory','Physical RAM budget (MB)',memory,'number','min="512" max="2000000" step="512"')}</div>${prefix==='run'&&tool==='hybas'?autoSwapControl(prefix):''}${automatic?'<p class="settings-note">Bactologix calculates the swap allowance when you create the draft. It saves zero if Kraken is off or fits in RAM.</p>':`<label class="check-field"><input type="checkbox" id="${prefix}-swap-enabled" ${enabled?'checked':''} aria-describedby="${prefix}-swap-help"> Allow disk swap for this run</label><p id="${prefix}-swap-help" class="settings-note">${e(availability)} This is separate from physical RAM and does not increase individual tool memory settings.</p>${enabled?`<div class="form-grid run-budget-grid">${field(prefix+'-swap','Additional swap allowance (MB)',val(prefix+'-swap',budget.swap_mb||0),'number','min="1" max="2000000" step="1" aria-describedby="'+prefix+'-swap-help"')}<div class="field"><span>Requested scheduling budget</span><strong data-scheduling-total="${prefix}">${e(computeTotal(memory,swap))}</strong></div></div>${notice('Disk swap can be substantially slower','Use only the additional allowance this run needs. Available RAM, swap and operating-system limits are checked again before validation and launch.',true)}`:''}${swapRecommendationPanel(prefix,tool)}`}</details>`;
 }
 function selectRunPipeline(tool){
  if(!Object.hasOwn(S.pipelines,tool))return;
@@ -1073,7 +1136,7 @@ function runReadiness(r,d){
  const actions=[['dry-run','Validate run','check',disabled||p.blocked],['check-run-environments','Check environments','check',disabled||!validated],['prepare','Install environments','download',disabled||!validated],launch];
  const actionButton=([id,label,ico,locked])=>btn(id,label,id===primary,r.id,ico,locked);
  const actionText={review:'Review the items that need attention.', 'dry-run':'Next: validate this run.', 'check-environments':'Next: check this run’s environment cache.',prepare:'Next: review the missing environments.',run:'Listed environments are available. Execution checks them again.'};
- return experimentalNotice(r)+`<section class="run-readiness" aria-label="Run checks"><div class="readiness-heading"><h3>Run checks</h3>${btn('run-detail','Refresh checks',false,r.id,'clock',r.busy)}</div><p class="readiness-next">${r.archived?'Restore this run above before validating or starting jobs.':e(actionText[next])}</p><div class="button-row saved-run-actions">${actions.filter(a=>a[0]===primary).map(actionButton).join('')}${btn('view-results','View results',false,r.id,'file')}</div><details class="guided-details more-run-actions"><summary>More run actions</summary><div class="button-row">${actions.filter(a=>a[0]!==primary).map(actionButton).join('')}</div></details><p class="readiness-policy">Run / resume reuses matching environments. Installation happens only when you choose Install environments.</p><div class="readiness-grid">${p.rows.map(x=>`<div class="readiness-item ${e(x.level)}" data-readiness="${e(x.id)}"><div><strong>${e(x.title)}</strong>${badge(x.state,x.level==='good'?'green':x.level==='error'?'red':x.level==='warning'?'amber':'')}</div><p>${e(x.text)}</p>${x.checked_at?`<small>Checked ${e(new Date(x.checked_at).toLocaleString())}</small>`:''}${x.action==='budget'&&r.run_type!=='followup'?quiet('edit-run-settings','Review run budget',r.id):''}${x.id==='pipeline'?quiet('go-install','Open setup'):''}${x.id==='databases'&&r.run_type!=='followup'?quiet('saved-run-tab','Review saved paths','databases'):''}</div>`).join('')}</div>${p.destinations?.length?`<details class="guided-details"><summary>Checked destinations</summary>${p.destinations.map(x=>`<div class="readiness-environment"><strong>${e(x.label)}</strong><code>${e(x.path)}</code><span>${e(x.text)}</span></div>`).join('')}</details>`:''}${p.environments.length?`<details class="guided-details"><summary>Listed tool environments · ${p.environments.length}</summary>${p.environments.map(x=>`<div class="readiness-environment"><strong>${e(x.name)}</strong>${badge(x.state,x.state==='Available'?'green':'amber')}<code>${e(x.path)}</code></div>`).join('')}</details>`:''}</section>`;
+ return experimentalNotice(r)+`<section class="run-readiness" aria-label="Run checks"><div class="readiness-heading"><h3>Run checks</h3>${btn('run-detail','Refresh checks',false,r.id,'clock',r.busy)}</div><p class="readiness-next">${r.archived?'Restore this run above before validating or starting jobs.':e(actionText[next])}</p><div class="button-row saved-run-actions">${actions.filter(a=>a[0]===primary).map(actionButton).join('')}${btn('view-results','View results',false,r.id,'file')}</div><details class="guided-details more-run-actions"><summary>More run actions</summary><div class="button-row">${actions.filter(a=>a[0]!==primary).map(actionButton).join('')}</div></details><p class="readiness-policy">Run / resume reuses matching environments. Installation happens only when you choose Install environments.</p><div class="readiness-grid">${p.rows.map(x=>`<div class="readiness-item ${e(x.level)}" data-readiness="${e(x.id)}"><div><strong>${e(x.title)}</strong>${badge(x.state,x.level==='good'?'green':x.level==='error'?'red':x.level==='warning'?'amber':'')}</div><p>${e(x.text)}</p>${x.checked_at?`<small>Checked ${e(new Date(x.checked_at).toLocaleString())}</small>`:''}${x.recalculate_swap&&!disabled?quiet('recalculate-run-swap','Recalculate swap',r.id):''}${x.action==='budget'&&r.run_type!=='followup'?quiet('edit-run-settings','Review run budget',r.id):''}${x.id==='pipeline'?quiet('go-install','Open setup'):''}${x.id==='databases'&&r.run_type!=='followup'?quiet('saved-run-tab','Review saved paths','databases'):''}</div>`).join('')}</div>${p.destinations?.length?`<details class="guided-details"><summary>Checked destinations</summary>${p.destinations.map(x=>`<div class="readiness-environment"><strong>${e(x.label)}</strong><code>${e(x.path)}</code><span>${e(x.text)}</span></div>`).join('')}</details>`:''}${p.environments.length?`<details class="guided-details"><summary>Listed tool environments · ${p.environments.length}</summary>${p.environments.map(x=>`<div class="readiness-environment"><strong>${e(x.name)}</strong>${badge(x.state,x.state==='Available'?'green':'amber')}<code>${e(x.path)}</code></div>`).join('')}</details>`:''}</section>`;
 }
 function renderSavedRun(r,d){
  const c=d.settings,tabs=[['overview','Overview','home'],...(r.run_type==='followup'?[['advanced','Advanced','config']]:guidedTabs[r.tool]),['activity','Activity','jobs'],['results','Results','file'],['methods','Methods & citation','file']];
@@ -1576,6 +1639,10 @@ if(t.id?.startsWith('followup-source-')){const id=U.modal.id;delete U.drafts['fo
 if(t.id?.startsWith('followup-scope-')){setDraft('followup-reviewed',false);renderModal();}
 if(['support-job','support-log','support-reviewed'].includes(t.id)){if(t.id!=='support-reviewed'){setDraft('support-reviewed',false);if(!val('support-job',''))setDraft('support-log',false);}renderModal();}
 if(t.id==='compute-default-tool'){render();return;}
+if(t.id==='defaults-auto-swap-hybas'||t.id==='run-auto-swap-hybas'){
+ if(t.id==='run-auto-swap-hybas')invalidateSetupAdvice();
+ render();$('#'+t.id)?.focus();return;
+}
 if(t.id?.startsWith('compute-swap-enabled-')){const tool=t.id.slice('compute-swap-enabled-'.length);if(t.checked&&!(Number(val('compute-swap-'+tool,0))>0))setDraft('compute-swap-'+tool,8192);render();$('#'+t.id)?.focus();return;}
 if(t.id==='setup-pipeline'){U.setupTool=t.value;setDraft('hardware-target',t.value);render();}
 if(t.dataset.sample&&wizardKind()==='new-run'){invalidateSetupAdvice();render();}
@@ -1666,7 +1733,7 @@ else if(action==='leave-wizard'){persistWizard();navigate(U.wizard?.kind==='edit
 else if(action==='discard-wizard')modal('discard-wizard');
 else if(action==='confirm-discard-wizard'){clearWizard();U.modal=null;navigate('runs');}
 else if(action==='resume-conflicting-editor'){closeModal();openWizard();}
-else if(action==='replace-conflicting-editor'&&U.modal?.kind==='editor-conflict'){const {id,variant}=U.modal;clearWizard();closeModal();editSavedRun(id,!!variant);}
+else if(action==='replace-conflicting-editor'&&U.modal?.kind==='editor-conflict'){const {id,variant,recalculateSwap}=U.modal;clearWizard();closeModal();editSavedRun(id,!!variant,!!recalculateSwap);}
 else if(action==='browse-folder')browse(id,v(id));
 else if(action==='folder-open'){setDraft('folder-query','');request('browse_folders',{path:id,show_hidden:!!val('folder-hidden',false)});}
 else if(action==='folder-go'||action==='folder-filter'||action==='folder-page'){request('browse_folders',{path:v('folder-path'),query:v('folder-query'),offset:action==='folder-page'?Number(id):0,show_hidden:!!val('folder-hidden',false)});}
@@ -1811,21 +1878,9 @@ else if(action==='setup-tab'){U.setupTab=id;U.view='install';writeRoute();render
 else if(action==='setup-step'){U.setupStep=id;U.setupTab='guide';render();$('.setup-guide')?.scrollIntoView({block:'start'});}
 else if(action==='detect-hardware')request('detect_hardware');
 else if(action==='open-compute-hardware'){U.setupTab='hardware';setDraft('hardware-target',id);setDraft('compute-default-tool',id);navigate('install');}
-else if(action==='calculate-swap'){
- const [scope,tool]=id.split(':');if(!['defaults','run','revision'].includes(scope)||tool!=='hybas')return;
- if(scope==='defaults'&&defaultsDirty(defaultEditor(tool))){toast('Save or reload pending pipeline settings before calculating swap.',true);return;}
- const payload=swapRecommendationInputs(scope,tool);if(scope!=='defaults'&&!payload.config){toast('Open the draft settings before calculating swap.',true);return;}
- U.swapRecommendationRequest={key:swapRecommendationKey(scope,tool),scope,tool,context:swapRecommendationContext(scope,tool)};
- U.swapRecommendations ||= {};delete U.swapRecommendations[U.swapRecommendationRequest.key];request('recommend_swap',payload);render();
-}
-else if(action==='use-swap-recommendation'){
- const [scope,tool]=id.split(':'),row=U.swapRecommendations?.[swapRecommendationKey(scope,tool)],proposal=row?.result.proposal;
- if(!freshSwapRecommendation(scope,tool)||!row?.result.can_apply||!proposal||scope==='defaults'&&defaultsDirty(defaultEditor(tool))){toast('Calculate again for the current settings before using a recommendation.',true);syncSwapRecommendation();return;}
- if(scope==='defaults')setDefaultSwapDraft(tool,proposal.swap_mb);else{setSwapDraft(scope,proposal.swap_mb);invalidateSetupAdvice();}
- render();toast(scope==='defaults'?'Recommendation filled in. Save compute defaults to use it for new drafts.':'Recommendation filled in for this draft. Save the draft when ready.');
-}
+else if(action==='calculate-swap'){const [scope,tool]=id.split(':');calculateSwap(scope,tool);}
 else if(action==='pipeline-power-preset'){const [tool,preset]=id.split(':');if(defaultsDirty(defaultEditor(tool))){U.error='Save or reload pending settings before changing compute defaults.';render();return;}request('apply_resource_preset',{preset,tools:[tool],revisions:S.hardware.revisions,hardware_id:S.hardware.id});}
-else if(action==='save-pipeline-compute'){if(defaultsDirty(defaultEditor(id))){U.error='Save or reload pending settings before changing compute defaults.';render();return;}const swap=defaultSwap(id),ram=Number(v('compute-memory-'+id));if(val('compute-swap-enabled-'+id,false)&&(!Number.isInteger(swap)||swap<1||!Number.isFinite(ram)||ram+swap>2000000)){U.error='Enter a positive whole-number swap allowance. RAM plus swap must not exceed 2,000,000 MB.';render();return;}request('save_compute_defaults',{tool:id,swap_mb:swap,cores:v('compute-cores-'+id),memory_mb:v('compute-memory-'+id),gpu_mode:v('compute-gpu-'+id),revisions:S.hardware.revisions,hardware_id:S.hardware.id});}
+else if(action==='save-pipeline-compute'){if(defaultsDirty(defaultEditor(id))){U.error='Save or reload pending settings before changing compute defaults.';render();return;}const automatic=autoSwapSelected('defaults',id),swap=defaultSwap(id),ram=Number(v('compute-memory-'+id));if(!automatic&&val('compute-swap-enabled-'+id,false)&&(!Number.isInteger(swap)||swap<1||!Number.isFinite(ram)||ram+swap>2000000)){U.error='Enter a positive whole-number swap allowance. RAM plus swap must not exceed 2,000,000 MB.';render();return;}request('save_compute_defaults',{tool:id,...(id==='hybas'?{auto_swap:automatic}:{}),...(automatic?{}:{swap_mb:swap}),cores:v('compute-cores-'+id),memory_mb:v('compute-memory-'+id),gpu_mode:v('compute-gpu-'+id),revisions:S.hardware.revisions,hardware_id:S.hardware.id});}
 else if(action==='apply-power-preset')request('apply_resource_preset',{preset:id,tools:v('hardware-target')==='both'?Object.keys(S.pipelines):[v('hardware-target')],revisions:S.hardware.revisions,hardware_id:S.hardware.id});
 else if(action==='select-environments'||action==='clear-environments'){for(const el of $$('[data-environment]')){el.checked=action==='select-environments';U.drafts[el.id]=el.checked;}syncEnvironmentControls();}
 else if(action==='preview-uninstall'){U.uninstallPlan=null;modal('uninstall',id);request('preview_uninstall',{id});}
@@ -1851,7 +1906,12 @@ else if(action==='reset-database'){const t=U.resourceTool||'hybas';dbState(t).re
 else if(action==='save-databases'){const state=dbState(id),changes={};for(const r of S.databases[id].rows){if(r.managed)continue;const path=v(dbPath(id,r.id));if(state.resets[r.id])changes[r.id]=null;else if(path!==r.path)changes[r.id]=path;}request('save_databases',{tool:id,changes,revision:state.revision});}
 else if(action==='save-config')request('save_default_config',{...runConfigPayload(),revision:runEditor().revision,view:editorUI().runConfigTab});
 else if(action==='download-yaml')requestEditor(editorUI().runConfigTab,false,{download:true});
-else if(action==='create-runs')request('create_runs',{tool:val('run-tool','hybas'),ids:S.samples.filter(s=>val('run-sample-'+s.id,false)).map(s=>s.id),cores:Number(v('run-cores')),memory_mb:Number(v('run-memory')),swap_mb:draftSwap('run'),config:runConfigPayload()});
+else if(action==='create-runs'){
+ const tool=val('run-tool','hybas'),automatic=autoSwapSelected('run',tool);
+ request('create_runs',{tool,ids:S.samples.filter(s=>val('run-sample-'+s.id,false)).map(s=>s.id),
+  cores:Number(v('run-cores')),memory_mb:Number(v('run-memory')),config:runConfigPayload(),
+  ...(tool==='hybas'?{auto_swap:automatic}:{}),...(automatic?{}:{swap_mb:draftSwap('run')})});
+}
 else if(action==='clear-selection'){U.selected=[];render();}
 else if(action==='run-detail')openRun(id);
 else if(action==='review-identification'){U.identification=null;for(const k of Object.keys(U.drafts))if(k.startsWith('identification-'))delete U.drafts[k];modal('identification',id);request('inspect_identification',{id});}
@@ -1869,6 +1929,7 @@ else if(action==='create-variant')editSavedRun(id,true);
 else if(action==='preview-vfdb-repair'){U.resourceRepair=null;modal('vfdb-repair',id);request('preview_vfdb_repair',{id});}
 else if(action==='apply-vfdb-repair'){const d=U.resourceRepair;if(d?.id===id&&d.available)request('apply_vfdb_repair',{id,signature:d.signature});}
 else if(action==='edit-run-settings')editSavedRun(id);
+else if(action==='recalculate-run-swap')editSavedRun(id,false,true);
 else if(action==='save-current-draft'||action==='save-run-revision')request(action==='save-current-draft'?'update_run_draft':'revise_run',{id:U.revision.id,variant:!!U.revision.variant,signature:U.revision.signature,config:runConfigPayload(),cores:Number(v('revision-cores')),memory_mb:Number(v('revision-memory')),swap_mb:draftSwap('revision',U.revision.swap_mb||0)});
 else if(action==='micp-handoff')request('micp_handoff',{id});
 else if(action==='handoff')request('handoff',{id});
@@ -1959,6 +2020,7 @@ watchAppRestart();
 if(!U.routeInitialized){U.routeInitialized=true;readRoute();}
 let response=data.response;
 const newResponse=response&&response.id!==U.handled;
+let completedSwap=null;
 let backgroundResponse=U.background;
 let restoreBackgroundPosition=backgroundResponse?backgroundPosition():null;
 // Preserve drafts before rendering a new server snapshot.
@@ -1973,7 +2035,7 @@ if(newResponse&&response.async_task){
    const current=asyncCurrent(task);delete U.asyncTasks[status.request_id];
    settleStorageTask(task,current&&status.status==='completed'?'ready':current&&!['cancelled','superseded'].includes(status.status)?'failed':'cancelled',status.message);
    if(current&&status.status==='completed'){
-    U.requestOrigin=task.origin;if(task.kind==='edit_run_settings'){backgroundResponse=false;restoreBackgroundPosition=null;}response={id:transportId,ok:true,keep_modal:true,...status.result};
+    completedSwap=task.origin.swap;U.requestOrigin=task.origin;if(task.kind==='edit_run_settings'){backgroundResponse=false;restoreBackgroundPosition=null;}response={id:transportId,ok:true,keep_modal:true,...status.result};
    }else if(current&&!['cancelled','superseded'].includes(status.status))response={id:transportId,ok:false,keep_modal:true,message:status.message||'The check did not finish. Try again.'};
    else response={id:transportId,ok:true,keep_modal:true,silent_task:true};
   }
@@ -1981,14 +2043,19 @@ if(newResponse&&response.async_task){
 }else if(newResponse){
  U.lastWorkspacePoll=Date.now();
  // Direct-dispatch test clients and failed submissions return no task envelope.
- if(asyncActions.has(U.requestOrigin?.kind)){const task=U.asyncTasks[response.id];if(task)settleStorageTask(task,response.ok?'ready':'failed',response.message);delete U.asyncTasks[response.id];}
+ const task=U.asyncTasks[response.id];
+ if(task){
+  if(response.ok&&task.kind==='recommend_swap'&&asyncCurrent(task))completedSwap=task.origin.swap;
+  settleStorageTask(task,response.ok?'ready':'failed',response.message);
+  delete U.asyncTasks[response.id];
+ }
  if(!response.ok&&['poll_ui_task','cancel_ui_task'].includes(U.requestOrigin?.kind)){
   for(const [id,task] of Object.entries(U.asyncTasks))if(task.token===U.pendingTaskToken){settleStorageTask(task,asyncCurrent(task)?'failed':'cancelled',response.message);if(!asyncCurrent(task))response={id:response.id,ok:true,keep_modal:true};delete U.asyncTasks[id];}
  }
 }
 const adviceResponseCurrent=newResponse&&!!U.setupAdviceRequest&&U.setupAdviceRequest.kind===U.requestOrigin?.kind&&U.setupAdviceRequest.context===setupAdviceContext();
 const preserveSetupAdvice=newResponse&&response.run_config&&U.requestOrigin?.kind==='run_config_editor'&&setupAdviceFresh();
-if(newResponse){if(!response.ok&&U.requestOrigin?.kind==='import_samples'){U.sampleImport=null;U.importText=null;}U.handled=response.id;U.pending=null;U.error=response.ok?(response.silent_task?U.error:''):response.message;if(response.resource_defaults_saved){for(const tool of response.resource_defaults_saved){const saved=S.resource_defaults[tool];setDraft('compute-cores-'+tool,saved.cores);setDraft('compute-memory-'+tool,saved.memory_mb);setDraft('compute-gpu-'+tool,saved.gpu_mode||(tool==='micpscope'?'cpu':'native'));setDefaultSwapDraft(tool,saved.swap_mb||0);if(!defaultsDirty(defaultEditor(tool)))delete U.defaultEditors?.[tool];}}if(response.aware_outputs)U.awareOutputs=response.aware_outputs;if(response.manifest_import)U.manifestImport=response.manifest_import;if(response.config){const c=response.config;U.drafts['yaml-'+c.tool]=c.text;U.fields[c.tool]=c.fields;const el=$('#yaml-'+c.tool);if(el)el.value=c.text;}if(response.browser){U.browser=response.browser;setDraft('folder-path',response.browser.path);}if(response.database_scan){const scan=response.database_scan,t=scan.tool,state=dbState(t);state.scan=scan;for(const r of S.databases[t].rows){const key=dbPath(t,r.id),preferred=scan.candidates[r.id]?.find(c=>c.preferred);if(preferred&&!state.resets[r.id]&&val(key,r.path)===r.path){setDraft(key,preferred.path);setDraft('dbcand-'+t+'-'+r.id,preferred.path);}}}
+if(newResponse){if(!response.ok&&U.requestOrigin?.kind==='import_samples'){U.sampleImport=null;U.importText=null;}U.handled=response.id;U.pending=null;U.error=response.ok?(response.silent_task?U.error:''):response.message;if(response.resource_defaults_saved){for(const tool of response.resource_defaults_saved){const saved=S.resource_defaults[tool];setDraft('compute-cores-'+tool,saved.cores);setDraft('compute-memory-'+tool,saved.memory_mb);setDraft('compute-gpu-'+tool,saved.gpu_mode||(tool==='micpscope'?'cpu':'native'));setDefaultSwapDraft(tool,saved.swap_mb||0);resetDefaultAutoSwap(tool,saved.auto_swap);if(!defaultsDirty(defaultEditor(tool)))delete U.defaultEditors?.[tool];}}if(response.aware_outputs)U.awareOutputs=response.aware_outputs;if(response.manifest_import)U.manifestImport=response.manifest_import;if(response.config){const c=response.config;U.drafts['yaml-'+c.tool]=c.text;U.fields[c.tool]=c.fields;const el=$('#yaml-'+c.tool);if(el)el.value=c.text;}if(response.browser){U.browser=response.browser;setDraft('folder-path',response.browser.path);}if(response.database_scan){const scan=response.database_scan,t=scan.tool,state=dbState(t);state.scan=scan;for(const r of S.databases[t].rows){const key=dbPath(t,r.id),preferred=scan.candidates[r.id]?.find(c=>c.preferred);if(preferred&&!state.resets[r.id]&&val(key,r.path)===r.path){setDraft(key,preferred.path);setDraft('dbcand-'+t+'-'+r.id,preferred.path);}}}
 if(response.ok&&response.refreshed_catalog&&U.modal?.kind==='versions'&&U.modal.id===response.refreshed_catalog&&!U.versionChoiceExplicit){U.drafts['version-'+U.modal.id]=defaultPipelineVersion(U.modal.id);}
 if(response.ok&&response.restored_runs){U.cleanupPlan=null;U.cleanupSelected=[];U.detail=null;if(U.restoreOpenRun&&response.restored_runs.includes(U.restoreOpenRun)){U.view='run';U.runId=U.restoreOpenRun;U.runDetailTab='activity';U.modal=null;U.results=null;writeRoute();}U.restoreOpenRun=null;}
 if(response.removed_sample){
@@ -2013,7 +2080,7 @@ if(response.setup_advice&&adviceResponseCurrent){U.setupAdvice=response.setup_ad
 if(!response.ok&&['inspect_setup_advice','apply_setup_advice'].includes(U.requestOrigin?.kind))invalidateSetupAdvice();
 if(response.default_config){
  const c=response.default_config,old=defaultEditor(c.tool);
- if(response.default_config_saved||response.default_config_loaded){const saved=S.resource_defaults[c.tool];setDefaultSwapDraft(c.tool,saved.swap_mb||0);setDraft('compute-gpu-'+c.tool,saved.gpu_mode||(c.tool==='micpscope'?'cpu':'native'));}U.defaultEditors ||= {};
+ if(response.default_config_saved||response.default_config_loaded){const saved=S.resource_defaults[c.tool];setDefaultSwapDraft(c.tool,saved.swap_mb||0);resetDefaultAutoSwap(c.tool,saved.auto_swap);setDraft('compute-gpu-'+c.tool,saved.gpu_mode||(c.tool==='micpscope'?'cpu':'native'));}U.defaultEditors ||= {};
  U.defaultEditors[c.tool]={...c,scope:'defaults',changes:{},raw:false,savedText:response.default_config_loaded||response.default_config_saved?c.text:old?.savedText??c.text};
  const ui=editorUI(U.defaultEditors[c.tool]);ui.runConfigTab=response.default_config_view;
  if(ui.runConfigTab==='yaml')ui.runSettingTab[c.tool]='advanced';
@@ -2022,13 +2089,7 @@ if(response.default_config){
 if(response.refresh_plan){U.refreshPlan=response.refresh_plan;U.modal={kind:'report-refresh',id:response.refresh_plan.run_id};}
 if(response.unlock_plan){U.unlockPlan=response.unlock_plan;U.modal={kind:'workflow-lock',id:response.unlock_plan.id};}
 if(response.workstation_check)U.workstationCheck=response.workstation_check;
-if(response.swap_recommendation&&U.requestOrigin?.kind==='recommend_swap'){
- const pending=U.swapRecommendationRequest;
- if(pending&&pending.context===swapRecommendationContext(pending.scope,pending.tool)){
-  U.swapRecommendations ||= {};U.swapRecommendations[pending.key]={result:response.swap_recommendation,context:pending.context,receivedAt:Date.now()};
- }
- U.swapRecommendationRequest=null;
-}
+if(completedSwap&&response.swap_recommendation)receiveSwapRecommendation(completedSwap,response.swap_recommendation);
 if(response.download&&U.modal?.kind==='workstation')U.workstationCheck=S.workstation_checks?.find(c=>c.id===U.modal.id)||U.workstationCheck;
 if(response.uninstall_plan)U.uninstallPlan=response.uninstall_plan;
 if(response.cleanup_refresh){U.storageCleanup=null;U.storageLoads.inspect_storage_cleanup={state:'ready'};U.cleanupJobId=response.job_id;U.cleanupPlan=null;U.cleanupSelected=[];}
@@ -2098,7 +2159,11 @@ if(newResponse&&U.notificationOpen&&U.requestOrigin?.kind==='mark_notifications_
  const chosen=U.notificationOpen;U.notificationOpen=null;if(response.ok)openNotificationTarget(chosen.target);
 }
 if(newResponse&&response.message)toast(response.message,!response.ok);else renderToast();
-if(newResponse&&U.queuedRequest){const queued=U.queuedRequest;U.queuedRequest=null;request(queued.kind,queued.payload);}
+if(newResponse&&response.edit_run?.recalculate_swap&&!U.queuedRequest)calculateSavedDraftSwap(response.edit_run.id);
+if(newResponse&&U.queuedRequest){
+ const queued=U.queuedRequest;U.queuedRequest=null;
+ if(queued.kind!=='edit_run_settings'||!queued.payload.recalculate_swap||queued.context===asyncContext())request(queued.kind,queued.payload,false,queued.swap);
+}
 claimDesktopNotifications();
 const dispose=()=>{clearInterval(progressTimer);window.removeEventListener('online',refreshProgress);window.removeEventListener('offline',refreshProgress);window.removeEventListener('storage',notificationStorageChanged);window.removeEventListener('message',reportFolderMessage);window.removeEventListener('resize',syncNavigation);window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('popstate',routeChanged);window.removeEventListener('hashchange',routeChanged);clearTimeout(pollTimer);clearTimeout(toastTimer);root.removeEventListener('click',click);root.removeEventListener('input',onInput);root.removeEventListener('change',onChange);root.removeEventListener('keydown',keydown);};
 root._dispose=dispose;

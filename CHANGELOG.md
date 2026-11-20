@@ -1,3 +1,9 @@
+## 0.1.0a120.dev1 — 2026-11-20 · Alpha · Kraken swap calculation
+
+- **Calculate and fill swap allowance** fills the form with the smallest whole-MB allowance that covers the selected Kraken requirement with the RAM HybAs can use. The calculation checks usable swap after reserves and the combined memory limit.
+- Save the draft or pipeline defaults to keep the calculated allowance. Use **Validate run** to check the saved settings against current capacity before launch.
+- Select **Calculate swap for each new HybAs draft** in pipeline compute defaults to size future drafts against their selected database and available memory automatically. Each saved run records its own numeric allowance.
+
 ## 0.1.0a119.dev1 — 2026-11-20 · Alpha · WSL storage monitoring
 
 - During brief gaps in Windows storage updates, Bactologix can measure free space through the same drives in Ubuntu when their identities have been verified. The Windows launcher also retries brief file-sharing conflicts when publishing its readings.

@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a119.dev1 — Experimental development
+# Bactologix 0.1.0a120.dev1 — Experimental development
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
 
@@ -650,11 +650,11 @@ URLs contain only the page, run ID and section, not configuration or input paths
 
 ## Run checks and environment availability
 
-Save an explicit additional disk-swap allowance in each pipeline's **Default
-compute resources**. New runs inherit that pipeline's setting; **Customize compute
-resources** can change or disable it for one run. Physical RAM and swap are shown
-separately, and current capacity is rechecked before validation and execution.
-Existing runs keep their saved policy; editing creates a revision. See
+New runs inherit the swap allowance saved in the pipeline's **Default compute
+resources**. For HybAs, **Calculate and fill swap allowance** uses the selected
+Kraken index and the RAM HybAs can use. To change one draft, use **Edit
+settings → Customize compute resources**, calculate the allowance, save the
+draft and choose **Validate run**. See
 [swap memory](docs/swap-memory.md) for capacity, performance and provenance details.
 
 Saved-run **Overview → Run checks** separates inputs/saved files, pipeline/runner setup, native validation, frozen database paths and tool environment availability. The panel reports the scope and time of each check. **Runner set up** on an installation card refers to the runner only; it does not mean every analysis tool or database is ready. **Validate run** performs the native dry-run. Saved database paths remain visible under **Databases**, independently of later default changes.

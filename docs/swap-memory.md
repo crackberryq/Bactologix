@@ -8,10 +8,16 @@ out-of-memory failure.
 ## Save a pipeline default
 
 Open **Pipelines & databases → Compute & CUDA**, then select the pipeline under
-**Pipeline compute defaults**. Under **Default compute resources**, enable the
-disk-swap allowance, enter the additional MB and choose **Save compute defaults**. The same controls are available
-in **Settings** for the selected pipeline. Each pipeline keeps its own
-default; a new run starts with that pipeline's saved allowance.
+**Pipeline compute defaults**. For HybAs, select **Calculate swap for each new
+HybAs draft** and choose **Save compute defaults**. Bactologix checks the
+selected database and current capacity when creating each draft. It records a
+numeric allowance in the draft, including zero when Kraken is off or fits in
+RAM. A capacity check that fails gives the reason.
+
+To use the same numeric allowance for future runs, leave automatic calculation
+off, select **Allow disk swap by default**, enter the amount, and save. You can
+also choose automatic or manual sizing for an individual new HybAs draft
+under **Customize compute resources**.
 
 The initial default is off. CPU/RAM power presets preserve an explicitly saved
 swap allowance and continue to calculate physical-RAM budgets separately. Saving
@@ -20,17 +26,22 @@ checked again when a run is validated or executed.
 
 ## Override the allowance for a run
 
-Open a new run or edit a saved run, then expand **Customize compute resources**.
-Keep the physical RAM budget appropriate for the RAM available inside Linux or
-WSL. Enable the swap option and enter an additional allowance in MB. Review the
-total scheduler budget before saving. Editing a saved run creates a revision;
-the original configuration and outputs remain unchanged. Validate the revision
-before execution.
+Open a new run or choose **Edit settings** on a saved draft, then expand
+**Customize compute resources**. In HybAs, choose **Calculate and fill swap
+allowance**. Bactologix measures the selected Kraken index and takes the higher
+of its estimated full-load requirement and any explicit Kraken reservation.
+It subtracts the RAM HybAs can use and fills the additional allowance in whole
+MiB (MB in this form). When RAM covers the requirement, the allowance is zero.
+If the measured capacity cannot support the proposal, review the reported
+shortfall. You can also enter a manual allowance.
 
-For example, a 28,672 MB RAM budget plus a 98,304 MB swap allowance gives a
-126,976 MB scheduler budget. This exceeds a 113,868 MB Kraken reservation. The
-example requires enough currently available RAM and swap, including the system
-reserves checked at launch; it is not a universal recommended allocation.
+For example, 113,868 MB required and 42,102 MB effective RAM gives a 71,766 MB
+swap allowance. With 72,702 MB usable swap after reserve, that leaves 936 MB of
+usable swap outside the allowance. The combined memory and filesystem checks
+must also pass.
+
+Review and save the draft, then select **Validate run**. An editable draft keeps
+its run ID. If an existing run needs a revision, save and validate that revision.
 
 You can change the inherited allowance or turn it off for an individual run
 without changing the pipeline default. Existing saved runs retain their policy,

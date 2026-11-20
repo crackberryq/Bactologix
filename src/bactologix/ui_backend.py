@@ -276,7 +276,7 @@ def dispatch(store, kind, p):
     if kind == 'save_compute_defaults':
         return hardware.apply_custom(store, _tool(p), p.get('cores'), p.get('memory_mb'), p.get('gpu_mode'),
                                      p.get('revisions'), p.get('hardware_id'),
-                                     **({'swap_mb': p['swap_mb']} if 'swap_mb' in p else {}))
+                                     **{key: p[key] for key in ('swap_mb', 'auto_swap') if key in p})
     if kind == 'apply_resource_preset':
         return hardware.apply_preset(store, p.get('preset'), p.get('tools'), p.get('revisions'), p.get('hardware_id'))
     if kind == "refresh_app_releases":
@@ -535,6 +535,11 @@ def dispatch(store, kind, p):
             from . import variants
             variants.eligible(store, _item(store, 'runs', p.get('id')))
             response['edit_run']['variant'] = True
+        elif p.get('recalculate_swap') is True:
+            editor = response['edit_run']
+            if editor['tool'] != 'hybas' or not editor['can_edit_draft']:
+                raise ValueError('This saved run can no longer be edited in place. Refresh its run checks.')
+            editor['recalculate_swap'] = True
         return response
     if kind == "preview_vfdb_repair":
         from . import resource_repair
@@ -581,13 +586,14 @@ def dispatch(store, kind, p):
                 raise ValueError("The run configuration belongs to another pipeline. Review its settings again.")
             text = run_config.compile_config(tool, config["text"], config.get("changes"))
             run_config.validate(tool, text)
-        if 'swap_mb' in p:
-            text = compute_memory.with_swap(text, p['swap_mb'])
+        auto_swap = hardware.automatic_swap_setting(tool, p.get('auto_swap', defaults['auto_swap'] and 'swap_mb' not in p))
+        if auto_swap or 'swap_mb' in p:
+            text = compute_memory.with_swap(text, 0 if auto_swap else p['swap_mb'])
         compute_memory.policy({'memory_mb': memory}, parse_config(text))
         made = []
         for sample in samples:
             try:
-                made.append(create_run(store, tool, sample, text, cores, memory))
+                made.append(create_run(store, tool, sample, text, cores, memory, **({'auto_swap': True} if auto_swap else {})))
             except Exception as exc:
                 raise ValueError(f"Created {len(made)} draft(s). {sample['id']}: {exc}") from exc
         response = {"message": f"Created {len(made)} independent drafts with this run configuration.", "navigate": "runs"}

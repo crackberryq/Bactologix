@@ -326,12 +326,19 @@ def run_defaults(store, tool):
     return _configured_defaults(tool, cfg, store.get('resource_defaults', tool))
 
 
+def automatic_swap_setting(tool, value):
+    if type(value) is not bool or (value and tool != 'hybas'):
+        raise ValueError('Automatic swap sizing is a HybAs on/off setting.')
+    return value
+
+
 def _configured_defaults(tool, cfg, saved=None):
     """YAML owns compute policy; budget records own the CPU/RAM allocation."""
     budget = saved or {'cores': min(4, os.cpu_count() or 1), 'memory_mb': 16000, 'preset': 'custom'}
     swap = compute_memory.allowance(cfg)
     gpu = cfg.get('bactologix_compute', {}).get('gpu_mode', 'cpu' if tool == 'micpscope' else 'native')
-    return {**budget, 'swap_mb': swap, 'gpu_mode': gpu}
+    auto_swap = automatic_swap_setting(tool, cfg.get('bactologix_compute', {}).get('auto_swap', False))
+    return {**budget, 'swap_mb': swap, 'gpu_mode': gpu, 'auto_swap': auto_swap}
 
 
 def sync_config_defaults(db, tool, text):
@@ -370,7 +377,7 @@ def apply_preset(store, name, tools, expected, hardware_id):
 
 
 @mutation
-def _save_budget(store, tools, expected, info, selected, gpu_mode=None, swap_mb=_PRESERVE_SWAP):
+def _save_budget(store, tools, expected, info, selected, gpu_mode=None, swap_mb=_PRESERVE_SWAP, auto_swap=_PRESERVE_SWAP):
     name = selected['id']
     cores, memory = selected['cores'], selected['memory_mb']
     with store.connect() as db:
@@ -385,6 +392,11 @@ def _save_budget(store, tools, expected, info, selected, gpu_mode=None, swap_mb=
             compute_memory.allowance(cfg)
             if swap_mb is not _PRESERVE_SWAP:
                 cfg = parse_config(compute_memory.with_swap(text, swap_mb))
+            if auto_swap is not _PRESERVE_SWAP:
+                if automatic_swap_setting(tool, auto_swap):
+                    cfg.setdefault('bactologix_compute', {})['auto_swap'] = True
+                else:
+                    cfg.get('bactologix_compute', {}).pop('auto_swap', None)
             compute_memory.policy({'memory_mb': memory}, cfg)
             cfg['threads'] = cores
             if tool == 'hybas':
@@ -407,7 +419,7 @@ def _save_budget(store, tools, expected, info, selected, gpu_mode=None, swap_mb=
 
 
 
-def apply_custom(store, tool, cores, memory_mb, gpu_mode, expected, hardware_id, swap_mb=_PRESERVE_SWAP):
+def apply_custom(store, tool, cores, memory_mb, gpu_mode, expected, hardware_id, swap_mb=_PRESERVE_SWAP, auto_swap=_PRESERVE_SWAP):
     if tool not in PIPELINES or gpu_mode not in {'cpu', 'native'}:
         raise ValueError('Choose a pipeline and a supported GPU policy.')
     if tool == 'micpscope' and gpu_mode != 'cpu':
@@ -425,7 +437,7 @@ def apply_custom(store, tool, cores, memory_mb, gpu_mode, expected, hardware_id,
     if not 1 <= cpu <= high['cores'] or not 1024 <= ram <= high['memory_mb']:
         raise ValueError('Choose CPU and RAM within the detected Full power budget (including the system reserve).')
     selected = {'id': 'custom', 'label': 'Custom compute defaults', 'cores': cpu, 'memory_mb': ram}
-    return _save_budget(store, [tool], expected, info, selected, gpu_mode, swap_mb)
+    return _save_budget(store, [tool], expected, info, selected, gpu_mode, swap_mb, auto_swap)
 
 
 def workflow_environment(config):

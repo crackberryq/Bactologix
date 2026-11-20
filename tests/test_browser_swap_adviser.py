@@ -1,4 +1,4 @@
-"""Researchers review a calculated allowance; nothing is saved or launched for them."""
+"""A verified calculator result fills the active form. Normal save and launch remain independent."""
 import os
 
 import pytest
@@ -49,7 +49,7 @@ def test_selected_windows_database_is_measured_before_and_after_saving(
         page.get_by_role('link', name='Pipelines & databases', exact=True).click()
         databases = page.locator('.setup-steps [data-id="databases"]')
         capacity_step = page.locator('.setup-steps [data-id="capacity"]')
-        calculate = page.get_by_role('button', name='Calculate swap recommendation')
+        calculate = page.get_by_role('button', name='Calculate and fill swap allowance')
         databases.click()
         page.get_by_label('Kraken2 location', exact=True).fill(windows)
         capacity_step.click()
@@ -64,7 +64,7 @@ def test_selected_windows_database_is_measured_before_and_after_saving(
         page.get_by_role('button', name='Save for future runs').click()
         respond(page, workspace, 'save_databases')
         capacity_step.click()
-        expect(page.get_by_role('button', name='Use recommendation')).to_be_disabled()
+        expect(page.locator('[data-swap-stale]')).to_be_visible()
         calculate.click()
         request, result = respond(page, workspace, 'recommend_swap')
         assert 'kraken_path' not in request['payload']
@@ -72,7 +72,7 @@ def test_selected_windows_database_is_measured_before_and_after_saving(
         browser.close()
 
 
-def test_compute_default_recommendation_fills_only_after_review_and_invalidates_changed_ram(
+def test_calculation_fills_compute_default_and_invalidates_on_changed_ram(
         workspace, installation, sample, tmp_path, monkeypatch):
     from playwright.sync_api import sync_playwright, expect
     configured_database(workspace, tmp_path, monkeypatch)
@@ -84,7 +84,7 @@ def test_compute_default_recommendation_fills_only_after_review_and_invalidates_
         page.on('pageerror', lambda error: errors.append(str(error)))
         page.get_by_role('link', name='Pipelines & databases', exact=True).click()
         page.locator('.setup-steps [data-action="setup-step"][data-id="capacity"]').click()
-        calculate = page.get_by_role('button', name='Calculate swap recommendation', exact=True)
+        calculate = page.get_by_role('button', name='Calculate and fill swap allowance', exact=True)
         calculate.click()
         expect(page.get_by_role('link', name='Samples', exact=True)).to_be_enabled()
         request, response = respond(page, workspace, 'recommend_swap')
@@ -99,15 +99,12 @@ def test_compute_default_recommendation_fills_only_after_review_and_invalidates_
         ):
             row = panel.locator('dl > div').filter(has=page.get_by_text(label, exact=True))
             expect(row.locator('dd')).to_have_text(f'{value:,} MB')
-        expect(page.locator('#compute-swap-enabled-hybas')).not_to_be_checked()
         expect(page.locator('.swap-recommendation')).to_contain_text('Disk swap is much slower than RAM')
-        page.get_by_role('button', name='Use recommendation', exact=True).click()
         expect(page.locator('#compute-swap-enabled-hybas')).to_be_checked()
         expect(page.get_by_label('Default additional swap allowance (MB)', exact=True)).to_have_value(str(amount))
         expect(page.get_by_label('Default RAM (MB)', exact=True)).to_have_value('28672')
         assert workspace.get('configs', 'hybas') == original and workspace.jobs() == []
         page.get_by_label('Default RAM (MB)', exact=True).fill('24576')
-        expect(page.get_by_role('button', name='Use recommendation', exact=True)).to_be_disabled()
         expect(page.locator('[data-swap-stale]')).to_be_visible()
         page.set_viewport_size({'width': 390, 'height': 844})
         assert page.locator('.swap-recommendation').evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
@@ -124,18 +121,17 @@ def test_run_recommendation_uses_unsaved_fields_and_drops_late_changed_settings(
         browser = playwright.chromium.launch(headless=True, executable_path=os.environ.get('BACTOLOGIX_BROWSER_EXECUTABLE'))
         page = page_for(browser, workspace)
         start_draft(page, workspace)
-        page.get_by_role('button', name='Calculate swap recommendation', exact=True).click()
+        page.get_by_role('button', name='Calculate and fill swap allowance', exact=True).click()
         payload = page.evaluate('window.acceptanceEvents.at(-1).value.payload')
         assert payload['config']['tool'] == 'hybas'
         assert payload['config']['text'] and isinstance(payload['config']['changes'], dict)
         # A result arriving after a RAM edit must not expose stale Apply values.
         page.get_by_label('Physical RAM budget (MB)', exact=True).fill('24576')
         respond(page, workspace, 'recommend_swap')
-        expect(page.get_by_role('button', name='Use recommendation', exact=True)).to_have_count(0)
-        page.get_by_role('button', name='Calculate swap recommendation', exact=True).click()
+        expect(page.get_by_label('Allow disk swap for this run', exact=True)).not_to_be_checked()
+        page.get_by_role('button', name='Calculate and fill swap allowance', exact=True).click()
         _, response = respond(page, workspace, 'recommend_swap')
         assert response['swap_recommendation']['inputs']['ram_budget_mb'] == 24576
-        page.get_by_role('button', name='Use recommendation', exact=True).click()
         expect(page.get_by_label('Allow disk swap for this run', exact=True)).to_be_checked()
         expect(page.get_by_label('Additional swap allowance (MB)', exact=True)).to_have_value(
             str(response['swap_recommendation']['proposal']['swap_mb']))

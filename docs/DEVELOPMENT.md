@@ -24,7 +24,7 @@ Application update feeds are separated by PEP 440 development version: Dev accep
 
 Under **Databases & models**, open the HybAs AWARE Kraken2 card. Choose the folder that contains `hash.k2d`, `opts.k2d` and `taxo.k2d`. For example, a database stored in `C:\Databases\Kraken2` is available in WSL at `/mnt/c/Databases/Kraken2`.
 
-Use **Check location** to verify the index and **Save for future runs** to reuse it. **Calculate swap recommendation** reads the selected index in place. You can share one copy across applications. Keep the drive mounted and readable when running HybAs. Dev-managed downloads and builds use the Dev workspace.
+Use **Check location** to verify the index and **Save for future runs** to reuse it. **Calculate and fill swap allowance** reads the selected index in place. You can share one copy across applications. Keep the drive mounted and readable when running HybAs. Dev-managed downloads and builds use the Dev workspace.
 
 ## Build and test
 

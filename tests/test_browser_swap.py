@@ -272,6 +272,78 @@ def test_pipeline_swap_default_in_setup_and_independent_run_overrides(workspace,
         browser.close()
 
 
+def test_automatic_swap_default_applies_at_creation_and_preserves_manual_choice(
+        workspace, installation, sample, monkeypatch):
+    from playwright.sync_api import sync_playwright, expect
+    capacity(workspace, monkeypatch)
+    cfg = yaml.safe_load(workspace.get('configs', 'hybas'))
+    cfg['bactologix_compute'] = {'swap_mb': 8192}
+    workspace.put('configs', 'hybas', yaml.safe_dump(cfg))
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True, executable_path=os.environ.get('BACTOLOGIX_BROWSER_EXECUTABLE'))
+        page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+        page.route('https://workspace.test/**', lambda route: route.fulfill(body='<html><body></body></html>'))
+        page.goto('https://workspace.test/')
+        render_component(page, workspace)
+        page.get_by_role('link', name='Pipelines & databases', exact=True).click()
+        page.locator('.setup-steps [data-action="setup-step"][data-id="capacity"]').click()
+        auto_default = page.locator('#defaults-auto-swap-hybas')
+        expect(auto_default).not_to_be_checked()
+        auto_default.check()
+        page.get_by_role('button', name='Save compute defaults', exact=True).click()
+        request, _ = respond(page, workspace, 'save_compute_defaults')
+        assert request['payload']['auto_swap'] is True
+        assert hardware.run_defaults(workspace, 'hybas')['auto_swap'] is True
+
+        start_draft(page, workspace)
+        automatic = page.locator('#run-auto-swap-hybas')
+        expect(automatic).to_be_checked()
+        page.get_by_role('button', name='Review drafts', exact=True).click()
+        respond(page, workspace, 'run_config_editor')
+        expect(page.locator('[data-review-budget="swap"]')).to_contain_text('Automatic')
+        page.get_by_role('button', name='Create drafts', exact=True).click()
+        request, _ = respond(page, workspace, 'create_runs')
+        assert request['payload']['auto_swap'] is True and 'swap_mb' not in request['payload']
+        saved, = workspace.all('runs')
+        # This fixture has Kraken switched off. The saved run freezes a zero
+        # allowance even though its default fallback was 8192 MB.
+        assert yaml.safe_load(saved['config'])['bactologix_compute']['swap_mb'] == 0
+        page.get_by_role('button', name='Edit settings', exact=True).click()
+        respond(page, workspace, 'edit_run_settings')
+        customize_compute(page)
+        expect(automatic).to_have_count(0)
+        expect(page.get_by_label('Allow disk swap for this run', exact=True)).not_to_be_checked()
+        # A separate tab starts a new wizard while preserving the saved default.
+        page.close()
+        page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+        page.route('https://workspace.test/**', lambda route: route.fulfill(body='<html><body></body></html>'))
+        page.goto('https://workspace.test/')
+        render_component(page, workspace)
+        start_draft(page, workspace)
+        automatic = page.locator('#run-auto-swap-hybas')
+        automatic.uncheck()
+        allowance = page.get_by_label('Additional swap allowance (MB)', exact=True)
+        expect(allowance).to_have_value('8192')
+        allowance.fill('12345')
+        page.get_by_label('Pipeline', exact=True).select_option('basis')
+        respond(page, workspace, 'run_config_editor')
+        customize_compute(page)
+        expect(automatic).to_have_count(0)
+        page.get_by_label('Pipeline', exact=True).select_option('hybas')
+        customize_compute(page)
+        expect(automatic).not_to_be_checked()
+        expect(allowance).to_have_value('12345')
+        page.get_by_role('button', name='Review drafts', exact=True).click()
+        respond(page, workspace, 'run_config_editor')
+        expect(page.locator('[data-review-budget="swap"]')).to_have_text('12345 MB')
+        page.get_by_role('button', name='Create drafts', exact=True).click()
+        request, _ = respond(page, workspace, 'create_runs')
+        assert request['payload'].get('auto_swap', False) is False
+        assert request['payload']['swap_mb'] == 12345
+        assert hardware.run_defaults(workspace, 'hybas')['auto_swap'] is True
+        browser.close()
+
+
 def test_yaml_default_save_refreshes_compute_controls(workspace, installation, sample, monkeypatch):
     from playwright.sync_api import sync_playwright, expect
     capacity(workspace, monkeypatch)

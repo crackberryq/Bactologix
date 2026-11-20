@@ -102,6 +102,12 @@ def panel(store, run):
         row('pipeline', 'Pipeline and runner', 'Needs setup', str(exc), 'error', checked_at)
     from . import preflight
     host = preflight.panel(store, run)
+    if run['tool'] == 'hybas' and not blocked and any(
+            item.get('estimated_full_load_mb') for item in host['rows'] if item['id'] == 'kraken_memory'):
+        from . import draft_edits
+        for item in host['rows']:
+            if item['id'] == 'resources' and item['level'] == 'error':
+                item['recalculate_swap'] = draft_edits.available(store, run, draft_edits.jobs_for(store, run))
     rows.extend(host['rows'])
     # Output permissions can block execution while a diagnostic dry-run remains useful.
     execution_blocked = blocked or host['blocked']

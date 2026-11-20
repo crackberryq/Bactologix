@@ -18,9 +18,9 @@ The job prepares a separate workspace destination and retains partial outputs on
 
 ## Swap recommendation
 
-The compute panel and run override panel offer **Calculate swap recommendation**. Kraken guidance uses its three core files and the reviewed working-memory estimate, the proposed physical-RAM budget, active usable swap and required filesystem capacity (including WSL host backing/swap drives when applicable). A calculated additional allowance is not a new swap file.
+In HybAs compute defaults and run settings, **Calculate and fill swap allowance** measures the selected Kraken index and calculates the difference between the working-memory requirement and the RAM HybAs can use. It fills the allowance in whole MiB, labelled MB in the form. The check includes usable RAM and swap after reserves, container limits and free space on required drives. If the requirement exceeds available capacity, the panel explains the shortfall.
 
-**Use recommendation** fills the form only. Changed inputs invalidate the recommendation; saving defaults, validating and launching remain explicit actions with fresh checks. Missing measurements, insufficient active swap or inadequate storage headroom prevent applying a proposal. Disk paging may be much slower than RAM. Bactologix does not edit `.wslconfig`, allocate swap or restart WSL.
+Review the value and save it to the draft or pipeline defaults. Choose **Validate run** on a saved draft to check current capacity before launch.
 
 ## HybAs development direction
 

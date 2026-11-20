@@ -64,7 +64,7 @@ def setup(workspace, tmp_path, monkeypatch):
     return workspace, config, info, disks, calls, folder
 
 
-def test_legacy_scheduler_produces_rounded_usable_allowance_without_mutation(setup, monkeypatch):
+def test_legacy_scheduler_produces_exact_usable_allowance_without_mutation(setup, monkeypatch):
     workspace, config, info, disks, calls, folder = setup
     before = copy.deepcopy(workspace.all('configs'))
     def forbidden(*args, **kwargs):
@@ -75,10 +75,10 @@ def test_legacy_scheduler_produces_rounded_usable_allowance_without_mutation(set
     result = adviser.recommend(workspace, 'hybas', 46080)
     assert result['available'] and result['can_apply']
     assert result['inputs']['estimated_kraken_mb'] == 113868
-    assert result['inputs']['calculated_swap_mb'] == 68608
+    assert result['inputs']['calculated_swap_mb'] == 67788
     assert result['inputs']['usable_swap_mb'] == 71 * 1024
-    assert result['proposal'] == {'memory_mb': 46080, 'swap_mb': 68608, 'allow_swap': True}
-    assert '114,688 MB' in result['message']
+    assert result['proposal'] == {'memory_mb': 46080, 'swap_mb': 67788, 'allow_swap': True}
+    assert '113,868 MB' in result['message']
     assert 'severe paging' in ' '.join(result['warnings'])
     assert result['binding']['hardware_id'] == 'fresh-capacity'
     assert workspace.all('configs') == before
@@ -104,16 +104,20 @@ def hybas10_setup(setup, monkeypatch):
 
 
 def test_hybas10_swap_covers_reported_kraken_reservation(hybas10_setup):
-    workspace, *_ = hybas10_setup
+    workspace, _, info, *_ = hybas10_setup
+    # Attached run had 2 MiB in use out of 72 GiB of swap.
+    info['memory']['swap_available_mb'] -= 2
+    info['memory']['combined_available_mb'] -= 2
     result = adviser.recommend(workspace, 'hybas', 46080)
     inputs = result['inputs']
     assert result['can_apply'], result['message']
     assert inputs['estimated_kraken_mb'] == inputs['required_budget_mb'] == 113868
     assert inputs['ram_budget_mb'] == 46080
     assert inputs['effective_ram_mb'] == 42102
-    assert inputs['usable_swap_mb'] == inputs['calculated_swap_mb'] == 72704
-    assert inputs['effective_budget_mb'] == 114806
-    assert result['proposal'] == {'memory_mb': 46080, 'swap_mb': 72704, 'allow_swap': True}
+    assert inputs['usable_swap_mb'] == 72702
+    assert inputs['calculated_swap_mb'] == 71766
+    assert inputs['effective_budget_mb'] == inputs['required_budget_mb']
+    assert result['proposal'] == {'memory_mb': 46080, 'swap_mb': 71766, 'allow_swap': True}
 
 
 def test_hybas10_requirement_between_native_and_chosen_ram_needs_swap(hybas10_setup):
@@ -125,22 +129,27 @@ def test_hybas10_requirement_between_native_and_chosen_ram_needs_swap(hybas10_se
     result = adviser.recommend(workspace, 'hybas', 46080, config=yaml.safe_dump(cfg))
     assert result['can_apply']
     assert result['inputs']['required_budget_mb'] == 44000
-    assert result['proposal']['swap_mb'] == 2048
+    assert result['proposal']['swap_mb'] == 1898
 
 
-def test_hybas10_refuses_a_recommendation_one_mb_past_usable_swap(hybas10_setup):
+@pytest.mark.parametrize('delta', [-1, 0, 1])
+def test_hybas10_checks_the_exact_usable_swap_boundary(hybas10_setup, delta):
     workspace, _, info, *_ = hybas10_setup
-    info['memory']['swap_available_mb'] -= 1
+    memory = info['memory']
+    memory['swap_available_mb'] = 71766 + 1024 + delta
+    memory['combined_available_mb'] = memory['available_mb'] + memory['swap_available_mb']
     result = adviser.recommend(workspace, 'hybas', 46080)
-    assert result['inputs']['usable_swap_mb'] == 72703
-    assert result['inputs']['calculated_swap_mb'] == 72704
-    assert not result['can_apply'] and result['proposal'] is None
+    assert result['inputs']['usable_swap_mb'] == 71766 + delta
+    assert result['inputs']['calculated_swap_mb'] == 71766
+    assert result['inputs']['additional_usable_swap_needed_mb'] == max(0, -delta)
+    assert result['can_apply'] is (delta >= 0)
+    assert (result['proposal'] is None) is (delta < 0)
 
 
 @pytest.mark.parametrize('total_setting,chosen,effective,swap', [
-    ('auto', 41984, 41984, 72704),
-    (41984, 46080, 41984, 72704),
-    (46080, 46080, 46080, 68608),
+    ('auto', 41984, 41984, 71884),
+    (41984, 46080, 41984, 71884),
+    (46080, 46080, 46080, 67788),
 ])
 def test_hybas10_honors_selected_and_native_ram_limits(hybas10_setup, total_setting, chosen, effective, swap):
     workspace, config, *_ = hybas10_setup
@@ -161,7 +170,7 @@ def test_hybas10_uses_frozen_source_when_active_pipeline_changes(hybas10_setup):
     old_draft = adviser.recommend(workspace, 'hybas', 46080)
     assert not old_draft['can_apply'] and old_draft['proposal'] is None
     saved = adviser.recommend(workspace, 'hybas', 46080, run_id=frozen['id'])
-    assert saved['can_apply'] and saved['proposal']['swap_mb'] == 72704
+    assert saved['can_apply'] and saved['proposal']['swap_mb'] == 71766
     assert workspace.get('runs', frozen['id']) == frozen
 
 
@@ -203,7 +212,7 @@ def test_higher_explicit_kraken_request_is_respected(setup):
     cfg['kraken_mem_mb'] = 116000
     result = adviser.recommend(workspace, 'hybas', 46080, config=yaml.safe_dump(cfg))
     assert result['inputs']['required_budget_mb'] == 116000
-    assert result['proposal']['swap_mb'] == 70656
+    assert result['proposal']['swap_mb'] == 69920
     assert result['inputs']['configured_kraken_mb'] == 116000
 
 
@@ -214,7 +223,7 @@ def test_insufficient_or_unknown_capacity_never_offers_applicable_values(setup, 
     if change == 'no_swap':
         info.update(host(0))
     elif change == 'swap_in_use':
-        info['memory']['swap_available_mb'] = 68 * 1024 - 1
+        info['memory']['swap_available_mb'] = 67788 + 1024 - 1
     elif change == 'unknown_swap':
         info['memory']['swap_available_mb'] = None
     elif change == 'unknown_combined':
@@ -229,8 +238,8 @@ def test_insufficient_or_unknown_capacity_never_offers_applicable_values(setup, 
     assert result['available'] and not result['can_apply']
     assert result['proposal'] is None and result['problems']
     if change == 'no_swap':
-        assert result['inputs']['additional_usable_swap_needed_mb'] == 68 * 1024
-        assert result['inputs']['additional_swap_disk_headroom_mb'] == 88 * 1024
+        assert result['inputs']['additional_usable_swap_needed_mb'] == 68812
+        assert result['inputs']['additional_swap_disk_headroom_mb'] == 68812 + 20 * 1024
         assert 'Container limits' in ' '.join(result['warnings'])
 
 
@@ -316,6 +325,14 @@ def test_configuration_and_run_validation_remain_explicit(setup):
                           config=config + '\nbactologix_compute: {swap_mb: "98304"}\n')
 
 
+def test_recalculate_replaces_an_old_allowance_that_exceeds_the_combined_limit(setup):
+    workspace, config, *_ = setup
+    cfg = yaml.safe_load(config)
+    cfg['bactologix_compute'] = {'swap_mb': 1999000}
+    result = adviser.recommend(workspace, 'hybas', 46080, config=yaml.safe_dump(cfg))
+    assert result['can_apply'] and result['proposal']['swap_mb'] == 67788
+
+
 def test_dispatch_compiles_current_unsaved_editor_fields_before_sizing(setup):
     from bactologix.ui_backend import dispatch
     workspace, config, *_ = setup
@@ -324,7 +341,7 @@ def test_dispatch_compiles_current_unsaved_editor_fields_before_sizing(setup):
         'tool': 'hybas', 'text': config, 'changes': {'["kraken_mem_mb"]': '116000'}}}
     result = dispatch(workspace, 'recommend_swap', payload)['swap_recommendation']
     assert result['inputs']['configured_kraken_mb'] == 116000
-    assert result['proposal']['swap_mb'] == 70656
+    assert result['proposal']['swap_mb'] == 69920
     assert workspace.get('configs', 'hybas') == original
     payload['config']['tool'] = 'basis'
     with pytest.raises(ValueError, match='another pipeline'):

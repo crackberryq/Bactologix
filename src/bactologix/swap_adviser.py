@@ -22,15 +22,10 @@ from .runs import parse_config
 from .store import now
 
 MIB = 1024 ** 2
-GIB_MB = 1024
 
 
 def _known(value):
     return type(value) is int and value >= 0
-
-
-def _round_gib(value):
-    return ((max(0, value) + GIB_MB - 1) // GIB_MB) * GIB_MB
 
 
 def _hybas_review(store, saved_run):
@@ -83,7 +78,7 @@ def _storage(store, run):
                        'Free space is not a prediction of total output or swap-file growth.')}
 
 
-def recommend(store, tool, memory_mb, *, run_id=None, config=None, kraken_path=None):
+def recommend(store, tool, memory_mb, *, run_id=None, config=None, kraken_path=None, draft_run=None):
     """Return reviewable form values, never save settings or configure OS swap.
 
     ``config`` may be the current unsaved editor text. Without it, a run uses its
@@ -93,7 +88,7 @@ def recommend(store, tool, memory_mb, *, run_id=None, config=None, kraken_path=N
     if tool not in PIPELINES:
         raise ValueError('Choose an installed pipeline for a memory recommendation.')
     ram = compute_memory._integer(memory_mb, 'RAM budget', 512)
-    run = copy.deepcopy(store.get('runs', run_id)) if run_id else None
+    run = copy.deepcopy(store.get('runs', run_id) if run_id else draft_run)
     if run_id and (not run or run.get('tool') != tool):
         raise ValueError('Choose an existing run from this pipeline.')
     if config is None:
@@ -102,8 +97,9 @@ def recommend(store, tool, memory_mb, *, run_id=None, config=None, kraken_path=N
     if not isinstance(config, str):
         raise ValueError('Use the current YAML configuration text for the recommendation.')
     cfg = parse_config(config)
-    # A malformed existing allowance must not be hidden by this preview.
-    compute_memory.policy({'memory_mb': ram}, cfg)
+    # Check the type of the prior allowance, but validate the combined budget
+    # against its replacement below. The user may be correcting an old value.
+    compute_memory.allowance(cfg)
     result = {'available': False, 'can_apply': False, 'proposal': None,
               'state': 'unavailable', 'checked_at': now(), 'tool': tool,
               'binding': {'tool': tool, 'run_id': run_id, 'memory_mb': ram,
@@ -111,8 +107,7 @@ def recommend(store, tool, memory_mb, *, run_id=None, config=None, kraken_path=N
               'inputs': {'ram_budget_mb': ram}, 'warnings': [],
               'units': 'MiB (labelled MB in compute settings)',
               'scope': 'Kraken full-load resource estimate; not a whole-workflow peak-memory prediction.',
-              'notice': ('Use recommendation fills the application allowance only. It does not create swap, '
-                         'change Windows/WSL settings, restart the computer or start a run. '
+              'notice': ('The recommendation sets the Bactologix scheduling allowance. '
                          'Capacity is checked again when a run is queued and started.')}
     if tool != 'hybas':
         result['message'] = ('No reviewed database-based memory estimate is available for this pipeline. '
@@ -167,13 +162,13 @@ def recommend(store, tool, memory_mb, *, run_id=None, config=None, kraken_path=N
     except ValueError as exc:
         result.update(state='needs_attention', message=str(exc), problems=[str(exc)])
         return result
-    swap = _round_gib(required - effective)
+    swap = max(0, required - effective)
     result['available'] = True
     result['inputs'].update(effective_ram_mb=effective, effective_budget_mb=effective + swap,
                             calculated_swap_mb=swap)
     result['formula'] = ('Kraken index bytes × 1.2, converted to MiB, plus 1,024 MiB. A higher explicit '
-                         'Kraken setting takes precedence. Subtract the RAM HybAs can use and round '
-                         'the additional swap up to the next 1,024 MiB.')
+                         'Kraken setting takes precedence. The additional swap is the amount still '
+                         'needed after subtracting the RAM HybAs can use, measured in whole MiB.')
     if v2:
         result['formula'] += (' HybAs caps RAM at the chosen budget and total_mem_mb. Auto uses '
                               '80% of the host or container RAM limit, measured in decimal MB.')
@@ -201,7 +196,7 @@ def recommend(store, tool, memory_mb, *, run_id=None, config=None, kraken_path=N
     result['inputs']['swap_reserve_mb'] = compute_memory.SWAP_RESERVE_MB
     result['inputs']['usable_swap_mb'] = compute_memory.usable_swap_mb(free_swap)
     if swap and _known(free_swap):
-        extra = _round_gib(max(0, swap + compute_memory.SWAP_RESERVE_MB - free_swap))
+        extra = max(0, swap + compute_memory.SWAP_RESERVE_MB - free_swap)
         result['inputs']['additional_usable_swap_needed_mb'] = extra
         if extra:
             result['inputs']['additional_swap_disk_headroom_mb'] = extra + WARNING_BYTES // MIB

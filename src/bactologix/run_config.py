@@ -21,6 +21,7 @@ MANAGED = {
 }
 for _managed in MANAGED.values():
     _managed.add('bactologix_compute.swap_mb')
+MANAGED['hybas'].add('bactologix_compute.auto_swap')
 OPTIONS = {
     'micpscope': {},
     'hybas': {'aware_mode': ['legacy', 'off', 'taxonomy', 'auto', 'split'], 'aware_run_until': ['assembly', 'aware'], 'kraken_decision_mode': ['off', 'manual', 'auto', 'aware'],
@@ -65,6 +66,7 @@ LABELS = {
     'aware_statistics': 'AWARE · Statistical evidence',
     'aware_reclassify_derived': 'AWARE · Reclassify derived inputs',
     'bactologix_compute.swap_mb': 'Additional swap allowance (MB)',
+    'bactologix_compute.auto_swap': 'Calculate swap for each new draft',
     'kraken_review_before_filtering': 'Pause after identification',
     'run_kraken': 'Run Kraken2', 'kraken_decision_mode': 'Kraken decision mode',
     'run_busco': 'Run BUSCO', 'run_prokka': 'Run Prokka', 'run_multiqc': 'Run MultiQC',

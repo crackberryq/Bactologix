@@ -15,8 +15,6 @@ def evaluate(expression, *, setup=''):
     source = SOURCE.read_text()
     helpers = source[source.index('function swapRecommendationKey('):source.index('function syncDefaultCompute(')]
     helpers += source[source.index('function dbPath('):source.index('function dbState(')]
-    apply = source[source.index("else if(action==='use-swap-recommendation'){") + 5:
-                   source.index("else if(action==='pipeline-power-preset'){")]
     script = r'''
 const U={view:'configure',drafts:{'compute-memory-hybas':46080,'run-memory':46080,'revision-memory':46080},
  runConfigs:{hybas:{tool:'hybas',text:'db_root: /selected\n',changes:{}}},
@@ -35,32 +33,33 @@ const asyncCurrent=()=>true;
 const e=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const btn=(action,label,primary,id,icon,disabled)=>`<button data-action="${action}"${disabled?' disabled':''}>${e(label)}</button>`;
 const $$=()=>[];
-let saved=0,requests=0,renders=0,toasts=[];
-const setDefaultSwapDraft=(tool,value)=>{U.drafts['compute-swap-'+tool]=value;};
-const setSwapDraft=(scope,value)=>{U.drafts[scope+'-swap']=value;};
+let requests=[],renders=0,toasts=[];
+const persistWizard=()=>{};
+const autoSwapSelected=()=>U.autoSwap===true;
+const setDefaultSwapDraft=(tool,value)=>{U.drafts['compute-swap-'+tool]=value;U.drafts['compute-swap-enabled-'+tool]=value>0;};
+const setSwapDraft=(scope,value)=>{U.drafts[scope+'-swap']=value;U.drafts[scope+'-swap-enabled']=value>0;};
 const invalidateSetupAdvice=()=>{};
 const render=()=>{renders++;};
-const request=()=>{requests++;};
+const request=(kind,payload,background,swap)=>requests.push({kind,payload,swap});
 const toast=(message,error)=>{toasts.push({message,error});};
-const result={available:true,can_apply:true,message:'Capacity checked',proposal:{memory_mb:46080,swap_mb:68608},
- inputs:{estimated_kraken_mb:113868,ram_budget_mb:46080,calculated_swap_mb:68608,usable_swap_mb:72704},
+const result={available:true,can_apply:true,message:'Capacity checked',proposal:{memory_mb:46080,swap_mb:71766},
+ inputs:{estimated_kraken_mb:113868,ram_budget_mb:46080,calculated_swap_mb:71766,usable_swap_mb:72704},
  notice:'No OS change',warnings:[],problems:[]};
-''' + helpers + '\nfunction use(scope,tool){const action="use-swap-recommendation",id=scope+":"+tool;\n' + apply + '\n}\n' + r'''
-function remember(scope='defaults'){
- U.swapRecommendations[swapRecommendationKey(scope,'hybas')]={result:structuredClone(result),context:swapRecommendationContext(scope,'hybas'),receivedAt:Date.now()};
-}
+''' + helpers + r'''
+function finish(resultOverride=result){receiveSwapRecommendation(requests.at(-1)?.swap,resultOverride);}
 ''' + setup + '\nconsole.log(JSON.stringify(' + expression + '));'
     completed = subprocess.run([NODE, '-e', script], capture_output=True, text=True, check=True)
     return json.loads(completed.stdout)
 
 
 @pytest.mark.parametrize('scope', ['defaults', 'run', 'revision'])
-def test_use_only_fills_local_form_and_never_sends_save_or_run(scope):
-    value = evaluate('({drafts:U.drafts,requests,renders,toasts})', setup=f"remember('{scope}');use('{scope}','hybas');")
+def test_single_calculation_fills_only_local_form(scope):
+    value = evaluate(f"({{drafts:U.drafts,requests,renders,html:swapRecommendationPanel('{scope}','hybas')}})",
+                     setup=f"calculateSwap('{scope}','hybas');finish();")
     field = 'compute-swap-hybas' if scope == 'defaults' else scope + '-swap'
-    assert value['drafts'][field] == 68608
-    assert value['requests'] == 0 and value['renders'] == 1
-    assert 'Save' in value['toasts'][0]['message']
+    assert value['drafts'][field] == 71766
+    assert [r['kind'] for r in value['requests']] == ['recommend_swap']
+    assert value['renders'] == 1 and 'Allowance filled. Save' in value['html']
 
 
 @pytest.mark.parametrize('change', [
@@ -71,25 +70,41 @@ def test_use_only_fills_local_form_and_never_sends_save_or_run(scope):
     "S.active.hybas='different-source';",
     "U.defaultEditors.hybas.changes.database='different';",
     "U.epoch++;",
-    "U.swapRecommendations['defaults:hybas'].receivedAt-=300001;",
+    "U.drafts['compute-swap-enabled-hybas']=true;U.drafts['compute-swap-hybas']=8192;",
+    "U.autoSwap=true;",
+    "requests.at(-1).swap.requestedAt-=300001;",
 ])
-def test_changed_or_expired_defaults_reject_apply(change):
-    value = evaluate("({fresh:freshSwapRecommendation('defaults','hybas'),drafts:U.drafts,requests,toasts})",
-                     setup="remember();" + change + "use('defaults','hybas');")
-    assert not value['fresh']
-    assert 'compute-swap-hybas' not in value['drafts']
-    assert value['requests'] == 0 and value['toasts'][0]['error']
+def test_changed_defaults_reject_pending_response(change):
+    value = evaluate("({drafts:U.drafts,rows:U.swapRecommendations})",
+                     setup="calculateSwap('defaults','hybas');" + change + "finish();")
+    assert value['rows'] == {}
+    assert value['drafts'].get('compute-swap-hybas') != 71766
 
 
 @pytest.mark.parametrize('change', [
     "U.runConfigs.hybas.changes['[\"db_root\"]']='/different';",
     "U.runConfigs.hybas.text='db_root: /different';",
     "U.drafts['run-memory']=40960;",
+    "U.drafts['run-swap-enabled']=true;U.drafts['run-swap']=512;",
 ])
 def test_unsaved_run_database_edits_invalidate_prior_recommendation(change):
-    value = evaluate("({fresh:freshSwapRecommendation('run','hybas'),drafts:U.drafts})",
-                     setup="remember('run');" + change + "use('run','hybas');")
-    assert not value['fresh'] and 'run-swap' not in value['drafts']
+    value = evaluate("({rows:U.swapRecommendations,drafts:U.drafts})",
+                     setup="calculateSwap('run','hybas');" + change + "finish();")
+    assert value['rows'] == {} and value['drafts'].get('run-swap') != 71766
+
+
+def test_result_cannot_cross_saved_runs():
+    value = evaluate("({rows:U.swapRecommendations,drafts:U.drafts})", setup="""
+calculateSwap('revision','hybas');U.revision.id='another-saved-run';finish();
+""")
+    assert value['rows'] == {} and 'revision-swap' not in value['drafts']
+
+
+def test_manual_override_after_success_is_visible_and_stays_in_form():
+    value = evaluate("({drafts:U.drafts,fresh:freshSwapRecommendation('revision','hybas')})", setup="""
+calculateSwap('revision','hybas');finish();U.drafts['revision-swap']=25000;
+""")
+    assert value['drafts']['revision-swap'] == 25000 and not value['fresh']
 
 
 def test_picker_override_applies_only_to_default_preview_and_distinguishes_reset():
@@ -115,11 +130,9 @@ def test_run_request_contains_current_editor_fields_and_saved_revision_id():
 
 def test_capacity_failure_is_visible_and_cannot_fill_values():
     value = evaluate("({html:swapRecommendationPanel('defaults','hybas'),drafts:U.drafts,requests})", setup="""
-remember();U.swapRecommendations['defaults:hybas'].result.can_apply=false;
-U.swapRecommendations['defaults:hybas'].result.proposal=null;
-U.swapRecommendations['defaults:hybas'].result.problems=['Swap capacity unavailable <review>'];
-use('defaults','hybas');
+calculateSwap('defaults','hybas');
+finish({...result,can_apply:false,proposal:null,problems:['Swap capacity unavailable <review>']});
 """)
-    assert '<button data-action="use-swap-recommendation" disabled>' in value['html']
+    assert 'Calculation could not fill an allowance' in value['html']
     assert 'Swap capacity unavailable &lt;review&gt;' in value['html']
-    assert 'compute-swap-hybas' not in value['drafts'] and value['requests'] == 0
+    assert 'compute-swap-hybas' not in value['drafts'] and len(value['requests']) == 1
