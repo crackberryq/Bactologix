@@ -223,7 +223,7 @@ def job_guidance(store, job):
         help_text = ('Review the retained outputs and log, then validate the saved run before Run / resume. '
                      'An interruption does not establish which tasks completed. Existing scheduler locks are not removed automatically.')
         if (job['kind'] == 'workflow' and job['payload'].get('action') in {'run', 'continue'}
-                and 'workspace control' in error.lower()
+                and re.search(r'workspace control|(?:control|final native process) record could not be saved', error, re.I)
                 and re.search(r'database(?: table)? is locked|locking protocol', error, re.I)):
             title = 'The workspace database was locked during monitoring'
             help_text = ('Open Jobs & progress and refresh. Once the attempt shows Interrupted, resume the queue '

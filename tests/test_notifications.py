@@ -115,6 +115,39 @@ def test_pause_for_review_is_not_a_finished_run(workspace):
     assert doc['unread'] == 1
 
 
+def test_unchanged_poll_with_review_and_suppressed_job_needs_no_writer(workspace, monkeypatch):
+    run = waiting_run()
+    job(workspace)
+    expected = notifications.panel(workspace, runs=[run])
+    connect = workspace.connect
+    with connect() as writer:
+        writer.execute('BEGIN IMMEDIATE')
+        monkeypatch.setattr(workspace, 'connect', lambda **kwargs: connect(timeout=0))
+        assert notifications.panel(workspace, runs=[run]) == expected
+
+
+def test_poll_rechecks_when_another_tab_creates_and_dismisses_the_same_alert(workspace, monkeypatch):
+    initialized(workspace)
+    job(workspace)
+    other = Store(workspace.home)
+    original = notifications._panel_changes
+    raced = False
+
+    def dismiss_before_write(db, events, prefs, timestamp):
+        nonlocal raced
+        result = original(db, events, prefs, timestamp)
+        if not raced:
+            raced = True
+            item = notifications.panel(other)['items'][0]
+            notifications.clear(other, {'ids': [item['id']]})
+        return result
+
+    monkeypatch.setattr(notifications, '_panel_changes', dismiss_before_write)
+    assert notifications.panel(workspace)['items'] == []
+    assert raced and not workspace.all('notifications')
+    assert len(workspace.all('notification_seen')) == 1
+
+
 def test_resolving_pause_does_not_relabel_old_paused_job_as_finished_run(workspace):
     initialized(workspace)
     job(workspace)

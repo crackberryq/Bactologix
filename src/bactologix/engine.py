@@ -149,14 +149,15 @@ class Context:
         if self.refresh_desktop_cancel():
             raise Cancelled("Stopped by user")
 
-    def control_operation(self, operation, *args, poll=False, op_key=None):
+    def control_operation(self, operation, *args, poll=False, op_key=None, reconcile_final=False):
         """Keep supervising the native process during brief SQLite contention.
 
         A polling call can defer to the next tick. At a command boundary a real
         result is required. Track each operation separately: a working reader
         cannot establish that a blocked writer has recovered.
         """
-        if not (self.setup_control or self.workflow_control) or self.monitor['state'] == 'interrupted':
+        interrupted = self.monitor['state'] == 'interrupted'
+        if not (self.setup_control or self.workflow_control) or (interrupted and not reconcile_final):
             return operation(*args)
         key = operation if op_key is None else op_key
         grace = SETUP_CONTROL_GRACE_SECONDS if self.setup_control else WORKFLOW_CONTROL_GRACE_SECONDS
@@ -172,7 +173,7 @@ class Context:
                     raise
                 # Cancellation reads already report short retries through the
                 # store callback. Other control reads may only report exhaustion.
-                if isinstance(exc, sqlite3.Error) or self.monitor['state'] != 'degraded':
+                if not interrupted and (isinstance(exc, sqlite3.Error) or self.monitor['state'] != 'degraded'):
                     self.monitor_retry(exc, 1)
                 self.control_deadlines[key] = deadline
                 remaining = deadline - time.monotonic()
@@ -243,15 +244,18 @@ class Context:
             self.native_record['identities'] = identities
             save(self.store, self.job['id'], self.native_record, 'process')
 
-    def complete_process_record(self, proc, confirmed):
+    def complete_process_record(self, proc, confirmed, observed_returncode):
         from .supervision import save
         if self.native_record is None:
             return
         self.native_record.update(cleanup_confirmed=confirmed, finished=now() if confirmed else None,
-                                  returncode=proc.returncode)
+                                  returncode=proc.returncode, observed_returncode=observed_returncode)
         save(self.store, self.job['id'], self.native_record, 'process')
         value = dict(self.native_record, pid=None if confirmed else self.native_record['pid'])
-        self.control_operation(self.store.put_process, self.job['id'], value)
+        # Confirmed cleanup can be reconciled independently of a control failure
+        # that interrupted execution. It never clears that interruption.
+        self.control_operation(self.store.put_process, self.job['id'], value,
+                               op_key='final_process_record', reconcile_final=confirmed)
 
     def command(self, argv, cwd=None, extra_env=None, stdout=None, *, timeout=None, stop_after=None):
         import shlex
@@ -335,15 +339,19 @@ class Context:
             failed = False
         except MonitoringInterrupted as exc:
             monitoring_error = exc
-            self.monitor_state('interrupted', str(exc), command_returncode=proc.poll(), cleanup_confirmed=False)
+            self.monitor_state('interrupted', str(exc), cleanup_confirmed=False)
             raise
         except TimeoutError:
             raise  # A native command timeout is distinct from control storage loss.
         except (sqlite3.Error, OSError) as exc:
-            self.monitor_state('interrupted', 'Workspace control persistence failed: ' + str(exc), command_returncode=proc.poll(), cleanup_confirmed=False)
+            self.monitor_state('interrupted', 'Workspace control persistence failed: ' + str(exc), cleanup_confirmed=False)
             monitoring_error = MonitoringInterrupted(self.monitor['detail'])
             raise monitoring_error from exc
         finally:
+            primary_error = sys.exception() if failed else None
+            # Capture an exit observed before teardown. The gated launcher or
+            # a process we had to stop can report a different status afterwards.
+            observed_returncode = proc.poll() if native_started and not timed_out and started_stop is None else None
             if gate_write is not None:
                 os.close(gate_write)
             try:
@@ -372,14 +380,20 @@ class Context:
                 cleanup_confirmed = ownership_complete and proc.poll() is not None and (not identities or verify_exit(identities))
                 if monitoring_error is not None:
                     monitoring_error.cleanup_confirmed = cleanup_confirmed
+                details = [str(primary_error)] if primary_error is not None else []
+                if observed_returncode is not None and (not failed or monitoring_error is not None):
+                    details.append(f'Native command exited with code {observed_returncode}.')
                 if not cleanup_confirmed:
-                    self.monitor_state('interrupted', 'Native cleanup could not be confirmed; execution remains locked for review.', cleanup_confirmed=False)
-                elif self.monitor['state'] == 'interrupted':
-                    self.monitor_state('interrupted', self.monitor['detail'], cleanup_confirmed=True)
+                    details.append('Native cleanup could not be confirmed; execution remains locked for review.')
+                if not cleanup_confirmed or self.monitor['state'] == 'interrupted':
+                    self.monitor_state('interrupted', ' '.join(details), command_returncode=observed_returncode,
+                                       cleanup_confirmed=cleanup_confirmed)
                 try:
-                    self.complete_process_record(proc, cleanup_confirmed)
+                    self.complete_process_record(proc, cleanup_confirmed, observed_returncode)
                 except Exception as exc:
-                    self.monitor_state('interrupted', 'Native execution ended but its control record could not be saved: ' + str(exc), cleanup_confirmed=cleanup_confirmed)
+                    details.append('Final native process record could not be saved: ' + str(exc))
+                    self.monitor_state('interrupted', ' '.join(details), command_returncode=observed_returncode,
+                                       cleanup_confirmed=cleanup_confirmed, persistence_error=str(exc))
                     raise MonitoringInterrupted(self.monitor['detail'], cleanup_confirmed=cleanup_confirmed) from exc
                 if not cleanup_confirmed:
                     raise MonitoringInterrupted(self.monitor['detail'], cleanup_confirmed=False)

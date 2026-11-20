@@ -168,9 +168,14 @@ def test_recovery_evidence_and_failed_step_are_bounded(workspace, message, categ
     assert len(g['evidence']) <= 1200
 
 
-def test_workspace_lock_interruption_points_back_to_the_existing_run(workspace):
+@pytest.mark.parametrize('message', [
+    'Workspace control persistence failed: database is locked',
+    'Native execution ended but its control record could not be saved: database is locked',
+    'Command exited with code 7. Final native process record could not be saved: database is locked',
+])
+def test_workspace_lock_interruption_points_back_to_the_existing_run(workspace, message):
     jid = workspace.submit('workflow', {'run_id': 'run-fixture', 'action': 'run'})
-    workspace.update_job(jid, status='interrupted', error='Workspace control persistence failed: database is locked')
+    workspace.update_job(jid, status='interrupted', error=message)
     guide = r.job_guidance(workspace, workspace.job(jid))
     assert guide['run_id'] == 'run-fixture'
     assert 'workspace database' in guide['title'] and 'same saved run' in guide['text']

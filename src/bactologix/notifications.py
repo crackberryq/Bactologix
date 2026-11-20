@@ -84,6 +84,89 @@ def _job_event(job, runs):
             'target': {'kind': 'job', 'id': job['id']}}
 
 
+def _event_candidates(jobs, runs, pauses, updates):
+    indexed = {row['id']: row for row in runs}
+    events = []
+    for job in sorted(jobs, key=lambda row: (row.get('finished') or row.get('created') or '', row['id'])):
+        if job.get('status') not in TERMINAL:
+            continue
+        event = _job_event(job, indexed)
+        identity = ['job', job['id'], job['status'], job.get('finished')]
+        events.append((_identity(identity), event, True))
+    for job, safety in pauses:
+        if not safety or safety.get('state') != 'paused':
+            continue
+        waiting = safety.get('pause_kind') == 'before_launch'
+        unavailable = safety.get('reason') == 'monitor_unavailable'
+        title = ('Waiting for storage' if waiting else
+                 'Paused — storage check unavailable' if unavailable else
+                 'Paused — low disk space')
+        body = ('No tool process has started for this command. ' if waiting else
+                'Tool processes are suspended and still hold memory. ')
+        body += ('Storage could not be verified. ' if unavailable else
+                 'A monitored drive is below the storage safety threshold. ')
+        body += 'Open the run to review drives, free space and request resume. Outputs are retained.'
+        event = {'category': 'jobs', 'event_type': 'disk_pause', 'title': title,
+                 'body': body, 'target': {'kind': 'job', 'id': job['id']}}
+        events.append((_identity(['disk_pause', job['id'], safety.get('generation')]), event, False))
+    for run in runs:
+        review = run.get('identification') or {}
+        awaiting = (run.get('status') == 'awaiting_review' if 'status' in run
+                    else review.get('state') == 'awaiting_review')
+        if not awaiting or run.get('archived'):
+            continue
+        event = {'category': 'review', 'title': 'Run waiting for review',
+                 'body': 'Open Bactologix to review identification and choose how to continue.',
+                 'target': {'kind': 'run', 'id': run['id']}}
+        attempts = [job for job in jobs if job.get('kind') == 'workflow'
+                    and job.get('payload', {}).get('run_id') == run['id']
+                    and job.get('payload', {}).get('action') in {'run', 'continue'}]
+        attempt = max(attempts, key=lambda job: (job.get('created') or '', job['id']), default={}).get('id')
+        events.append((_identity(['review', run['id'], review.get('evidence_sha256'), attempt]), event, False))
+    for event in updates:
+        if event.get('category') == 'updates':
+            notice = {k: event[k] for k in ('category', 'title', 'body', 'target')}
+            events.append((_identity(['update', event['id']]), notice, False))
+    return events
+
+
+def _panel_changes(db, events, prefs, timestamp):
+    current = _get(db, 'notification_state', 'preferences', {})
+    prefs.update({key: current.get(key, True) is True for key in CATEGORIES})
+    first_visit = not _get(db, 'notification_state', 'initialized', False)
+    notices = {key: json.loads(body) for key, body in db.execute(
+        "SELECT id,body FROM items WHERE kind='notifications' ORDER BY rowid")}
+    writes = {}
+    live = set()
+    for key, event, job_outcome in events:
+        if not job_outcome:
+            live.add(key)
+        if event and key in notices:
+            row = notices[key]
+            if not row.get('active', True):
+                row['active'] = True
+                writes['notifications', key] = row
+            continue
+        # Dismissed, retention-pruned, and suppressed outcomes stay seen.
+        if _get(db, 'notification_seen', key) or ('notification_seen', key) in writes:
+            continue
+        writes['notification_seen', key] = True
+        if event:
+            row = {**event, 'id': key, 'created': timestamp, 'active': True,
+                   'read': (job_outcome and first_visit) or not prefs[event['category']],
+                   'desktop_attempted': False}
+            notices[key] = row
+            writes['notifications', key] = row
+    for key, row in notices.items():
+        if (row['category'] in {'review', 'updates'} or row.get('event_type') == 'disk_pause') and key not in live and row.get('active', True):
+            row.update(active=False, read=True)
+            writes['notifications', key] = row
+    if first_visit:
+        writes['notification_state', 'initialized'] = True
+    latest = list(reversed(notices))
+    return [notices[key] for key in latest[:MAX_ITEMS]], writes, latest[MAX_ITEMS:]
+
+
 def panel(store, jobs=None, runs=None):
     """Collect new saved outcomes and return a bounded notification center."""
     jobs = store.jobs() if jobs is None else jobs
@@ -96,91 +179,21 @@ def panel(store, jobs=None, runs=None):
         from .runs import run_status
         archived = {row['id'] for row in store.all('run_visibility') if row.get('archived')}
         runs = [dict(row, archived=row['id'] in archived, status=run_status(row, jobs, False)) for row in store.all('runs')]
-    indexed = {row['id']: row for row in runs}
     prefs = settings(store)
-    updates = update_checks.candidates(store)
+    events = _event_candidates(jobs, runs, pauses, update_checks.candidates(store))
     timestamp = now()
-    live = set()
     with store.connect() as db:
-        db.execute('BEGIN IMMEDIATE')
-        # Another tab may have changed category preferences since the panel's
-        # initial read. Event creation and its unread status share this lock.
-        current = _get(db, 'notification_state', 'preferences', {})
-        prefs.update({key: current.get(key, True) is True for key in CATEGORIES})
-        first_visit = not _get(db, 'notification_state', 'initialized', False)
-
-        def add(identity, event, historical=False):
-            key = _identity(identity)
-            existing = _get(db, 'notifications', key)
-            if existing:
-                if not existing.get('active', True):
-                    existing['active'] = True
-                    _put(db, 'notifications', key, existing)
-                return key
-            # Tombstones prevent dismissed/retention-pruned events from being
-            # recreated when the same workspace is polled or reopened.
-            if _get(db, 'notification_seen', key):
-                return key
-            record = {**event, 'id': key, 'created': timestamp,
-                      'read': historical or not prefs[event['category']],
-                      'active': True, 'desktop_attempted': False}
-            _put(db, 'notifications', key, record)
-            _put(db, 'notification_seen', key, True)
-            return key
-
-        for job in sorted(jobs, key=lambda row: (row.get('finished') or row.get('created') or '', row['id'])):
-            if job.get('status') not in TERMINAL:
-                continue
-            event = _job_event(job, indexed)
-            identity = ['job', job['id'], job['status'], job.get('finished')]
-            if event:
-                add(identity, event, historical=first_visit)
-            else:
-                _put(db, 'notification_seen', _identity(identity), True)
-        for job, safety in pauses:
-            if not safety or safety.get('state') != 'paused':
-                continue
-            waiting = safety.get('pause_kind') == 'before_launch'
-            unavailable = safety.get('reason') == 'monitor_unavailable'
-            title = ('Waiting for storage' if waiting else
-                     'Paused — storage check unavailable' if unavailable else
-                     'Paused — low disk space')
-            body = ('No tool process has started for this command. ' if waiting else
-                    'Tool processes are suspended and still hold memory. ')
-            body += ('Storage could not be verified. ' if unavailable else
-                     'A monitored drive is below the storage safety threshold. ')
-            body += 'Open the run to review drives, free space and request resume. Outputs are retained.'
-            event = {'category': 'jobs', 'event_type': 'disk_pause', 'title': title,
-                     'body': body, 'target': {'kind': 'job', 'id': job['id']}}
-            live.add(add(['disk_pause', job['id'], safety.get('generation')], event))
-        for run in runs:
-            review = run.get('identification') or {}
-            awaiting = (run.get('status') == 'awaiting_review' if 'status' in run
-                        else review.get('state') == 'awaiting_review')
-            if not awaiting or run.get('archived'):
-                continue
-            event = {'category': 'review', 'title': 'Run waiting for review',
-                     'body': 'Open Bactologix to review identification and choose how to continue.',
-                     'target': {'kind': 'run', 'id': run['id']}}
-            attempts = [job for job in jobs if job.get('kind') == 'workflow'
-                        and job.get('payload', {}).get('run_id') == run['id']
-                        and job.get('payload', {}).get('action') in {'run', 'continue'}]
-            attempt = max(attempts, key=lambda job: (job.get('created') or '', job['id']), default={}).get('id')
-            live.add(add(['review', run['id'], review.get('evidence_sha256'), attempt], event))
-        for event in updates:
-            if event.get('category') == 'updates':
-                live.add(add(['update', event['id']], {k: event[k] for k in ('category', 'title', 'body', 'target')}))
-        records = db.execute("SELECT id,body FROM items WHERE kind='notifications' ORDER BY rowid DESC").fetchall()
-        for record in records:
-            row = json.loads(record['body'])
-            if (row['category'] in {'review', 'updates'} or row.get('event_type') == 'disk_pause') and row['id'] not in live and row.get('active', True):
-                row.update(active=False, read=True)
-                _put(db, 'notifications', row['id'], row)
-        for record in records[MAX_ITEMS:]:
-            db.execute("DELETE FROM items WHERE kind='notifications' AND id=?", (record['id'],))
-        _put(db, 'notification_state', 'initialized', True)
-        items = [json.loads(row[0]) for row in db.execute(
-            "SELECT body FROM items WHERE kind='notifications' ORDER BY rowid DESC LIMIT ?", (MAX_ITEMS,))]
+        db.execute('BEGIN')
+        items, writes, pruned = _panel_changes(db, events, prefs, timestamp)
+        if writes or pruned:
+            # A claim, dismissal, or preference change may have committed since the
+            # read. Recompute against the latest records under the writer lock.
+            db.rollback()
+            db.execute('BEGIN IMMEDIATE')
+            items, writes, pruned = _panel_changes(db, events, prefs, timestamp)
+            for (kind, key), value in writes.items():
+                _put(db, kind, key, value)
+            db.executemany("DELETE FROM items WHERE kind='notifications' AND id=?", ((key,) for key in pruned))
     eligible = [row for row in items if not row['read'] and row.get('active', True) and prefs[row['category']]]
     return {'items': items, 'unread': len(eligible), 'settings': prefs,
             'desktop_candidates': [row for row in eligible if not row['desktop_attempted']],
