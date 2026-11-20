@@ -359,7 +359,16 @@ def test_running_overview_polls_progress_and_rechecks_once_after_completion(prog
       acceptanceRender({id:progressState.pending,ok:true});
     }""")
     assert page.evaluate('acceptanceEvents.map(x=>x.value.kind)') == ['refresh']*3+['inspect_run']
-    page.evaluate('progressRerender()')
-    expect(page.get_by_role('button', name='Refresh checks', exact=True)).to_be_enabled()
-    page.get_by_role('button', name='Refresh checks', exact=True).click()
-    assert page.evaluate('acceptanceEvents.at(-1).value.kind') == 'inspect_run'
+    # The automatic post-completion inspection is still in flight. A user can
+    # complete an environment and ask for a fresh check before that reply arrives.
+    refresh = page.get_by_role('button', name='Refresh checks', exact=True)
+    expect(refresh).to_be_enabled()
+    refresh.click()
+    assert page.evaluate('progressState.queuedRequest?.kind') == 'inspect_run'
+    page.evaluate('progressRerender()')  # Earlier observation, before the manual refresh.
+    assert page.evaluate('acceptanceEvents.map(x=>x.value.kind)') == ['refresh']*3+['inspect_run']*2
+    page.evaluate("""() => {
+      progressDetail.readiness.rows.find(row=>row.id==='environments').state='1 available';
+      progressRerender();
+    }""")
+    expect(page.locator('[data-readiness="environments"]')).to_contain_text('1 available')
