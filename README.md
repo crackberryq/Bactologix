@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a127.dev1 — Experimental development
+# Bactologix 0.1.0a128.dev1 — Experimental development
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
 
@@ -437,6 +437,11 @@ before clearing the unfinished editor. Browser storage may be unavailable or
 cleared when a tab closes; the editor reports recovery failures. Creating a draft
 stores it durably in the workspace and clears its browser recovery copy. This
 recovery feature applies to the run editor, not unsaved global defaults.
+
+When you choose **Create drafts**, Bactologix reads each raw input to record its
+SHA-256 fingerprint and links it into the draft. During longer reads the app
+shows the filename and the amount read so far. Large FASTQ files can take time
+even when there is plenty of disk space.
 
 **Edit settings** stays bound to the selected saved run. If another draft or revision is unfinished, a dialog names both pipelines/runs: resume those edits, close the dialog to keep them, or explicitly discard them and open the requested run. Reopening the same revision resumes its unsaved settings directly. The unfinished-draft banner identifies its pipeline.
 

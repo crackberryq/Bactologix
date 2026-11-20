@@ -152,7 +152,7 @@ def recommend(store, tool, memory_mb, *, run_id=None, config=None, kraken_path=N
     required = max(estimate, explicit or 0)
     result['inputs'].update(core_bytes=footprint['core_bytes'], estimated_kraken_mb=estimate,
                             configured_kraken_mb=explicit, required_budget_mb=required)
-    info = hardware.inventory(store, refresh=True)
+    info = hardware.compute_capacity() if draft_run is not None else hardware.inventory(store, refresh=True)
     result['hardware_checked_at'] = info.get('checked_at')
     result['binding']['hardware_id'] = info.get('id')
     memory = info.get('memory', {})

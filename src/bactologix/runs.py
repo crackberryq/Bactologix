@@ -1,5 +1,6 @@
 """Version-pinned adapters with isolated outputs and immutable configurations."""
 from __future__ import annotations
+from contextvars import ContextVar
 import copy
 import csv
 from functools import lru_cache
@@ -156,13 +157,23 @@ def import_samples(store, text):
     return commit(store, text)
 
 
+input_read_progress = ContextVar("input_read_progress", default=None)
+
+
 def _fingerprint(path):
     """Stream a file once and reject replacement or mutation during the read."""
     digest = hashlib.sha256()
+    report = input_read_progress.get()
     with path.open('rb') as handle:
         before = os.fstat(handle.fileno())
+        consumed = 0
+        if report:
+            report(path, consumed, before.st_size)
         for block in iter(lambda: handle.read(1024 * 1024), b''):
             digest.update(block)
+            if report:
+                consumed += len(block)
+                report(path, consumed, before.st_size)
         after = os.fstat(handle.fileno())
     current = path.stat()
     def identity(stat):

@@ -35,6 +35,7 @@ def capacity(store, monkeypatch, *, free_swap=500000):
                       'swap_available_mb': free_swap, 'combined_total_mb': 531744,
                       'combined_available_mb': 30720 + free_swap}
     monkeypatch.setattr(hardware, 'inventory', lambda store, refresh=False: copy.deepcopy(info))
+    monkeypatch.setattr(hardware, 'compute_capacity', lambda: copy.deepcopy(info))
     store.put('resource_defaults', 'hybas', {'cores': 12, 'memory_mb': 28672, 'preset': 'custom'})
     store.put('configs', 'hybas', 'run_kraken: false\nkraken_decision_mode: "off"\npolish_mode: none\nassembly_mem_mb: 8192\npolishing_mem_mb: 4096\nspades_memory_gb: 8\n')
 
@@ -65,6 +66,7 @@ def test_swap_opt_in_recovery_edit_failed_draft_and_opt_out(workspace, installat
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True, executable_path=os.environ.get('BACTOLOGIX_BROWSER_EXECUTABLE'))
         page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+        page.clock.install()
         page.route('https://workspace.test/**', lambda route: route.fulfill(body='<html><body></body></html>'))
         page.goto('https://workspace.test/')
         errors = []
@@ -99,8 +101,29 @@ def test_swap_opt_in_recovery_edit_failed_draft_and_opt_out(workspace, installat
         page.set_viewport_size({'width': 1440, 'height': 1100})
         page.get_by_role('button', name='Review drafts', exact=True).click()
         respond(page, workspace, 'run_config_editor')
-        page.get_by_role('button', name='Create drafts', exact=True).click()
+        create = page.get_by_role('button', name='Create drafts', exact=True)
+        pending = page.locator('#draft-create-status')
+        page.clock.fast_forward(31000)
+        assert page.evaluate('acceptanceEvents.at(-1).value.kind') == 'refresh'
+        create.click()
+        expect(pending).to_contain_text('Waiting to create draft…')
+        expect(create).to_be_disabled()
+        respond(page, workspace, 'refresh')
+        expect(pending).to_contain_text('Creating draft…')
+        expect(pending).to_contain_text('input file checksums')
+        expect(create).to_be_disabled()
+        create.evaluate('button => button.click()')
+        assert page.evaluate("acceptanceEvents.filter(e => e.value.kind === 'create_runs').length") == 1
+        page.evaluate("""() => {
+            const {id} = acceptanceEvents.at(-1).value;
+            acceptanceRender({id, ok: false, message: 'Fixture input is unavailable.'});
+        }""")
+        expect(pending).to_be_hidden()
+        expect(page.locator('#toast')).to_contain_text('Fixture input is unavailable.')
+        expect(create).to_be_enabled()
+        create.click()
         request, _ = respond(page, workspace, 'create_runs')
+        expect(pending).to_have_count(0)
         assert request['payload']['swap_mb'] == 98304 and request['payload']['memory_mb'] == 28672
         parent, = workspace.all('runs')
         failed = workspace.submit('workflow', {'run_id': parent['id'], 'action': 'dry-run'})

@@ -1,4 +1,5 @@
 """Guided revisions preserve frozen provenance, original inputs and defaults."""
+import os
 from pathlib import Path
 
 import pytest
@@ -62,6 +63,31 @@ def test_basis_revision_preserves_nested_settings(screening):
     assert new['project'] == 'Revised software fixture' and new['modules']['rgi']['enabled'] is False
     assert new['deep'] == old['deep'] and new['resources'] == old['resources']
     assert store.get('runs', parent['id']) == parent and child['parent'] == parent['id']
+
+
+def test_separate_revision_fingerprints_each_parent_input_once(workspace, installation, sample, monkeypatch):
+    from bactologix import runs
+    parent = create_run(workspace, 'hybas', sample, '{}')
+    payload = request(workspace, parent)
+    fingerprint = runs._fingerprint
+    paths = []
+
+    def record(path):
+        paths.append(str(path))
+        return fingerprint(path)
+
+    monkeypatch.setattr(runs, '_fingerprint', record)
+    dispatch(workspace, 'revise_run', payload)
+    assert sorted(paths) == sorted(item['path'] for item in parent['inputs'])
+
+    # Identical size and timestamp still require a fresh content check.
+    reads = Path(paths[0])
+    observed = reads.stat()
+    reads.write_bytes(b'x' * observed.st_size)
+    os.utime(reads, ns=(observed.st_atime_ns, observed.st_mtime_ns))
+    with pytest.raises(ValueError, match='Original inputs differ'):
+        dispatch(workspace, 'revise_run', payload)
+    assert len(workspace.all('runs')) == 2
 
 
 @pytest.mark.parametrize('change', ['signature', 'pipeline', 'budget', 'yaml', 'busy', 'archived', 'inputs', 'workflow'])

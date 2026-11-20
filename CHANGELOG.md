@@ -1,3 +1,9 @@
+## 0.1.0a128.dev1 — 2026-11-21 · Alpha · Draft creation and input progress
+
+- **Create drafts** acknowledges the click immediately. During longer input reads, the app shows the current filename and how much of that file it has read. The save button stays disabled while the request is in progress.
+- The first Overview uses the workflow fingerprint recorded during the save. Automatic swap sizing and the first Overview read current CPU and memory capacity without repeating a full hardware inventory.
+- Separate run revisions and drafts from imported AWARE manifests reuse input hashes calculated during the same save. Subsequent launches still verify the saved inputs.
+
 ## 0.1.0a127.dev1 — 2026-11-21 · Alpha · Faster run controls, job history and workflow locks
 
 - **Jobs & progress → Clear job history** hides finished attempts across all filters. Saved runs retain their logs and outputs. Queued and running jobs appear in history when they finish.

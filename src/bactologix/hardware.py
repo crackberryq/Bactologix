@@ -266,7 +266,8 @@ def memory_capacity(limits=None):
             **paging_memory(mem, total, available, paging)}
 
 
-def detect(home):
+def compute_capacity():
+    """Live CPU and memory for run sizing, without disk or GPU inventory."""
     logical = os.cpu_count() or 1
     try:
         usable = len(os.sched_getaffinity(0))
@@ -274,6 +275,12 @@ def detect(home):
         usable = logical
     limits = cgroup_limits()
     usable = min(usable, limits['cores'] or usable)
+    return {'checked_at': now(), 'cpu': {'logical': logical, 'available': max(1, usable)},
+            'memory': memory_capacity(limits)}
+
+
+def detect(home):
+    capacity = compute_capacity()
     cpuinfo = _read('/proc/cpuinfo')
     model = re.search(r'^(?:model name|Hardware)\s*:\s*(.+)', cpuinfo, re.M)
     physical = set()
@@ -286,11 +293,10 @@ def detect(home):
         storage = {'total_mb': disk.total // MIB, 'free_mb': disk.free // MIB}
     except OSError:
         storage = {'total_mb': None, 'free_mb': None}
-    result = {'checked_at': now(), 'system': platform.system(), 'architecture': platform.machine(),
+    result = {**capacity, 'system': platform.system(), 'architecture': platform.machine(),
               'wsl': 'microsoft' in platform.release().lower(),
-              'cpu': {'model': model[1] if model else platform.machine(), 'logical': logical,
-                      'physical': len(physical) or None, 'available': max(1, usable)},
-              'memory': memory_capacity(limits),
+              'cpu': {**capacity['cpu'], 'model': model[1] if model else platform.machine(),
+                      'physical': len(physical) or None},
               'disk': storage, 'gpu': gpu_inventory()}
     result['id'] = hashlib.sha256(json.dumps(result, sort_keys=True).encode()).hexdigest()
     return result

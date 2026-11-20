@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from bactologix import hardware, swap_adviser
+from bactologix import hardware, readiness, runs, swap_adviser
 from bactologix.runs import create_run, parse_config
 from bactologix.ui_backend import dispatch
 from test_hardware import capacity
@@ -41,6 +41,7 @@ def draft(workspace, installation, sample, monkeypatch):
     workspace.put('resource_defaults', 'hybas', {'cores': 2, 'memory_mb': 16000})
     info = host()
     monkeypatch.setattr(hardware, 'inventory', lambda *a, **kw: info)
+    monkeypatch.setattr(hardware, 'compute_capacity', lambda: info)
     monkeypatch.setattr(swap_adviser, '_storage', lambda store, run: storage())
     return workspace, config, info, sample
 
@@ -102,3 +103,36 @@ def test_derived_sample_uses_resolved_off_without_storage_probe(draft, monkeypat
                      yaml.safe_dump(cfg), auto_swap=True)
     frozen = parse_config(run['config'])
     assert frozen['run_kraken'] is False and frozen['bactologix_compute'] == {'swap_mb': 0}
+
+
+def test_first_draft_overview_reuses_creation_hash_and_only_probes_compute_capacity(draft, monkeypatch):
+    store, _, info, sample = draft
+    digest = runs.tree_digest
+    frozen_checks, overview_checks, inventory_requests = [], [], []
+
+    def checked_digest(folder, checks):
+        checks.append(folder)
+        return digest(folder)
+
+    def inventory(store, refresh=False):
+        inventory_requests.append(refresh)
+        return info
+
+    monkeypatch.setattr(runs, 'tree_digest', lambda folder: checked_digest(folder, frozen_checks))
+    monkeypatch.setattr(readiness, 'tree_digest', lambda folder: checked_digest(folder, overview_checks))
+    monkeypatch.setattr(hardware, 'inventory', inventory)
+    result = dispatch(store, 'create_runs', {'tool': 'hybas', 'ids': [sample['id']], 'auto_swap': True})
+    run = result['detail']
+    workflow = Path(run['folder']) / 'workflow'
+    assert frozen_checks == [workflow]
+    assert overview_checks == [] and inventory_requests == []
+    pipeline = next(row for row in run['readiness']['rows'] if row['id'] == 'pipeline')
+    assert pipeline['state'] == 'Setup recorded' and pipeline['checked_at'] == run['created']
+    assert run['readiness']['validated'] is False
+
+    # A new request must recheck even if the client asks for the first-view shortcut.
+    (workflow / 'changed.txt').write_text('source changed after save')
+    result = dispatch(store, 'inspect_run', {'id': run['id'], 'just_created': True})
+    assert overview_checks == [workflow] and True in inventory_requests
+    pipeline = next(row for row in result['detail']['readiness']['rows'] if row['id'] == 'pipeline')
+    assert pipeline['level'] == 'error' and 'source changed' in pipeline['text']

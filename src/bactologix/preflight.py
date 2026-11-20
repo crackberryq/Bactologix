@@ -178,14 +178,14 @@ def budget(run, info):
     return issues
 
 
-def panel(store, run):
+def panel(store, run, *, capacity=None):
     checked_at = now()
     locations = destinations(run)
     invalid = [x for x in locations if x['level'] == 'error']
     measured = [x for x in locations if x['free_mb'] is not None]
     full = [x for x in locations if x['free_mb'] == 0]
     low = [x for x in locations if x['free_mb'] is not None and x['free_mb'] < 5120]
-    info = hardware.inventory(store)
+    info = capacity if capacity is not None else hardware.inventory(store)
     warnings = budget(run, info)
     memory_blockers = compute_memory.capacity_issues(run, info)
     def row(key, title, state, text, level, **extra):

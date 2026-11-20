@@ -71,7 +71,7 @@ def check_environments(ctx, run):
     ctx.write('Inventory checked without installing or repairing environments. The current workflow plan determines this list; later checkpoint environments remain guarded at execution.')
 
 
-def panel(store, run):
+def panel(store, run, *, just_created=False):
     """Checks are scoped and dated; no universal Ready claim or environment writes."""
     rows = []
     def row(key, title, state, text, level='info', checked_at=None):
@@ -94,14 +94,20 @@ def panel(store, run):
         current_controller(store, run)
         if not supported(run['tool'], run['commit'], store):
             raise ValueError('This source version needs a supported execution adapter.')
-        if tree_digest(Path(run['folder']) / 'workflow') != run['workflow_sha256']:
-            raise ValueError('The saved workflow source changed. Create a new draft from a clean installation.')
-        row('pipeline', 'Pipeline and runner', 'Setup recorded', 'The saved source is unchanged and its runner is configured. Native validation checks execution.', 'info', checked_at)
+        if just_created:
+            row('pipeline', 'Pipeline and runner', 'Setup recorded',
+                'Bactologix fingerprinted the saved workflow when it created this draft. Its runner is configured.',
+                'info', run['created'])
+        else:
+            if tree_digest(Path(run['folder']) / 'workflow') != run['workflow_sha256']:
+                raise ValueError('The saved workflow source changed. Create a new draft from a clean installation.')
+            row('pipeline', 'Pipeline and runner', 'Setup recorded', 'The saved source is unchanged and its runner is configured. Native validation checks execution.', 'info', checked_at)
     except (OSError, ValueError, KeyError) as exc:
         blocked = True
         row('pipeline', 'Pipeline and runner', 'Needs setup', str(exc), 'error', checked_at)
-    from . import preflight
-    host = preflight.panel(store, run)
+    from . import hardware, preflight
+    capacity = hardware.compute_capacity() if just_created else None
+    host = preflight.panel(store, run, capacity=capacity)
     if run['tool'] == 'hybas' and not blocked and any(
             item.get('estimated_full_load_mb') for item in host['rows'] if item['id'] == 'kraken_memory'):
         from . import draft_edits

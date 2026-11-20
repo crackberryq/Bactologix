@@ -152,7 +152,28 @@ function request(kind,payload={},background=false,swap=null){
  setTriggerValue('action',{id:U.pending,kind,payload});renderBusy();
  if(observation){const panel=$('#async-checks-slot');if(panel)panel.innerHTML=asyncProgress();}
 }
-function renderBusy(){const locked=!!U.queuedRequest&&!asyncActions.has(U.queuedRequest.kind)||!!U.pending&&!U.background;root.classList.toggle('is-busy',locked);const status=$('#connection-status');if(status)status.textContent=S.workspace_busy?'Reconnecting to workspace':locked?'Working…':'Workspace synced';for(const el of $$('input,textarea,select,button[data-action]:not([data-action="close"])')){if(locked&&!el.disabled){el.disabled=true;el.dataset.pendingDisabled='true';}else if(!locked&&el.dataset.pendingDisabled){el.disabled=false;delete el.dataset.pendingDisabled;}}}
+function renderBusy(){
+ const locked=!!U.queuedRequest&&!asyncActions.has(U.queuedRequest.kind)||!!U.pending&&!U.background;
+ root.classList.toggle('is-busy',locked);
+ const status=$('#connection-status');
+ if(status)status.textContent=S.workspace_busy?'Reconnecting to workspace':locked?'Working…':'Workspace synced';
+ const progress=$('#draft-create-status');
+ if(progress){
+  const waiting=U.queuedRequest?.kind==='create_runs';
+  const saving=!!U.pending&&U.requestOrigin?.kind==='create_runs';
+  progress.hidden=!waiting&&!saving;
+  $('#wizard-save-status').parentElement.hidden=!progress.hidden;
+  if(!progress.hidden){
+   const drafts=progress.dataset.count==='1'?'draft':'drafts';
+   progress.querySelector('strong').textContent=waiting?'Waiting to create '+drafts+'…':'Creating '+drafts+'…';
+   progress.querySelector('p').textContent=waiting?'Waiting for the current workspace check to finish.':'Saving the workflow and recording input file checksums. Large inputs can take time to read.';
+  }
+ }
+ for(const el of $$('input,textarea,select,button[data-action]:not([data-action="close"])')){
+  if(locked&&!el.disabled){el.disabled=true;el.dataset.pendingDisabled='true';}
+  else if(!locked&&el.dataset.pendingDisabled){el.disabled=false;delete el.dataset.pendingDisabled;}
+ }
+}
 function routeHash(){return U.view==='install'&&U.setupTab==='compatibility'?'#install/compatibility':U.view==='draft'?'#drafts/'+(U.wizard?.kind==='edit-run'?'revise/'+encodeURIComponent(U.wizard.id):'new'):U.view==='run'?'#runs/'+encodeURIComponent(U.runId)+'/'+(U.runDetailTab||'overview'):U.view==='comparisons'?'#comparisons/'+(U.comparisonTab||'review'):'#'+U.view;}
 function writeRoute(replace=false){const hash=routeHash();if(U.routeApplied!==hash)U.asyncEpoch=(U.asyncEpoch||0)+1;U.routeApplied=hash;if(window.location.hash!==hash)window.history[replace?'replaceState':'pushState'](null,'',hash);}
 function readRoute(){
@@ -1133,7 +1154,8 @@ function runReview(c,chosen,budget={cores:val('run-cores',S.resource_defaults?.[
 function wizardPage(){
  if(!U.wizard)return heading('RUN DRAFT','No unfinished draft.','Start a new draft from your registered samples.',btn('new-run','Create run drafts',true));
  const revision=U.wizard.kind==='edit-run',c=runEditor(),tab=U.runConfigTab||(revision?'settings':'purpose'),step=tab==='yaml'?'settings':tab;
- const empty=!c||(!revision&&!S.samples.some(s=>val('run-sample-'+s.id,false)));
+ const selectedCount=revision?0:S.samples.filter(s=>val('run-sample-'+s.id,false)).length;
+ const empty=!c||(!revision&&!selectedCount);
  const ready=revision||!!activeInstall(val('run-tool','hybas'))?.ready;
  const current=editingCurrentDraft();
  const saveAction=current?'save-current-draft':revision?'save-run-revision':'create-runs';
@@ -1141,10 +1163,11 @@ function wizardPage(){
  const copy=step==='review'&&current?btn('save-run-revision','Save as new draft',false,'','branch',empty||!ready):'';
  const next=step==='review'?copy+btn(saveAction,saveLabel,true,'','check',empty||!ready):btn('run-config-tab',step==='purpose'?'Continue to inputs':step==='samples'?'Continue to settings':current?'Review changes':'Review drafts',true,step==='purpose'?'samples':step==='samples'?'settings':'review','arrow',step!=='purpose'&&empty);
  const back=step==='review'?'settings':step==='settings'&&!revision?'samples':step==='samples'?'purpose':null;
+ const progress=step==='review'&&!revision?`<div id="draft-create-status" data-count="${selectedCount}" role="status" hidden><strong></strong><p></p></div>`:'';
  return heading(current?'EDIT DRAFT':revision?(U.revision?.variant?'RESULT VARIANT':'REVISE RUN'):'NEW RUN',revision?(U.revision?.variant?'Branch from existing results':'Edit run settings'):'New run',current?'Edit the settings for this run.':revision?(U.revision?.variant?'Choose which settings to vary. Eligible results are inherited into a separate run.':'Save a separate revision to keep earlier run records associated with their settings.'):'Choose your purpose, connect inputs, then review your settings. Nothing starts until you launch.',btn('leave-wizard','Leave editor'))+
   (U.wizardRecovered?notice('Recovered unfinished edits','Your selection and settings were recovered from this browser tab. Review the changes before saving.'):'' )+
   (!ready&&step==='review'?notice('Pipeline runner needs setup','Finish setup for the selected pipeline before creating drafts. Your edits remain available in this tab.',true):'')+
-  `<section class="card run-wizard">${revision?renderRunRevision():renderNewRun()}<div class="wizard-footer"><div><strong id="wizard-save-status">${e(wizardSaveStatus())}</strong><p>Closing this tab may clear unsaved edits.</p></div><div class="button-row">${btn('discard-wizard','Discard edits')}${back?btn('run-config-tab','Back',false,back):''}${next}</div></div></section>`;
+  `<section class="card run-wizard">${revision?renderRunRevision():renderNewRun()}<div class="wizard-footer"><div><strong id="wizard-save-status">${e(wizardSaveStatus())}</strong><p>Closing this tab may clear unsaved edits.</p></div>${progress}<div class="button-row">${btn('discard-wizard','Discard edits')}${back?btn('run-config-tab','Back',false,back):''}${next}</div></div></section>`;
 }
 const runPurposes=[
  ['hybas','Build a genome assembly','Create an assembly from sequencing reads.','Sequencing reads','branch'],

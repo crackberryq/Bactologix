@@ -59,9 +59,9 @@ def apply(store, payload):
     if payload.get("variant"):
         from . import variants
         with variants.freeze(store, payload.get("id")):
-            parent = source(store, payload.get("id"))
+            parent = source(store, payload.get("id"), recheck_input_content=False)
             variants.eligible(store, parent)
-            child = _apply(store, payload)
+            child = _apply(store, parent, payload)
             try:
                 return variants.branch(store, parent, child)
             except BaseException:
@@ -70,13 +70,13 @@ def apply(store, payload):
                 with store.connect() as db:
                     db.execute("DELETE FROM items WHERE kind='runs' AND id=?", (child["id"],))
                 raise
-    return _apply(store, payload)
+    parent = source(store, payload.get('id'), recheck_input_content=False)
+    return _apply(store, parent, payload)
 
 
-def _apply(store, payload):
-    # In-place edits retain the original input hashes. Launch performs the full
-    # content check; verifying staged paths and metadata suffices when saving.
-    parent = source(store, payload.get('id'), recheck_input_content=payload.get('in_place') is not True)
+def _apply(store, parent, payload):
+    # A separate draft verifies every parent fingerprint as create_run stages
+    # its inputs. In-place edits retain the original hashes for native launch.
     config = payload.get('config')
     if config is not None:
         if payload.get('signature') != signature(parent):

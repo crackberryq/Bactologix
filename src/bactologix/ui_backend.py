@@ -267,6 +267,28 @@ def _report(store, rid):
     return report
 
 
+def _run_detail(store, run, *, just_created=False):
+    run = copy.deepcopy(run)
+    run.setdefault("draft_generation", 0)
+    run['swap_mb'] = compute_memory.policy(run)['swap_mb']
+    if run['swap_mb'] and not just_created:
+        # This is the explicit Refresh checks path. Background snapshots
+        # retain the ordinary inventory cache and never trigger probes.
+        hardware.inventory(store, refresh=True)
+    run["database_paths"] = database_runs.paths(store, run)
+    cfg = parse_config(run['config'])
+    vfdb = cfg.get('modules', {}).get('vfdb', {}) if run['tool'] == 'basis' else {}
+    run['has_external_vfdb'] = isinstance(vfdb, dict) and any(
+        vfdb.get(key) for key in ('database', 'reference_fasta', 'metadata', 'database_version'))
+    run["readiness"] = readiness.panel(store, run, just_created=just_created)
+    run["settings"] = run_config.editor(run["tool"], run["config"])
+    try:
+        run["command"] = shlex.join(command(store, run, "run"))
+    except Exception as exc:
+        run["command"] = str(exc)
+    return {"detail": run, "keep_modal": True}
+
+
 def dispatch(store, kind, p):
     """Only named UI commands are allowed. Browser-supplied objects are not trusted."""
     if not isinstance(p, dict):
@@ -665,29 +687,11 @@ def dispatch(store, kind, p):
                 raise ValueError(f"Created {len(made)} draft(s). {sample['id']}: {exc}") from exc
         response = {"message": f"Created {len(made)} independent drafts with this run configuration.", "navigate": "runs"}
         if len(made) == 1:
-            response.update(dispatch(store, "inspect_run", {"id": made[0]["id"]}))
+            response.update(_run_detail(store, made[0], just_created=True))
             response.update(keep_modal=False, open_run=made[0]["id"])
         return response
     if kind == "inspect_run":
-        run = copy.deepcopy(_item(store, "runs", p.get("id")))
-        run.setdefault("draft_generation", 0)
-        run['swap_mb'] = compute_memory.policy(run)['swap_mb']
-        if run['swap_mb']:
-            # This is the explicit Refresh checks path. Background snapshots
-            # retain the ordinary inventory cache and never trigger probes.
-            hardware.inventory(store, refresh=True)
-        run["database_paths"] = database_runs.paths(store, run)
-        cfg = parse_config(run['config'])
-        vfdb = cfg.get('modules', {}).get('vfdb', {}) if run['tool'] == 'basis' else {}
-        run['has_external_vfdb'] = isinstance(vfdb, dict) and any(
-            vfdb.get(key) for key in ('database', 'reference_fasta', 'metadata', 'database_version'))
-        run["readiness"] = readiness.panel(store, run)
-        run["settings"] = run_config.editor(run["tool"], run["config"])
-        try:
-            run["command"] = shlex.join(command(store, run, "run"))
-        except Exception as exc:
-            run["command"] = str(exc)
-        return {"detail": run, "keep_modal": True}
+        return _run_detail(store, _item(store, "runs", p.get("id")))
     if kind in {'compare_saved_runs', 'download_comparison'}:
         doc = comparisons.panel(store, p.get('ids'))
         return {'comparison': doc, **({'download': comparisons.export(doc)} if kind == 'download_comparison' else {})}
