@@ -313,3 +313,91 @@ def test_invalid_durable_timestamp_is_not_silently_renewed(session, invalid):
     # Keep the original diagnostic record; never manufacture a fresh ready lease.
     with store.connect() as db:
         assert db.execute("SELECT body FROM items WHERE kind='desktop_sessions' AND id=?", (item.key,)).fetchone()[0] == json.dumps(previous)
+
+
+@pytest.mark.parametrize(('exclusive', 'closing'), [(False, False), (True, False), (False, True)])
+def test_windows_heartbeats_bridge_real_writer_lock_past_lease(session, monkeypatch, exclusive, closing):
+    store, item = session
+    monkeypatch.setattr(desktop, 'LEASE_SECONDS', 2)
+    item.tick('', True)
+    monkeypatch.setenv(desktop.ENV, item.key)
+    jid = store.submit('smoke', {})
+    anchored = store.get('desktop_sessions', item.key)['last_seen']
+    outcome = []
+
+    def poll():
+        try:
+            outcome.append(item.poll('', True))
+        except Exception as exc:
+            outcome.append(exc)
+
+    with store.connect() as writer:
+        if exclusive:
+            writer.execute('PRAGMA locking_mode=EXCLUSIVE')
+        writer.execute('BEGIN EXCLUSIVE' if exclusive else 'BEGIN IMMEDIATE')
+        worker = threading.Thread(target=poll)
+        worker.start()
+        try:
+            while time.time() < anchored + desktop.LEASE_SECONDS + .45 and worker.is_alive():
+                desktop.atomic(item.root / 'heartbeat.json', {'session': item.key, 'time': time.time()})
+                time.sleep(.04)
+            assert worker.is_alive(), outcome
+            saved = json.loads(writer.execute("SELECT body FROM items WHERE kind='desktop_sessions' AND id=?",
+                                              (item.key,)).fetchone()[0])
+            assert saved['last_seen'] == anchored and time.time() - anchored > desktop.LEASE_SECONDS
+            assert not desktop.session_value_stopped(saved, store=store, owner=item.key)
+            if closing:
+                request(item, 'confirm_close')
+                deadline = time.monotonic() + 2
+                while not desktop.owner_cancelled(store, jid) and time.monotonic() < deadline:
+                    time.sleep(.02)
+                assert desktop.owner_cancelled(store, jid), 'A confirmed stop must reach readers while SQLite is busy'
+        finally:
+            writer.rollback()
+            # EXCLUSIVE locking mode keeps its read lock through connection close.
+    worker.join(4)
+    assert outcome == [closing]
+    assert bool(store.job(jid)['cancel']) == closing
+    assert store.get('desktop_sessions', item.key)['phase'] == ('stopping' if closing else 'ready')
+
+
+def test_old_proof_cannot_revive_expired_or_disconnected_owner(session, monkeypatch):
+    store, item = session
+    state = store.get('desktop_sessions', item.key)
+    current = time.time()
+    atomic_record = {'session': item.key, 'recorded': state['last_seen'], 'heartbeat': current}
+    desktop.atomic(item.proof_path, atomic_record)
+    monkeypatch.setattr(desktop, 'LEASE_SECONDS', .05)
+    time.sleep(.07)
+    desktop.atomic(item.root / 'heartbeat.json', {'session': item.key, 'time': time.time()})
+    item.proven_until = current + .05
+    assert not item.record_contended_lease()
+    assert desktop.session_value_stopped(state, store=store, owner=item.key)
+    # A proof of a different committed database version cannot bridge this one.
+    desktop.atomic(item.proof_path, dict(atomic_record, recorded=state['last_seen'] - .1, heartbeat=time.time()))
+    assert desktop.session_value_stopped(state, store=store, owner=item.key)
+
+
+def test_idle_restart_poll_returns_promptly_through_exclusive_read_lock(session):
+    store, item = session
+    with store.connect() as writer:
+        writer.execute('PRAGMA locking_mode=EXCLUSIVE')
+        writer.execute('BEGIN EXCLUSIVE')
+        started = time.monotonic()
+        assert restart.pending(store, {'id': item.key}) is None
+        assert time.monotonic() - started < 1
+        writer.rollback()
+
+
+def test_stop_still_commits_when_local_lease_record_is_unwritable(session, monkeypatch):
+    store, item = session
+    monkeypatch.setenv(desktop.ENV, item.key)
+    jid = store.submit('smoke', {})
+
+    def unavailable(*args):
+        raise OSError('Disk unavailable')
+
+    monkeypatch.setattr(desktop, 'atomic', unavailable)
+    item.stop('Window closed')
+    assert store.job(jid)['cancel'] == 1
+    assert store.get('desktop_sessions', item.key)['cancelled']

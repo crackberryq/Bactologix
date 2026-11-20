@@ -55,6 +55,38 @@ def test_log_progress_handles_parallel_steps_and_checkpoint_replanning():
     assert off.value()['total'] is None and off.value()['source'] == 'not applicable'
 
 
+def test_snake_job_stats_and_message_tasks_are_available_before_first_finish():
+    progress = t.Progress()
+    for line in ['total 900', 'Job stats:', 'job               count', '----------------  -------',
+                 'kraken2_illumina  1', 'kraken2_nanopore  1', 'identification_review 1',
+                 'all 1', 'total 4', '', 'Job 2: Kraken2 raw Illumina', 'Select jobs to execute...',
+                 'Workspace control data is unavailable', 'localrule QC:', 'jobid: 7']:
+        progress.feed(line)
+    value = progress.value()
+    assert (value['completed'], value['total'], value['percent']) == (0, 4, 0)
+    assert value['active_tasks'] == ['Kraken2 raw Illumina', 'QC']
+    assert value['active_rules'] == ['QC'] and value['active_count'] == 2
+    progress.feed('Finished jobid: 2 (Rule: kraken2_illumina)')
+    progress.feed('1 of 4 steps (25%) done')
+    assert progress.value()['active_tasks'] == ['QC']
+    progress.feed('Job stats:')
+    progress.feed('total 4')
+    assert progress.value()['completed'] == 1
+
+
+def test_continuation_ignores_validation_jobs_before_native_launch(tmp_path):
+    store = Store(tmp_path)
+    jid, recorder = record_job(store, 'continue')
+    log = store.log_path(jid)
+    log.write_text('Job stats:\njob count\ntotal 99\nJob 3: Validation preview\n')
+    recorder.read_log()
+    assert recorder.progress.total is None and recorder.progress.value()['active_tasks'] == []
+    with log.open('a') as stream:
+        stream.write('Run run-fixture · source abc\nJob stats:\njob count\ntotal 3\nJob 1: Actual step\n')
+    recorder.read_log()
+    assert recorder.progress.total == 3 and recorder.progress.value()['active_tasks'] == ['Actual step']
+
+
 def test_log_reader_bounds_truncation_and_never_interprets_clipped_lines(tmp_path, monkeypatch):
     store = Store(tmp_path)
     jid, r = record_job(store)
@@ -68,7 +100,7 @@ def test_log_reader_bounds_truncation_and_never_interprets_clipped_lines(tmp_pat
     with path.open('ab') as f:
         f.write(b'localrule finish:\n    jobid: 2\n2 of 2 steps (100%) done\n')
     r.read_log()
-    assert r.progress.total == 2 and r.progress.active == {'2': 'finish'}
+    assert r.progress.total == 2 and r.progress.value()['active_tasks'] == ['finish']
     path.write_text('1 of 3 steps (33%) done\n')
     r.read_log()
     assert r.progress.total == 3 and r.progress.gap and not r.progress.active

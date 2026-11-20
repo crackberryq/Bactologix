@@ -1,3 +1,9 @@
+## 0.1.0a121.dev1 — 2026-11-20 · Alpha · Workflow monitoring and task progress
+
+- During a workflow or setup command, the worker keeps a workspace database connection open. If the database stays locked after 30 seconds of retries, the worker can suspend the tools it owns and wait up to five more minutes for access to return. The same command can continue after the worker checks for a stop request and verifies the required storage. An existing storage pause still requires **Resume run**.
+- **Jobs & progress** shows completed tasks, the current plan total and the names of active tasks beside CPU and memory usage when the workflow reports them. A retry shows the tasks in its own plan.
+- When the worker regains access to a locked workspace database, the attempt’s activity records **Workspace connection restored**. The workflow log records which tasks completed.
+
 ## 0.1.0a120.dev1 — 2026-11-20 · Alpha · Kraken swap calculation
 
 - **Calculate and fill swap allowance** fills the form with the smallest whole-MB allowance that covers the selected Kraken requirement with the RAM HybAs can use. The calculation checks usable swap after reserves and the combined memory limit.

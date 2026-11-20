@@ -1,5 +1,6 @@
 """One OS lock serializes setup, native workflows and shared environment writes."""
 import argparse
+from contextlib import nullcontext
 import fcntl
 import sqlite3
 import time
@@ -49,7 +50,12 @@ def work(store, desktop_owner=None):
                 with environment_lock(exclusive=job["kind"] == "app_update") as environment_fd:
                     ctx.lock_fds = (lock.fileno(), environment_fd)
                     assert_current(store)
-                    execute(ctx)
+                    # Keeping one idle connection open prevents each short
+                    # telemetry/control transaction from becoming SQLite's
+                    # last WAL connection and triggering close/reopen cleanup.
+                    workspace = store.keep_wal_open() if ctx.setup_control or ctx.workflow_control else nullcontext()
+                    with workspace:
+                        execute(ctx)
                 ctx.check_cancel()
                 status = 'succeeded'
                 store.update_job(job["id"], status="succeeded", finished=now())

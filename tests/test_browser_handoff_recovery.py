@@ -62,5 +62,24 @@ def test_monitoring_error_does_not_claim_native_failure_or_live_progress(progres
       progressJob.monitoring.cleanup_confirmed=true;
       progressRerender();
     }""")
-    expect(page.locator('#main > .monitoring-notice')).to_contain_text('not a recorded native tool failure')
+    expect(page.locator('#main > .monitoring-notice')).to_contain_text('Its recorded processes have exited')
     expect(page.locator('#main > .run-progress')).to_have_count(0)
+
+
+def test_recovered_workspace_connection_is_attempt_history(progress_page):
+    from playwright.sync_api import expect
+    page = progress_page
+    measured(page)
+    page.evaluate("""() => {
+      progressJob.monitoring={state:'recovered', updated_at:new Date().toISOString()};
+      progressRerender();
+    }""")
+    expect(page.locator('#main > .monitoring-notice')).to_have_count(0)
+    expect(page.locator('.run-job .monitoring-history')).to_contain_text('Workspace connection restored')
+    expect(page.locator('#main > .run-progress')).to_contain_text('Running')
+    page.evaluate("progressJob.monitoring.state='degraded';progressRerender()")
+    expect(page.locator('#main > .monitoring-notice')).to_contain_text('retrying access')
+    expect(page.locator('.monitoring-history')).to_have_count(0)
+    page.evaluate("progressJob.monitoring.control_hold=true;progressRerender()")
+    expect(page.locator('#main > .run-progress')).to_contain_text('Paused · workspace database busy')
+    expect(page.locator('#main > .monitoring-notice')).to_contain_text('suspended the task')

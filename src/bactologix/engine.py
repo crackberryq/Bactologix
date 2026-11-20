@@ -23,6 +23,7 @@ from .supervision import MonitoringInterrupted
 
 SETUP_CONTROL_GRACE_SECONDS = 30.0
 WORKFLOW_CONTROL_GRACE_SECONDS = 30.0
+CONTROL_HOLD_SECONDS = 300.0
 
 
 class Cancelled(Exception):
@@ -90,6 +91,9 @@ class Context:
                               (job['kind'] == 'check' and (job['payload'].get('setup') or job['payload'].get('repair'))))
         self.workflow_control = job['kind'] == 'workflow'
         self.control_deadlines = {}
+        self.control_owner = None
+        self.control_held_at = None
+        self.controls_restored_at = None
         self.monitor = {'id': job['id'], 'state': 'healthy', 'retry_count': 0}
         self.native_record = None
         run_id = job['payload'].get('run_id')
@@ -176,8 +180,12 @@ class Context:
                 if not interrupted and (isinstance(exc, sqlite3.Error) or self.monitor['state'] != 'degraded'):
                     self.monitor_retry(exc, 1)
                 self.control_deadlines[key] = deadline
+                self.controls_restored_at = None
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
+                    if poll and self.control_owner is not None and CONTROL_HOLD_SECONDS > 0:
+                        self.hold_for_control(op_key or operation.__name__, cause)
+                        return None
                     if isinstance(exc, sqlite3.Error):
                         raise MonitoringInterrupted('Workspace control persistence failed: ' + str(exc)) from exc
                     raise
@@ -188,16 +196,81 @@ class Context:
                 self.control_deadlines.pop(key, None)
                 return result
 
+    def hold_for_control(self, key, error):
+        if self.control_held_at is not None:
+            return
+        self.verify_control_freeze()
+        self.control_held_at = time.monotonic()
+        if self.disk_guard is not None:
+            self.disk_guard.control_suspended = True
+        detail = 'Tool processes suspended while Bactologix retries workspace controls.'
+        self.monitor_state('degraded', detail, control_hold=True, control_operation=key,
+                           last_error=str(error))
+        self.write(detail + ' ' + str(error))
+
+    def verify_control_freeze(self):
+        from .disk_process import SuspensionError
+        import psutil
+        try:
+            self.control_owner.tree.freeze()
+            self.control_owner.refresh()
+        except (SuspensionError, psutil.Error) as exc:
+            raise MonitoringInterrupted('Could not verify suspension during workspace control recovery: '
+                                        + str(exc), cleanup_confirmed=False) from exc
+
+    def service_control_hold(self):
+        if self.control_held_at is None:
+            return
+        if time.monotonic() - self.control_held_at >= CONTROL_HOLD_SECONDS:
+            raise MonitoringInterrupted('Could not verify workspace controls while tool processes were suspended: '
+                                        + str(self.monitor.get('last_error', 'control access unavailable')))
+        # Keep the same verified process tree stopped, including any newly
+        # observed descendants. The independent EOF watcher still owns cleanup.
+        self.verify_control_freeze()
+        if self.control_deadlines:
+            return
+        guard = self.disk_guard
+        if guard is not None and self.controls_restored_at is None:
+            self.controls_restored_at = time.monotonic()
+            guard.samples.wake.set()
+            return
+        if guard is not None and not guard.control_recovery_ready(self.controls_restored_at):
+            return
+        # The SQLite stop/desktop lease must be checked after disk sampling.
+        # A newly deferred read keeps the processes suspended.
+        if self.refresh_desktop_cancel(poll=True) or self.control_deadlines:
+            return
+        if guard is not None and not guard.control_recovery_ready(self.controls_restored_at):
+            return
+        storage_paused = guard is not None and guard.record['state'] == 'paused'
+        if not storage_paused:
+            from .disk_process import SuspensionError
+            import psutil
+            try:
+                self.control_owner.tree.resume()
+            except (SuspensionError, psutil.Error) as exc:
+                raise MonitoringInterrupted('Could not resume the owned processes after workspace control recovery: '
+                                            + str(exc), cleanup_confirmed=False) from exc
+        if guard is not None:
+            guard.control_suspended = False
+        self.control_held_at = self.controls_restored_at = None
+        detail = ('Workspace controls recovered; the storage pause remains active.' if storage_paused
+                  else 'Workspace controls recovered; the same tool processes resumed.')
+        self.monitor_state('recovered', detail, control_hold=False)
+        self.write(detail)
+
     def refresh_desktop_cancel(self, *, poll=False):
         from .desktop import session_value_stopped
         if self.cancel_requested:
             return True
-        state = self.control_operation(self.store.control_state, self.job['id'], self.monitor_retry, poll=poll)
+        state = self.control_operation(self.store.control_state, self.job['id'], self.monitor_retry,
+                                       poll=poll, op_key='job and desktop controls')
         if state is None:  # A control poll deferred; keep servicing the owned process.
             return False
-        if self.monitor['state'] == 'degraded' and not self.control_deadlines:
+        if self.monitor['state'] == 'degraded' and not self.control_deadlines and self.control_held_at is None:
             self.monitor_state('recovered', 'Workspace control access recovered; native execution remained owned.')
-        self.cancel_requested = bool(state['cancel'] or (self.job['kind'] != 'app_update' and state['owner'] and session_value_stopped(state['session'])))
+        self.cancel_requested = bool(state['cancel'] or (self.job['kind'] != 'app_update' and state['owner']
+                                     and session_value_stopped(state['session'], store=self.store, owner=state['owner'])))
         return self.cancel_requested
 
     def monitor_state(self, state, detail, **fields):
@@ -214,7 +287,9 @@ class Context:
                 self.write('Workspace control data is unavailable; retrying while retaining native process ownership: ' + str(exc))
             except OSError:
                 pass
-        self.monitor_state('degraded', 'Retrying workspace control access; native work is still supervised.',
+        detail = (self.monitor['detail'] if self.control_held_at is not None
+                  else 'Retrying workspace control access; native work is still supervised.')
+        self.monitor_state('degraded', detail,
                            retry_count=self.monitor['retry_count'] + 1, last_error=str(exc))
 
     def remember_processes(self, proc, argv, guard):
@@ -307,6 +382,7 @@ class Context:
             native_started = True
             os.close(gate_write)
             gate_write = None
+            self.control_owner = owner
             self.observe("begin_command", proc, argv[0])
             while proc.poll() is None:
                 cancelled = self.refresh_desktop_cancel(poll=True)
@@ -317,6 +393,7 @@ class Context:
                 if cancelled or (stop_after is not None and elapsed_command >= stop_after):
                     if started_stop is None:
                         started_stop = time.monotonic()
+                        self.control_owner = None  # Nothing may suspend the command during teardown.
                         owner.stop()
                         self.write("Stopping owned processes gracefully (SIGINT)…")
                     elapsed = time.monotonic() - started_stop
@@ -326,6 +403,8 @@ class Context:
                     guard.tick()
                 else:
                     owner.refresh()
+                if started_stop is None and not timed_out:
+                    self.service_control_hold()
                 self.remember_processes(proc, argv, owner)
                 self.observe("tick")
                 time.sleep(0.25)
@@ -348,6 +427,18 @@ class Context:
             monitoring_error = MonitoringInterrupted(self.monitor['detail'])
             raise monitoring_error from exc
         finally:
+            self.control_owner = None
+            if self.control_held_at is not None:
+                self.control_held_at = self.controls_restored_at = None
+                if self.monitor['state'] == 'degraded':
+                    detail = ('The stop request was received. Bactologix is closing the tool processes.'
+                              if started_stop is not None else
+                              'The command ended while Bactologix was retrying workspace controls.')
+                    self.monitor_state('degraded', detail, control_hold=False)
+                else:
+                    self.monitor['control_hold'] = False
+                if guard is not None:
+                    guard.control_suspended = False
             primary_error = sys.exception() if failed else None
             # Capture an exit observed before teardown. The gated launcher or
             # a process we had to stop can report a different status afterwards.

@@ -77,6 +77,14 @@ class Store:
         finally:
             db.close()
 
+    @contextmanager
+    def keep_wal_open(self):
+        # Register one idle reader with SQLite during a workflow or installation.
+        # No open cursor or transaction pins a snapshot or blocks checkpoints.
+        with self.connect() as db:
+            db.execute('SELECT id FROM jobs LIMIT 1').close()
+            yield
+
     def control_read(self, reader, on_retry=None):
         """Retry a complete read transaction, never a partially committed write.
 

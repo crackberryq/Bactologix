@@ -39,20 +39,42 @@ NOTES = [
 
 
 class Progress:
-    def __init__(self, enabled=True):
+    def __init__(self, enabled=True, start_marker=None):
         self.enabled = enabled
+        self.start_marker = start_marker
         self.done = self.total = None
         self.active = {}
         self.pending = None
+        self.in_job_stats = False
         self.dynamic = self.gap = False
+
+    def started(self, job_id, label, *, rule):
+        if job_id in self.active or len(self.active) < 256:
+            self.active[job_id] = (label, rule)
+        else:
+            self.gap = True
 
     def feed(self, line):
         if not self.enabled:
             return
         line = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', line).strip()
+        if self.start_marker is not None:
+            if line.startswith(self.start_marker):
+                self.start_marker = None
+            return
+        if line == 'Job stats:':
+            self.in_job_stats = True
+            return
+        if self.in_job_stats:
+            total = re.fullmatch(r'total\s+(\d{1,9})', line)
+            if total and self.total is None and not self.gap and 0 < int(total[1]) <= 100000000:
+                self.done, self.total = 0, int(total[1])
+            if not total and re.fullmatch(r'(?:job\s+count|-+\s+-+|[\w.-]+\s+\d{1,9})', line):
+                return
+            self.in_job_stats = False
         if 'DAG of jobs will be updated after completion' in line:
             self.dynamic = True
-        counts = re.fullmatch(r'(\d+) of (\d+) steps \([\d.]+%\) done', line)
+        counts = re.fullmatch(r'(\d{1,9}) of (\d{1,9}) steps \([\d.]+%\) done', line)
         if counts:
             done, total = map(int, counts.groups())
             if 0 <= done <= total <= 100000000 and total:
@@ -64,12 +86,15 @@ class Progress:
         if header:
             self.pending = header[1]
             return
-        job = re.fullmatch(r'jobid: (\d+)', line)
+        message = re.fullmatch(r'Job (\d{1,12}):\s+(.+)', line)
+        if message:
+            label = ' '.join(message[2].split())
+            self.started(message[1], label if len(label) <= 200 else label[:199] + '…', rule=False)
+            self.pending = None
+            return
+        job = re.fullmatch(r'jobid: (\d{1,12})', line)
         if job and self.pending:
-            if len(self.active) < 256 or job[1] in self.active:
-                self.active[job[1]] = self.pending
-            else:
-                self.gap = True
+            self.started(job[1], self.pending, rule=True)
             self.pending = None
         finished = re.match(r'Finished (?:job (\d+)\.|jobid: (\d+)(?:\s|$))', line)
         if finished:
@@ -80,7 +105,8 @@ class Progress:
     def value(self):
         return {'completed': self.done, 'total': self.total,
                 'percent': round(100 * self.done / self.total, 1) if self.total else None,
-                'active_rules': list(dict.fromkeys(self.active.values()))[:12],
+                'active_tasks': list(dict.fromkeys(label for label, _ in self.active.values()))[:12],
+                'active_rules': list(dict.fromkeys(label for label, rule in self.active.values() if rule))[:12],
                 'active_count': len(self.active), 'dynamic_plan': self.dynamic, 'log_gap': self.gap,
                 'source': 'workflow log' if self.enabled else 'not applicable'}
 
@@ -192,7 +218,10 @@ class Recorder:
         self.position, self.pending = 0, b''
         self.discard_line = False
         self.history = []
-        self.progress = Progress(job['kind'] == 'workflow' and job['payload'].get('action') in {'run', 'continue'})
+        action = job['payload'].get('action')
+        # Continuations first validate the revised workflow using a dry run in the same job log.
+        marker = f"Run {job['payload'].get('run_id')} · source " if action == 'continue' else None
+        self.progress = Progress(job['kind'] == 'workflow' and action in {'run', 'continue'}, marker)
         run = store.get('runs', job['payload'].get('run_id'), {})
         self.record = {'schema': 1, 'id': job['id'], 'run_id': run.get('id'),
                        'kind': job['kind'], 'action': job['payload'].get('action'),
@@ -251,6 +280,7 @@ class Recorder:
                 self.discard_line = False
                 self.progress.active.clear()
                 self.progress.pending = None
+                self.progress.in_job_stats = False
                 self.progress.gap = True
                 if self.position:
                     handle.seek(self.position)

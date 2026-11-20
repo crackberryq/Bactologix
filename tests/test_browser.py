@@ -1403,7 +1403,7 @@ def test_job_progress_resource_history_and_downloads(tmp_path, worker_lease):
         page.get_by_role('link', name='Activity', exact=True).click()
         card = page.locator('.job-card')
         expect(card).to_contain_text('1 / 4 tasks in current plan')
-        expect(card).to_contain_text('Active steps: software_check')
+        expect(card).to_contain_text('Current task software_check')
         expect(card).to_contain_text('150%')
         page.get_by_role('button', name='Resource use', exact=True).click()
         def respond(expected_kind):

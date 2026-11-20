@@ -112,6 +112,7 @@ def test_transient_control_fault_keeps_owned_writer_running_and_stop_works(fixtu
 
 @pytest.mark.parametrize('kind', ['workflow', 'smoke'])
 def test_persistent_control_failure_is_interrupted_not_native_failed(fixture, monkeypatch, kind):
+    monkeypatch.setattr(engine, 'CONTROL_HOLD_SECONDS', .3)
     monkeypatch.setattr(engine, 'WORKFLOW_CONTROL_GRACE_SECONDS', 1.0)
     store, jid, marker, command, _ = fixture
     with store.connect() as db:
@@ -215,6 +216,7 @@ def test_nontransient_sqlite_error_is_not_retried(fixture, monkeypatch):
 
 
 def test_cleanup_unconfirmed_remains_busy_until_identity_checks_pass(fixture, monkeypatch):
+    monkeypatch.setattr(engine, 'CONTROL_HOLD_SECONDS', .3)
     monkeypatch.setattr(engine, 'WORKFLOW_CONTROL_GRACE_SECONDS', .5)
     store, jid, marker, command, _ = fixture
     inject_control_error(store, marker, monkeypatch, failures=None)
@@ -350,6 +352,7 @@ def test_workflow_survives_writer_contention_and_still_enforces_disk_limits(fixt
 
 @pytest.mark.parametrize('error, transient', [('database is locked', True), ('database disk image is malformed', False)])
 def test_disk_status_write_failure_interrupts_workflow_despite_healthy_reads(fixture, monkeypatch, error, transient):
+    monkeypatch.setattr(engine, 'CONTROL_HOLD_SECONDS', .3)
     store, jid, marker, command, _ = fixture
     original_put = store.put
     attempts = []
@@ -451,6 +454,7 @@ else:
 
 def test_setup_interrupts_and_pauses_queue_on_persistent_control_loss(fixture, monkeypatch):
     from bactologix import engine
+    monkeypatch.setattr(engine, 'CONTROL_HOLD_SECONDS', .3)
     store, jid, marker, command, _ = fixture
     with store.connect() as db:
         db.execute("UPDATE jobs SET kind='environments' WHERE id=?", (jid,))

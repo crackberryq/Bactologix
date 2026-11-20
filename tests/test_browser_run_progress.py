@@ -125,7 +125,7 @@ def test_progress_freshness_motion_and_list(progress_page):
     expect(bar).to_contain_text('Updates paused')
     expect(bar).to_contain_text('Last reported · 3 / 12 tasks in current plan')
     expect(page.locator('.job-progress')).not_to_contain_text('Receiving updates')
-    expect(page.locator('.job-progress')).to_contain_text('Last reported steps')
+    expect(page.locator('.job-progress')).to_contain_text('Last reported task')
     measured(page)
     page.clock.set_system_time('2000-01-01T00:00:00Z')
     expect(bar).to_contain_text('Running')
@@ -173,6 +173,29 @@ def test_background_progress_refresh_keeps_editing_context(progress_page):
     assert_workspace_fits_viewport(page,'Running isolate controls on mobile')
     if preview:
         page.screenshot(path=str(Path(preview)/'run-progress-mobile.png'),full_page=True)
+
+def test_named_parallel_tasks_before_first_completion_and_stale_attempt(progress_page):
+    from playwright.sync_api import expect
+    page = progress_page
+    measured(page, 0, 4)
+    page.evaluate('''() => {
+      progressJob.telemetry.progress.active_tasks = ['Kraken2 raw Illumina', 'QC <sample>'];
+      progressJob.telemetry.progress.active_count = 2;
+      progressRerender();
+    }''')
+    heading = page.locator('#main > .run-progress')
+    usage = page.locator('.run-job .job-progress')
+    for panel in [heading, usage]:
+        expect(panel).to_contain_text('0 / 4 tasks in current plan')
+        expect(panel).to_contain_text('Current tasks Kraken2 raw Illumina, QC <sample>')
+        expect(panel.locator('sample')).to_have_count(0)
+    page.evaluate("progressJob.monitoring={state:'degraded'};progressRerender()")
+    for panel in [heading, usage]:
+        expect(panel).to_contain_text('Last reported tasks Kraken2 raw Illumina, QC <sample>')
+    page.evaluate("progressJob.telemetry.id='different-attempt';progressRerender()")
+    for panel in [heading, usage]:
+        expect(panel).not_to_contain_text('Kraken2 raw Illumina')
+
 
 def test_run_heading_stop_queue_controls_and_resource_counts(progress_page):
     from playwright.sync_api import expect

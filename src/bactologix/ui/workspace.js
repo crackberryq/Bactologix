@@ -194,9 +194,24 @@ function syncComputeBudget(prefix){
 }
 function krakenLabel(r){return r.tool==='hybas'?({off:'Off',manual:'Manual',auto:'Auto',aware:'AWARE'}[r.kraken_mode]||r.kraken_mode||'Pipeline default'):'—';}
 function readMode(mode){if(typeof mode!=='string'||!mode.trim())return 'Not recorded';return ({hybrid:'Hybrid',illumina_only:'Illumina only',ont_only:'ONT only'}[mode]||mode.replaceAll('_',' '));}
-function currentTaskCounts(j,forRun=false){
+function workflowProgress(j,forRun=false){
  const t=j.telemetry,p=t?.progress;
- return j.kind==='workflow'&&['run','continue'].includes(j.payload?.action)&&t?.id===j.id&&(!forRun&&t.run_id==null||t.run_id===j.payload.run_id)&&t.action===j.payload.action&&p?.source==='workflow log'&&Number.isInteger(p.completed)&&Number.isInteger(p.total)&&p.total>0&&p.completed>=0&&p.completed<=p.total?p:null;
+ if(j.status==='queued'||j.kind!=='workflow'||!['run','continue'].includes(j.payload?.action)||t?.id!==j.id||t.action!==j.payload.action)return null;
+ if((forRun||t.run_id!=null)&&t.run_id!==j.payload.run_id)return null;
+ return p?.source==='workflow log'?p:null;
+}
+function taskCounts(p){
+ return p&&Number.isInteger(p.completed)&&Number.isInteger(p.total)&&p.total>0&&p.completed>=0&&p.completed<=p.total?p:null;
+}
+function taskNames(j,p,live,paused){
+ const recorded=p?.active_tasks??p?.active_rules;
+ if(!Array.isArray(recorded))return '';
+ const names=recorded.filter(name=>typeof name==='string'&&name.trim()).slice(0,12);
+ if(!names.length)return '';
+ const plural=names.length>1||p.active_count>1;
+ const label=paused?(plural?'Tasks at pause':'Task at pause'):live&&!j.cancel&&!p.log_gap?(plural?'Current tasks':'Current task'):(plural?'Last reported tasks':'Last reported task');
+ const count=p.active_count>names.length?` · ${e(p.active_count)} tasks at last update`:'';
+ return `<p class="usage-step"><span>${label}</span> <strong>${names.map(e).join(', ')}</strong>${count}</p>`;
 }
 function progressFresh(j){
  if(j.status!=='running'||monitorIssue(j)||!navigator.onLine||performance.now()-snapshotReceivedAt>15000)return false;
@@ -206,11 +221,29 @@ function progressFresh(j){
 }
 function stopUnconfirmed(j){return j?.status==='running'&&j?.monitoring?.state==='interrupted'&&j.monitoring.cleanup_confirmed!==true;}
 function monitorIssue(j){return ['degraded','interrupted','unavailable'].includes(j?.monitoring?.state);}
-function monitorTitle(j){return j?.monitoring?.state==='degraded'?'Monitoring retrying':j?.monitoring?.state==='unavailable'?'Monitoring record unavailable':'Monitoring interrupted';}
-function monitoringPanel(j){
- const m=j?.monitoring;if(!m||!['degraded','interrupted','unavailable','recovered'].includes(m.state))return '';
- const detail=m.state==='recovered'?'Monitoring recovered after a temporary database error. This is a monitoring event; it does not establish workflow completion.':m.state==='degraded'?'Bactologix is retrying a temporary control database error. The workflow result is not yet known.':m.cleanup_confirmed===true?'Bactologix interrupted this attempt because monitoring became unavailable. The recorded owned processes have exited. This is not a recorded native tool failure.':j.status==='running'?'A stop was attempted, but native process exit has not been confirmed. Another stop request cannot restore monitoring. This run remains protected from relaunch, unlock and cleanup until its recorded processes can be checked.':'The monitoring record does not confirm native process exit. Review this attempt’s log and process records before recovery.';
- return `<section class="card padded monitoring-notice" aria-label="Run monitoring"><h3>${e(m.state==='recovered'?'Monitoring recovered':monitorTitle(j))}</h3><p>${e(detail)}</p>${m.detail?`<p>${e(m.detail)}</p>`:''}<small>Recorded ${e(m.updated_at||'time unavailable')}. Review the job log for this attempt.</small></section>`;
+function monitorTitle(j){return j?.monitoring?.state==='degraded'?(j.monitoring.control_hold===true?'Paused · workspace database busy':'Monitoring retrying'):j?.monitoring?.state==='unavailable'?'Monitoring record unavailable':'Monitoring interrupted';}
+function monitoringPanel(j,showHistory=false){
+ const m=j?.monitoring;
+ if(m?.state==='recovered'){
+  if(!showHistory)return '';
+  const timestamp=Date.parse(m.updated_at);
+  const when=Number.isFinite(timestamp)?' · '+new Date(timestamp).toLocaleString():'';
+  return `<p class="secondary-line monitoring-history">Workspace connection restored${e(when)}. Bactologix could read the job controls again.</p>`;
+ }
+ if(!monitorIssue(j))return '';
+ let detail;
+ if(m.state==='degraded'){
+  detail=m.control_hold===true?'Bactologix suspended the task while it waits for workspace access. It will recheck the job controls before continuing.':'Bactologix is retrying access to the workspace database. Task and usage readings may be delayed.';
+ }else if(m.state==='unavailable'){
+  detail='Bactologix could not read the monitoring record for this attempt. Refresh Jobs & progress for its latest status.';
+ }else if(m.cleanup_confirmed===true){
+  detail='Bactologix interrupted this attempt after losing access to job controls. Its recorded processes have exited. Review the job log for the last completed task.';
+ }else if(j.status==='running'){
+  detail='A stop was requested. Process exit has not been confirmed. Bactologix will check the recorded processes before allowing a retry.';
+ }else{
+  detail='Bactologix could not verify that its processes exited. Review this attempt in Jobs & progress.';
+ }
+ return `<section class="card padded monitoring-notice" aria-label="Run monitoring"><h3>${e(monitorTitle(j))}</h3><p>${e(detail)}</p>${m.detail?`<p>${e(m.detail)}</p>`:''}<small>Recorded ${e(m.updated_at||'time unavailable')}.</small></section>`;
 }
 function diskSafety(j){return j?.status==='running'?(j.disk_safety||S.jobs.find(row=>row.id===j.id)?.disk_safety):null;}
 function diskPaused(j){return diskSafety(j)?.state==='paused';}
@@ -248,13 +281,13 @@ function runProgress(r,compact=false){
  // Jobs are newest first. Never carry an earlier attempt's counts into a retry.
  const j=latestRunJob(r);
  if(!j||!['queued','running'].includes(j.status))return '';
- const queued=j.status==='queued',paused=diskPaused(j),fresh=progressFresh(j),counts=!queued?currentTaskCounts(j,true):null;
+ const queued=j.status==='queued',paused=diskPaused(j),fresh=progressFresh(j),p=workflowProgress(j,true),counts=taskCounts(p);
  const action=j.kind==='workflow_unlock'?'Unlocking workflow':({'dry-run':'Validating setup',prepare:'Preparing environments',run:'Run / resume',continue:'Continuing run','check-environments':'Checking environments'})[j.payload.action]||'Workflow';
  const status=runProgressStatus(j);
  const detail=queued?'Waiting to start':paused?(diskSafety(j).pause_kind==='before_launch'?'Next command has not started':counts?`${counts.completed} / ${counts.total} tasks at pause`:'Tool processes suspended'):counts?`${counts.completed} / ${counts.total} tasks in current plan`:'Task count not reported yet';
  const label=`${r.label}: ${status}. ${action}. ${!queued&&!fresh?'Last reported: ':''}${detail}`;
  const measured=counts?`<progress aria-label="${e(label)}" value="${counts.completed}" max="${counts.total}"></progress>`:`<div class="run-progress-track${!queued&&!paused&&fresh&&!j.cancel?' is-moving':''}" ${queued?'aria-hidden="true"':`role="progressbar" aria-label="${e(label)}"`}><span></span></div>`;
- return `<div class="run-progress${compact?' run-progress-compact':''}${paused?' is-paused':''}${!queued&&!fresh?' is-stale':''}" data-run-progress="${e(r.id)}" data-compact="${compact}" data-progress-state="${e(status)}"><div class="run-progress-label"><strong>${e(status)}${compact?'':' · '+e(action)}</strong><span>${!queued&&!fresh?'Last reported · ':''}${e(detail)}</span></div>${measured}${!compact&&counts?.dynamic_plan?'<small>Checkpoints can change the task total.</small>':''}</div>`;
+ return `<div class="run-progress${compact?' run-progress-compact':''}${paused?' is-paused':''}${!queued&&!fresh?' is-stale':''}" data-run-progress="${e(r.id)}" data-compact="${compact}" data-progress-state="${e(status)}"><div class="run-progress-label"><strong>${e(status)}${compact?'':' · '+e(action)}</strong><span>${!queued&&!fresh?'Last reported · ':''}${e(detail)}</span></div>${measured}${!compact?taskNames(j,p,fresh,paused):''}${!compact&&counts?.dynamic_plan?'<small>Checkpoints can change the task total.</small>':''}</div>`;
 }
 function latestRunJob(r){return r?S.jobs.find(j=>['workflow','workflow_unlock'].includes(j.kind)&&j.payload?.run_id===r.id&&!r.previous_draft_jobs?.includes(j.id)):null;}
 function runControls(r){
@@ -427,7 +460,7 @@ function runPage(){
 }
 function runActivity(r){
  const jobs=S.jobs.filter(j=>j.payload.run_id===r.id);
- return `<div class="settings-intro"><div><h3>Run activity</h3><p>Validation, environment preparation and execution jobs for this saved run.</p></div></div>`+(jobs.length?`<div class="run-activity">${jobs.map(j=>`<article class="run-job"><div><strong>${e(({'dry-run':'Validate run',prepare:'Install environments',run:'Run / resume',continue:'Continue after identification','check-environments':'Check environments',unlock:'Unlock workflow'}[j.payload.action])||j.kind)}</strong><span class="secondary-line">${e(j.created)} · ${e(j.id)}</span>${r.previous_draft_jobs?.includes(j.id)?badge('Earlier draft settings'):''}${guidancePanel(j)}${monitoringPanel(j)}</div>${jobStatus(j)}<div class="button-row">${btn('job-log','View log',false,j.id)}${j.kind==='isolate_export'?btn('isolate-export-receipt','View export receipt',false,j.id,'file'):''}${usageButton(j)}${diskResumeButton(j)}${['queued','running'].includes(j.status)?btn('cancel-job',stopUnconfirmed(j)?'Exit unconfirmed':'Stop',false,j.id,'stop',stopUnconfirmed(j)):''}</div>${jobTelemetry(j)}</article>`).join('')}</div>`:empty('No jobs for this run yet.','Open Overview to validate its configuration and check its environments.'));
+ return `<div class="settings-intro"><div><h3>Run activity</h3><p>Validation, environment preparation and execution jobs for this saved run.</p></div></div>`+(jobs.length?`<div class="run-activity">${jobs.map(j=>`<article class="run-job"><div><strong>${e(({'dry-run':'Validate run',prepare:'Install environments',run:'Run / resume',continue:'Continue after identification','check-environments':'Check environments',unlock:'Unlock workflow'}[j.payload.action])||j.kind)}</strong><span class="secondary-line">${e(j.created)} · ${e(j.id)}</span>${r.previous_draft_jobs?.includes(j.id)?badge('Earlier draft settings'):''}${guidancePanel(j)}${monitoringPanel(j,true)}</div>${jobStatus(j)}<div class="button-row">${btn('job-log','View log',false,j.id)}${j.kind==='isolate_export'?btn('isolate-export-receipt','View export receipt',false,j.id,'file'):''}${usageButton(j)}${diskResumeButton(j)}${['queued','running'].includes(j.status)?btn('cancel-job',stopUnconfirmed(j)?'Exit unconfirmed':'Stop',false,j.id,'stop',stopUnconfirmed(j)):''}</div>${jobTelemetry(j)}</article>`).join('')}</div>`:empty('No jobs for this run yet.','Open Overview to validate its configuration and check its environments.'));
 }
 const compatibilitySupport={recommended:'Recommended snapshot',earlier_supported:'Earlier supported snapshot',contract_supported:'Reviewed release contract',unreviewed:'Unreviewed commit',missing_commit:'Commit not recorded',unknown_pipeline:'Unknown pipeline'};
 const compatibilityBinding={recorded_match:'Recorded installation matches',missing_installation:'Installation not registered',source_mismatch:'Installation/source mismatch',setup_needed:'Runner setup needed'};
@@ -664,9 +697,11 @@ function jobNetwork(t,live){
  return `<div class="usage-inline" role="group" aria-label="Job network activity">${direction('Download','Downloaded',rxRate,rx)}${direction('Upload','Uploaded',txRate,tx)}${activity}${t.network_partial?'<span>Partial network readings</span>':''}</div>`;
 }
 function jobTelemetry(j){
- const t=j.telemetry;if(!t)return '';const p=t.progress||{},running=j.status==='running',live=progressFresh(j),paused=diskPaused(j);
- const counts=currentTaskCounts(j);
- return `<div class="job-progress" data-job-progress="${e(j.id)}" data-live="${live}"><div class="usage-inline"><span>Elapsed <strong>${usageDuration(t.elapsed_s)}</strong></span><span>${live?'CPU now':'Observed CPU'} <strong>${live?usageMeasure(t.latest?.cpu_percent,'%'):usageMeasure(t.samples?t.observed_cpu_s:null,' s')}</strong></span><span>Peak sampled RAM <strong>${usageMeasure(t.peak_rss_mb,' MiB')}</strong></span>${paused?diskPauseBadge(j):running?badge(live?'Receiving updates':'Updates paused',live?'green':'amber'):''}</div>${jobNetwork(t,live)}${counts?`<div class="task-progress"><label>${p.completed} / ${p.total} tasks in current plan <span>${usageNumber(100*p.completed/p.total)}%</span></label><progress aria-label="Tasks in current plan" value="${p.completed}" max="${p.total}"></progress></div>`:p.source==='workflow log'?'<small>Task count not reported yet.</small>':''}${p.active_rules?.length?`<p class="usage-step">${paused?'Steps at pause':live?'Active steps':'Last reported steps'}: <strong>${p.active_rules.map(e).join(', ')}</strong>${p.active_count>p.active_rules.length?' · '+p.active_count+' active tasks at last update':''}</p>`:live&&t.command_name?`<p class="usage-step">Command: <strong>${e(t.command_name)}</strong></p>`:''}${p.dynamic_plan?'<small>Checkpoints can change the task total.</small>':''}${t.incomplete||t.observer_errors?'<small class="usage-warning">Partial record — observation ended unexpectedly or some updates failed.</small>':''}${running&&!live?'<small class="usage-warning">Showing the last saved measurements. Open the log to check the job.</small>':''}</div>`;
+ const t=j.telemetry;if(!t)return '';const p=workflowProgress(j),running=j.status==='running',live=progressFresh(j),paused=diskPaused(j);
+ const counts=taskCounts(p),names=taskNames(j,p,live,paused);
+ const command=!p&&live&&t.command_name?`<p class="usage-step">Command <strong>${e(t.command_name)}</strong></p>`:'';
+ const countLabel=running&&(!live||p?.log_gap)?'Last reported · ':'';
+ return `<div class="job-progress" data-job-progress="${e(j.id)}" data-live="${live}"><div class="usage-inline"><span>Elapsed <strong>${usageDuration(t.elapsed_s)}</strong></span><span>${live?'CPU now':'Observed CPU'} <strong>${live?usageMeasure(t.latest?.cpu_percent,'%'):usageMeasure(t.samples?t.observed_cpu_s:null,' s')}</strong></span><span>Peak sampled RAM <strong>${usageMeasure(t.peak_rss_mb,' MiB')}</strong></span>${paused?diskPauseBadge(j):running?badge(live?'Receiving updates':'Updates paused',live?'green':'amber'):''}</div>${names||command}${counts?`<div class="task-progress"><label>${countLabel}${p.completed} / ${p.total} tasks in current plan <span>${usageNumber(100*p.completed/p.total)}%</span></label><progress aria-label="Tasks in current plan" value="${p.completed}" max="${p.total}"></progress></div>`:p?'<small>Task count not reported yet.</small>':''}${jobNetwork(t,live)}${p?.dynamic_plan?'<small>Checkpoints can change the task total.</small>':''}${t.incomplete||t.observer_errors?'<small class="usage-warning">Partial record — observation ended unexpectedly or some updates failed.</small>':''}${running&&!live?'<small class="usage-warning">Showing the last saved measurements. Open the log to check the job.</small>':''}</div>`;
 }
 function usageButton(j){return j.telemetry?btn('job-usage','Resource use',false,j.id,'cpu'):'';}
 function usageChart(points,metric,title,unit){
@@ -716,7 +751,7 @@ function queuePanel(){
  const status=q.paused?(storage.paused||storage.waiting?'Queue paused · storage protection active':q.running.length?'Finishing current job · queue paused':'Queue paused'):q.waiting.length&&q.held_count===q.waiting.length?'All waiting jobs are held':'Queue enabled';
  return `<section class="card queue-controls" aria-label="Queue controls"><div class="card-head"><div><h2>${e(status)}</h2><p>${storage.label}${running} running · ${q.waiting.length-q.held_count} eligible waiting · ${q.held_count} held</p></div>${btn(q.paused?'resume-queue':'pause-queue',q.paused?'Resume queue':q.running.length?'Stop after current job':'Pause queue',true,'','',locked)}</div><div class="padded">${helpDetails('How queue controls work','Queue pause prevents the next job from starting; it does not suspend current tools or resume a storage-paused run. Holds and the waiting order are saved across browser and app restarts.')}${q.paused&&q.pause_reason==='interruption'?notice('Review interrupted work before resuming',`${q.recovered.length} attempt(s) were marked interrupted when the worker recovered at ${e(q.recovered_at)}. Review their logs and saved runs below. Resume queue starts only eligible waiting jobs; it never retries interrupted attempts.`,true):''}${locked?notice('Application update in progress','Queue controls are unavailable until this update finishes.'):''}${q.waiting.length?`<ol class="waiting-jobs" aria-label="Waiting order">${q.waiting.map((row,index)=>{const j=S.jobs.find(j=>j.id===row.id);return `<li class="waiting-job" data-waiting-job="${e(row.id)}"><span class="waiting-position">${index+1}</span><div class="waiting-description"><strong>${e(j?jobLabel(j):row.kind)}</strong><small>${e(row.id)}</small>${badge(row.held?'Held':q.paused?'Paused':'Waiting',row.held||q.paused?'amber':'blue')}</div><div class="button-row">${btn(row.held?'release-job':'hold-job',row.held?'Release hold':'Hold job',false,row.id,'',locked)}${btn('queue-up','Move up',false,row.id,'',locked||index===0)}${btn('queue-down','Move down',false,row.id,'',locked||index===q.waiting.length-1)}</div></li>`;}).join('')}</ol><p class="inline-info">Held jobs are skipped until released. Releasing a hold does not resume a paused queue. Reordering does not change a job’s settings or automatically resolve dependencies.</p>`:'<p>No waiting jobs.</p>'}</div></section>`;
 }
-function jobCard(j){return `<div class="job-card" data-job-id="${e(j.id)}"><div><div class="job-title">${e(jobLabel(j))}</div><div class="job-sub">${e(j.id)} · ${e(j.created)}</div>${j.guidance?guidancePanel(j):j.error?`<p class="error">${e(j.error)}</p>`:''}</div><div>${jobStatus(j)}${j.cancel&&j.status==='running'?'<small class="secondary-line">Stop requested</small>':''}</div><div class="button-row">${runBy(j.payload.run_id)?btn('run-detail','Review run',false,j.payload.run_id):''}${j.kind==='workstation'?btn('workstation-detail','Review check',false,j.id):''}${btn('job-log','View log',false,j.id,'file')}${j.kind==='isolate_export'?btn('isolate-export-receipt','View export receipt',false,j.id,'file'):''}${usageButton(j)}${diskResumeButton(j)}${['queued','running'].includes(j.status)&&!(j.kind==='app_update'&&j.status==='running')?btn('cancel-job',stopUnconfirmed(j)?'Exit unconfirmed':'Stop',false,j.id,'stop',stopUnconfirmed(j)):''}</div>${diskSafetyPanel(j)}${monitoringPanel(j)}${jobTelemetry(j)}</div>`;}
+function jobCard(j){return `<div class="job-card" data-job-id="${e(j.id)}"><div><div class="job-title">${e(jobLabel(j))}</div><div class="job-sub">${e(j.id)} · ${e(j.created)}</div>${j.guidance?guidancePanel(j):j.error?`<p class="error">${e(j.error)}</p>`:''}</div><div>${jobStatus(j)}${j.cancel&&j.status==='running'?'<small class="secondary-line">Stop requested</small>':''}</div><div class="button-row">${runBy(j.payload.run_id)?btn('run-detail','Review run',false,j.payload.run_id):''}${j.kind==='workstation'?btn('workstation-detail','Review check',false,j.id):''}${btn('job-log','View log',false,j.id,'file')}${j.kind==='isolate_export'?btn('isolate-export-receipt','View export receipt',false,j.id,'file'):''}${usageButton(j)}${diskResumeButton(j)}${['queued','running'].includes(j.status)&&!(j.kind==='app_update'&&j.status==='running')?btn('cancel-job',stopUnconfirmed(j)?'Exit unconfirmed':'Stop',false,j.id,'stop',stopUnconfirmed(j)):''}</div>${diskSafetyPanel(j)}${monitoringPanel(j,!activeJob(j))}${jobTelemetry(j)}</div>`;}
 const activeJob=j=>['queued','running'].includes(j.status);
 const jobPipeline=j=>j.payload.tool||runBy(j.payload.run_id)?.tool||S.installs.find(i=>i.id===j.payload.installation)?.tool||'';
 const jobKinds={factory_reset:'Workspace reset',database_redownload:'Database replacement preparation',isolate_export:'Isolate export',storage_cleanup:'Storage cleanup',workflow:'Saved-run workflow',environments:'Environment maintenance',database_download:'Database preparation',install:'Pipeline installation',connect:'Connect installation',check:'Runner check',smoke:'Software check',workstation:'Workstation check',app_update:'Application update'};

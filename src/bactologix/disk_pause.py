@@ -138,6 +138,7 @@ class Guard(ProcessOwner):
         self.tree, self.watch = None, None
         self.last_publish, self.resume_nonce, self.resume_after = 0, None, None
         self.publish_pending = False
+        self.control_suspended = False
         run = store.get('runs', job['payload'].get('run_id'), {})
         self.samples = Samples(store, run, initial_env=initial_env)
         self.record = {'id': job['id'], 'run_id': job['payload'].get('run_id'),
@@ -166,6 +167,13 @@ class Guard(ProcessOwner):
         # Only the matching request may authorize a thaw. Keep the tree frozen
         # until SQLite confirms that we consumed the reviewed generation/nonce.
         with self.store.connect(timeout=CONTROL_TIMEOUT) as db:
+            if self.control_suspended:
+                # Prove the pending writer can acquire SQLite again without
+                # consuming the user's request while the separate control hold
+                # prevents a thaw. The disk guard will apply the same nonce
+                # after control recovery and check the full resume threshold.
+                db.execute('BEGIN IMMEDIATE')
+                return False
             deleted = db.execute("""DELETE FROM items WHERE kind='disk_safety_requests' AND id=?
                                  AND json_extract(body,'$.generation')=? AND json_extract(body,'$.nonce')=?""",
                                  (self.job['id'], request['generation'], request['nonce']))
@@ -181,6 +189,19 @@ class Guard(ProcessOwner):
     def before_command(self, cwd=None, extra_env=None):
         self.samples.include_command(cwd, extra_env)
         self.checkpoint()
+
+    def control_recovery_ready(self, after):
+        if self.record['state'] == 'paused':
+            # Ownership of the freeze returns to the disk guard. Its normal
+            # user-requested resume still requires a new 15 GiB sample.
+            return True
+        sample = self.samples.current()
+        if sample is None or sample[1] <= after:
+            return False
+        value = sample[0]
+        volumes = value.get('volumes') or []
+        return bool(volumes) and not value.get('errors') and all(
+            type(v.get('available_bytes')) is int and v['available_bytes'] > PAUSE_BYTES for v in volumes)
 
     def attach(self, proc):
         self.tree = OwnedTree(proc.pid)

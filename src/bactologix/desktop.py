@@ -36,7 +36,7 @@ def read(path):
 
 def owner_cancelled(store, jid):
     state = store.control_state(jid)
-    return bool(state['owner']) and session_value_stopped(state['session'])
+    return bool(state['owner']) and session_value_stopped(state['session'], store=store, owner=state['owner'])
 
 
 def session_stopped(store, owner):
@@ -46,17 +46,46 @@ def session_stopped(store, owner):
         row = db.execute("SELECT body FROM items WHERE kind='desktop_sessions' AND id=?", (owner,)).fetchone()
         return json.loads(row[0]) if row else None
     session = store.control_read(read)
-    return session_value_stopped(session)
+    return session_value_stopped(session, store=store, owner=owner)
 
 
-def session_value_stopped(session):
-    if session is not None and (not isinstance(session, dict) or
-            not isinstance(session.get('last_seen', 0), (int, float)) or
-            isinstance(session.get('last_seen', 0), bool) or
-            not math.isfinite(session.get('last_seen', 0))):
+def _timestamp(value):
+    return type(value) in (float, int) and math.isfinite(value)
+
+
+def _lease_path(store, owner):
+    if not re.fullmatch(r'[a-f0-9]{32}', owner or ''):
+        raise MonitoringInterrupted('Desktop session identity is invalid.')
+    return store.home / 'logs' / ('desktop-' + owner + '.lease.json')
+
+
+def session_value_stopped(session, *, store=None, owner=None):
+    if session is not None and (not isinstance(session, dict) or not _timestamp(session.get('last_seen', 0))):
         raise MonitoringInterrupted('Desktop session control metadata is invalid.')
-    return (not session or session.get('cancelled') is True or session.get('phase') in {'stopping', 'stopped'}
-            or time.time() - session.get('last_seen', 0) > LEASE_SECONDS)
+    if not session or session.get('cancelled') is True or session.get('phase') in {'stopping', 'stopped'}:
+        return True
+    recorded = session.get('last_seen', 0)
+    proof = {}
+    if store is not None and owner is not None:
+        # Only the owning launcher publishes a live proof during contention or
+        # a stop on close. Jobs still check their own durable cancellation flag.
+        path = _lease_path(store, owner)
+        try:
+            proof = json.loads(path.read_bytes())
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError) as exc:
+            raise MonitoringInterrupted('Desktop control recovery record is unreadable.') from exc
+        if not isinstance(proof, dict) or (proof and proof.get('session') != owner):
+            raise MonitoringInterrupted('Desktop control recovery record is invalid.')
+        if proof.get('stopping') is True:
+            return True
+    current = time.time()
+    if current - recorded <= LEASE_SECONDS:
+        return False
+    heartbeat = proof.get('heartbeat')
+    return not (proof.get('recorded') == recorded and _timestamp(heartbeat)
+                and 0 <= current - heartbeat < LEASE_SECONDS)
 
 
 def request_browser(store):
@@ -82,6 +111,10 @@ class Session:
         self.phase = 'starting'
         self.reason = ''
         self.pending_stop_reason = None
+        self.last_committed = None
+        self.proven_until = 0
+        self.proof_path = _lease_path(store, key)
+        self.stop_recorded = False
         self.publish('')
 
     def jobs(self):
@@ -102,10 +135,8 @@ class Session:
                     previous = json.loads(row[0]) if row else {}
                     if not isinstance(previous, dict):
                         raise ValueError('Desktop session control metadata is invalid.')
-                    if row:
-                        session_value_stopped(previous)  # Validate timestamp shape before any renewal.
                     terminal = previous.get('cancelled') is True or previous.get('phase') in {'stopping', 'stopped'}
-                    expired = bool(row) and time.time() - previous.get('last_seen', 0) > LEASE_SECONDS
+                    expired = bool(row) and session_value_stopped(previous, store=self.store, owner=self.key)
                     selected = previous.get('phase', phase) if heartbeat else phase
                     reason = self.pending_stop_reason or previous.get('reason') or self.reason
                     if terminal:
@@ -125,6 +156,8 @@ class Session:
                         db.execute("UPDATE jobs SET cancel=1,status=CASE WHEN status='queued' THEN 'cancelled' ELSE status END "
                                    "WHERE status IN ('queued','running') AND NOT(kind='app_update' AND status='running') "
                                    "AND id IN (SELECT id FROM items WHERE kind='job_owners' AND body=?)", (json.dumps(self.key),))
+                self.last_committed = value['last_seen']
+                self.proven_until = self.last_committed + LEASE_SECONDS
                 self.phase, self.reason = value['phase'], value['reason']
                 if cancelled:
                     self.pending_stop_reason = self.reason
@@ -134,10 +167,19 @@ class Session:
                     raise
                 time.sleep(CONTROL_BACKOFF[attempt])
 
+    def record_stop(self):
+        if not self.stop_recorded:
+            try:
+                atomic(self.proof_path, {'session': self.key, 'stopping': True})
+            except OSError:
+                return  # Still try the durable stop. Any older proof expires.
+            self.stop_recorded = True
+
     def stop(self, reason='Window closed'):
         # Same SQLite write boundary used by submit: after gating, a racing UI
         # cannot sneak in another job between cancellation and server shutdown.
         self.pending_stop_reason = self.pending_stop_reason or self.reason or reason
+        self.record_stop()
         self.gate('stopping')
 
     def publish(self, url):
@@ -150,7 +192,9 @@ class Session:
 
     def tick(self, url, ready):
         heartbeat = read(self.root / 'heartbeat.json')
-        alive = heartbeat.get('session') == self.key and time.time() - heartbeat.get('time', 0) < LEASE_SECONDS
+        seen = heartbeat.get('time') if isinstance(heartbeat, dict) else None
+        alive = (isinstance(heartbeat, dict) and heartbeat.get('session') == self.key
+                 and _timestamp(seen) and 0 <= time.time() - seen < LEASE_SECONDS)
         if not alive and time.time() - self.started > LEASE_SECONDS:
             self.stop('Desktop supervisor disconnected; stopping owned work')
         request = read(self.root / 'request.json')
@@ -172,29 +216,60 @@ class Session:
         self.publish(url)
         return self.phase in {'stopping', 'stopped'} and not self.jobs()
 
+    def record_contended_lease(self):
+        """Bridge an observed, continuous Windows owner across a failed SQLite poll."""
+        heartbeat = read(self.root / 'heartbeat.json')
+        request = read(self.root / 'request.json')
+        if isinstance(request, dict) and request.get('session') == self.key and request.get('action') == 'confirm_close':
+            self.pending_stop_reason = self.pending_stop_reason or 'Window closed'
+        if self.pending_stop_reason or self.phase in {'stopping', 'stopped'}:
+            self.record_stop()
+            return False
+        seen = heartbeat.get('time') if isinstance(heartbeat, dict) else None
+        current = time.time()
+        if (self.last_committed is None or not _timestamp(current) or current >= self.proven_until
+                or not isinstance(heartbeat, dict) or heartbeat.get('session') != self.key
+                or not _timestamp(seen) or not 0 <= current - seen < LEASE_SECONDS):
+            return False
+        # An old or repeatedly copied heartbeat cannot extend authority past
+        # its own timestamp. A later heartbeat cannot bridge a missed lease.
+        try:
+            atomic(self.proof_path, {'session': self.key, 'recorded': self.last_committed, 'heartbeat': seen})
+        except OSError:
+            return False
+        self.proven_until = seen + LEASE_SECONDS
+        return True
+
     def poll(self, url, ready):
         """Keep the Windows session alive across brief control-database contention."""
         deadline = time.monotonic() + LEASE_SECONDS
+        closing = False
         while True:
             try:
                 return self.tick(url, ready)
             except (sqlite3.Error, MonitoringInterrupted) as exc:
-                # A failed control read wraps its SQLite cause. Re-read the OS
-                # heartbeat and any pending close on every attempt. Only gate()
-                # may renew the lease, after checking its durable expiry/stop.
+                # Retain the launcher only while we can independently observe
+                # the matching Windows owner or the initial retry window lasts.
                 cause = exc.__cause__ if isinstance(exc, MonitoringInterrupted) else exc
                 if not isinstance(cause, sqlite3.Error) or not transient_lock(cause):
                     raise
+                ongoing = self.record_contended_lease()
+                if self.pending_stop_reason and not closing:
+                    # A close received during a long hold gets its own bounded
+                    # polling window to commit the stop already signalled locally.
+                    deadline = time.monotonic() + LEASE_SECONDS
+                    closing = True
                 remaining = deadline - time.monotonic()
-                if remaining <= 0:
+                if remaining <= 0 and not ongoing:
                     raise
-                time.sleep(min(.3, remaining))
+                time.sleep(.3 if ongoing else min(.3, remaining))
 
     def finish(self, url):
         if self.jobs():
             raise RuntimeError('Desktop shutdown cannot be confirmed while owned jobs remain active.')
         self.gate('stopped')
         self.publish(url)
+        self.proof_path.unlink(missing_ok=True)
 
     def control_failure(self, url, error):
         # Do not claim zero jobs, a refreshed lease, or completed shutdown when
