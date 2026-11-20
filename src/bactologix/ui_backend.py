@@ -19,7 +19,7 @@ from .local import browse_folders, discover_environments, discover_installations
 from .runs import (absolute_path, clone_runs, command, create_run,
                    parse_config, register_sample, remove_sample, archive_runs, reports, template, validate_launch,
                    dry_run_current, run_status, check_run_files)
-from .store import identifier
+from .store import identifier, display_read, transient_lock
 from .storage_guard import activity
 from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, storage_cleanup, compatibility, comparisons, sample_imports
 from . import setup_state, assessment, compute_memory
@@ -28,6 +28,33 @@ from . import reference_catalog
 from . import database_builder, followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
 _SNAPSHOTS = {}
+
+
+def display_busy(exc):
+    from .supervision import MonitoringInterrupted
+    import sqlite3
+    cause = exc.__cause__ if isinstance(exc, MonitoringInterrupted) else exc
+    return isinstance(cause, sqlite3.Error) and transient_lock(cause)
+
+
+def display_snapshot(store, *, cached=False):
+    """Keep an existing UI mounted if a render encounters transient contention."""
+    from . import update_checks
+    with display_read():
+        try:
+            state = snapshot(store, cached=cached)
+        except Exception as exc:
+            if not display_busy(exc):
+                raise
+            prior = _SNAPSHOTS.get(store.home)
+            return {**copy.deepcopy(prior), 'workspace_busy': True} if prior is not None else None
+        if not state['app_update']['active_job'] and not state['app_update']['restart_required']:
+            try:
+                update_checks.tick(store)
+            except Exception as exc:
+                if not display_busy(exc):
+                    raise
+        return state
 
 
 def installation_status(item, jobs, store=None):
@@ -883,6 +910,11 @@ def handle_request(store, request, session):
         elif kind in {'poll_ui_task', 'cancel_ui_task'}:
             action = async_tasks.poll if kind == 'poll_ui_task' else async_tasks.cancel
             value = {'async_task': action(store, owner, payload.get('token')), 'keep_modal': True}
+        elif kind in {'inspect_run', 'inspect_results', 'job_log', 'job_metrics',
+                      'inspect_workstation', 'isolate_export_receipt'}:
+            # These same read requests drive the automatic active-job poll.
+            with display_read():
+                value = dispatch(store, kind, payload)
         else:
             value = dispatch(store, kind, payload)
         response = {"id": request["id"], "ok": True, **value}

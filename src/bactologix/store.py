@@ -1,6 +1,7 @@
 """Small durable workspace. SQLite transactions coordinate the UI and worker."""
 from __future__ import annotations
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 import json
 import os
@@ -10,6 +11,20 @@ import time
 import uuid
 from platformdirs import user_data_dir
 from .storage_guard import activity, exclusive, mutation
+
+# Render-time reads may fall back to a previous view. Never shorten a worker
+# transaction or a user mutation running concurrently in another context.
+_DISPLAY_READ = ContextVar('bactologix_display_read', default=False)
+
+
+@contextmanager
+def display_read():
+    token = _DISPLAY_READ.set(True)
+    try:
+        yield
+    finally:
+        _DISPLAY_READ.reset(token)
+
 
 CONTROL_TIMEOUT = .05
 CONTROL_BACKOFF = (.05, .1, .2)
@@ -69,6 +84,8 @@ class Store:
 
     @contextmanager
     def connect(self, *, timeout=30):
+        if _DISPLAY_READ.get():
+            timeout = min(.25, timeout)
         db = sqlite3.connect(self.home / "workspace.sqlite3", timeout=timeout)
         db.row_factory = sqlite3.Row
         try:

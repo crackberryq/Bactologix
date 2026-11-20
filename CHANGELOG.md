@@ -1,3 +1,9 @@
+## 0.1.0a122.dev1 — 2026-11-20 · Alpha · Windows desktop connection
+
+- Bactologix rechecks the Windows launcher's heartbeat when a read briefly fails or the Windows and WSL clocks differ slightly. The worker can continue the current job when it confirms the same desktop session is still open.
+- The job log records whether Bactologix received a stop request or lost contact with the desktop session that launched the job.
+- If a workspace database lock delays the next screen update, the app labels the last available view and retries automatically.
+
 ## 0.1.0a121.dev1 — 2026-11-20 · Alpha · Workflow monitoring and task progress
 
 - During a workflow or setup command, the worker keeps a workspace database connection open. If the database stays locked after 30 seconds of retries, the worker can suspend the tools it owns and wait up to five more minutes for access to return. The same command can continue after the worker checks for a stop request and verifies the required storage. An existing storage pause still requires **Resume run**.

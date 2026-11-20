@@ -58,7 +58,7 @@ def test_lost_supervisor_cancels_only_owned_work(tmp_path, monkeypatch):
     item = session(tmp_path, store)
     monkeypatch.setenv(desktop.ENV, item.key)
     jid = store.submit('smoke', {})
-    item.started -= 100
+    item.heartbeat_observed -= 100
     desktop.atomic(item.root / 'heartbeat.json', {'session': item.key, 'time': time.time() - 100})
     assert item.tick('', True)
     assert store.job(jid)['status'] == 'cancelled'

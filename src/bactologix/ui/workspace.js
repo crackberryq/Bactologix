@@ -129,6 +129,10 @@ function asyncProgress(){
  return `<section class="async-checks" aria-label="Background checks">${rows.map(([id,task])=>`<div class="async-check" role="status"><div><strong>${e(labels[task.kind]||'Checking saved information')}</strong><span class="secondary-line">${task.progress?e(task.progress.stage)+' · '+e(Number(task.progress.entries||0).toLocaleString())+' entries checked · '+e(task.progress.elapsed_seconds)+'s elapsed':'You can continue using the workspace.'}</span>${task.progress?.path?`<span class="secondary-line path-cell">${e(task.progress.path)}</span>`:''}<span class="async-check-progress" aria-hidden="true"></span></div>${btn('cancel-ui-task','Cancel check',false,id)}</div>`).join('')}</section>`;
 }
 function request(kind,payload={},background=false,swap=null){
+ if(S.workspace_busy&&kind!=='refresh'&&kind!=='cancel_job'){
+  if(!background)toast('Workspace is reconnecting. Try the action again when it is synced.',true);
+  schedulePoll();return;
+ }
  if(kind==='recommend_swap'&&!swapRequestCurrent(swap))return;
  const observation=asyncActions.has(kind);
  if(observation&&Object.values(U.asyncTasks).some(task=>task.kind===kind&&asyncCurrent(task)&&JSON.stringify(task.payload)===JSON.stringify(payload)))return;
@@ -145,7 +149,7 @@ function request(kind,payload={},background=false,swap=null){
  setTriggerValue('action',{id:U.pending,kind,payload});renderBusy();
  if(observation){const panel=$('#async-checks-slot');if(panel)panel.innerHTML=asyncProgress();}
 }
-function renderBusy(){const locked=!!U.queuedRequest&&!asyncActions.has(U.queuedRequest.kind)||!!U.pending&&!U.background;root.classList.toggle('is-busy',locked);const status=$('#connection-status');if(status)status.textContent=locked?'Working…':'Workspace synced';for(const el of $$('input,textarea,select,button[data-action]:not([data-action="close"])')){if(locked&&!el.disabled){el.disabled=true;el.dataset.pendingDisabled='true';}else if(!locked&&el.dataset.pendingDisabled){el.disabled=false;delete el.dataset.pendingDisabled;}}}
+function renderBusy(){const locked=!!U.queuedRequest&&!asyncActions.has(U.queuedRequest.kind)||!!U.pending&&!U.background;root.classList.toggle('is-busy',locked);const status=$('#connection-status');if(status)status.textContent=S.workspace_busy?'Reconnecting to workspace':locked?'Working…':'Workspace synced';for(const el of $$('input,textarea,select,button[data-action]:not([data-action="close"])')){if(locked&&!el.disabled){el.disabled=true;el.dataset.pendingDisabled='true';}else if(!locked&&el.dataset.pendingDisabled){el.disabled=false;delete el.dataset.pendingDisabled;}}}
 function routeHash(){return U.view==='install'&&U.setupTab==='compatibility'?'#install/compatibility':U.view==='draft'?'#drafts/'+(U.wizard?.kind==='edit-run'?'revise/'+encodeURIComponent(U.wizard.id):'new'):U.view==='run'?'#runs/'+encodeURIComponent(U.runId)+'/'+(U.runDetailTab||'overview'):U.view==='comparisons'?'#comparisons/'+(U.comparisonTab||'review'):'#'+U.view;}
 function writeRoute(replace=false){const hash=routeHash();if(U.routeApplied!==hash)U.asyncEpoch=(U.asyncEpoch||0)+1;U.routeApplied=hash;if(window.location.hash!==hash)window.history[replace?'replaceState':'pushState'](null,'',hash);}
 function readRoute(){
@@ -214,7 +218,7 @@ function taskNames(j,p,live,paused){
  return `<p class="usage-step"><span>${label}</span> <strong>${names.map(e).join(', ')}</strong>${count}</p>`;
 }
 function progressFresh(j){
- if(j.status!=='running'||monitorIssue(j)||!navigator.onLine||performance.now()-snapshotReceivedAt>15000)return false;
+ if(S.workspace_busy||j.status!=='running'||monitorIssue(j)||!navigator.onLine||performance.now()-snapshotReceivedAt>15000)return false;
  const t=j.telemetry;if(!t)return true;
  // The server checks collector timestamps; browser and server clocks can differ.
  return t.live===true;
@@ -258,7 +262,7 @@ function diskPauseTitle(j){
 }
 function diskPauseBadge(j){return `<span class="pill amber" data-disk-pause-badge="${e(j.id)}">${e(diskPauseTitle(j))}</span>`;}
 function runStatusBadge(r){const j=latestRunJob(r);return monitorIssue(j)||diskPaused(j)||j?.status==='running'&&j.cancel?jobStatus(j):statusBadge(r.status);}
-function diskConnectionFresh(){return navigator.onLine&&performance.now()-snapshotReceivedAt<5000;}
+function diskConnectionFresh(){return !S.workspace_busy&&navigator.onLine&&performance.now()-snapshotReceivedAt<5000;}
 function diskCanResume(j){const d=diskSafety(j);return diskPaused(j)&&!monitorIssue(j)&&d.can_resume===true&&Number.isInteger(d.generation)&&!d.resume_requested&&!j.cancel&&diskConnectionFresh();}
 function diskResumeButton(j){const d=diskSafety(j);return diskPaused(j)?`<button type="button" class="btn primary" data-action="resume-disk-job" data-id="${e(j.id)}" data-generation="${e(d.generation)}" ${diskCanResume(j)?'':'disabled'}>${d.resume_requested?'Resume requested…':'Resume run'}</button>`:'';}
 function diskSafetyPanel(j){
@@ -1254,8 +1258,9 @@ ${reset?'<p class="inline-info">Save to use the pipeline default for this resour
 ${notice('A quick layout check','Discovery reads filenames and small metadata files. The native pipeline performs its full resource checks when preparing a run. Scanning does not download databases.')}
 <div class="database-footer"><span>${dirty.length?'Selections are not saved yet. Save to use them in future drafts.':'Existing run drafts keep their frozen resource paths.'}</span>${btn('save-databases','Save for future runs',true,t,'check',!dirty.length)}</div>`;}
 function render(){draftInputs();document.title=S.application_title||'Bactologix';$('#navigation').innerHTML=navs.map(([key,label,ico])=>`${key==='overview'?'<div class="nav-label">WORK</div>':key==='install'?'<div class="nav-divider"></div><div class="nav-label">MANAGE</div>':''}<a href="#${key}" aria-label="${e(label)}" data-nav="${key}" class="nav-item ${(['run','draft'].includes(U.view)?'runs':U.view==='resources'?'install':U.view)===key?'active':''}" ${(['run','draft'].includes(U.view)?'runs':U.view==='resources'?'install':U.view)===key?'aria-current="page"':''}>${icon(ico)}<span>${label}</span>${key==='jobs'&&S.jobs.some(j=>['queued','running'].includes(j.status))?`<span class="nav-count">${S.jobs.filter(j=>['queued','running'].includes(j.status)).length}</span>`:''}</a>`).join('');$('#crumb').textContent=U.view==='draft'?'Runs / Unfinished draft':U.view==='run'?'Runs / '+(runBy(U.runId)?.label||'Saved run'):navs.find(n=>n[0]===U.view)?.[1]||({jobs:'Activity',resources:'Pipelines & databases'})[U.view]||'Home';$('#app-version').textContent='v'+S.version;$('#workspace-name').textContent=S.workspace.split('/').pop();$('#workspace-name').title=S.workspace;$('#workspace-label').textContent=S.workspace_label||'Local workspace';const storage=storageActivity(),paused=storage.paused+storage.waiting,running=S.jobs.filter(j=>j.status==='running'&&!diskPaused(j)).length,queued=S.jobs.filter(j=>j.status==='queued').length;$('#queue-status').textContent=S.queue?.paused?`Queue paused · ${storage.label}${running} running · ${queued} waiting`:running||queued||paused?`${storage.label}${running} running · ${queued} queued${S.queue?.held_count?' · '+S.queue.held_count+' held':''}`:'No active jobs';$('.status-dot').classList.toggle('active',!!running);$('#header-activity-count').textContent=running+queued+paused?'('+String(running+queued+paused)+')':'';$('#header-workspace').textContent=S.workspace_label||'Local workspace';$('#header-workspace').title=S.workspace;const dev=S.channel==='development'||S.channel==='dev'||S.version.includes('.dev');$('#release-channel-badge').textContent=dev?'DEV · Experimental':'REGULAR';$('#release-channel-badge').classList.toggle('experimental',dev);
-$('#main').innerHTML=appUpdateNotice()+queueNotice()+wizardBanner()+`<div id="async-checks-slot">${asyncProgress()}</div>`+(!U.modal&&U.error?`<div class="error" role="alert">${e(U.error)}</div>`:'')+({overview,samples,runs:runsPage,run:runPage,draft:wizardPage,comparisons,jobs,reports:reportsPage,storage:storagePage,install,resources:resourcePage,configure:configuration}[U.view]||overview)();
+$('#main').innerHTML=(S.workspace_busy?notice('Workspace database busy','Showing the last available view. Bactologix is checking for a fresh update.',true):'')+appUpdateNotice()+queueNotice()+wizardBanner()+`<div id="async-checks-slot">${asyncProgress()}</div>`+(!U.modal&&U.error?`<div class="error" role="alert">${e(U.error)}</div>`:'')+({overview,samples,runs:runsPage,run:runPage,draft:wizardPage,comparisons,jobs,reports:reportsPage,storage:storagePage,install,resources:resourcePage,configure:configuration}[U.view]||overview)();
 syncNotificationBell();if(!$('#connection-status')){const x=document.createElement('div');x.id='connection-status';x.className='connection-status';$('.topbar-location').append(x);}syncNavigation();renderBusy();renderModal();filterResults();filterCompatibility();if(['configure','draft'].includes(U.view)&&!U.modal)filterRunSettings();persistWizard();schedulePoll();
+if(S.workspace_busy)return;
 if(U.view==='install'&&U.setupTab==='compatibility'&&!U.compatibility&&!U.pending&&!U.queuedRequest&&!U.error)request('inspect_compatibility');
 if(U.view==='storage'&&!U.modal&&!U.storage&&!storageLoad('inspect_storage').state&&!U.pending&&!U.queuedRequest&&!U.error)request('inspect_storage');
 if(U.view==='run'&&!U.modal&&!U.pending&&!U.queuedRequest&&!U.error&&runBy(U.runId)&&U.detail?.id!==U.runId)request('inspect_run',{id:U.runId});
@@ -1265,6 +1270,7 @@ if(U.view==='draft'&&U.wizard&&!runEditor()&&!U.pending&&!U.error&&U.runConfigTa
 if(U.view==='configure'&&!U.modal&&!U.pending&&!U.queuedRequest&&!U.error){const c=defaultEditor();if(!c||!defaultsDirty(c)&&c.revision!==S.databases[U.tool].revision)request('default_config_editor',{tool:U.tool});}}
 function schedulePoll(){
  clearTimeout(pollTimer);if(U.pending||U.queuedRequest)return;
+ if(S.workspace_busy){pollTimer=setTimeout(()=>request('refresh',{},true),2000);return;}
  const activeJobs=S.jobs.some(j=>['queued','running'].includes(j.status));
  const task=Object.values(U.asyncTasks).find(task=>task.token);
  if(task&&(!activeJobs||Date.now()-(U.lastWorkspacePoll||0)<4000)){
@@ -2199,7 +2205,7 @@ if(newResponse&&U.queuedRequest){
  const queued=U.queuedRequest;U.queuedRequest=null;
  if(queued.kind!=='edit_run_settings'||!queued.payload.recalculate_swap||queued.context===asyncContext())request(queued.kind,queued.payload,false,queued.swap);
 }
-claimDesktopNotifications();
+if(!S.workspace_busy)claimDesktopNotifications();
 const dispose=()=>{clearInterval(progressTimer);window.removeEventListener('online',refreshProgress);window.removeEventListener('offline',refreshProgress);window.removeEventListener('storage',notificationStorageChanged);window.removeEventListener('message',reportFolderMessage);window.removeEventListener('resize',syncNavigation);window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('popstate',routeChanged);window.removeEventListener('hashchange',routeChanged);clearTimeout(pollTimer);clearTimeout(toastTimer);root.removeEventListener('click',click);root.removeEventListener('input',onInput);root.removeEventListener('change',onChange);root.removeEventListener('keydown',keydown);};
 root._dispose=dispose;
 return dispose;

@@ -70,6 +70,18 @@ def panel(store):
             'next_check_at': _iso(state['attempt_epoch'] + INTERVAL) if enabled and state.get('attempt_epoch') else None}
 
 
+def _due_state(db, force, timestamp):
+    if not force and _read(db, 'settings', PREFERENCE_KEY, True) is not True:
+        return None
+    state = _read(db, 'update_checks', STATE_KEY, {})
+    if state.get('token') and state.get('lease_until', 0) > timestamp:
+        return None
+    delay = MANUAL_COOLDOWN if force else INTERVAL
+    if 0 <= timestamp - state.get('attempt_epoch', -INTERVAL) < delay:
+        return None
+    return state
+
+
 def tick(store, force=False):
     """Start at most one bounded check, returning immediately to the caller."""
     if type(force) is not bool:
@@ -80,16 +92,15 @@ def tick(store, force=False):
     with _LOCK:
         if key in _RUNNING:
             return False
-        timestamp = time.time()
+        # Most UI polls observe a disabled, in-progress or recently completed
+        # check. They need no write lock. Recheck under the lock before claiming.
         with store.connect() as db:
+            if _due_state(db, force, time.time()) is None:
+                return False
             db.execute('BEGIN IMMEDIATE')
-            if not force and _read(db, 'settings', PREFERENCE_KEY, True) is not True:
-                return False
-            state = _read(db, 'update_checks', STATE_KEY, {})
-            if state.get('token') and state.get('lease_until', 0) > timestamp:
-                return False
-            delay = MANUAL_COOLDOWN if force else INTERVAL
-            if 0 <= timestamp - state.get('attempt_epoch', -INTERVAL) < delay:
+            timestamp = time.time()
+            state = _due_state(db, force, timestamp)
+            if state is None:
                 return False
             token = uuid.uuid4().hex
             state.update(token=token, lease_until=timestamp + LEASE_SECONDS,

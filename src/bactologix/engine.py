@@ -86,7 +86,7 @@ class Context:
         self.store, self.job, self.lock_fd = store, job, lock_fd
         self.lock_fds = tuple(fd for fd in (lock_fd, environment_fd) if fd is not None)
         self.log = store.log_path(job["id"]).open("a", buffering=1)
-        self.cancel_requested = False
+        self.cancel_reason = None
         self.setup_control = (job['kind'] in {'install', 'connect', 'bootstrap', 'environments'} or
                               (job['kind'] == 'check' and (job['payload'].get('setup') or job['payload'].get('repair'))))
         self.workflow_control = job['kind'] == 'workflow'
@@ -151,7 +151,7 @@ class Context:
 
     def check_cancel_only(self):
         if self.refresh_desktop_cancel():
-            raise Cancelled("Stopped by user")
+            raise Cancelled(self.cancel_reason)
 
     def control_operation(self, operation, *args, poll=False, op_key=None, reconcile_final=False):
         """Keep supervising the native process during brief SQLite contention.
@@ -260,8 +260,8 @@ class Context:
         self.write(detail)
 
     def refresh_desktop_cancel(self, *, poll=False):
-        from .desktop import session_value_stopped
-        if self.cancel_requested:
+        from .desktop import recorded_session_stop, session_stop_reason
+        if self.cancel_reason is not None:
             return True
         state = self.control_operation(self.store.control_state, self.job['id'], self.monitor_retry,
                                        poll=poll, op_key='job and desktop controls')
@@ -269,9 +269,17 @@ class Context:
             return False
         if self.monitor['state'] == 'degraded' and not self.control_deadlines and self.control_held_at is None:
             self.monitor_state('recovered', 'Workspace control access recovered; native execution remained owned.')
-        self.cancel_requested = bool(state['cancel'] or (self.job['kind'] != 'app_update' and state['owner']
-                                     and session_value_stopped(state['session'], store=self.store, owner=state['owner'])))
-        return self.cancel_requested
+        if state['cancel']:
+            # A desktop stop sets the same job flag in its closing transaction.
+            # An already recorded stop must not depend on a separate proof read.
+            self.cancel_reason = 'A stop request was recorded for this job.'
+            if state['owner'] and self.job['kind'] != 'app_update':
+                detail = recorded_session_stop(state['session'])
+                if detail:
+                    self.cancel_reason += ' ' + detail
+        elif self.job['kind'] != 'app_update' and state['owner']:
+            self.cancel_reason = session_stop_reason(state['session'], store=self.store, owner=state['owner'])
+        return self.cancel_reason is not None
 
     def monitor_state(self, state, detail, **fields):
         from .supervision import save
@@ -345,6 +353,7 @@ class Context:
         if guard is not None:
             guard.before_command(cwd, env)
         started_stop = None
+        stop_reason = None
         command_started = time.monotonic()
         timed_out = False
         actual_argv = [str(x) for x in argv]
@@ -394,8 +403,9 @@ class Context:
                     if started_stop is None:
                         started_stop = time.monotonic()
                         self.control_owner = None  # Nothing may suspend the command during teardown.
+                        stop_reason = self.cancel_reason if cancelled else 'The command reached its scheduled stop.'
                         owner.stop()
-                        self.write("Stopping owned processes gracefully (SIGINT)…")
+                        self.write("Stopping owned processes gracefully (SIGINT)… " + stop_reason)
                     elapsed = time.monotonic() - started_stop
                     if elapsed > 30:
                         owner.signal(signal.SIGKILL if elapsed > 60 else signal.SIGTERM)
@@ -412,7 +422,7 @@ class Context:
                 self.check_cancel_only()  # A concurrent user stop keeps its cancellation status.
                 raise TimeoutError("Software check command exceeded its time limit; its process group was stopped.")
             if started_stop is not None:
-                raise Cancelled("Stopped by user; inspect the log before resuming")
+                raise Cancelled(stop_reason)
             if proc.returncode:
                 raise RuntimeError(f"Command exited with code {proc.returncode}; see the job log")
             failed = False

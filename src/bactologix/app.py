@@ -1,9 +1,10 @@
 """The approved HTML workspace, mounted as an interactive Streamlit component."""
 from pathlib import Path
+import time
 import streamlit as st
 from streamlit.components.v2 import component
-from bactologix.store import Store, workspace
-from bactologix.ui_backend import handle_request, snapshot
+from bactologix.store import Store, workspace, display_read
+from bactologix.ui_backend import handle_request, display_busy, display_snapshot
 
 from bactologix.channels import title
 
@@ -37,16 +38,27 @@ def open_workspace(home):
     # snapshot still opens fresh transactions to read the worker's latest state.
     return Store(home)
 
-store = open_workspace(workspace())
+def wait_for_workspace():
+    st.info("Waiting for the workspace database. Bactologix will check again in two seconds.")
+    time.sleep(2)
+    st.rerun()
+
+
+try:
+    with display_read():
+        store = open_workspace(workspace())
+except Exception as exc:
+    if not display_busy(exc):
+        raise
+    wait_for_workspace()
 
 def on_action():
     request = st.session_state["workspace-ui"].get("action")
     if request:
         handle_request(store, request, st.session_state)
 
-workspace_state = snapshot(store, cached=bool(st.session_state.get('ui-response', {}).get('async_task')))
-if not workspace_state['app_update']['active_job'] and not workspace_state['app_update']['restart_required']:
-    from bactologix import update_checks
-    update_checks.tick(store)
+workspace_state = display_snapshot(store, cached=bool(st.session_state.get('ui-response', {}).get('async_task')))
+if workspace_state is None:
+    wait_for_workspace()
 workspace_component()(key="workspace-ui", data={"workspace": workspace_state, "response": st.session_state.get("ui-response")},
                       on_action_change=on_action, width="stretch", height="content")

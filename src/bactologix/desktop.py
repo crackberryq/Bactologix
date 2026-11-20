@@ -3,6 +3,7 @@
 The Windows owner controls a dedicated browser profile. Jobs carry the session
 identity in SQLite; shared workers use the existing cooperative cancellation.
 """
+import errno
 import json
 import math
 import os
@@ -18,6 +19,7 @@ from .supervision import MonitoringInterrupted
 ENV = 'BACTOLOGIX_DESKTOP_SESSION'
 STORAGE_SESSION_DIR = 'BACTOLOGIX_WINDOWS_STORAGE_SESSION_DIR'
 LEASE_SECONDS = 30
+HOST_CLOCK_TOLERANCE = 2.0
 
 
 def atomic(path, value):
@@ -59,11 +61,26 @@ def _lease_path(store, owner):
     return store.home / 'logs' / ('desktop-' + owner + '.lease.json')
 
 
-def session_value_stopped(session, *, store=None, owner=None):
+def recorded_session_stop(session):
+    if not session or not (session.get('cancelled') is True or session.get('phase') in {'stopping', 'stopped'}):
+        return None
+    return _desktop_stop_text(session.get('reason'))
+
+
+def _desktop_stop_text(reason):
+    if isinstance(reason, str) and reason.strip():
+        return 'The owning desktop session requested a stop (' + ' '.join(reason.split())[:300] + ').'
+    return 'The owning desktop session signalled a stop.'
+
+
+def session_stop_reason(session, *, store=None, owner=None):
     if session is not None and (not isinstance(session, dict) or not _timestamp(session.get('last_seen', 0))):
         raise MonitoringInterrupted('Desktop session control metadata is invalid.')
-    if not session or session.get('cancelled') is True or session.get('phase') in {'stopping', 'stopped'}:
-        return True
+    if not session:
+        return 'The owning desktop session record was missing.'
+    recorded_stop = recorded_session_stop(session)
+    if recorded_stop:
+        return recorded_stop
     recorded = session.get('last_seen', 0)
     proof = {}
     if store is not None and owner is not None:
@@ -79,13 +96,19 @@ def session_value_stopped(session, *, store=None, owner=None):
         if not isinstance(proof, dict) or (proof and proof.get('session') != owner):
             raise MonitoringInterrupted('Desktop control recovery record is invalid.')
         if proof.get('stopping') is True:
-            return True
+            return _desktop_stop_text(proof.get('reason'))
     current = time.time()
     if current - recorded <= LEASE_SECONDS:
-        return False
+        return None
     heartbeat = proof.get('heartbeat')
-    return not (proof.get('recorded') == recorded and _timestamp(heartbeat)
-                and 0 <= current - heartbeat < LEASE_SECONDS)
+    if (proof.get('recorded') == recorded and _timestamp(heartbeat)
+            and 0 <= current - heartbeat < LEASE_SECONDS):
+        return None
+    return 'The owning desktop session heartbeat expired.'
+
+
+def session_value_stopped(session, *, store=None, owner=None):
+    return session_stop_reason(session, store=store, owner=owner) is not None
 
 
 def request_browser(store):
@@ -106,7 +129,10 @@ class Session:
         self.store, self.key, self.root = store, key, Path(directory).resolve()
         if not self.root.is_dir():
             raise ValueError('Desktop control directory is missing')
-        self.started = time.time()
+        self.started = time.monotonic()
+        self.last_host_heartbeat = None
+        self.heartbeat_observed = None
+        self.heartbeat_wall = None
         self.nonce = None
         self.phase = 'starting'
         self.reason = ''
@@ -115,6 +141,7 @@ class Session:
         self.proven_until = 0
         self.proof_path = _lease_path(store, key)
         self.stop_recorded = False
+        self.status_blocked_since = None
         self.publish('')
 
     def jobs(self):
@@ -170,7 +197,7 @@ class Session:
     def record_stop(self):
         if not self.stop_recorded:
             try:
-                atomic(self.proof_path, {'session': self.key, 'stopping': True})
+                atomic(self.proof_path, {'session': self.key, 'stopping': True, 'reason': self.pending_stop_reason})
             except OSError:
                 return  # Still try the durable stop. Any older proof expires.
             self.stop_recorded = True
@@ -182,22 +209,66 @@ class Session:
         self.record_stop()
         self.gate('stopping')
 
+    def write_status(self, value):
+        # A Windows scanner can hold the previous file open across os.replace.
+        # Live polls can publish the newest snapshot on the next tick. At exit
+        # there is no next tick, so allow a short final retry before reporting it.
+        final = value['phase'] in {'stopped', 'error'}
+        final_deadline = time.monotonic() + 2.0 if final else None
+        while True:
+            try:
+                atomic(self.root / 'status.json', value)
+            except OSError as exc:
+                if exc.errno not in {errno.EACCES, errno.EPERM, errno.EBUSY}:
+                    raise
+                current = time.monotonic()
+                if self.status_blocked_since is None:
+                    self.status_blocked_since = current
+                if current - self.status_blocked_since >= LEASE_SECONDS:
+                    raise
+                if not final:
+                    return
+                if current >= final_deadline:
+                    raise
+                time.sleep(min(.1, final_deadline - current))
+            else:
+                self.status_blocked_since = None
+                return
+
     def publish(self, url):
         self.gate(self.phase, heartbeat=True)
         jobs = self.jobs()
-        atomic(self.root / 'status.json', {'session': self.key, 'phase': self.phase, 'url': url,
+        self.write_status({'session': self.key, 'phase': self.phase, 'url': url,
             'jobs': len(jobs), 'reason': self.reason,
             'installing_update': any(j['kind'] == 'app_update' and j['status'] == 'running' for j in jobs),
             'browser_request': self.store.get('desktop_browser', self.key)})
 
-    def tick(self, url, ready):
+    def observe_heartbeat(self):
+        """Only an advancing host pulse renews the local lease."""
         heartbeat = read(self.root / 'heartbeat.json')
-        seen = heartbeat.get('time') if isinstance(heartbeat, dict) else None
-        alive = (isinstance(heartbeat, dict) and heartbeat.get('session') == self.key
-                 and _timestamp(seen) and 0 <= time.time() - seen < LEASE_SECONDS)
-        if not alive and time.time() - self.started > LEASE_SECONDS:
-            self.stop('Desktop supervisor disconnected; stopping owned work')
+        monotonic_now, wall_now = time.monotonic(), time.time()
+        observed = self.started if self.heartbeat_observed is None else self.heartbeat_observed
+        if monotonic_now - observed >= LEASE_SECONDS:
+            return False
+        if isinstance(heartbeat, dict) and heartbeat.get('session') == self.key:
+            seen = heartbeat.get('time')
+            if _timestamp(seen) and (self.last_host_heartbeat is None or seen > self.last_host_heartbeat):
+                age = wall_now - seen
+                if -HOST_CLOCK_TOLERANCE <= age < LEASE_SECONDS:
+                    self.last_host_heartbeat = seen
+                    self.heartbeat_observed = monotonic_now - max(age, 0)
+                    self.heartbeat_wall = min(seen, wall_now)
+        return True
+
+    def tick(self, url, ready):
+        alive = self.observe_heartbeat()
         request = read(self.root / 'request.json')
+        if not isinstance(request, dict):
+            request = {}
+        if not alive:
+            closing = (request.get('session') == self.key and request.get('action') == 'confirm_close'
+                       and request.get('nonce') != self.nonce)
+            self.stop('Window closed' if closing else 'Desktop supervisor disconnected; stopping owned work')
         if request.get('session') == self.key and request.get('nonce') != self.nonce:
             action = request.get('action')
             if action == 'close' and self.phase != 'stopping':
@@ -218,21 +289,20 @@ class Session:
 
     def record_contended_lease(self):
         """Bridge an observed, continuous Windows owner across a failed SQLite poll."""
-        heartbeat = read(self.root / 'heartbeat.json')
         request = read(self.root / 'request.json')
         if isinstance(request, dict) and request.get('session') == self.key and request.get('action') == 'confirm_close':
             self.pending_stop_reason = self.pending_stop_reason or 'Window closed'
         if self.pending_stop_reason or self.phase in {'stopping', 'stopped'}:
             self.record_stop()
             return False
-        seen = heartbeat.get('time') if isinstance(heartbeat, dict) else None
         current = time.time()
-        if (self.last_committed is None or not _timestamp(current) or current >= self.proven_until
-                or not isinstance(heartbeat, dict) or heartbeat.get('session') != self.key
-                or not _timestamp(seen) or not 0 <= current - seen < LEASE_SECONDS):
+        if self.last_committed is None or not _timestamp(current) or current >= self.proven_until:
             return False
-        # An old or repeatedly copied heartbeat cannot extend authority past
-        # its own timestamp. A later heartbeat cannot bridge a missed lease.
+        if not self.observe_heartbeat() or self.heartbeat_observed is None or time.time() >= self.proven_until:
+            return False
+        # Publish the pulse's local age. A small Windows clock offset cannot
+        # future-date the proof. Rereading the same pulse cannot renew it.
+        seen = self.heartbeat_wall
         try:
             atomic(self.proof_path, {'session': self.key, 'recorded': self.last_committed, 'heartbeat': seen})
         except OSError:
@@ -274,6 +344,6 @@ class Session:
     def control_failure(self, url, error):
         # Do not claim zero jobs, a refreshed lease, or completed shutdown when
         # SQLite could not confirm it. This file does not control native workers.
-        atomic(self.root / 'status.json', {'session': self.key, 'phase': 'error', 'url': url,
+        self.write_status({'session': self.key, 'phase': 'error', 'url': url,
             'jobs': None, 'shutdown_confirmed': False, 'control_error': str(error),
             'reason': self.pending_stop_reason or self.reason or 'Desktop control unavailable'})
