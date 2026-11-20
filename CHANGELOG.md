@@ -1,3 +1,8 @@
+## 0.1.0a125.dev1 — 2026-11-20 · Alpha · Reconnecting after a delayed WSL heartbeat check
+
+- When WSL resumes after a long gap in desktop monitoring, Bactologix can check whether the same Windows launcher is responding before interrupting its job. The worker can recover even when it checks the session before the main launcher does.
+- A confirmed close or Stop still ends the job. Existing storage checks apply when a suspended command resumes. Install this update through **Update Bactologix** in the Dev app.
+
 ## 0.1.0a124.dev1 — 2026-11-20 · Alpha · Desktop monitoring during a delayed workspace check
 
 - Bactologix Dev watches the Windows launcher's heartbeat independently while it checks the workspace. A delayed check can continue the session when those observations confirm that the same launcher stayed connected throughout the delay.

@@ -34,9 +34,10 @@ Completed workflow results and Snakemake metadata remain in place. Reopen the
 saved run and review its log/readiness before continuing; an interrupted step
 may need to run again. Arbitrary file corruption is not automatically repaired.
 Dev checks the Windows heartbeat independently while the workspace is busy.
-If its regular check runs late, the launcher and worker can use this record to
-confirm the same desktop session stayed connected. Losing contact with the
-desktop supervisor for 30 seconds still requests cancellation.
+If WSL misses its observations long enough for the session record to expire,
+Bactologix checks whether the same Windows launcher is still responding.
+A recorded Stop or confirmed window close takes precedence. If the desktop
+owner cannot be verified, the job is interrupted.
 
 The executable, shortcut and app share the same b-dot logo. Windows .cmd files themselves
 have a generic system icon; use the desktop shortcut for the branded icon.

@@ -14,6 +14,10 @@ import sqlite3
 import threading
 import time
 import uuid
+
+import psutil
+
+from .desktop_reconnect import confirm as confirm_windows_owner
 from .store import CONTROL_BACKOFF, CONTROL_TIMEOUT, transient_lock
 from .supervision import MonitoringInterrupted
 
@@ -22,6 +26,11 @@ ENV = 'BACTOLOGIX_DESKTOP_SESSION'
 STORAGE_SESSION_DIR = 'BACTOLOGIX_WINDOWS_STORAGE_SESSION_DIR'
 LEASE_SECONDS = 30
 HOST_CLOCK_TOLERANCE = 2.0
+HEARTBEAT_EXPIRED = 'The owning desktop session heartbeat expired.'
+
+
+class _RecheckOutsideTransaction(Exception):
+    """WSL missed a lease while a launcher transaction was in progress."""
 
 
 def atomic(path, value):
@@ -88,15 +97,15 @@ def _owner_record(path, owner):
 
 
 def _pulse_covers(pulse, recorded):
-    # The observer starts at a valid local lease. Once a beat is missed for a
-    # full lease it exits permanently; a later single pulse cannot fill a gap.
+    # The observer either sampled the continuous lease or re-established
+    # the same owner independently after an interruption to local polling.
     anchor, beat, observed = (pulse.get(k) for k in ('anchor', 'heartbeat', 'monotonic'))
     return (pulse.get('stopping') is not True and all(_timestamp(t) for t in (anchor, recorded, beat, observed))
             and anchor <= recorded and 0 <= time.time() - beat < LEASE_SECONDS
             and 0 <= time.monotonic() - observed < LEASE_SECONDS)
 
 
-def session_stop_reason(session, *, store=None, owner=None):
+def session_stop_reason(session, *, store=None, owner=None, job_id=None, check_host=True, confirmed=None):
     if session is not None and (not isinstance(session, dict) or not _timestamp(session.get('last_seen', 0))):
         raise MonitoringInterrupted('Desktop session control metadata is invalid.')
     if not session:
@@ -116,6 +125,8 @@ def session_stop_reason(session, *, store=None, owner=None):
         pulse = _owner_record(path.with_suffix('.pulse.json'), owner)
         if pulse.get('stopping') is True:
             return _desktop_stop_text(pulse.get('reason'))
+        if pulse.get('expired') is True:
+            return HEARTBEAT_EXPIRED
     current = time.time()
     if current - recorded <= LEASE_SECONDS:
         return None
@@ -125,7 +136,25 @@ def session_stop_reason(session, *, store=None, owner=None):
         return None
     if _pulse_covers(pulse, recorded):
         return None
-    return 'The owning desktop session heartbeat expired.'
+    if check_host and store is not None and owner is not None and session.get('supervisor'):
+        confirmed = confirm_windows_owner(session.get('supervisor'), owner, recorded, time.time, LEASE_SECONDS)
+        if confirmed == 'close':
+            return _desktop_stop_text('Window closed')
+        # The launcher or a user can change the durable state during either
+        # a successful or an unsuccessful host probe. Use the latest decision.
+        if job_id is not None:
+            state = store.control_state(job_id)
+            if state['cancel'] or state['owner'] != owner:
+                return 'A stop request was recorded for this job.'
+            latest = state['session']
+        else:
+            latest = store.get('desktop_sessions', owner)
+        if not latest or latest.get('supervisor') != session.get('supervisor'):
+            confirmed = None
+        return session_stop_reason(latest, store=store, owner=owner, check_host=False, confirmed=confirmed)
+    if _timestamp(confirmed) and confirmed > recorded and -HOST_CLOCK_TOLERANCE <= current - confirmed < LEASE_SECONDS:
+        return None
+    return HEARTBEAT_EXPIRED
 
 
 def session_value_stopped(session, *, store=None, owner=None):
@@ -150,7 +179,15 @@ class Session:
         self.store, self.key, self.root = store, key, Path(directory).resolve()
         if not self.root.is_dir():
             raise ValueError('Desktop control directory is missing')
+        self.supervisor = None
+        if self.root.name == key:
+            process = psutil.Process()
+            self.supervisor = {'directory': str(self.root), 'pid': process.pid, 'created': process.create_time(),
+                               'distribution': os.environ.get('WSL_DISTRO_NAME')}
         self.started = time.monotonic()
+        self.last_poll = self.started
+        self.last_poll_wall = time.time()
+        self.confirmed = None
         self.last_host_heartbeat = None
         self.heartbeat_observed = None
         self.heartbeat_wall = None
@@ -174,7 +211,7 @@ class Session:
             return [dict(row) for row in rows]
         return self.store.control_read(query)
 
-    def gate(self, phase, *, heartbeat=False):
+    def gate(self, phase, *, heartbeat=False, recheck=True):
         # This session-specific transaction is idempotent. Retry only after a
         # failed transaction has rolled back; never republish a cached lease row.
         for attempt in range(len(CONTROL_BACKOFF) + 1):
@@ -186,7 +223,11 @@ class Session:
                     if not isinstance(previous, dict):
                         raise ValueError('Desktop session control metadata is invalid.')
                     terminal = previous.get('cancelled') is True or previous.get('phase') in {'stopping', 'stopped'}
-                    expired = bool(row) and session_value_stopped(previous, store=self.store, owner=self.key)
+                    expired = (session_stop_reason(previous, store=self.store, owner=self.key,
+                                                   check_host=False, confirmed=self.confirmed) if row else None)
+                    if (expired == HEARTBEAT_EXPIRED and recheck and not self.pending_stop_reason
+                            and self.supervisor and self.poll_delayed()):
+                        raise _RecheckOutsideTransaction()
                     selected = previous.get('phase', phase) if heartbeat else phase
                     reason = self.pending_stop_reason or previous.get('reason') or self.reason
                     if terminal:
@@ -197,7 +238,7 @@ class Session:
                         reason = reason or 'Desktop session lease expired; stopping owned work'
                     cancelled = terminal or selected in {'stopping', 'stopped'}
                     value = dict(previous, phase=selected, last_seen=time.time(), reason=reason,
-                                 cancelled=cancelled)
+                                 cancelled=cancelled, supervisor=self.supervisor)
                     db.execute("INSERT INTO items VALUES ('desktop_sessions',?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body",
                                (self.key, json.dumps(value)))
                     if cancelled:
@@ -212,6 +253,9 @@ class Session:
                 if cancelled:
                     self.pending_stop_reason = self.reason
                 return
+            except _RecheckOutsideTransaction:
+                self.reconnect()
+                return self.gate(phase, heartbeat=heartbeat, recheck=False)
             except sqlite3.Error as exc:
                 if not transient_lock(exc) or attempt >= len(CONTROL_BACKOFF):
                     raise
@@ -282,7 +326,8 @@ class Session:
             thread.join(timeout=1)
             if not thread.is_alive():
                 try:
-                    if self.phase == 'stopped' or not _owner_record(self.pulse_path, self.key).get('stopping'):
+                    pulse = _owner_record(self.pulse_path, self.key)
+                    if self.phase == 'stopped' or not (pulse.get('stopping') or pulse.get('expired')):
                         self.pulse_path.unlink(missing_ok=True)
                 except (OSError, MonitoringInterrupted):
                     # A leftover observation expires; never mask a launcher
@@ -293,6 +338,10 @@ class Session:
         observed = self.started if self.heartbeat_observed is None else self.heartbeat_observed
         observed_wall = anchor if self.heartbeat_wall is None else self.heartbeat_wall
         previous, published = self.last_host_heartbeat, None
+        last_poll, last_poll_wall = self.started, anchor
+        pulse = _owner_record(self.pulse_path, self.key)
+        if self.pending_stop_reason or pulse.get('expired') or pulse.get('stopping'):
+            return
         while not done.is_set():
             request = read(self.root / 'request.json')
             closing = (isinstance(request, dict) and request.get('session') == self.key
@@ -309,7 +358,26 @@ class Session:
                 return
             if (mono - observed >= LEASE_SECONDS
                     or not -HOST_CLOCK_TOLERANCE <= wall - observed_wall < LEASE_SECONDS):
-                return
+                verified = None
+                delayed = mono - last_poll >= LEASE_SECONDS or wall - last_poll_wall >= LEASE_SECONDS
+                if delayed:
+                    verified = confirm_windows_owner(self.supervisor, self.key, observed_wall, time.time, LEASE_SECONDS)
+                if done.is_set():
+                    return
+                if not _timestamp(verified):
+                    # Repeated observations of an absent owner are terminal.
+                    if not delayed or verified == 'close':
+                        terminal = ({'stopping': True, 'reason': 'Window closed'} if verified == 'close'
+                                    else {'expired': True})
+                        try:
+                            atomic(self.pulse_path, dict(terminal, session=self.key))
+                        except OSError:
+                            pass
+                    return
+                beat = {'session': self.key, 'time': verified}
+                mono, wall = time.monotonic(), time.time()
+                published = None
+            last_poll, last_poll_wall = mono, wall
             if isinstance(beat, dict) and beat.get('session') == self.key:
                 stamp = beat.get('time')
                 if (_timestamp(stamp) and (previous is None or stamp > previous)
@@ -327,13 +395,42 @@ class Session:
                             published = mono
             done.wait(min(1., LEASE_SECONDS / 6))
 
+    def poll_delayed(self):
+        return time.monotonic() - self.last_poll >= LEASE_SECONDS or time.time() - self.last_poll_wall >= LEASE_SECONDS
+
+    def reconnect(self):
+        """Re-establish this same desktop outside all SQLite transactions."""
+        confirmed = confirm_windows_owner(self.supervisor, self.key, self.last_committed, time.time, LEASE_SECONDS)
+        if confirmed == 'close':
+            self.pending_stop_reason = 'Window closed'
+            self.record_stop()
+        if not _timestamp(confirmed):
+            return False
+        self.confirmed = self.last_host_heartbeat = confirmed
+        mono, wall = time.monotonic(), time.time()
+        self.heartbeat_observed = mono - max(0., wall - confirmed)
+        self.heartbeat_wall = min(wall, confirmed)
+        self.last_poll, self.last_poll_wall = mono, wall
+        try:
+            print('Reconnected to the same Windows launcher after a delayed WSL check.', flush=True)
+        except OSError:
+            pass
+        return True
+
     def observe_heartbeat(self):
         """Only an advancing host pulse renews the local lease."""
         heartbeat = read(self.root / 'heartbeat.json')
         monotonic_now, wall_now = time.monotonic(), time.time()
         observed = self.started if self.heartbeat_observed is None else self.heartbeat_observed
-        if monotonic_now - observed >= LEASE_SECONDS:
+        delayed = self.poll_delayed()
+        self.last_poll, self.last_poll_wall = monotonic_now, wall_now
+        if (monotonic_now - observed >= LEASE_SECONDS
+                or (self.heartbeat_wall is not None and wall_now - self.heartbeat_wall >= LEASE_SECONDS)):
             pulse = _owner_record(self.pulse_path, self.key)
+            if not _pulse_covers(pulse, self.last_committed) and not pulse.get('expired') and not pulse.get('stopping'):
+                if delayed and not self.pending_stop_reason:
+                    if self.reconnect():
+                        return True
             if not _pulse_covers(pulse, self.last_committed):
                 stamp = heartbeat.get('time') if isinstance(heartbeat, dict) and heartbeat.get('session') == self.key else None
                 host_age = f'{wall_now - stamp:.1f}s' if _timestamp(stamp) else 'unavailable'
@@ -398,7 +495,15 @@ class Session:
         if self.last_committed is None or not _timestamp(current):
             return False
         if current >= self.proven_until:
-            return _pulse_covers(_owner_record(self.pulse_path, self.key), self.last_committed)
+            pulse = _owner_record(self.pulse_path, self.key)
+            if pulse.get('expired') or pulse.get('stopping'):
+                return False
+            if _pulse_covers(pulse, self.last_committed):
+                return True
+            if (_timestamp(self.confirmed) and self.confirmed > self.last_committed
+                    and -HOST_CLOCK_TOLERANCE <= current - self.confirmed < LEASE_SECONDS):
+                return True
+            return self.poll_delayed() and self.reconnect()
         if not self.observe_heartbeat() or self.heartbeat_observed is None or time.time() >= self.proven_until:
             return False
         # Publish the pulse's local age. A small Windows clock offset cannot

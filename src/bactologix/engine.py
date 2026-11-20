@@ -263,22 +263,27 @@ class Context:
         from .desktop import recorded_session_stop, session_stop_reason
         if self.cancel_reason is not None:
             return True
-        state = self.control_operation(self.store.control_state, self.job['id'], self.monitor_retry,
-                                       poll=poll, op_key='job and desktop controls')
-        if state is None:  # A control poll deferred; keep servicing the owned process.
+        def read_reason():
+            state = self.store.control_state(self.job['id'], self.monitor_retry)
+            if state['cancel']:
+                # A desktop close sets the same durable job flag.
+                reason = 'A stop request was recorded for this job.'
+                if state['owner'] and self.job['kind'] != 'app_update':
+                    detail = recorded_session_stop(state['session'])
+                    if detail:
+                        reason += ' ' + detail
+                return reason
+            if self.job['kind'] != 'app_update' and state['owner']:
+                return session_stop_reason(state['session'], store=self.store, owner=state['owner'],
+                                           job_id=self.job['id']) or ''
+            return ''
+
+        reason = self.control_operation(read_reason, poll=poll, op_key='job and desktop controls')
+        if reason is None:  # A control poll deferred; keep servicing the owned process.
             return False
         if self.monitor['state'] == 'degraded' and not self.control_deadlines and self.control_held_at is None:
             self.monitor_state('recovered', 'Workspace control access recovered; native execution remained owned.')
-        if state['cancel']:
-            # A desktop stop sets the same job flag in its closing transaction.
-            # An already recorded stop must not depend on a separate proof read.
-            self.cancel_reason = 'A stop request was recorded for this job.'
-            if state['owner'] and self.job['kind'] != 'app_update':
-                detail = recorded_session_stop(state['session'])
-                if detail:
-                    self.cancel_reason += ' ' + detail
-        elif self.job['kind'] != 'app_update' and state['owner']:
-            self.cancel_reason = session_stop_reason(state['session'], store=self.store, owner=state['owner'])
+        self.cancel_reason = reason or None
         return self.cancel_reason is not None
 
     def monitor_state(self, state, detail, **fields):

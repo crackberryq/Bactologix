@@ -5,6 +5,7 @@ import fcntl
 import sqlite3
 import time
 import traceback
+from . import __version__
 from .store import Store, now
 from .engine import Cancelled, Context, execute
 from .runtime import environment_lock
@@ -47,6 +48,7 @@ def work(store, desktop_owner=None):
             try:
                 ctx.check_cancel()
                 ctx.write("Bactologix started " + now())
+                ctx.write(f"Bactologix worker version {__version__}")
                 with environment_lock(exclusive=job["kind"] == "app_update") as environment_fd:
                     ctx.lock_fds = (lock.fileno(), environment_fd)
                     assert_current(store)
