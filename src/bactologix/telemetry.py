@@ -196,7 +196,9 @@ class Sampler:
             self.network = None
             return None
         result = {'cpu_s': cpu, 'rss_mb': rss / 1024 ** 2, 'processes': len(observed_processes)}
-        result['tool_progress'] = self.kraken.sample(observed_processes)
+        progress = self.kraken.sample(observed_processes)
+        if progress:
+            result['tool_progress'] = progress
         try:
             had_baseline_attempt = self.network is not None
             if self.network is None:
