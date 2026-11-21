@@ -6,6 +6,8 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+from datetime import datetime, timezone
+import uuid
 
 
 def sha(path):
@@ -40,6 +42,8 @@ def restore(manifest, index):
     entry = record['checkpoints'][int(index)]
     for row in entry['outputs']:
         source, target = Path(row['cache']), Path(row['path'])
+        if any(not p.is_absolute() or '..' in p.parts for p in (source, target)):
+            raise ValueError('Checkpoint paths must be absolute without parent traversal')
         if not source.is_relative_to(root / 'variant-cache') or not target.is_relative_to(root / 'outputs'):
             raise ValueError('Checkpoint path is outside this run')
         for path in (source, target):
@@ -57,11 +61,29 @@ def restore(manifest, index):
                 shutil.copy2(source, staged)
             if identity(staged) != row['identity']:
                 raise ValueError('Checkpoint copy failed verification')
-            if target.is_dir():
-                shutil.rmtree(target)
+            if target.exists():
+                # Preserve prior content even for repeated restores in one invocation.
+                history = root / 'output-history'
+                if history.is_symlink():
+                    raise ValueError('Linked output history is not allowed')
+                history.mkdir(exist_ok=True)
+                archive = history / ('restore-' + uuid.uuid4().hex)
+                archive.mkdir()
+                previous = archive / 'outputs' / target.relative_to(root / 'outputs')
+                previous.parent.mkdir(parents=True)
+                metadata = {'schema': 1, 'reason': 'preserved-before-checkpoint-restore',
+                            'created_at': datetime.now(timezone.utc).isoformat(),
+                            'source': str(target), 'identity': identity(target),
+                            'attribution': 'Observed before restoration; producing attempt is not inferred.'}
+                (archive / 'started.json').write_text(json.dumps(metadata, indent=2) + '\n')
+                target.rename(previous)
+                (archive / 'manifest.json').write_text(json.dumps(
+                    {**metadata, 'status': 'completed', 'completed': True}, indent=2) + '\n')
             os.replace(staged, target)
         finally:
-            shutil.rmtree(staging)
+            # Failed staged copies remain available for inspection.
+            if staging.exists() and not any(staging.iterdir()):
+                staging.rmdir()
     print('Inherited checkpoint:', entry['rule'], 'from', record['parent'])
 
 

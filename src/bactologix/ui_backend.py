@@ -3,28 +3,66 @@ from __future__ import annotations
 
 import base64
 import copy
+from functools import lru_cache
 import getpass
 import json
 from pathlib import Path
 import shlex
 import webbrowser
+import uuid
 
 import yaml
 
 from . import __version__
 from .catalog import DATA, PIPELINES, fetch_versions, supported, versions
-from .engine import doctor, enqueue, launch_worker
+from .engine import doctor, enqueue, enqueue_workflows, launch_worker
 from .local import browse_folders, discover_environments, discover_installations, inspect_installation, local_path
 from .runs import (absolute_path, clone_runs, command, create_run,
-                   parse_config, register_sample, remove_sample, archive_runs, reports, template, validate_launch,
+                   parse_config, register_sample, remove_sample, archive_runs, reports, template,
                    dry_run_current, run_status, check_run_files)
-from .store import identifier
-from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, compatibility, comparisons, sample_imports
-from . import setup_state
+from .store import identifier, display_read, transient_lock
+from .storage_guard import activity
+from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, storage_cleanup, compatibility, comparisons, sample_imports
+from . import setup_state, assessment, compute_memory
+from . import isolate_actions
+from . import desktop
 from . import reference_catalog
 from . import database_builder, followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
 _SNAPSHOTS = {}
+
+
+def display_busy(exc):
+    from .supervision import MonitoringInterrupted
+    import sqlite3
+    cause = exc.__cause__ if isinstance(exc, MonitoringInterrupted) else exc
+    return isinstance(cause, sqlite3.Error) and transient_lock(cause)
+
+
+def display_snapshot(store, *, cached=False):
+    """Keep an existing UI mounted if a render encounters transient contention."""
+    from . import update_checks
+    with display_read():
+        try:
+            state = snapshot(store, cached=cached)
+        except Exception as exc:
+            if not display_busy(exc):
+                raise
+            prior = _SNAPSHOTS.get(store.home)
+            if prior is None:
+                return None
+            from . import disk_stop
+            state = copy.deepcopy(prior)
+            state['workspace_busy'] = True
+            state['queue']['storage_stop'] = disk_stop.snapshot(store)
+            return state
+        if not state['app_update']['active_job'] and not state['app_update']['restart_required']:
+            try:
+                update_checks.tick(store)
+            except Exception as exc:
+                if not display_busy(exc):
+                    raise
+        return state
 
 
 def installation_status(item, jobs, store=None):
@@ -73,12 +111,20 @@ def flatten(value, prefix=()):
 
 
 def configuration_fields(tool, text):
+    rows = _small_field_rows(tool, text) if len(text) <= 16384 else _field_rows(tool, text)
+    return [{"name": name, "path": list(path), "yaml": value} for name, path, value in rows]
+
+
+def _field_rows(tool, text):
     defaults = json.loads((DATA / "config-catalog.json").read_text())["defaults"][tool]
     fields = flatten(defaults)
     fields.update(flatten(parse_config(text)))
-    return [{"name": name, "path": row["path"], "yaml": yaml.safe_dump(
-        row["value"], sort_keys=False, allow_unicode=True).removesuffix("...\n").strip()}
-        for name, row in sorted(fields.items())]
+    return tuple((name, tuple(row["path"]), yaml.safe_dump(
+        row["value"], sort_keys=False, allow_unicode=True).removesuffix("...\n").strip())
+        for name, row in sorted(fields.items()))
+
+
+_small_field_rows = lru_cache(maxsize=12)(_field_rows)
 
 
 def workspace_label():
@@ -94,33 +140,56 @@ def workspace_label():
     return f"{name}'s workspace"
 
 
-def snapshot(store):
+def snapshot(store, *, cached=False):
+    # Background observations must not trigger another full workspace/source
+    # inspection merely to poll their progress. This is display data only;
+    # dispatch and workers still perform fresh authorization checks.
+    if cached and store.home in _SNAPSHOTS:
+        return copy.deepcopy(_SNAPSHOTS[store.home])
+    from . import disk_pause, notifications, supervision, workflow_unlock
     from .queue import reconcile_interrupted
     reconcile_interrupted(store)
-    records = {r['id']: r for r in store.all('job_telemetry') if isinstance(r, dict) and 'id' in r}
-    jobs = [{**j, "guidance": readiness.job_guidance(store, j),
-             "telemetry": telemetry.view(records.get(j['id']), j)} for j in store.jobs()]
-    app_update = updates.status(store)
+    jobs = store.jobs()
+    records = store.job_display_records()
+    workflow_jobs = {}
+    for j in jobs:
+        jid = j['id']
+        if j['kind'] == 'workflow':
+            workflow_jobs.setdefault(j['payload'].get('run_id'), []).append(j)
+        if jid in records['job_history_hidden']:
+            j['history_hidden'] = True
+        j["monitoring"] = supervision.snapshot(store, j['id'])
+        j["disk_safety"] = disk_pause.display_state(j, records['disk_safety'].get(jid),
+                                                 records['disk_safety_requests'].get(jid, {}))
+        j["telemetry"] = telemetry.view(records['job_telemetry'].get(jid), j)
+    readiness.history_guidance(store, jobs)
     queue_state = store.queue_snapshot()
+    app_update = updates.status(store, jobs=jobs, queue=queue_state)
     # pip briefly replaces package data. Keep the already-rendered workspace
     # available until restart instead of reading those files during replacement.
     if (app_update["active_job"] or app_update["restart_required"]) and store.home in _SNAPSHOTS:
-        return {**copy.deepcopy(_SNAPSHOTS[store.home]), "jobs": jobs, "app_update": app_update, "queue": queue_state}
+        cached = copy.deepcopy(_SNAPSHOTS[store.home])
+        return {**cached, "jobs": jobs, "app_update": app_update, "queue": queue_state,
+                "notifications": notifications.panel(store, jobs, cached.get('runs', []))}
     runs = []
     archived = {r["id"] for r in store.all("run_visibility") if r.get("archived")}
-    for run in store.all("runs"):
+    saved_runs = store.all("runs")
+    for run in saved_runs:
         cfg = parse_config(run["config"])
         kraken_mode = run.get('identification', {}).get('selection', {}).get('mode', cfg.get('kraken_decision_mode'))
-        run_jobs = [j for j in jobs if j["kind"] == "workflow" and j["payload"].get("run_id") == run["id"]]
+        run_jobs = workflow_jobs.get(run['id'], ())
         active = next((j for j in run_jobs if j["status"] in {"queued", "running"}), None)
         checked = dry_run_current(store, run)
-        status = run_status(run, jobs, checked)
-        runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant", "identification")} | {
-            "aware_state": run.get("aware"), "status": status, "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
+        status = run_status(run, run_jobs, checked)
+        followup_sources = followup.source_options(store, run) if status == "completed" else []
+        runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant", "identification", "experimental")} | {
+            "previous_draft_jobs": run.get("previous_draft_jobs", []),
+            "draft_generation": run.get("draft_generation", 0),
+            "swap_mb": compute_memory.allowance(cfg),
+            "aware_state": run.get("aware"), "status": status, "assessment": assessment.summary(store, run, run_jobs=run_jobs), "busy": bool(active), "archived": run["id"] in archived, "dry_run_ok": checked, "aware": "off" if kraken_mode == "off" else "aware",
             "kraken_mode": "off" if cfg.get("run_kraken") is False else kraken_mode,
             "can_micp_handoff": run["tool"] == "hybas" and status == "completed",
-            "can_followup": followup.available(run, store) and status == "completed",
-            "followup_sources": followup.source_options(store, run) if status == "completed" else [],
+            "can_followup": bool(followup_sources), "followup_sources": followup_sources,
             "followup_transition": run.get('followup_transition'),
             "review_enabled": cfg.get("kraken_review_before_filtering", False), "strategy": cfg.get("polish_mode", "—"), "can_handoff": run["tool"] == "hybas" and status == "completed" and all(
                 Path(run["output"], "annotation", run["sample"]["id"] + ext).is_file() for ext in (".fna", ".faa", ".gff"))})
@@ -130,14 +199,27 @@ def snapshot(store):
         catalogs[tool] = versions(store, tool)
         for version in catalogs[tool]["versions"]:
             version["supported"] = supported(tool, version["commit"], store)
-    result = {"version": __version__, "workspace": str(store.home), "workspace_label": workspace_label(), "doctor": doctor(store),
+    coverage = {run["id"]: run["assessment"] for run in runs}
+    report_rows = []
+    for report in reports(store):
+        # Refreshed editions retain their own evidence-time coverage, not the
+        # current output directory's possibly newer assessment.
+        if not report.get("refresh") and report.get("run") in coverage:
+            report = {**report, "assessment": coverage[report["run"]]}
+        report_rows.append(report)
+    hardware_panel = hardware.panel(store)
+    result = {"channel": store.channel, "application_title": "Bactologix Dev" if store.channel == "dev" else "Bactologix", "version": __version__, "workspace": str(store.home), "workspace_label": workspace_label(), "doctor": doctor(store),
+            "desktop_close_available": desktop.close_directory() is not None,
+            "notifications": notifications.panel(store, jobs, runs),
             "setup_overview": {t: setup_state.overview(store, t) for t in PIPELINES},
             "pipelines": PIPELINES, "installs": [installation_status(i, jobs, store) for i in store.all("installs")],
-            "app_update": app_update, "hardware": hardware.panel(store), "workstation_checks": workstation.history(store),
-            "resource_defaults": {t: hardware.run_defaults(store, t) for t in PIPELINES},
+            "app_update": app_update, "hardware": hardware_panel, "workstation_checks": workstation.history(store),
+            "resource_defaults": hardware_panel["defaults"],
             "active": {t: store.get("settings", "active-" + t) for t in PIPELINES},
             "catalogs": catalogs, "samples": store.all("samples"), "runs": runs,
-            "jobs": jobs, "queue": queue_state, "reports": reports(store), "configs": configs,
+            "workflow_locks": workflow_unlock.review_list(store, saved_runs, jobs, archived),
+            "isolate_exports": isolate_actions.export_history(store),
+            "jobs": jobs, "queue": queue_state, "reports": report_rows, "configs": configs,
             "fields": {t: configuration_fields(t, configs[t]) for t in PIPELINES},
             "databases": {t: databases.panel(store, t) for t in PIPELINES},
             "reference_databases": reference_catalog.choices(store),
@@ -145,7 +227,7 @@ def snapshot(store):
             "database_builder": {"available": database_builder.available(store), "starter": database_builder.starter(store), "builds": store.all("database_builds")},
             "database_downloads": [{**d, "job_status": next((j["status"] for j in jobs if j["id"] == d.get("job")), d.get("status"))}
                                    for d in store.all("database_downloads")],
-            "download_options": {t: {"available": maintenance.download_supported(store.get("installs", store.get("settings", "active-" + t))),
+            "download_options": {t: {**maintenance.download_panel_capability(store.get("installs", store.get("settings", "active-" + t)), store),
                                       "parent": str(store.home / "resources")}
                                  for t in PIPELINES},
             "citations": {f.name: f.read_text() for f in DATA.glob("CITATION.*")}}
@@ -185,14 +267,65 @@ def _report(store, rid):
     return report
 
 
+def _run_detail(store, run, *, just_created=False):
+    run = copy.deepcopy(run)
+    run.setdefault("draft_generation", 0)
+    run['swap_mb'] = compute_memory.policy(run)['swap_mb']
+    if run['swap_mb'] and not just_created:
+        # This is the explicit Refresh checks path. Background snapshots
+        # retain the ordinary inventory cache and never trigger probes.
+        hardware.inventory(store, refresh=True)
+    run["database_paths"] = database_runs.paths(store, run)
+    cfg = parse_config(run['config'])
+    vfdb = cfg.get('modules', {}).get('vfdb', {}) if run['tool'] == 'basis' else {}
+    run['has_external_vfdb'] = isinstance(vfdb, dict) and any(
+        vfdb.get(key) for key in ('database', 'reference_fasta', 'metadata', 'database_version'))
+    run["readiness"] = readiness.panel(store, run, just_created=just_created)
+    run["settings"] = run_config.editor(run["tool"], run["config"])
+    try:
+        run["command"] = shlex.join(command(store, run, "run"))
+    except Exception as exc:
+        run["command"] = str(exc)
+    return {"detail": run, "keep_modal": True}
+
+
 def dispatch(store, kind, p):
     """Only named UI commands are allowed. Browser-supplied objects are not trusted."""
     if not isinstance(p, dict):
         raise ValueError("Invalid action payload")
-    if kind not in {"refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "download_storage", "inspect_compatibility", "download_compatibility", "compare_saved_runs", "download_comparison", "preview_samples", "refresh_app_releases", "cancel_job"}:
+    if kind == 'close_desktop':
+        if p:
+            raise ValueError('The desktop close request takes no parameters.')
+        desktop.request_close()
+        return {'desktop_closing': True, 'keep_modal': True}
+    if kind == 'clear_job_history':
+        cleared = store.clear_job_history()
+        noun = 'attempt' if cleared == 1 else 'attempts'
+        return {'cleared': cleared, 'message': f'Cleared {cleared} finished {noun} from job history.'}
+    if kind in {'mark_notifications_read', 'clear_notifications', 'save_notification_settings', 'claim_desktop_notifications', 'check_notification_updates'}:
+        from . import notifications, update_checks
+        if kind == 'mark_notifications_read':
+            return notifications.mark_read(store, p)
+        if kind == 'clear_notifications':
+            return notifications.clear(store, p)
+        if kind == 'save_notification_settings':
+            return notifications.configure(store, p)
+        if kind == 'claim_desktop_notifications':
+            # Reconcile outcomes before claiming so resolved review/update
+            # alerts cannot be delivered from an old browser snapshot.
+            notifications.panel(store)
+            return notifications.claim_desktop(store, p)
+        started = update_checks.tick(store, force=True)
+        return {'message': 'Checking update availability in the background.' if started else 'A check is already running, was requested recently, or is disabled for this session.', 'keep_modal': True}
+    isolate_readonly = (isolate_actions.ACTIONS - {'preview_isolate_export', 'start_isolate_export'}) | {'inspect_output_files', 'open_output_folder'}
+    # Workflow submission checks the current application in enqueue_workflows;
+    # Store.submit checks for a competing update inside its write transaction.
+    if kind not in {"workflow", "refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "inspect_storage_cleanup", "inspect_storage_cleanup_receipt", "download_storage", "inspect_compatibility", "download_compatibility", "compare_saved_runs", "download_comparison", "preview_samples", "refresh_app_releases", "cancel_job"} | isolate_readonly:
         updates.assert_current(store)
         if updates.status(store)["active_job"]:
             raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
+    if kind in isolate_actions.ACTIONS:
+        return isolate_actions.dispatch(store, kind, p, enqueue)
     if kind == 'restart_as_browser':
         from .desktop import request_browser
         if request_browser(store):
@@ -231,7 +364,8 @@ def dispatch(store, kind, p):
         return {'message': 'Hardware detection refreshed.', 'keep_modal': True}
     if kind == 'save_compute_defaults':
         return hardware.apply_custom(store, _tool(p), p.get('cores'), p.get('memory_mb'), p.get('gpu_mode'),
-                                     p.get('revisions'), p.get('hardware_id'))
+                                     p.get('revisions'), p.get('hardware_id'),
+                                     **{key: p[key] for key in ('swap_mb', 'auto_swap') if key in p})
     if kind == 'apply_resource_preset':
         return hardware.apply_preset(store, p.get('preset'), p.get('tools'), p.get('revisions'), p.get('hardware_id'))
     if kind == "refresh_app_releases":
@@ -244,6 +378,8 @@ def dispatch(store, kind, p):
         release = next((r for r in catalog.get("releases", []) if r["id"] == p.get("release_id") and r["version"] == p.get("version")), None)
         if not release or not release["available"]:
             raise ValueError("Refresh the releases and select an available Bactologix wheel.")
+        if not updates.channel_accepts(release["version"]):
+            raise ValueError("Choose an application release from this installation channel.")
         if release["version"] == __version__:
             raise ValueError("You are already running this Bactologix version.")
         launcher = updates.restart_control.current_launcher(store)
@@ -266,6 +402,42 @@ def dispatch(store, kind, p):
             for row in found['candidates'].get('reference', []):
                 reference_catalog.register(store, row['path'])
         return {"database_scan": found, "keep_modal": True}
+    if kind == 'factory_reset_preview':
+        from . import factory_reset, async_tasks
+        return {'reset_plan': factory_reset.preview(store, p.get('delete_databases', False),
+                                                    checkpoint=async_tasks.checkpoint), 'keep_modal': True}
+    if kind == 'factory_reset_execute':
+        from . import factory_reset
+        jid = factory_reset.request(store, p.get('plan_id'), p.get('signature'), p.get('confirmation'),
+                                    p.get('acknowledged'), p.get('database_confirmation', ''))
+        return {'job_id': jid, 'message': 'Workspace reset queued: ' + jid, 'navigate': 'storage'}
+    if kind == 'database_redownload_preview':
+        from . import database_redownload
+        return {'redownload_plan': database_redownload.preview(store, _tool(p), p.get('id'), lineage=p.get('lineage')),
+                'keep_modal': True}
+    if kind == 'database_redownload_request':
+        from . import database_redownload
+        payload = database_redownload.request(store, _tool(p), p.get('id'), p.get('signature'), p.get('parent'),
+            choice=p.get('choice'), cores=p.get('cores', 4), memory_mb=p.get('memory_mb', 16000), lineage=p.get('lineage'))
+        jid = enqueue(store, 'database_redownload', payload)
+        return {'job_id': jid, 'message': 'New database snapshot queued: ' + jid, 'navigate': 'jobs'}
+    if kind == 'recommend_swap':
+        from . import swap_adviser
+        tool, config = _tool(p), p.get('config')
+        kraken_path = p.get('kraken_path')
+        if 'kraken_path' in p:
+            if tool != 'hybas' or config is not None or p.get('run_id'):
+                raise ValueError('A database picker selection applies only to HybAs compute defaults.')
+            if kraken_path is None:  # The picker explicitly selected “Use pipeline default”.
+                kraken_path = str(databases._hybas_paths(store, {})['kraken'])
+            elif not isinstance(kraken_path, str) or not kraken_path.strip():
+                raise ValueError('Choose a Kraken database folder or select Use pipeline default.')
+        if config is not None:
+            if not isinstance(config, dict) or config.get('tool') != tool or not isinstance(config.get('text'), str):
+                raise ValueError('The recommendation configuration belongs to another pipeline.')
+            config = run_config.compile_config(tool, config['text'], config.get('changes'))
+        return {'swap_recommendation': swap_adviser.recommend(store, tool, p.get('memory_mb'),
+                run_id=p.get('run_id'), config=config, kraken_path=kraken_path), 'keep_modal': True}
     if kind == "manage_environments":
         payload = maintenance.environment_request(store, p.get("id"), p.get("selected"), p.get("action"))
         jid = enqueue(store, "environments", payload)
@@ -301,12 +473,19 @@ def dispatch(store, kind, p):
         job = store.job(row["job"])
         if not job or job["status"] not in {"failed", "cancelled", "interrupted"}:
             raise ValueError("Only a stopped or failed download can be resumed.")
-        jid = enqueue(store, "database_download", row["request"])
+        kind = 'database_redownload' if row['request'].get('redownload_review') else 'database_download'
+        jid = enqueue(store, kind, row["request"])
         return {"message": "Database preparation resumed: " + jid, "navigate": "jobs"}
     if kind == "use_downloaded_database":
         row = _item(store, "database_downloads", p.get("id"))
         if row.get("status") != "completed":
             raise ValueError("Wait for database preparation to finish.")
+        job = store.job(row.get('job'))
+        if not job or job['status'] != 'succeeded':
+            raise ValueError('Wait for the database preparation job to finish successfully.')
+        if row.get('request', {}).get('redownload_review'):
+            if not row.get('replacement_receipt'):
+                raise ValueError('The replacement database receipt is not available. Review its preparation job.')
         checked = databases.inspect(store, row["tool"], row["resource"], row["result_path"])
         return {"database_check": {"tool": row["tool"], **checked}, "keep_modal": True,
                 "message": "Downloaded location selected. Save locations to use it for future drafts."}
@@ -430,7 +609,13 @@ def dispatch(store, kind, p):
             text = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
             parse_config(text)
         if kind == "save_config":
-            store.put("configs", tool, text)
+            if run_config.normalize_kraken_folder(tool, cfg):
+                text = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
+            with activity(store), store.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                hardware.sync_config_defaults(db, tool, text)
+                db.execute("INSERT INTO items VALUES ('configs',?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body",
+                           (tool, json.dumps(text)))
         return {"message": "Defaults saved for future drafts." if kind == "save_config" else "Configuration validated." if kind == "inspect_config" else "Setting applied to the draft; save when ready.",
                 "config": {"tool": tool, "text": text, "fields": configuration_fields(tool, text)}, "keep_modal": True}
     if kind == "edit_run_settings":
@@ -439,17 +624,40 @@ def dispatch(store, kind, p):
             from . import variants
             variants.eligible(store, _item(store, 'runs', p.get('id')))
             response['edit_run']['variant'] = True
+        elif p.get('recalculate_swap') is True:
+            editor = response['edit_run']
+            if editor['tool'] != 'hybas' or not editor['can_edit_draft']:
+                raise ValueError('This saved run can no longer be edited in place. Refresh its run checks.')
+            editor['recalculate_swap'] = True
         return response
+    if kind == "preview_vfdb_repair":
+        from . import resource_repair
+        return {"resource_repair": resource_repair.preview(store, p.get("id")), "keep_modal": True}
+    if kind == "apply_vfdb_repair":
+        from . import resource_repair
+        child = resource_repair.apply(store, p.get("id"), p.get("signature"))
+        response = dispatch(store, "inspect_run", {"id": child["id"]})
+        response.update(message="Created a revised draft for native VFDB preparation. Validate it before running. The original run is unchanged.",
+                        navigate="runs", open_run=child["id"], keep_modal=False)
+        return response
+    if kind in {"inspect_setup_advice", "apply_setup_advice"}:
+        from . import setup_advice
+        if kind == "apply_setup_advice":
+            return setup_advice.apply(store, p)
+        return {"setup_advice": setup_advice.review(store, p), "keep_modal": True}
     if kind == "run_config_editor":
         tool = _tool(p)
         text = p.get("text", run_config.defaults(store, tool))
+        if 'text' not in p:
+            from .medaka_review import editor_text
+            text = editor_text(store, tool, text)
         if not isinstance(text, str):
             raise ValueError("Provide configuration as YAML text.")
         text = run_config.compile_config(tool, text, p.get("changes"))
         if p.get("validate"):
             run_config.validate(tool, text)
         view = p.get("view", "settings")
-        if view not in {"samples", "settings", "yaml", "review"}:
+        if view not in {"purpose", "samples", "settings", "yaml", "review"}:
             raise ValueError("Choose a run configuration view.")
         return {"run_config": run_config.editor(tool, text), "run_config_view": view, "keep_modal": True,
                 "message": "Run settings checked. The native dry-run is still required." if p.get("validate") else ""}
@@ -467,27 +675,23 @@ def dispatch(store, kind, p):
                 raise ValueError("The run configuration belongs to another pipeline. Review its settings again.")
             text = run_config.compile_config(tool, config["text"], config.get("changes"))
             run_config.validate(tool, text)
+        auto_swap = hardware.automatic_swap_setting(tool, p.get('auto_swap', defaults['auto_swap'] and 'swap_mb' not in p))
+        if auto_swap or 'swap_mb' in p:
+            text = compute_memory.with_swap(text, 0 if auto_swap else p['swap_mb'])
+        compute_memory.policy({'memory_mb': memory}, parse_config(text))
         made = []
         for sample in samples:
             try:
-                made.append(create_run(store, tool, sample, text, cores, memory))
+                made.append(create_run(store, tool, sample, text, cores, memory, **({'auto_swap': True} if auto_swap else {})))
             except Exception as exc:
                 raise ValueError(f"Created {len(made)} draft(s). {sample['id']}: {exc}") from exc
         response = {"message": f"Created {len(made)} independent drafts with this run configuration.", "navigate": "runs"}
         if len(made) == 1:
-            response.update(dispatch(store, "inspect_run", {"id": made[0]["id"]}))
+            response.update(_run_detail(store, made[0], just_created=True))
             response.update(keep_modal=False, open_run=made[0]["id"])
         return response
     if kind == "inspect_run":
-        run = copy.deepcopy(_item(store, "runs", p.get("id")))
-        run["database_paths"] = database_runs.paths(store, run)
-        run["readiness"] = readiness.panel(store, run)
-        run["settings"] = run_config.editor(run["tool"], run["config"])
-        try:
-            run["command"] = shlex.join(command(store, run, "run"))
-        except Exception as exc:
-            run["command"] = str(exc)
-        return {"detail": run, "keep_modal": True}
+        return _run_detail(store, _item(store, "runs", p.get("id")))
     if kind in {'compare_saved_runs', 'download_comparison'}:
         doc = comparisons.panel(store, p.get('ids'))
         return {'comparison': doc, **({'download': comparisons.export(doc)} if kind == 'download_comparison' else {})}
@@ -498,6 +702,22 @@ def dispatch(store, kind, p):
         return {'compatibility': doc, 'download': compatibility.export(doc), 'keep_modal': True}
     if kind == 'inspect_storage':
         return {'storage': storage.panel(store), 'keep_modal': True}
+    if kind == 'inspect_storage_cleanup':
+        return {'storage_cleanup': storage_cleanup.panel(store), 'keep_modal': True}
+    if kind == 'inspect_storage_cleanup_receipt':
+        return {'cleanup_receipt': storage_cleanup.receipt(store, p.get('id')), 'keep_modal': True}
+    if kind == 'preview_storage_cleanup':
+        from . import async_tasks
+        if p.get('scope') == 'failed':
+            plan = storage_cleanup.preview_failed(store, checkpoint=async_tasks.checkpoint)
+        else:
+            plan = storage_cleanup.preview(store, p.get('targets'), checkpoint=async_tasks.checkpoint)
+        return {'cleanup_plan': plan, 'keep_modal': True}
+    if kind == 'execute_storage_cleanup':
+        jid = storage_cleanup.request(store, p.get('plan_id'), p.get('signature'),
+                                      p.get('confirmation'), p.get('acknowledged'))
+        return {'cleanup_refresh': True, 'job_id': jid,
+                'message': 'Cleanup queued. Follow it in Jobs & progress and find the receipt in Storage.'}
     if kind == 'scan_storage':
         storage.scan(store, p.get('revision'), p.get('include_external', False))
         return {'storage': storage.panel(store), 'message': 'Storage measurement saved. Review its scope and limits.', 'keep_modal': True}
@@ -505,6 +725,15 @@ def dispatch(store, kind, p):
         return {'download': storage.download(store), 'keep_modal': True}
     if kind == 'inspect_results':
         return {'results': results.inspect(store, p.get('id')), 'keep_modal': True}
+    if kind in {'inspect_output_files', 'open_output_folder'}:
+        from . import output_inventory
+        if kind == 'inspect_output_files':
+            return {'output_files': output_inventory.inspect(store, p.get('id'), p.get('relative', ''),
+                        p.get('snapshot', ''), p.get('page', 0)), 'keep_modal': True}
+        from .launcher import open_folder
+        path = output_inventory.folder(store, p.get('id'), p.get('relative', ''), p.get('snapshot', ''))
+        opened = open_folder(path)
+        return {'message': 'Requested the file manager on the computer running Bactologix: ' + opened, 'keep_modal': True}
     if kind == 'open_report_folder':
         from .launcher import open_folder
         if p.get('run_id'):
@@ -557,7 +786,6 @@ def dispatch(store, kind, p):
                      'can_continue': bool(run and run.get('aware',{}).get('state') in {'complete','continuation_ready'} and parse_config(run['config']).get('aware_run_until') == 'aware')}, 'keep_modal': True}
         if kind == 'continue_aware':
             aware_outputs.continue_assembly(store, rid, p.get('token'))
-            validate_launch(store, rid, 'continue')
             enqueue(store, 'workflow', {'run_id':rid, 'action':'continue'})
             return {'message':'Assembly continuation queued.', 'navigate':'jobs'}
         samples = aware_outputs.commit(store, path, p.get('token'), p.get('selected'))
@@ -578,14 +806,7 @@ def dispatch(store, kind, p):
         action = p.get("action")
         if action not in {"dry-run", "prepare", "run", "check-environments", "continue"}:
             raise ValueError("Unknown workflow action")
-        for rid in ids:
-            validate_launch(store, rid, action)
-        queued = []
-        for rid in ids:
-            try:
-                queued.append(enqueue(store, "workflow", {"run_id": rid, "action": action}))
-            except Exception as exc:
-                raise ValueError(f"Queued {len(queued)} job(s). {rid}: {exc}") from exc
+        queued = enqueue_workflows(store, [{"run_id": rid, "action": action} for rid in ids])
         return {"message": f"Queued {len(queued)} jobs in order.", "navigate": "jobs"}
     if kind == "clone":
         raise ValueError("Independent polishing clones have been replaced. Open a completed run and choose Create variant to reuse results.")
@@ -593,12 +814,17 @@ def dispatch(store, kind, p):
         followup.create_followup(store, p.get("id"), p["text"], p.get("reviewed") is True,
                                  p.get('source_id', 'screening'), p.get('scope'))
         return {"message": "Created a reviewed follow-up draft. Check its native dry-run before execution.", "navigate": "runs"}
-    if kind == "revise_run":
-        child = run_revisions.apply(store, p)
-        response = {"message": ("Created a result variant. Review inherited checkpoints and validate before running." if child.get("variant") else "Created a revised draft. The original run is unchanged; check a new dry-run."),
-                    "navigate": "runs", "open_run": child["id"], "keep_modal": False}
-        response.update(dispatch(store, "inspect_run", {"id": child["id"]}))
-        response["keep_modal"] = False
+    if kind in {"update_run_draft", "revise_run"}:
+        in_place = kind == "update_run_draft"
+        saved = run_revisions.apply(store, {**p, "in_place": in_place})
+        if in_place:
+            message = "Saved changes to this draft. Choose Validate run to check the updated settings."
+        elif saved.get("variant"):
+            message = "Created a result variant. Review inherited checkpoints and validate before running."
+        else:
+            message = "Created a revised draft. Validate the new draft before running."
+        response = dispatch(store, "inspect_run", {"id": saved["id"]})
+        response.update(message=message, navigate="runs", open_run=saved["id"], keep_modal=False)
         return response
     if kind == "micp_handoff":
         from .micp_handoff import create
@@ -613,6 +839,10 @@ def dispatch(store, kind, p):
         check_run_files(run)
         create_run(store, "basis", {"id": run["sample"]["id"], "path": run["output"], "mode": run["sample"]["mode"]}, store.get("configs", "basis", template("basis")), run["cores"], run["memory_mb"], run["id"], run["label"] + " · BaSIS")
         return {"message": "Created a new draft.", "navigate": "runs"}
+    if kind == 'release_storage_stop':
+        from . import disk_stop
+        disk_stop.release(store, p.get('id'))
+        return {'message': 'Storage check passed. The queue remains paused. Choose which jobs to run.'}
     if kind == 'queue_control':
         state = queue.change(store, p.get('action'), p.get('revision'), p.get('id'))
         if p.get('action') in {'resume', 'release'} and not state['paused']:
@@ -629,7 +859,26 @@ def dispatch(store, kind, p):
     if kind == "recover_jobs":
         launch_worker(store)
         return {"message": "Worker requested; active jobs retain their lock. Pauses and holds remain in effect. Recovered interruptions pause the queue for review."}
+    if kind == "resume_disk_paused_job":
+        from . import disk_pause
+        if set(p) != {"job_id", "generation"}:
+            raise ValueError("Select the current storage pause before resuming.")
+        from .supervision import snapshot as monitoring_snapshot
+        selected_job = store.job(p['job_id']) if isinstance(p['job_id'], str) else None
+        monitor = (monitoring_snapshot(store, selected_job['id']) or {}) if selected_job else {}
+        if monitor.get('state') in {'degraded', 'interrupted', 'unavailable'}:
+            raise ValueError("Storage resume is unavailable while execution monitoring needs attention. Review this attempt's log and status.")
+        disk_pause.request_resume(store, p["job_id"], p["generation"])
+        return {"message": "Resume requested. Storage will be checked again before the run continues."}
     if kind == "cancel_job":
+        from .desktop import request_live_job_stop
+        try:
+            sent = request_live_job_stop(store, p["id"])
+        except OSError:
+            sent = False
+        if sent:
+            store.cancel(p["id"], sent_to_worker=True)
+            return {"message": "Stop requested for the running job. The job log will be retained."}
         from .queue import reconcile_interrupted
         recovered = reconcile_interrupted(store)
         if p["id"] in recovered:
@@ -637,6 +886,12 @@ def dispatch(store, kind, p):
         job = store.job(p["id"])
         if not job or job["status"] not in {"queued", "running"}:
             raise ValueError("This job is no longer active")
+        from .supervision import snapshot as monitoring_snapshot
+        monitor = monitoring_snapshot(store, job['id']) or {}
+        if job['status'] == 'running' and monitor.get('state') == 'interrupted' and monitor.get('cleanup_confirmed') is not True:
+            raise ValueError("Monitoring was interrupted and native process exit is still unconfirmed. "
+                             "Cleanup was attempted; another stop request cannot restore process ownership. "
+                             "Review this attempt's log. Relaunch and cleanup remain blocked.")
         store.cancel(p["id"])
         return {"message": "Stop requested. The job log will be retained."}
     if kind == "job_metrics":
@@ -693,7 +948,24 @@ def handle_request(store, request, session):
     seen.append(request["id"])
     del seen[:-256]
     try:
-        response = {"id": request["id"], "ok": True, **dispatch(store, request.get("kind"), request.get("payload", {}))}
+        from . import async_tasks
+        kind, payload = request.get('kind'), request.get('payload', {})
+        if not isinstance(payload, dict):
+            raise ValueError('Invalid action payload')
+        owner = session.setdefault('ui-task-owner', uuid.uuid4().hex)
+        if kind in async_tasks.ACTIONS:
+            value = {'async_task': async_tasks.submit(store, owner, request['id'], kind, payload), 'keep_modal': True}
+        elif kind in {'poll_ui_task', 'cancel_ui_task'}:
+            action = async_tasks.poll if kind == 'poll_ui_task' else async_tasks.cancel
+            value = {'async_task': action(store, owner, payload.get('token')), 'keep_modal': True}
+        elif kind in {'inspect_run', 'inspect_results', 'job_log', 'job_metrics',
+                      'inspect_workstation', 'isolate_export_receipt'}:
+            # These same read requests drive the automatic active-job poll.
+            with display_read():
+                value = dispatch(store, kind, payload)
+        else:
+            value = dispatch(store, kind, payload)
+        response = {"id": request["id"], "ok": True, **value}
     except Exception as exc:
         response = {"id": request["id"], "ok": False, "message": str(exc)}
     session["ui-response"] = response

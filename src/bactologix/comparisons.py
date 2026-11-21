@@ -91,6 +91,7 @@ def panel(store, ids):
         add('provenance', ['sample', key], [(r.get('sample') or {}).get(key, MISSING) for r in runs])
     doc = {'schema': 1, 'created_at': now(), 'app_version': __version__, 'reference_id': ids[0],
            'runs': [{'id': r['id'], 'label': r.get('label', r['id']), 'tool': r.get('tool'),
+                     'draft_generation': r.get('draft_generation', 0),
                      'archived': bool(store.get('run_visibility', r['id'], {}).get('archived')),
                      'config_sha256': hashlib.sha256(r['config'].encode()).hexdigest(),
                      'value_sha256': hashlib.sha256(identity.encode()).hexdigest()}

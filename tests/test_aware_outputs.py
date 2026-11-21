@@ -1,6 +1,7 @@
 """AWARE bundle registration and immutable handoff with synthetic read files."""
 import copy
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -63,9 +64,40 @@ def test_derived_runs_skip_second_filter_and_hash_content(workspace,installation
     cfg=yaml.safe_load(run['config'])
     assert cfg['kraken_decision_mode']=='off' and cfg['run_kraken'] is False
     check_run_files(run)
-    import os
     stat=reads.stat();reads.write_text(reads.read_text().replace('ACGT','TGCA'));os.utime(reads,ns=(stat.st_atime_ns,stat.st_mtime_ns))
     with pytest.raises(ValueError,match='Derived AWARE input changed'):aware.verify_sample(run['sample'])
+
+
+def test_derived_draft_checks_provenance_with_current_input_digest(workspace, installation, tmp_path, monkeypatch):
+    from bactologix import runs
+    approve(workspace, installation)
+    path, reads = bundle(tmp_path / 'bundle')
+    sample = aware.commit(workspace, path, aware.review(path)['token'], ['species_11'])[0]
+    fingerprint = runs._fingerprint
+    paths = []
+
+    def record(path):
+        paths.append(path)
+        return fingerprint(path)
+
+    monkeypatch.setattr(runs, '_fingerprint', record)
+    monkeypatch.setattr(aware, 'sha', lambda p: pytest.fail(f'Reread input: {p}'))
+    create_run(workspace, 'hybas', sample, '{}')
+    assert paths == [reads]
+    sample['aware_provenance']['files'][0]['sha256'] = '0' * 64
+    with pytest.raises(ValueError, match='Derived AWARE input changed'):
+        create_run(workspace, 'hybas', sample, '{}')
+    assert paths == [reads, reads]
+
+
+def test_stage_checks_provenance_by_content_when_registration_has_no_mtime(workspace, tmp_path):
+    from bactologix.manifest_inputs import stage
+    path, reads = bundle(tmp_path / 'bundle')
+    sample = aware.commit(workspace, path, aware.review(path)['token'], ['species_11'])[0]
+    sample['inputs'][0].pop('mtime_ns')
+    original = reads.stat()
+    os.utime(reads, ns=(original.st_atime_ns, original.st_mtime_ns + 1_000_000_000))
+    assert stage(sample, tmp_path / 'output')[0]['sha256'] == sample['inputs'][0]['sha256']
 
 
 def test_continuation_preserves_configuration(workspace,installation,sample,monkeypatch):

@@ -19,6 +19,13 @@ def capacity(tmp_path, monkeypatch):
     return store, info
 
 
+@pytest.mark.parametrize('free, usable', [(73728, 72704), (1024, 0), (0, 0), (None, None)])
+def test_run_review_receives_usable_swap_after_reserve(capacity, free, usable):
+    store, info = capacity
+    info['memory']['swap_available_mb'] = free
+    assert h.panel(store)['usable_swap_mb'] == usable
+
+
 def test_preset_budgets_respect_capacity_and_system_reserve(capacity):
     _, info = capacity
     high, medium, low = h.presets(info)
@@ -59,11 +66,44 @@ def test_wsl_detection_honors_affinity_and_memory_limit(tmp_path, monkeypatch):
     monkeypatch.setattr(h.os, 'sched_getaffinity', lambda _: set(range(8)))
     monkeypatch.setattr(h.platform, 'release', lambda: 'microsoft-standard-WSL2')
     monkeypatch.setattr(h, 'cgroup_limits', lambda: {'cores': 4, 'total_mb': 4096, 'available_mb': 2048})
+    group_bytes = 4096 * h.MIB + 123456
+    (tmp_path / 'memory.max').write_text(str(group_bytes))
+    (tmp_path / 'memory.current').write_text(str(2048 * h.MIB))
+    paging = h.paging_limits(tmp_path, '')
+    monkeypatch.setattr(h, 'paging_limits', lambda: paging)
     monkeypatch.setattr(h, 'gpu_inventory', lambda: {'cards': []})
     monkeypatch.setattr(h, '_read', lambda path: 'MemTotal: 16777216 kB\nMemAvailable: 8388608 kB\nSwapTotal: 2097152 kB' if path == '/proc/meminfo' else '')
     info = h.detect(tmp_path)
     assert info['wsl'] and info['cpu']['available'] == 4
-    assert info['memory'] == {'total_mb': 4096, 'available_mb': 2048, 'swap_mb': 2048}
+    assert info['memory'] == {'total_mb': 4096, 'limit_bytes': group_bytes, 'available_mb': 2048, 'swap_mb': 2048,
+                              'swap_available_mb': None, 'combined_total_mb': 6144,
+                              'combined_available_mb': None}
+
+
+@pytest.mark.parametrize('fs,controllers,limit_name', [
+    ('cgroup2', '', 'memory.max'), ('cgroup', 'memory', 'memory.limit_in_bytes')])
+def test_exact_bytes_from_namespaced_memory_mount(tmp_path, monkeypatch, fs, controllers, limit_name):
+    mount = tmp_path / 'cgroup mount'
+    leaf = mount / 'worker'
+    leaf.mkdir(parents=True)
+    physical_kib = 51_395_040
+    limit_bytes = 50_190 * h.MIB + 12345
+    escaped_mount = str(mount).replace(' ', r'\040')
+    controls = {
+        '/proc/meminfo': f'MemTotal: {physical_kib} kB',
+        '/proc/self/cgroup': f'1:{controllers}:/tenant/worker',
+        '/proc/self/mountinfo': f'57 1 0:33 /tenant {escaped_mount} ro - {fs} cgroup rw,{controllers}',
+    }
+    original_read = h._read
+    monkeypatch.setattr(h, '_read', lambda p: controls[p] if p in controls else original_read(p))
+    monkeypatch.setattr(h, 'gpu_inventory', dict)
+    (mount / limit_name).write_text(str(limit_bytes))
+    assert h.detect(tmp_path)['memory']['limit_bytes'] == limit_bytes
+    (leaf / limit_name).write_text('unreadable')
+    assert h.detect(tmp_path)['memory']['limit_bytes'] is None
+    (leaf / limit_name).unlink()
+    (mount / limit_name).unlink()
+    assert h.detect(tmp_path)['memory']['limit_bytes'] == physical_kib * 1024
 
 
 def test_cuda_driver_and_toolkit_are_distinct_and_optional(monkeypatch):
@@ -161,3 +201,113 @@ def test_invalid_custom_budgets_do_not_save(capacity,cpu,ram,mode,tool):
 def test_native_gpu_mode_never_overrides_existing_visibility():
     assert h.workflow_environment({'bactologix_compute':{'gpu_mode':'native'}})=={}
     with pytest.raises(ValueError): h.workflow_environment({'bactologix_compute':{'gpu_mode':'unsupported'}})
+
+
+@pytest.mark.parametrize('tool', ['hybas', 'basis', 'micpscope'])
+def test_swap_default_is_per_pipeline_and_preserves_compute_policy(capacity, tool):
+    store, info = capacity
+    store.put('configs', tool, 'bactologix_compute: {gpu_mode: cpu, swap_mb: 4096, custom: keep}\n')
+    before_jobs = store.jobs()
+    dispatch(store, 'save_compute_defaults', {'tool': tool, 'cores': 3, 'memory_mb': 4096,
+        'gpu_mode': 'cpu', 'swap_mb': 98304, 'revisions': h.panel(store)['revisions'],
+        'hardware_id': info['id']})
+    cfg = yaml.safe_load(store.get('configs', tool))
+    assert cfg['bactologix_compute'] == {'gpu_mode': 'cpu', 'swap_mb': 98304, 'custom': 'keep'}
+    assert h.run_defaults(store, tool)['swap_mb'] == store.get('resource_defaults', tool)['swap_mb'] == 98304
+    assert all(h.run_defaults(store, other)['swap_mb'] == 0 for other in h.PIPELINES if other != tool)
+    assert store.jobs() == before_jobs  # Saving a preference neither allocates swap nor starts work.
+    # Older clients can change CPU/RAM/GPU without erasing the saved allowance.
+    h.apply_custom(store, tool, 2, 2048, 'cpu', h.panel(store)['revisions'], info['id'])
+    assert h.run_defaults(store, tool)['swap_mb'] == 98304
+    h.apply_custom(store, tool, 2, 2048, 'cpu', h.panel(store)['revisions'], info['id'], swap_mb=0)
+    assert h.run_defaults(store, tool)['swap_mb'] == 0
+    assert yaml.safe_load(store.get('configs', tool))['bactologix_compute']['custom'] == 'keep'
+
+
+def test_presets_preserve_swap_without_inflating_tool_ram(capacity):
+    store, info = capacity
+    for tool, swap in [('hybas', 98304), ('basis', 4096), ('micpscope', 0)]:
+        store.put('configs', tool, yaml.safe_dump({'bactologix_compute': {
+            'gpu_mode': 'cpu', 'swap_mb': swap, 'custom': tool}}))
+    h.apply_preset(store, 'medium', list(h.PIPELINES), h.panel(store)['revisions'], info['id'])
+    ram = h.presets(info)[1]['memory_mb']
+    for tool, swap in [('hybas', 98304), ('basis', 4096), ('micpscope', 0)]:
+        cfg = yaml.safe_load(store.get('configs', tool))
+        assert cfg['bactologix_compute'] == {'gpu_mode': 'cpu', 'swap_mb': swap, 'custom': tool}
+        assert h.run_defaults(store, tool)['memory_mb'] == ram
+        assert h.run_defaults(store, tool)['swap_mb'] == swap
+        if tool == 'hybas':
+            assert cfg['assembly_mem_mb'] == cfg['polishing_mem_mb'] == ram
+            assert cfg['spades_memory_gb'] == ram // 1024
+        else:
+            assert cfg['memory_mb'] == ram
+
+
+@pytest.mark.parametrize('swap', [None, True, False, -1, 0.5, 98304.0, '98304', [], {}, 2_000_001, 1_999_999])
+def test_invalid_default_swap_never_saves(capacity, swap):
+    store, info = capacity
+    original = 'bactologix_compute: {gpu_mode: native, swap_mb: 4096, custom: keep}\n'
+    store.put('configs', 'hybas', original)
+    with pytest.raises(ValueError, match='whole number|combined'):
+        dispatch(store, 'save_compute_defaults', {'tool': 'hybas', 'cores': 2, 'memory_mb': 4096,
+            'gpu_mode': 'cpu', 'swap_mb': swap, 'revisions': h.panel(store)['revisions'],
+            'hardware_id': info['id']})
+    assert store.get('configs', 'hybas') == original
+    assert not store.all('resource_defaults')
+
+
+def test_preset_combined_cap_rolls_back_all_pipelines(capacity):
+    store, info = capacity
+    store.put('configs', 'basis', 'bactologix_compute: {swap_mb: 1990000}\n')
+    before = store.get('configs', 'basis')
+    with pytest.raises(ValueError, match='combined'):
+        h.apply_preset(store, 'high', ['hybas', 'basis'], h.panel(store)['revisions'], info['id'])
+    assert store.get('configs', 'hybas') is None
+    assert store.get('configs', 'basis') == before
+    assert not store.all('resource_defaults')
+
+
+@pytest.mark.parametrize('kind', ['save_config', 'save_default_config'])
+def test_yaml_swap_save_and_removal_stay_in_sync_with_compute_defaults(capacity, kind):
+    store, info = capacity
+    h.apply_custom(store, 'hybas', 2, 4096, 'cpu', h.panel(store)['revisions'], info['id'], swap_mb=98304)
+    for text, expected in [('bactologix_compute: {swap_mb: 8192, gpu_mode: native}\n', 8192),
+                           ('bactologix_compute: {}\n', 0), ('custom: keep\n', 0)]:
+        editor = dispatch(store, 'default_config_editor', {'tool': 'hybas'})['default_config']
+        dispatch(store, kind, {'tool': 'hybas', 'text': text, 'revision': editor['revision']})
+        assert h.run_defaults(store, 'hybas')['swap_mb'] == expected
+        assert h.panel(store)['defaults']['hybas']['swap_mb'] == expected
+        assert store.get('resource_defaults', 'hybas')['swap_mb'] == expected
+        assert h.run_defaults(store, 'hybas')['gpu_mode'] == 'native'
+    before = store.get('configs', 'hybas'), store.get('resource_defaults', 'hybas')
+    editor = dispatch(store, 'default_config_editor', {'tool': 'hybas'})['default_config']
+    with pytest.raises(ValueError, match='combined'):
+        dispatch(store, kind, {'tool': 'hybas', 'text': 'bactologix_compute: {swap_mb: 2000000}\n',
+                              'revision': editor['revision']})
+    assert (store.get('configs', 'hybas'), store.get('resource_defaults', 'hybas')) == before
+
+
+def test_yaml_policy_is_authoritative_over_legacy_cached_metadata(capacity):
+    store, _ = capacity
+    store.put('resource_defaults', 'hybas', {'cores': 2, 'memory_mb': 4096, 'swap_mb': 98304, 'gpu_mode': 'cpu'})
+    store.put('configs', 'hybas', 'bactologix_compute: {swap_mb: 8192, gpu_mode: native}\n')
+    values = h.run_defaults(store, 'hybas')
+    assert values['swap_mb'] == 8192 and values['gpu_mode'] == 'native'
+
+
+@pytest.mark.parametrize('tool', ['hybas', 'basis', 'micpscope'])
+def test_backend_drafts_inherit_pipeline_swap_unless_explicitly_overridden(capacity, monkeypatch, tool):
+    store, info = capacity
+    h.apply_custom(store, tool, 2, 4096, 'cpu', h.panel(store)['revisions'], info['id'], swap_mb=98304)
+    original = store.get('configs', tool)
+    for sid in ('one', 'two'):
+        store.put('samples', sid, {'id': sid})
+    calls = []
+    monkeypatch.setattr('bactologix.ui_backend.create_run', lambda *args: calls.append(args) or {'id': 'fixture'})
+    for override, expected in [({}, 98304), ({'swap_mb': 4096}, 4096), ({'swap_mb': 0}, 0)]:
+        calls.clear()
+        dispatch(store, 'create_runs', {'tool': tool, 'ids': ['one', 'two'], **override})
+        assert len(calls) == 2
+        assert all(yaml.safe_load(call[3])['bactologix_compute']['swap_mb'] == expected for call in calls)
+        assert all(call[4:] == (2, 4096) for call in calls)
+        assert store.get('configs', tool) == original

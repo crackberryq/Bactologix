@@ -1,6 +1,7 @@
 """Exercise the real Streamlit trigger protocol and its backend boundary."""
 import base64
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -14,14 +15,24 @@ from bactologix.ui_backend import dispatch, handle_request, snapshot
 APP = Path(PACKAGE_FILE).with_name("app.py")
 
 
-def send(app, kind, payload=None, request_id="request-1"):
+def send(app, kind, payload=None, request_id="request-1", *, wait_for_task=True):
     state = WidgetStates()
     event = state.widgets.add()
     event.id = _make_trigger_id(app.get("bidi_component")[0].proto.id, "events")
     event.json_trigger_value = json.dumps({"event": "action", "value": {"id": request_id, "kind": kind, "payload": payload or {}}})
     app._run(state, timeout=20)
     assert not app.exception, [e.value for e in app.exception]
-    return app.session_state["ui-response"]
+    response = app.session_state["ui-response"]
+    if wait_for_task and response.get('async_task'):
+        for index in range(100):
+            task = response['async_task']
+            if task['status'] != 'running':
+                return {'id': request_id, 'ok': task['status'] == 'completed',
+                        **(task.get('result') or {'message': task.get('message', task['status'])})}
+            time.sleep(.01)
+            response = send(app, 'poll_ui_task', {'token': task['token']}, request_id + '-poll-' + str(index), wait_for_task=False)
+        raise AssertionError('Background component action did not finish')
+    return response
 
 
 def test_html_component_mount_and_config_trigger(tmp_path, monkeypatch):
@@ -30,7 +41,8 @@ def test_html_component_mount_and_config_trigger(tmp_path, monkeypatch):
     assert not app.exception
     component = app.get("bidi_component")[0].proto
     assert 'class="app-shell"' in component.html_content
-    assert "Pick up where you left off." in component.js_content
+    assert "Welcome back," in component.js_content
+    assert 'id="release-channel-badge"' in component.html_content
     result = send(app, "save_config", {"tool": "hybas", "text": "custom: {retain: [1, true]}\nthreads: 2\n"})
     assert result["ok"]
     assert "retain" in Store(tmp_path).get("configs", "hybas")
@@ -48,6 +60,29 @@ def test_rerun_does_not_duplicate_job(tmp_path, monkeypatch):
     assert send(app, "smoke")["ok"]
     app.run()
     assert queued == ["smoke"]
+
+
+def test_poll_reuses_initialized_workspace_and_reads_worker_changes(tmp_path, monkeypatch):
+    monkeypatch.setenv('BACTOLOGIX_HOME', str(tmp_path))
+    worker_store = Store(tmp_path)
+    job = worker_store.submit('smoke', {})
+    initialized = []
+    original_init = Store.__init__
+
+    def count_initializations(self, home=None):
+        original_init(self, home)
+        initialized.append(self.home)
+
+    monkeypatch.setattr(Store, '__init__', count_initializations)
+    app = AppTest.from_file(str(APP)).run(timeout=20)
+    assert not app.exception
+    assert initialized == [tmp_path]
+    worker_store.update_job(job, status='succeeded')
+    app.run(timeout=20)
+    assert not app.exception
+    assert initialized == [tmp_path]
+    data = json.loads(app.get('bidi_component')[0].proto.json)
+    assert any(row['id'] == job and row['status'] == 'succeeded' for row in data['workspace']['jobs'])
 
 
 def test_failed_action_is_returned_to_component(tmp_path, monkeypatch):

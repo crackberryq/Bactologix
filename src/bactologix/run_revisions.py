@@ -5,11 +5,14 @@ import hashlib
 import json
 from pathlib import Path
 
-from . import run_config
+from . import compute_memory, draft_edits, run_config
 from .runs import check_run_files, create_run, current_controller, tree_digest
 
 
-def source(store, rid):
+from .storage_guard import mutation
+
+def source(store, rid, *, full=True, recheck_input_content=True):
+    draft_edits.recover(store)
     run = store.get('runs', rid)
     if not run:
         raise ValueError('Choose an existing run.')
@@ -20,33 +23,45 @@ def source(store, rid):
     if any(j['kind'] == 'workflow' and j['payload'].get('run_id') == rid
            and j['status'] in {'queued', 'running'} for j in store.jobs()):
         raise ValueError('Wait for the queued or running job to finish before editing this run.')
-    check_run_files(run)
     current_controller(store, run)
-    if tree_digest(Path(run['folder']) / 'workflow') != run['workflow_sha256']:
-        raise ValueError('The saved workflow source changed. Create a new run.')
+    if full:
+        check_run_files(run, full=recheck_input_content)
+        if tree_digest(Path(run['folder']) / 'workflow') != run['workflow_sha256']:
+            raise ValueError('The saved workflow source changed. Create a new run.')
     return run
 
 
 def signature(run):
     fields = ('id', 'tool', 'sample', 'config', 'config_sha256', 'workflow_sha256', 'commit',
               'installation', 'inputs', 'rule_cache', 'cores', 'memory_mb', 'run_type')
+    if run.get('draft_generation'):
+        fields += ('draft_generation',)
     return hashlib.sha256(json.dumps({k: run.get(k) for k in fields}, sort_keys=True).encode()).hexdigest()
 
 
 def editor(store, rid):
-    run = source(store, rid)
+    # Display saved settings without rereading every raw read or database. This
+    # is not permission to revise: apply calls source(full=True) afresh and
+    # verifies the original editor signature before creating a new run.
+    run = source(store, rid, full=False)
+    from .medaka_review import editor_text
+    text = editor_text(store, run['tool'], run['config'], run=run)
     return {'edit_run': {k: run[k] for k in ('id', 'tool', 'sample', 'label', 'cores', 'memory_mb')}
-            | {'signature': signature(run)}, 'run_config': run_config.editor(run['tool'], run['config']),
+            | {'can_edit_draft': draft_edits.available(store, run, draft_edits.jobs_for(store, run)),
+               'signature': signature(run), 'swap_mb': compute_memory.policy(run)['swap_mb']}, 'run_config': run_config.editor(run['tool'], text),
             'run_config_view': 'settings', 'keep_modal': True}
 
 
+@mutation
 def apply(store, payload):
+    if payload.get("variant") and payload.get("in_place"):
+        raise ValueError("Choose a separate result variant or save an editable draft.")
     if payload.get("variant"):
         from . import variants
         with variants.freeze(store, payload.get("id")):
-            parent = source(store, payload.get("id"))
+            parent = source(store, payload.get("id"), recheck_input_content=False)
             variants.eligible(store, parent)
-            child = _apply(store, payload)
+            child = _apply(store, parent, payload)
             try:
                 return variants.branch(store, parent, child)
             except BaseException:
@@ -55,11 +70,13 @@ def apply(store, payload):
                 with store.connect() as db:
                     db.execute("DELETE FROM items WHERE kind='runs' AND id=?", (child["id"],))
                 raise
-    return _apply(store, payload)
+    parent = source(store, payload.get('id'), recheck_input_content=False)
+    return _apply(store, parent, payload)
 
 
-def _apply(store, payload):
-    parent = source(store, payload.get('id'))
+def _apply(store, parent, payload):
+    # A separate draft verifies every parent fingerprint as create_run stages
+    # its inputs. In-place edits retain the original hashes for native launch.
     config = payload.get('config')
     if config is not None:
         if payload.get('signature') != signature(parent):
@@ -69,6 +86,8 @@ def _apply(store, payload):
         text = run_config.compile_config(parent['tool'], config['text'], config.get('changes'))
     else:
         text = payload['text']  # Compatibility with older application clients.
+    if 'swap_mb' in payload:
+        text = compute_memory.with_swap(text, payload['swap_mb'])
     if payload.get('variant') and parent['tool'] == 'basis':
         # Results belong to the new run, even when the parent used a shared
         # external payload store. Database/resource paths remain unchanged.
@@ -81,10 +100,13 @@ def _apply(store, payload):
     cores, memory = int(payload.get('cores', parent['cores'])), int(payload.get('memory_mb', parent['memory_mb']))
     if not 1 <= cores <= 512 or not 512 <= memory <= 2000000:
         raise ValueError('CPU or memory budget is outside the supported range')
+    if payload.get('in_place') is True:
+        return draft_edits.save(store, parent, text, cores, memory, payload.get('signature'))
     child = create_run(store, parent['tool'], parent['sample'], text, cores, memory,
                        parent['id'], parent['label'] + ' · revised', parent['installation'],
                        expected_inputs=parent['inputs'], register=not payload.get('variant'))
     try:
+        child['parent_draft_generation'] = parent.get('draft_generation', 0)
         child['rule_cache'] = parent.get('rule_cache', child['rule_cache'])
         Path(child['folder'], 'bactologix-run.json').write_text(json.dumps(child, indent=2) + '\n')
         if not payload.get('variant'):

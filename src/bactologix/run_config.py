@@ -9,19 +9,24 @@ import yaml
 
 from .catalog import DATA
 from .databases import CATALOG
+from .local import host_path
 from .runs import parse_config
 
 
 MANAGED = {
     'micpscope': {'samples', 'output_dir', 'threads', 'memory_mb', 'reference_database_sha256'},
-    'hybas': {'base_dir', 'sample_sheet', 'input_manifest', 'isolate', 'threads', 'setup_only', 'admin_mode', 'ci_mode', 'kraken_review_decision', 'kraken_review_decision_sha256', 'aware_assembly_continuation', 'aware_assembly_continuation_sha256'},
+    'hybas': {'base_dir', 'sample_sheet', 'input_manifest', 'isolate', 'threads', 'setup_only', 'admin_mode', 'ci_mode', 'medaka_model_reviewed_model', 'kraken_review_decision', 'kraken_review_decision_sha256', 'aware_assembly_continuation', 'aware_assembly_continuation_sha256'},
     'basis': {'bactomics_root', 'samples', 'isolates', 'isolate', 'threads', 'memory_mb',
               'execution.cores', 'execution.memory_mb'},
 }
+for _managed in MANAGED.values():
+    _managed.add('bactologix_compute.swap_mb')
+MANAGED['hybas'].add('bactologix_compute.auto_swap')
 OPTIONS = {
     'micpscope': {},
     'hybas': {'aware_mode': ['legacy', 'off', 'taxonomy', 'auto', 'split'], 'aware_run_until': ['assembly', 'aware'], 'kraken_decision_mode': ['off', 'manual', 'auto', 'aware'],
-              'polish_mode': ['none', 'racon', 'medaka', 'tripolish']},
+              'polish_mode': ['none', 'racon', 'medaka', 'tripolish'],
+              'medaka_model_selection_policy': ['documented_default', 'strict']},
     'basis': {'resources.policy': ['auto', 'manual'],
               'deep.aware.preset': ['auto-strict', 'auto-medium', 'auto-loose']},
 }
@@ -60,10 +65,17 @@ LABELS = {
     'aware_preserve_groups': 'AWARE · Preserve additional read groups',
     'aware_statistics': 'AWARE · Statistical evidence',
     'aware_reclassify_derived': 'AWARE · Reclassify derived inputs',
+    'bactologix_compute.swap_mb': 'Additional swap allowance (MB)',
+    'bactologix_compute.auto_swap': 'Calculate swap for each new draft',
     'kraken_review_before_filtering': 'Pause after identification',
     'run_kraken': 'Run Kraken2', 'kraken_decision_mode': 'Kraken decision mode',
     'run_busco': 'Run BUSCO', 'run_prokka': 'Run Prokka', 'run_multiqc': 'Run MultiQC',
     'run_polypolish': 'Run Polypolish', 'polish_mode': 'Polishing strategy',
+    'medaka_model': 'Medaka model ID or file',
+    'medaka_model_selection_policy': 'When Medaka cannot detect a matching model',
+    'medaka_model_review_acknowledged': 'Acknowledge unmatched Medaka model review',
+    'medaka_model_review_reason': 'Medaka model review reason',
+    'medaka_model_reviewed_model': 'Medaka model recorded for this review',
     'target_taxid': 'Target taxon ID', 'busco_lineage': 'BUSCO lineage',
     'db_root': 'Database root folder', 'kraken_db_name': 'Kraken database folder name',
     'extend': 'Enable Extend', 'deep.enabled': 'Enable DeepSafe',
@@ -75,11 +87,17 @@ HELP = {
     'aware_statistics': 'Report assignment-support intervals and resampling stability, not the probability of correct identification.',
     'aware_reclassify_derived': 'Derived samples reuse verified retained reads and skip Kraken by default. Enable to apply the selected Kraken settings again.',
 
+    'bactologix_compute.swap_mb': 'Set in pipeline compute defaults, with per-run overrides in Customize compute resources. Adds a scheduler allowance without increasing tool-specific memory settings.',
     'kraken_review_before_filtering': 'Stop after Kraken, review the report, then finalize the target and continue. Requires a compatible HybAs version.',
     'run_kraken': 'Switching off also sets the decision mode to Off. Switching on from Off selects AWARE.',
     'kraken_decision_mode': 'Off skips Kraken. Manual, Auto and AWARE enable it. The pipeline keeps its existing decision rules.',
     'polish_mode': 'Available modes come from HybAs AWARE. The native dry-run checks compatibility with the selected read modes.',
-    'db_root': 'Your saved database layout is inherited. Use an absolute path when choosing another root.',
+    'medaka_model': 'An explicit model takes precedence. Blank requests selection from ONT basecaller metadata; fallback is available only when the selected source exposes its documented-default policy. An explicit or default model does not establish scientific suitability.',
+    'medaka_model_selection_policy': 'Documented default: if metadata is absent or its single basecaller is unsupported, use the pinned Medaka version’s documented default and record the reason. Strict: stop for a model decision. Mixed/incomplete metadata and execution errors never trigger fallback.',
+    'medaka_model_review_acknowledged': 'Requires a reviewed Dev model-selection contract. Records your decision to use an explicit model without a matching installed mapping; it does not establish scientific suitability. Older frozen workflows cannot use this control.',
+    'medaka_model_review_reason': 'Document why this explicit model is being used and the supporting evidence or research purpose. Requires the reviewed Dev model-selection contract; it never selects a model automatically.',
+    'db_root': 'Your saved database layout is inherited. To change only Kraken, use the Kraken database folder setting.',
+    'kraken_db_name': 'Enter a folder name under the database root or the full path to an existing Kraken2 index on Linux or Windows.',
     'resources.policy': 'Auto permits native resource preparation; Manual uses resources you have already supplied.',
     'deep.enabled': 'Saved defaults are inherited. Change this only for the new drafts you are creating.',
     'kraken_mem_mb': 'Leave blank to let HybAs AWARE calculate memory from its database. Enter a positive MB value to override.',
@@ -212,8 +230,20 @@ def _assign(cfg, path, value, remove=False):
         target[path[-1]] = value
 
 
+def normalize_kraken_folder(tool, cfg):
+    """Store a pasted absolute Kraken path in the form native tools and storage checks use."""
+    raw = cfg.get('kraken_db_name')
+    if tool == 'hybas' and isinstance(raw, str):
+        path = host_path(raw)
+        if path.is_absolute() and str(path) != raw:
+            cfg['kraken_db_name'] = str(path)
+            return True
+    return False
+
+
 def compile_config(tool, text, changes=None):
     cfg = parse_config(text)
+    original_model = cfg.get('medaka_model', '')
     if changes is None:
         changes = {}
     if not isinstance(changes, dict) or len(changes) > 1000:
@@ -261,18 +291,40 @@ def compile_config(tool, text, changes=None):
         if tool == 'hybas' and row['name'] in AUTO_INTEGERS and isinstance(value, str) and value.isdigit():
             value = int(value)
         _assign(cfg, row['path'], value, remove)
-    result = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True) if changes else text
+    if tool == 'hybas':
+        from .medaka_review import FIELDS
+        review_changed = {fields[key]['name'] for key in changes if key in fields}
+        if FIELDS.intersection(cfg):
+            explicit_ack = 'medaka_model_review_acknowledged' in review_changed and cfg.get('medaka_model_review_acknowledged') is True
+            if cfg.get('medaka_model', '') != original_model and not (explicit_ack and
+                    'medaka_model_review_reason' in review_changed and str(cfg.get('medaka_model_review_reason', '')).strip()):
+                cfg.update(medaka_model_review_acknowledged=False, medaka_model_review_reason='', medaka_model_reviewed_model='')
+            elif explicit_ack:
+                cfg['medaka_model_reviewed_model'] = cfg.get('medaka_model', '')
+            elif 'medaka_model_review_acknowledged' in review_changed and not cfg.get('medaka_model_review_acknowledged'):
+                cfg['medaka_model_reviewed_model'] = ''
+    normalized = normalize_kraken_folder(tool, cfg)
+    result = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True) if changes or normalized else text
     parse_config(result)
     return result
 
 
 def validate(tool, text):
     cfg = parse_config(text)
+    from .compute_memory import allowance
+    allowance(cfg)
     from .hardware import workflow_environment
     workflow_environment(cfg)
     if tool == 'hybas':
         from .aware_modes import resolve
         cfg = resolve(cfg)
+        if 'medaka_model_review_acknowledged' in cfg and type(cfg['medaka_model_review_acknowledged']) is not bool:
+            raise ValueError('medaka_model_review_acknowledged must be true or false.')
+        if 'medaka_model_reviewed_model' in cfg and not isinstance(cfg['medaka_model_reviewed_model'], str):
+            raise ValueError('medaka_model_reviewed_model must be text.')
+        if 'medaka_model_review_reason' in cfg and (not isinstance(cfg['medaka_model_review_reason'], str)
+                                                   or len(cfg['medaka_model_review_reason']) > 4096):
+            raise ValueError('medaka_model_review_reason must be text of at most 4096 characters.')
         for name, options in OPTIONS[tool].items():
             if name in cfg and cfg[name] not in options and not (name in AUTO_KEYS and cfg[name] == 'auto'):
                 raise ValueError(name + ': choose ' + ', '.join(options))

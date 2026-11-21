@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import tomllib
 from urllib.error import HTTPError
 from urllib.parse import quote
@@ -13,6 +15,21 @@ from urllib.request import Request, urlopen
 
 from packaging.version import Version
 from bactologix.updates import MAX_WHEEL_BYTES, REPO, release_record, validate_wheel
+
+
+def publication_tag(version):
+    parsed = Version(version)
+    return ('dev-v' if parsed.is_devrelease else 'v') + str(parsed)
+
+
+def validate_publication_context(root, repository, ref):
+    if repository != REPO:
+        raise ValueError('Release publication is limited to the Bactologix repository.')
+    version = Version(tomllib.loads((root / 'pyproject.toml').read_text())['project']['version'])
+    expected = 'refs/heads/development' if version.is_devrelease else 'refs/heads/main'
+    if ref != expected:
+        raise ValueError(f'Package {version} must be published from {expected}.')
+    return version
 
 
 def github(path, method='GET', payload=None, content=None):
@@ -42,7 +59,7 @@ def verify_receipts(release, expected, version):
         for asset in candidate['assets']:
             temporary = rf'https://github\.com/{re.escape(REPO)}/releases/download/untagged-[0-9a-f]+/{re.escape(asset["name"])}'
             if re.fullmatch(temporary, asset.get('browser_download_url', '')):
-                asset['browser_download_url'] = f'https://github.com/{REPO}/releases/download/v{version}/{asset["name"]}'
+                asset['browser_download_url'] = f'https://github.com/{REPO}/releases/download/{release["tag_name"]}/{asset["name"]}'
     record = release_record(candidate)
     if not record or not record['available'] or record['version'] != version:
         raise ValueError('The app updater would reject this release wheel.')
@@ -86,7 +103,7 @@ def publish(root, dist, commit):
     if project['name'] != 'bactologix':
         raise ValueError('Unexpected package identity.')
     version = str(Version(project['version']))
-    tag = 'v' + version
+    tag = publication_tag(version)
     wheel = dist / f'bactologix-{version}-py3-none-any.whl'
     source = dist / f'bactologix-{version}.tar.gz'
     validate_wheel(wheel, version)
@@ -111,12 +128,25 @@ def publish(root, dist, commit):
         check_tag(tag, recovery['commit'])
         return finish_draft(release, recovery['assets'], version)
     check_tag(tag, commit)
-    packages = [wheel, source]
-    desktop = dist / 'Bactologix-Windows.zip'
+    development = Version(version).is_devrelease
+    published_wheel = wheel
+    if development:
+        # Old regular installers identify canonical wheel asset names. Keep the
+        # Dev download invisible to them; the Dev updater restores the local name.
+        published_wheel = dist / f'Bactologix-Dev-{version}.whl'
+        shutil.copyfile(wheel, published_wheel)
+    packages = [published_wheel, source]
+    desktop = dist / ('Bactologix-Dev-Windows.zip' if development else 'Bactologix-Windows.zip')
     if (root / 'scripts/windows').is_dir():
         if not desktop.is_file():
             raise ValueError('The checked Windows desktop bundle is required.')
         packages.append(desktop)
+        spec = importlib.util.spec_from_file_location('windows_executable', root / 'scripts/build_windows_executable.py')
+        builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(builder)
+        packages.extend(builder.verify_build(root, dist, commit, version,
+                                             channel='dev' if development else 'stable',
+                                             wheel=wheel if development else None))
     checksum = dist / 'SHA256SUMS'
     checksum.write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n'
                                for p in packages))
@@ -128,10 +158,16 @@ def publish(root, dist, commit):
     if len(sections) != 2:
         raise ValueError('Add release notes to CHANGELOG.md before publishing.')
     notes = sections[1].split('\n', 1)[1].split('\n## ', 1)[0].strip()
-    notes += f'\n\nTested source: `{commit}`. Install through **Update Bactologix → Refresh releases → {tag}**. Restart Bactologix after installation.\n'
+    application = 'Bactologix Dev' if development else 'Bactologix'
+    notes += f'\n\nTested source: `{commit}`. Install through **Update {application} → Refresh releases → {tag}**. Restart {application} after installation.\n'
+    if (root / 'scripts/windows').is_dir():
+        executable = 'Bactologix-Dev-Setup.exe' if development else 'Bactologix-Setup.exe'
+        notes += f'\nFor a new Windows installation, download **{executable}**. It contains the setup interface and reviewed bootstrap files; Internet access is still required for WSL, Ubuntu and application dependencies. ZIP remains available as a fallback.\n'
+    if development:
+        notes += '\nUse the Dev setup executable if an older Dev build does not list this release; it preserves the separate Dev workspace.\n'
     parsed = Version(version)
     stage = {'a': 'Alpha', 'b': 'Beta', 'rc': 'Release candidate'}.get(parsed.pre[0]) if parsed.pre else None
-    release_name = 'Bactologix ' + version + (' — ' + stage if stage else '')
+    release_name = application + ' ' + version + (' — Development' if development else (' — ' + stage if stage else ''))
     if not release:
         release = github(base, 'POST', {'tag_name': tag, 'target_commitish': commit, 'name': release_name,
                                       'body': notes, 'draft': True, 'prerelease': Version(version).is_prerelease})
@@ -150,6 +186,5 @@ def publish(root, dist, commit):
 
 
 if __name__ == '__main__':
-    if os.environ.get('GITHUB_REPOSITORY') != REPO or os.environ.get('GITHUB_REF') != 'refs/heads/main':
-        raise SystemExit('Release publication is limited to this repository on main.')
+    validate_publication_context(Path.cwd(), os.environ.get('GITHUB_REPOSITORY'), os.environ.get('GITHUB_REF'))
     publish(Path.cwd(), Path('dist'), os.environ['GITHUB_SHA'])

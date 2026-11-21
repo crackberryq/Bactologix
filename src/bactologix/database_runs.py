@@ -9,6 +9,7 @@ import yaml
 
 from . import databases as db
 from .runs import check_run_files, create_run, current_controller, parse_config, tree_digest
+from .storage_guard import mutation
 
 
 def _run(store, key):
@@ -79,6 +80,7 @@ def preview(store, ids):
     return result
 
 
+@mutation
 def apply(store, ids, selections, signature):
     plan = preview(store, ids)
     if plan["signature"] != signature:

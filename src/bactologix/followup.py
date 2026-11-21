@@ -19,6 +19,8 @@ from . import __version__
 from .release_contract import approval, preflight
 
 
+from .storage_guard import mutation
+
 def _contract(store, commit, parent_commit):
     row = approval(store, 'basis', commit)
     cap = row.get('followup', {}) if row else {}
@@ -49,12 +51,15 @@ def available(run, store=None):
     return bool(source_options(store, run))
 
 
-def execution_directory(store, run):
-    """Shared outputs need shared Snakemake provenance, across frozen sources."""
-    parent = store.get('runs', run.get('parent'))
+def state_directory(parent):
+    """Follow-up attempts share their screening parent's scheduler state."""
     if not parent or parent['tool'] != 'basis':
         raise ValueError('The screening parent is required for follow-up execution')
-    root = Path(parent['folder']) / 'followup-state'
+    return Path(parent['folder']) / 'followup-state'
+
+
+def execution_directory(store, run):
+    root = state_directory(store.get('runs', run.get('parent')))
     if root.is_symlink():
         raise ValueError('Follow-up execution state must not be a symlink')
     root.mkdir(exist_ok=True)
@@ -127,6 +132,7 @@ def screening_sources(output):
     return result
 
 
+@mutation
 def create_followup(store, parent_id, text, reviewed=False, source_id='screening', scope=None):
     parent = store.get("runs", parent_id)
     if not parent or not available(parent, store):

@@ -1,15 +1,96 @@
-# Bactologix 0.1.0a86.dev1 — Alpha (unreleased)
+# Bactologix 0.1.0a133.dev1 — Experimental development
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
 
-**Windows desktop setup:** download [Bactologix-Windows.zip](https://github.com/crackberryq/Bactologix/releases/download/v0.1.0a85/Bactologix-Windows.zip), extract it, and double-click **Bactologix-Setup.cmd**. The visible installer checks Ubuntu, reuses/installs Conda and Bactomics, and creates a desktop shortcut using the app's own icon. Normal shortcut launches run Ubuntu without a terminal window.
+HybAs can reuse an existing Kraken2 database on your Windows drive or another
+local volume. Dev reads the index in place for classification and swap estimates.
+See [Connect an existing Kraken2 database](docs/DEVELOPMENT.md#connect-an-existing-kraken2-database).
 
-Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Active work asks for confirmation; completed results remain available for resume. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
+HybAs AWARE v10.0.0a7 fixes BUSCO database preparation. The pipeline now
+checks the lineage folder that BUSCO extracts before making the dataset ready
+for use. Existing HybAs v10.0.0a6 tool environments can be reused.
+In **Jobs & progress**, choose **Clean up failed items** to review the disk space
+used by failed runs and failed database or pipeline installations. See
+[cleaning up failed work](docs/storage-management.md#clean-up-failed-items).
+The Dev workspace also supports [verified isolate export and analysis history](docs/isolate-export.md).
 
+For the private Windows Dev test build, extract the supplied ZIP and open `Bactologix-Dev-Setup.cmd`. The installer includes the pinned Dev application wheel and reuses your Dev workspace. Internet access is required for dependencies. See [parallel testing](docs/DEVELOPMENT.md).
+
+Closing the last dedicated app/browser window stops only that desktop session's jobs and server. Completed outputs remain available. Reopen the app and choose the saved run to resume it. Independent Ubuntu terminals, pipelines and other desktop sessions stay running. If WSL installation requires a Windows restart or an initial Linux username/password, setup explains that step and can be rerun. [Windows details and limitations](docs/windows-desktop.txt).
+
+
+### Preparing the beta interface
+
+Home highlights work needing attention and recent runs. New runs follow **Purpose → Inputs → Settings → Review**, with advanced settings and compute limits available under Settings. **Activity** in the header opens the job queue; **Pipelines & databases** combines software setup and database management. Existing saved links remain usable.
+
+Results show execution and evidence coverage separately. Storage starts with measured filesystem capacity, category filters and a review of selected deletion paths. **Leave editor** retains edits in the current browser tab; use the final save action to create a durable run draft. Removing a sample registration asks for confirmation and keeps its files.
+
+### Notifications and available updates
+
+Use the **Notifications** bell for saved job outcomes, runs waiting for review and
+available updates. Choose **Clear all notifications** inside the window to clear
+current alerts. **Enable desktop alerts** requests browser permission on this
+computer. Desktop pop-ups require a supported browser and an open or minimized
+Bactologix window; the notification center retains missed alerts.
+
+Automatic update checks run in the background while the app is open. They check
+the application and installed pipelines in the appropriate regular/Dev channel.
+You choose whether to install an update. Notification categories and automatic
+checks can be switched off in the notification center.
+See [notifications](docs/notifications.md) for permissions and delivery limits.
+
+### Sample-aware setup review
+
+In **New run → Settings → Setup adviser**, select **Review setup** to check the
+registered inputs and review source-specific starting settings. HybAs guidance
+explains applicable polishing stages and rounds; BaSIS and GeneScope guidance
+covers annotation inputs and evidence scope. **Use source value** changes one
+setting in the unsaved draft. It preserves saved defaults and existing runs.
+
+Source template values are starting points, not sample-specific optima. The
+adviser does not measure read quality or coverage, select a Medaka model, or
+certify biological suitability. Every draft still needs native validation.
+See [setup adviser](docs/setup-adviser.md) for scope and limitations.
+
+### Isolate export and analysis history
+
+Open **Samples → Analysis & history** for the original input location, linked
+analysis folders and the recorded workflow diagram. **Export isolate** previews
+and copies the available isolate files, linked analyses, reports, logs, Methods
+and history into a new folder with SHA256 verification. Original files remain in
+place. USB and locally synced SharePoint folders are supported destinations;
+cloud upload is not verified. Missing historical evidence is shown explicitly.
+See [isolate export and history](docs/isolate-export.md) for package contents,
+verification, history downloads and limitations.
+
+### Where isolate results are stored
+
+On **Samples**, **Open isolate folder** opens the saved Bactologix analysis output.
+If several analyses are linked, choose their folder from the list. Shared follow-up
+locations appear once. Original files are available separately under **Analysis &
+history → Open input folder**. Missing outputs never redirect to the input folder.
+
+The registered isolate folder supplies the original inputs. Normal pipeline runs
+write separately under `~/.local/share/bactologix/runs/<run-id>/outputs/<isolate-id>/`:
+HybAs uses `work/`, `annotation/` and `reports/`; BaSIS uses `safety/`; GeneScope
+uses `micpscope/` for compatibility with earlier versions. Frozen `config.yaml`,
+`samples.tsv` and `workflow/` sit beside `outputs/` in the run folder. BaSIS
+follow-ups have separate records but share the parent analysis output.
+
+Bactologix Dev has its independent `~/.local/share/bactologix-dev` workspace.
+Custom workspace locations are possible; **Samples → Analysis & history → Files
+& analyses** shows the actual paths. **Export isolate** gathers available originals
+and explicitly linked analyses across run folders into a verified copy.
+
+New real workflow invocations record their Snakemake and controller Python
+versions at execution time. Methods retain missing historical evidence as unknown,
+identify reused results and incomplete assessment scope, and distinguish native
+package inventories from demonstrated execution. Controller receipts do not
+establish individual rule execution.
 
 ### Workspace identity and citations
 
-The sidebar shows **Powered by GenoMix Human Link** and names the workspace
+The sidebar shows **Powered by GenoMix Human Link**. The header names the workspace
 after the local account running Bactologix (for example, **Jimi's workspace**).
 Unavailable or generic administrator accounts retain **Local workspace**.
 This is a display label; workspace folders and saved runs are unchanged.
@@ -80,6 +161,15 @@ type filters, and choose newest or oldest submission order. History includes
 attempts for archived runs. Each page shows up to 25 attempts; filters remain in
 this open workspace across navigation and status refreshes, but reset on browser reload.
 
+**Clear job history** hides all finished attempts in this workspace, including
+those outside the current filters. Saved runs retain their activity, logs and
+outputs. Jobs that finish after you clear history appear in the list.
+
+**Workflow locks to review** lists saved runs with leftover scheduler locks.
+Choose **Review lock** beside a run to check ownership. When Bactologix confirms
+that it can unlock the workflow, choose **Unlock workflow**. You can then review
+the run and decide when to resume it.
+
 **Review run** opens the saved run for successful and unsuccessful attempts.
 Missing run records remain searchable by their recorded ID. Pipeline attribution
 uses the recorded job tool or its currently registered run/installation; jobs
@@ -124,14 +214,34 @@ Opening this overview does not launch checks, migrate runs or change active vers
 snapshot. It includes local interpreter/runner/source paths and run labels and is
 not redacted; review it before sharing.
 
-### Storage overview
+### Storage management
+
+The workspace warns below 20 GiB of measured free disk space. At or below 5 GiB on dedicated swap volumes or 10 GiB on data volumes it stops active work. Once swap-only drives have more than 5 GiB and data drives have at least 15 GiB free, recheck storage in **Jobs &
+progress** and choose which saved work to resume. WSL monitoring covers the
+Linux filesystem and Windows drives holding the distribution and swap.
+**Resource use** shows sampled system RAM and swap separately from free disk
+space. See [low-disk protection](docs/low-disk-protection.md).
+
+Open **Storage → Reclaim disk space** to select old run results, known sample input
+files, or unused managed pipeline sources and environments. The preview lists the
+exact paths, estimated file sizes and any dependencies that prevent deletion.
+Confirm that you have verified transferred copies or intentionally discard the
+files, then type **DELETE** to queue permanent cleanup. Review its outcome in
+**Cleanup history** and measure storage again afterward.
+
+Removing a sample registration or archiving a run keeps its files and frees no
+data space. Sample-file cleanup selects known input files; it does not recursively
+erase the sample's original folder. Shared or unverified resources remain protected.
+See [Storage cleanup and recovery](docs/storage-management.md) for the complete flow.
+
+#### Storage measurement
 
 Open **Storage** to review registered paths, then choose **Measure storage**.
 Opening the page does not scan directories. Workspace locations are included;
 **Include registered external locations** explicitly adds known external run,
-runner, cache, database and source paths. No arbitrary drive search or cleanup is
-performed. **Refresh locations** updates references without replacing the saved
-measurement; changed registration is flagged until the next measurement.
+runner, cache, database and source paths. Measurement performs no arbitrary drive
+search and never deletes files. **Refresh locations** updates references without
+replacing the saved measurement; changed registration is flagged until the next measurement.
 
 The saved overview separates runs/outputs, environments/runners, databases/models,
 retained repair folders, sources, logs and other workspace files. Review references
@@ -157,7 +267,8 @@ especially while jobs are active; totals are not reclaimable-space estimates.
 
 Use **Download overview** for the saved JSON measurement. It includes registered
 local paths and references; review before sharing. Measurements survive app
-refresh/restart. Existing files, settings, jobs and repair backups are retained.
+refresh/restart. Measurement retains existing files, settings, jobs and repair backups;
+permanent cleanup requires the separate reviewed action above.
 
 ### Results and download centre
 
@@ -277,11 +388,14 @@ privacy or anonymity guarantee.
 ### Job progress and resource-use records
 
 **Jobs & progress** and a saved run's **Activity** show elapsed time, sampled CPU
-and peak sampled RAM. Recognized Snakemake log messages add active steps and
+and peak sampled RAM. On Linux and WSL2, new jobs also show download and upload
+rates and the time of the last observed transfer. A quiet network is common
+while a tool unpacks files or builds an index. Recognized Snakemake log messages add active steps and
 completed tasks in the current plan. Checkpoints can change the total; a task
 percentage is neither an ETA nor evidence of complete biological results.
 
-Choose **Resource use** to view CPU/RAM charts or download JSON, CSV, or a ZIP
+Choose **Resource use** to view CPU, RAM and network history, check observed
+transfer totals, or download JSON, CSV, or a ZIP
 containing both formats and measurement notes. Every job attempt has a separate
 record, including failed and cancelled jobs; a resumed run never overwrites the
 earlier attempt. Recording starts with jobs executed in a27. Historical usage
@@ -291,7 +405,12 @@ Measurements sample the command and discoverable descendants approximately every
 two seconds. 100% CPU represents one logical CPU. CPU seconds are observed
 user/system counter increments; RAM is the sum of process RSS in MiB, which can
 count shared memory more than once. Brief processes, detached children and
-between-sample peaks can be missed. Unavailable/stale readings and interrupted
+between-sample peaks can be missed. Network measurements cover TCP sockets
+belonging to the monitored command and its children. Short connections can
+escape sampling. Bactologix also counts the response bytes it reads directly
+when downloading Miniforge or an application update. The record contains byte
+counts and timing. Browser and
+unrelated application traffic are excluded. Unavailable/stale readings and interrupted
 records are explicit. Charts save at most every 30 seconds and at command/job
 completion; long histories are combined into intervals preserving observed CPU
 seconds and sampled RSS peaks. These are local diagnostic measurements, not
@@ -317,6 +436,11 @@ cleared when a tab closes; the editor reports recovery failures. Creating a draf
 stores it durably in the workspace and clears its browser recovery copy. This
 recovery feature applies to the run editor, not unsaved global defaults.
 
+When you choose **Create drafts**, Bactologix reads each raw input to record its
+SHA-256 fingerprint and links it into the draft. During longer reads the app
+shows the filename and the amount read so far. Large FASTQ files can take time
+even when there is plenty of disk space.
+
 **Edit settings** stays bound to the selected saved run. If another draft or revision is unfinished, a dialog names both pipelines/runs: resume those edits, close the dialog to keep them, or explicitly discard them and open the requested run. Reopening the same revision resumes its unsaved settings directly. The unfinished-draft banner identifies its pipeline.
 
 Saved-run checks now show destination permissions, free space for results and
@@ -335,6 +459,8 @@ NVIDIA results as unknown availability, including on WSL.
 ### Run-specific Methods exports
 
 Open a saved run and choose **Methods**, or use **Results → Methods & downloads**.
+The view explicitly identifies the combined pipeline as experimental and scientifically unvalidated. It leads with a run-specific Methods narrative including tools and recorded or source-defined settings, followed by its diagram and evidence. Use **Methods only** to download the narrative or the full exports for supporting material. See [Run Methods and data-flow diagrams](docs/run-methods.md).
+
 Review the generated prose, then download plain text, Markdown, printable HTML,
 or a reproducibility ZIP. The ZIP includes the frozen run YAML, settings with
 their origin, source/configuration hashes, retained execution metadata and
@@ -351,6 +477,16 @@ export instead of borrowing current defaults. HybAs read modes, Kraken/AWARE,
 polishing, quality and annotation switches, and BaSIS module exclusions, AWARE
 and follow-up settings drive the prose. Follow-up exports distinguish inherited
 screening from new execution.
+
+For GeneScope runs affected by the former **8 MB Methods evidence** error,
+update Bactologix, reopen the completed run, and choose **Methods → Refresh Methods**.
+The exporter streams the existing results and preserves the original completion
+snapshot. Recovered versions are separately labelled, with a full-file checksum
+and the time of the new read in the export. Where no recorded attempt checksum
+exists, their execution attribution remains unverified. Missing historical tool
+versions, step records and original input hashes are not reconstructed. This
+recovery does not rerun the analysis. Missing or conflicting outputs remain
+unavailable and are explained in the review notes.
 
 Review the Methods text, database/model identities and tool/database citations
 before submission. Exports contain sample identifiers and local paths. Exporting
@@ -473,11 +609,11 @@ Compatible snapshots remain selectable even after a branch moves. Unsupported do
 
 ## PC capacity and power presets
 
-Open **Install & update → PC capacity**. Detection reports resources visible to the Linux process, including WSL/container limits, logical/physical CPU counts where available, RAM and available memory, swap, workspace disk space, NVIDIA GPUs/VRAM and driver/toolkit details. **Detect again** refreshes the snapshot. NVIDIA's driver CUDA capability is separate from the `nvcc` toolkit version; neither guarantees compatibility with a tool environment. PCI graphics information is included when `lspci` is available. Probes time out and unavailable information is labelled.
+Open **Pipelines & databases → Compute & CUDA**, or **Guided setup → PC capacity**. Detection reports resources visible to the Linux process, including WSL/container limits, logical/physical CPU counts where available, RAM and available memory, swap, workspace disk space, NVIDIA GPUs/VRAM and driver/toolkit details. **Detect again** refreshes the snapshot. NVIDIA's driver CUDA capability is separate from the `nvcc` toolkit version; neither guarantees compatibility with a tool environment. PCI graphics information is included when `lspci` is available. Probes time out and unavailable information is labelled.
 
-Choose one pipeline or both, then **Use High power**, **Use Medium**, or **Use Low**. These buttons save resource values in the default YAML and in the CPU/RAM budgets used by future run drafts. High uses all available CPU threads (up to 512). RAM starts from the lower of total capacity and currently available RAM, reserves at least 1 GB or 5% of capacity, and rounds down to whole GB within the app limit of 2,000,000 MB. Medium uses half the threads and 60% of that RAM budget; Low uses a quarter of the threads and 30%, with a 1 GB minimum when available. The UI shows the exact budget before applying it.
+Choose one pipeline or **All pipelines**, then **Use Full power**, **Use Moderate**, or **Use Low**. These buttons save resource values in the default YAML and in the CPU/RAM budgets used by future run drafts. Full power uses all available CPU threads (up to 512). RAM starts from the lower of total capacity and currently available RAM, reserves at least 1 GB or 5% of capacity, and rounds down to whole GB within the app limit of 2,000,000 MB. Moderate uses half the threads and 60% of that RAM budget; Low uses a quarter of the threads and 30%, with a 1 GB minimum when available. The UI shows the exact budget before applying it.
 
-Presets set execution budgets; they do not guarantee full utilization or that every database/tool will fit. HybAs assembly, SPAdes and polishing budgets are aligned with the selected RAM. Existing database-derived requirements, GPU settings, enabled tools and scientific thresholds are preserved. GPU details are informational: there is no generic CUDA toggle that makes every tool GPU-capable. Saved runs keep their original configuration; **Edit run settings** creates a revised draft when needed. Ordinary Configuration edits made in another window are protected by revision checks.
+Presets set execution budgets; they do not guarantee full utilization or that every database/tool will fit. HybAs assembly, SPAdes and polishing budgets are aligned with the selected RAM. Existing database-derived requirements, GPU settings, enabled tools and scientific thresholds are preserved. GPU details are informational: there is no generic CUDA toggle that makes every tool GPU-capable. Use **Edit settings** to correct an unexecuted draft under its existing run ID. Runs with analysis history use a separate revision. Ordinary Configuration edits made in another window are protected by revision checks.
 
 ## Check and repair tool environments
 
@@ -495,7 +631,7 @@ Repairs run through the serialized job worker. Shared runs using the repaired ca
 2. **Samples:** choose **Add sample → Browse folders**, navigate to the sample folder and select it, or import CSV/TSV columns `sample_id,input_folder,read_mode`. HybAs uses `raw/illumina` and `raw/nanopore`. BaSIS needs `annotation/<sample_id>.fna`, `.faa`, `.gff`, plus `.gbk` when enabled modules require it.
    **Remove sample** is available in Registered samples and in the run-draft sample picker. It unregisters the folder and moves its inactive saved runs from **Current runs** to **Archived**. Queued/running runs remain visible. Files, frozen configuration, jobs and reports are preserved. Use **Restore** to bring a run back, or **Add sample** to register the folder again. Individual runs also have **Remove from list**.
 3. **Configuration:** use the same category tabs, mode cards and switches as the draft editor. **Advanced** provides searchable sections and **Full YAML** for custom keys; YAML import/export and **Check settings** remain available. Each pipeline retains its own unsaved edits while switching tabs. **Save defaults** applies the configuration to future drafts and preserves existing runs. **Reload saved defaults** discards local edits. A stale editor cannot overwrite newer saved settings or database selections; download your edits before reloading if you need to keep them. Choose database/model locations in **Databases & models**.
-4. **Runs → Create run drafts:** select samples, open **Run settings**, and customize the new drafts before creating them. Use category tabs and mode cards for Kraken/AWARE, Assembly, Quality and Databases; BaSIS has Modules, AWARE, DeepSafe and Resources. **Advanced** holds the searchable full field editor and **Full YAML** for custom keys. Finish in **Review** to check the selected samples and key settings; **Check settings** validates the editor input. Switching pipelines retains independent edits. **Reload saved defaults** resets this dialog to the currently saved configuration. Selected samples receive the same settings; create separate requests for different configurations. Saved defaults and existing runs are preserved. Each **saved run page** has the same category tabs for reading its saved values. Choose **Edit settings** to use the guided editor, then review and create a separate revised draft; the original run remains intact. Raw commands and YAML are under **Advanced**. Each draft copies workflow source, references only input files, writes a frozen resolved config, and has independent outputs and scheduler state. CPU/memory budgets are set above the editor; generated input/output paths are shown as managed settings. Native defaults shown for omitted settings are only added when edited, so opening the editor does not enable extra modules. Run **Validate run** first. Read its actual log, then prepare analysis tool environments or **Run / resume**.
+4. **Runs → Create run drafts:** select samples, open **Run settings**, and customize the new drafts before creating them. Use category tabs and mode cards for Kraken/AWARE, Assembly, Quality and Databases; BaSIS has Modules, AWARE, DeepSafe and Resources. **Advanced** holds the searchable full field editor and **Full YAML** for custom keys. Finish in **Review** to check the selected samples and key settings; **Check settings** validates the editor input. Switching pipelines retains independent edits. **Reload saved defaults** resets this dialog to the currently saved configuration. Selected samples receive the same settings; create separate requests for different configurations. Saved defaults and existing runs are preserved. Each **saved run page** has the same category tabs for reading its saved values. Choose **Edit settings** to correct a draft, including one whose validation failed. Review the changes, save them to the same draft and choose **Validate run** again. If analysis has already started, the editor creates a separate revision so its results keep their original settings. Raw commands and YAML are under **Advanced**. Each draft copies workflow source, references only input files, writes a frozen resolved config, and has independent outputs and scheduler state. CPU/memory budgets are set above the editor; generated input/output paths are shown as managed settings. Native defaults shown for omitted settings are only added when edited, so opening the editor does not enable extra modules. Run **Validate run** first. Read its actual log, then prepare analysis tool environments or **Run / resume**.
 5. **Results & reports:** native MultiQC/Safety reports are discovered by expected path, or register any existing local HTML. Embedded reports run in an isolated inner frame. Self-contained reports work best; use Open original for relative assets.
 6. **Overview → Run live smoke test:** executes a real tiny Snakemake workflow using an installed controller and creates an HTML software-test report. It performs no biological analysis.
 
@@ -521,11 +657,18 @@ Only the reviewed source commits below can be connected for managed runs. Modifi
 - **Runs** contains current and archived drafts/history. Search by name, sample or run ID and filter by pipeline/status. Batch actions use the selected runs; selections outside the current filter are explicitly counted. Reset filters does not clear your selection.
 - **Comparisons** combines saved-setting comparisons and variant creation. Select runs to compare their configuration and provenance, or choose a HybAs parent for independent variant drafts. Native reports remain the source of scientific results.
 
-Open a run to use its dedicated page. Settings categories, **Activity** and **Results** stay with that run, and the URL records the selected run and section. Browser Back, Forward and refresh restore that location; unknown run links show a recovery action. Single-run validation/preparation/execution opened from this page switches to its Activity section. Batch jobs open Jobs & progress. Settings edits still create a separate revised draft, preserving the parent.
+Open a run to use its dedicated page. Settings categories, **Activity** and **Results** stay with that run, and the URL records the selected run and section. Browser Back, Forward and refresh restore that location; unknown run links show a recovery action. Single-run validation/preparation/execution opened from this page switches to its Activity section. Batch jobs open Jobs & progress. When you save an edit to the same draft, **Activity** keeps the earlier attempts and their logs. The updated draft requires fresh validation.
 
 URLs contain only the page, run ID and section, not configuration or input paths. Search filters, unsaved editor changes and comparison selections are session state, not saved in the URL. A run link works only in a workspace that contains that run. **Run software check** is available in Install & update.
 
 ## Run checks and environment availability
+
+New runs inherit the swap allowance saved in the pipeline's **Default compute
+resources**. For HybAs, **Calculate and fill swap allowance** uses the selected
+Kraken index and the RAM HybAs can use. To change one draft, use **Edit
+settings → Customize compute resources**, calculate the allowance, save the
+draft and choose **Validate run**. See
+[swap memory](docs/swap-memory.md) for capacity, performance and provenance details.
 
 Saved-run **Overview → Run checks** separates inputs/saved files, pipeline/runner setup, native validation, frozen database paths and tool environment availability. The panel reports the scope and time of each check. **Runner set up** on an installation card refers to the runner only; it does not mean every analysis tool or database is ready. **Validate run** performs the native dry-run. Saved database paths remain visible under **Databases**, independently of later default changes.
 
@@ -550,7 +693,9 @@ Each ready pipeline card in **Install & update** has two direct actions:
 
 ## Uninstall an older pipeline version
 
-In **Install & update**, click **Uninstall version** and review the exact source folder and retained content before confirming. Only an inactive, unused managed source snapshot and its installation entry are removed. Shared runners, tool caches, databases, saved runs, results, logs and original connected checkouts remain on disk. This action does not reclaim their storage.
+In **Install & update**, click **Uninstall version** and review the exact source folder and retained content before confirming. Only an inactive, unused managed source snapshot and its installation entry are removed. Shared runners, tool caches, databases, saved runs, results, logs and original connected checkouts remain on disk. This action does not reclaim their storage. For eligible managed environments and
+runners, use **Storage → Reclaim disk space**. Its preview checks dependencies and
+can retire an unused current selection without selecting a replacement.
 
 Versions referenced by any saved run (including archived runs) or unfinished database download cannot be removed. Queued/running jobs also block uninstall. Modified, untracked or ignored source files and sources containing retained caches or checkouts must be preserved first. The app rechecks these conditions at confirmation; stale previews cannot remove a changed installation.
 
@@ -605,7 +750,7 @@ report refresh to change their presentation.
 
 Controller environments are keyed by pipeline, environment-file bytes and platform. Each reviewed release must explicitly pin Python (minor series or patch) and a complete Snakemake version in its Conda environment file. Setup installs those requirements, rather than whatever happens to be the newest Snakemake. The verified versions appear on the installation card and in the setup log. A changed definition creates a separate runner; a failed installation/check never activates the new version. Existing controllers are health-checked against the selected release before reuse. Repair prepares a fresh controller and retains the old one. Existing drafts use the repaired controller for the same source commit, and require a fresh native dry-run before preparation or execution. Their original controller path remains recorded as creation provenance. Snakemake uses a stable absolute `--conda-prefix` per pipeline outside version-specific source folders; its native content/pin/deploy-script hashing governs rule environment reuse. No environment or old run is routinely deleted. Database/model storage is separate. BaSIS's configured `resources.policy: auto` can download missing resources during an actual run. HybAs database provisioning remains the upstream explicit workflow/configuration responsibility.
 
-One OS lock serializes jobs in each Bactologix workspace, including environment preparation. Child processes inherit the lock. The worker marks abandoned running jobs interrupted on recovery and pauses the queue for review. Run/resume uses normal Snakemake metadata and `--rerun-incomplete`; Bactologix never fabricates completion records, deletes scheduler locks, or weakens rerun triggers. The generated sample sheet and exact staged input-link mapping are verified before every launch. Input size/mtime changes invalidate a draft; these are metadata checks, not full input content hashes. Older drafts reconstruct their expected link mapping from recorded source identities, never from the current staged links; unverifiable drafts are rejected. Comparison clones must retain the parent’s exact input snapshot, including its file inventory. A failed execution remains failed after later successful dry-runs, and discovered reports show their source run status. Native workflow provenance may provide additional content checksums.
+One OS lock serializes jobs in each Bactologix workspace, including environment preparation. Child processes inherit the lock. The worker marks abandoned running jobs interrupted on recovery and pauses the queue for review. Run/resume uses normal Snakemake metadata and `--rerun-incomplete`; Bactologix never fabricates completion records, deletes scheduler locks, or weakens rerun triggers. The generated sample sheet and exact staged input-link mapping are verified before every launch. New drafts record streaming SHA-256 input fingerprints. Launch and reuse verify recorded content hashes as well as size/mtime; quick UI readiness checks use metadata without rereading large input files. Older drafts remain explicitly metadata-only and are not retroactively declared content-verified. Hashing can detect changed contents even when size and timestamp are preserved; it does not lock externally writable files throughout execution. Older drafts reconstruct their expected link mapping from recorded source identities, never from the current staged links; unverifiable drafts are rejected. Comparison clones must retain the parent’s exact input snapshot, including its file inventory. A failed execution remains failed after later successful dry-runs, and discovered reports show their source run status. Native workflow provenance may provide additional content checksums.
 
 ## Reviewed BaSIS AWARE follow-up
 
@@ -648,7 +793,7 @@ Bactologix is released under the [MIT License](LICENSE), copyright (c) 2026 Jimi
 
 ## Publishing application updates
 
-After a version bump and changelog entry reach `main`, the software workflow publishes the wheel and source archive only after both Python matrices, Chromium and environment deployment succeed. The publication job uses the tested Python 3.11 artifact, uploads to a draft, verifies GitHub asset digests using the application updater’s acceptance rules, and publishes it with alpha/beta/RC versions marked as prereleases. Existing published assets are never replaced; a new update needs a new package version. Workflow dispatch on `main` can retry a failed publication. Development branches do not publish releases.
+After a version bump and changelog entry reach `main`, the software workflow publishes the wheel and source archive only after both Python matrices, Chromium and environment deployment succeed. The publication job uses the tested Python 3.11 artifact, uploads to a draft, verifies GitHub asset digests using the application updater’s acceptance rules, and publishes it with alpha/beta/RC versions marked as prereleases. Existing published assets are never replaced; a new update needs a new package version. Workflow dispatch on the matching branch can retry a failed publication. Checked `.devN` versions publish from `development` using `dev-v` tags, separate Dev download assets and the Dev installer bundle; regular versions publish only from `main`. Existing regular installers do not recognize the Dev download assets.
 
 
 ## GeneScope and first-time setup
@@ -690,5 +835,17 @@ This is a dedicated continuation, not **Edit settings** (which creates a separat
 draft). Finalized targets cannot be silently replaced. Older saved runs retain
 their original source and behavior; select the updated pipeline for new drafts.
 Manual TaxIDs must be resolvable from this run's Kraken report. Database/input
-identity uses size/mtime checks; saved classification evidence additionally uses
-SHA-256 checksums.
+identity follows the native pipeline's recorded resource checks. New app drafts
+also record and recheck input SHA-256 fingerprints before launch or reuse; legacy
+drafts retain their original metadata-only identity. Saved classification evidence
+uses SHA-256 checksums.
+
+## Independent development installation
+
+For side-by-side experimental testing of Bactologix, HybAs, BaSIS and GeneScope, see [Bactologix Dev](docs/DEVELOPMENT.md) and the [Dev installation instructions](docs/development-install.txt). Dev owns separate environments, workspaces, caches and resources, and installs only explicitly catalogued development pipeline builds.
+
+### Generated output preservation
+
+Open **Results & downloads → All tool outputs** to browse native products, intermediate files and retained histories. See [Output preservation](docs/output-preservation.md). Research records are retained until explicitly removed through reviewed storage controls.
+
+Before testing a fixed release combination, follow the [validation baseline procedure](docs/validation-baseline.md). Record the actual environments, input identities and database/model identities used by each run.

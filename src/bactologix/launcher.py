@@ -1,6 +1,7 @@
 """Start the local UI and open its ready address on Linux, macOS or WSL."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 import ipaddress
 import json
 import os
@@ -10,6 +11,7 @@ import re
 import shutil
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -91,7 +93,9 @@ def browser_url(host, port):
 def free_port(host, requested=None):
     if requested is not None and not 1 <= requested <= 65535:
         raise ValueError('--port must be between 1 and 65535.')
-    for port in ([requested] if requested is not None else range(8501, 8521)):
+    from .channels import current
+    first = 8601 if current() == "dev" else 8501
+    for port in ([requested] if requested is not None else range(first, first + 20)):
         try:
             addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
             for family, socktype, protocol, _, address in addresses:
@@ -106,7 +110,7 @@ def free_port(host, requested=None):
             break
     if requested is not None:
         raise ValueError(f'Cannot listen on {host}:{requested}. Stop the app using it or omit --port to choose an available port.')
-    raise ValueError(f'No available port on {host} between 8501 and 8520. Check the address or choose --host / --port explicitly.')
+    raise ValueError(f'No available port on {host} in its channel range. Check the address or choose --host / --port explicitly.')
 
 
 def server_command(host, port, app=None):
@@ -267,24 +271,80 @@ def stop_server(proc, sig=signal.SIGTERM):
             proc.wait()
 
 
+def _unregister_launcher(store, item):
+    """A bounded, idempotent cleanup write must not delay process cleanup."""
+    from .store import CONTROL_BACKOFF, CONTROL_TIMEOUT, transient_lock
+    for attempt in range(len(CONTROL_BACKOFF) + 1):
+        try:
+            with store.connect(timeout=CONTROL_TIMEOUT) as db:
+                db.execute("DELETE FROM items WHERE kind='launchers' AND id=?", (item['id'],))
+            return
+        except sqlite3.Error as exc:
+            if not transient_lock(exc) or attempt >= len(CONTROL_BACKOFF):
+                raise
+            time.sleep(CONTROL_BACKOFF[attempt])
+
+
+def finish_server(store, item, proc, reader, previous_term, desktop, url, restarting):
+    """Always release the UI child/resources, even if desktop persistence fails."""
+    errors = []
+    def attempt(operation):
+        try:
+            operation()
+        except Exception as exc:
+            errors.append(exc)
+    try:
+        if desktop and not restarting:
+            try:
+                desktop.stop('Desktop session closing')
+                while desktop.jobs():
+                    desktop.publish(url)
+                    time.sleep(.25)
+            except Exception as exc:
+                errors.append(exc)
+    finally:
+        # Each cleanup remains independent; a failed SQLite operation must not
+        # skip restoring handlers, stopping our UI process, or closing its pipe.
+        attempt(lambda: signal.signal(signal.SIGTERM, previous_term))
+        attempt(lambda: stop_server(proc))
+        attempt(lambda: reader.join(timeout=1))
+        if not reader.is_alive():
+            attempt(proc.stdout.close)
+        attempt(lambda: _unregister_launcher(store, item))
+        if desktop and not restarting:
+            if not errors:
+                attempt(lambda: desktop.finish(url))
+            if errors:
+                attempt(lambda: desktop.control_failure(url, errors[0]))
+    if errors:
+        raise RuntimeError('Application cleanup encountered a control error; saved shutdown state and any owned job completion are not confirmed. '
+                           'Review the launcher log: ' + str(errors[0])) from errors[0]
+
+
 def serve(home, host=None, port=None, browser=True, app_window=True, desktop_control=None, desktop_session=None):
+    from .desktop import ENV, STORAGE_SESSION_DIR
     host = checked_host(host or default_host())
     port = free_port(host, port)
     url = browser_url(host, port)
     store = Store(home)
     desktop = None
     if desktop_control:
-        from .desktop import Session, ENV
+        from .desktop import Session
         desktop = Session(store, desktop_control, desktop_session)
-        os.environ[ENV] = desktop_session
         browser = False  # Windows owns the dedicated browser and its lifetime.
     parent = store.home / 'launcher'
     parent.mkdir(exist_ok=True)
     restarting = False
-    with tempfile.TemporaryDirectory(prefix='server-', dir=parent) as temporary:
+    observer = desktop.watch_heartbeats() if desktop else nullcontext()
+    with observer, tempfile.TemporaryDirectory(prefix='server-', dir=parent) as temporary:
         item = restart.register(store, url)
         app = restart.make_app(temporary, item)
         env = dict(os.environ, BACTOLOGIX_HOME=str(home), BACTOLOGIX_LAUNCH_ID=item['id'], PYTHONUNBUFFERED='1')
+        env.pop(STORAGE_SESSION_DIR, None)
+        if desktop:
+            env[ENV] = desktop.key
+            if desktop.root.name == desktop.key:
+                env[STORAGE_SESSION_DIR] = str(desktop.root)
         print(f'Starting Bactologix at {url}\n' + ('Windows desktop supervisor controls this session.' if desktop else 'Keep this terminal open. Press Ctrl+C to stop the app.'), flush=True)
         proc = subprocess.Popen(server_command(host, port, app), env=env, start_new_session=os.name != 'nt',
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
@@ -314,7 +374,7 @@ def serve(home, host=None, port=None, browser=True, app_window=True, desktop_con
         try:
             deadline = time.monotonic() + 60
             while proc.poll() is None:
-                if desktop and desktop.tick(url, ready):
+                if desktop and desktop.poll(url, ready):
                     desktop_closed = True
                     stop_server(proc)
                     break
@@ -347,19 +407,7 @@ def serve(home, host=None, port=None, browser=True, app_window=True, desktop_con
             stop_server(proc, signal.SIGINT)
             return 0
         finally:
-            if desktop and not restarting:
-                desktop.stop('Desktop session closing')
-                while desktop.jobs():
-                    desktop.publish(url)
-                    time.sleep(.25)
-            signal.signal(signal.SIGTERM, previous_term)
-            stop_server(proc)
-            reader.join(timeout=1)
-            if not reader.is_alive():
-                proc.stdout.close()
-            restart.unregister(store, item)
-            if desktop and not restarting:
-                desktop.finish(url)
+            finish_server(store, item, proc, reader, previous_term, desktop, url, restarting)
     if restarting:
         # A fresh interpreter loads the new launcher as well as the new application.
         # Existing tabs reload through runtime.json; do not open duplicate browser tabs.

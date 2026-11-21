@@ -8,10 +8,151 @@ import sys
 from types import SimpleNamespace
 import psutil
 import pytest
+import yaml
 from bactologix import workflow_unlock as unlock
+from bactologix import runs
 from bactologix.store import Store
 from bactologix.runs import tree_digest
 from bactologix.ui_backend import dispatch
+from test_native import workspace, installation, sample
+
+
+@pytest.fixture
+def low_swap_locked(workspace, installation, sample, monkeypatch):
+    """Exercise real launch validation with the reported maintenance shortfall."""
+    from bactologix import compute_memory, hardware
+    run = runs.create_run(workspace, 'hybas', sample,
+                          compute_memory.with_swap('{}', 98160), 12, 46080)
+    run['dry_run_ok'] = True
+    workspace.put('runs', run['id'], run)
+    directory = Path(run['folder']) / 'workflow'
+    locks = directory / '.snakemake/locks'
+    locks.mkdir(parents=True)
+    (locks / '0.input.lock').write_text('/software/fixture\n')
+    output = Path(run['output']) / 'preserved-result.txt'
+    output.write_text('retained output')
+    inventory_calls = []
+
+    def capacity():
+        inventory_calls.append(True)
+        return {'total_mb': 49152, 'available_mb': 49004,
+                'swap_mb': 98304, 'swap_available_mb': 73728,
+                'combined_total_mb': 147456, 'combined_available_mb': 122732}
+
+    monkeypatch.setattr(hardware, 'memory_capacity', capacity)
+    monkeypatch.setattr('bactologix.engine.find_conda', lambda _: '/fixture/conda')
+    monkeypatch.setattr('bactologix.engine.launch_worker', lambda _: None)
+    monkeypatch.setattr(unlock.psutil, 'process_iter', lambda: [])
+    return workspace, run, locks, output, inventory_calls
+
+
+def test_low_swap_unlock_preserves_run_and_keeps_analysis_capacity_checks(low_swap_locked):
+    store, run, locks, output, inventory_calls = low_swap_locked
+    original = copy.deepcopy(run)
+    folder = Path(run['folder'])
+    preserved = [output, folder / 'config.yaml', folder / 'samples.tsv',
+                 folder / 'bactologix-run.json',
+                 *Path(run['sample']['path']).glob('raw/illumina/*.fastq')]
+    contents = {path: path.read_bytes() for path in preserved}
+
+    for action in ('dry-run', 'run'):
+        with pytest.raises(ValueError, match='Pre-run memory checks:') as error:
+            runs.validate_launch(store, run['id'], action)
+        assert '98,160 MB swap allowance exceeds the 72,704 MB usable free swap' in str(error.value)
+        assert '144,240 MB scheduling budget exceeds the 119,251 MB' in str(error.value)
+    assert inventory_calls == [True, True]
+
+    plan = unlock.preview(store, run['id'])
+    assert plan['allowed'], plan['message']
+    jid = unlock.request(store, run['id'], plan['signature'])
+    job = store.claim()
+    assert job['id'] == jid and job['kind'] == 'workflow_unlock'
+    executed = []
+
+    def native(argv, **kwargs):
+        executed.append(argv)
+        start = argv.index('snakemake') + 1
+        result = subprocess.run([sys.executable, '-m', 'snakemake', *argv[start:]],
+                                cwd=kwargs['cwd'], capture_output=True, text=True,
+                                timeout=kwargs['timeout'])
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    with unlock.ownership(store):
+        unlock.execute(SimpleNamespace(store=store, job=job, write=lambda _: None,
+                                       command=native))
+    assert len(executed) == 1 and executed[0][-1] == '--unlock'
+    assert 'mem_mb=144240' in executed[0]
+    assert not {'--dry-run', '--forcerun', '--use-conda', '--rerun-incomplete'}.intersection(executed[0])
+    assert not locks.exists() or not list(locks.iterdir())
+    assert inventory_calls == [True, True]  # Preview, queue and worker skip only admission.
+    assert store.get('runs', run['id']) == original
+    assert all(path.read_bytes() == content for path, content in contents.items())
+    assert store.queue_snapshot()['paused']
+    store.update_job(jid, status='succeeded')
+    with pytest.raises(ValueError, match='Pre-run memory checks:'):
+        runs.validate_launch(store, run['id'], 'run')
+    assert inventory_calls == [True, True, True]
+
+
+@pytest.mark.parametrize('failure', ['working_directory', 'configuration', 'lock_redirect', 'worker_lease'])
+def test_low_swap_unlock_retains_non_memory_guards(low_swap_locked, monkeypatch, tmp_path, failure):
+    from bactologix import preflight
+    store, run, locks, output, inventory_calls = low_swap_locked
+    if failure == 'working_directory':
+        access = preflight.os.access
+        directory = Path(run['folder']) / 'workflow'
+        monkeypatch.setattr(preflight.os, 'access',
+                            lambda path, mode: False if Path(path) == directory else access(path, mode))
+        expected = 'Pre-run checks:'
+    elif failure == 'configuration':
+        Path(run['folder'], 'config.yaml').write_text('changed: true\n')
+        expected = 'Saved configuration changed'
+    elif failure == 'lock_redirect':
+        target = tmp_path / 'redirected-locks'
+        locks.rename(target)
+        locks.symlink_to(target, target_is_directory=True)
+        expected = 'Lock location is redirected'
+    else:
+        with unlock.ownership(store):
+            plan = unlock.preview(store, run['id'])
+        assert not plan['allowed'] and 'currently in use' in plan['message']
+        assert inventory_calls == [] and store.jobs() == []
+        return
+    plan = unlock.preview(store, run['id'])
+    assert not plan['allowed'] and expected in plan['message']
+    assert inventory_calls == [] and store.jobs() == []
+    assert output.read_text() == 'retained output'
+
+
+@pytest.mark.parametrize('stage', ['preview', 'request', 'execute'])
+def test_low_swap_unlock_rechecks_active_processes(low_swap_locked, monkeypatch, stage):
+    store, run, locks, output, inventory_calls = low_swap_locked
+    if stage != 'preview':
+        plan = unlock.preview(store, run['id'])
+        assert plan['allowed']
+    if stage == 'execute':
+        jid = unlock.request(store, run['id'], plan['signature'])
+        job = store.claim()
+        assert job['id'] == jid
+    process = SimpleNamespace(pid=123, cmdline=lambda: ['python', '-m', 'snakemake'],
+                              uids=lambda: SimpleNamespace(real=os.getuid(),
+                                                           effective=os.getuid(), saved=os.getuid()))
+    monkeypatch.setattr(unlock.psutil, 'process_iter', lambda: [process])
+    if stage == 'preview':
+        plan = unlock.preview(store, run['id'])
+        assert not plan['allowed'] and 'Snakemake process 123 is active' in plan['message']
+    elif stage == 'request':
+        with pytest.raises(ValueError, match='Snakemake process 123 is active'):
+            unlock.request(store, run['id'], plan['signature'])
+    else:
+        with unlock.ownership(store), pytest.raises(ValueError, match='Snakemake process 123 is active'):
+            unlock.execute(SimpleNamespace(store=store, job=job,
+                                           command=lambda *_a, **_k: pytest.fail('Active work must prevent native unlock')))
+    assert (locks / '0.input.lock').exists()
+    assert output.read_text() == 'retained output'
+    assert inventory_calls == []
+    if stage != 'execute':
+        assert store.jobs() == []
 
 
 @pytest.fixture
@@ -30,7 +171,7 @@ def locked(tmp_path, monkeypatch):
     run = {'id':'run-fixture','folder':str(directory.parent),'commit':'immutable-fixture','workflow_sha256':tree_digest(directory)}
     store.put('runs', run['id'], run)
     monkeypatch.setattr(unlock,'validate_launch',lambda *a,**k: copy.deepcopy(store.get('runs',run['id'])))
-    monkeypatch.setattr(unlock,'command',lambda *a: [sys.executable,'-m','snakemake','--snakefile',str(directory/'Snakefile'),'--directory',str(directory),'--configfile',str(config),'--dry-run','--forcerun','unwanted_analysis'])
+    monkeypatch.setattr(unlock,'command',lambda *a: [sys.executable,'-m','snakemake','--snakefile',str(directory/'Snakefile'),'--directory',str(directory),'--configfile',str(config),'--resources','mem_mb=16000','kraken_jobs=1','--dry-run','--forcerun','unwanted_analysis'])
     monkeypatch.setattr('bactologix.engine.launch_worker',lambda store: None)
     monkeypatch.setattr(unlock.psutil,'process_iter',lambda: [])
     return store,run,locks,output
@@ -63,6 +204,82 @@ def test_native_unlock_is_maintenance_only_and_keeps_queue_paused(locked,monkeyp
     queued=store.submit('smoke',{})
     assert store.claim() is None and store.job(queued)['status']=='queued'
     assert not unlock.preview(store,run['id'])['allowed']
+
+
+@pytest.mark.parametrize('ram_mb,swap_mb', [(28672, 98304), (131072, 0)])
+def test_native_unlock_keeps_saved_resources_over_profile_defaults(locked, monkeypatch, ram_mb, swap_mb):
+    """Unlock parses native guards but must never execute an analysis target."""
+    store, run, locks, output = locked
+    directory = Path(run['folder']) / 'workflow'
+    (directory / 'Hybas.smk').write_text('''
+budget = workflow.global_resources.get("mem_mb")
+budget = int(getattr(budget, "value", budget))
+if budget < config["reservation_mb"]:
+    raise ValueError(f"fixture reservation exceeds scheduler budget: {budget}")
+rule all:
+    input: "unexpected-analysis.txt"
+rule analysis:
+    output: "unexpected-analysis.txt"
+    shell: "echo should-never-run > {output}"
+''')
+    profile = directory / 'profiles/default'
+    profile.mkdir(parents=True)
+    (profile / 'config.yaml').write_text('resources:\n  mem_mb: 16000\n')
+    config = {'reservation_mb': 113868, 'assembly_mem_mb': 8192}
+    if swap_mb:
+        config['bactologix_compute'] = {'swap_mb': swap_mb}
+    frozen = yaml.safe_dump(config).encode()
+    (directory.parent / 'config.yaml').write_bytes(frozen)
+    run.update(tool='hybas', cores=12, memory_mb=ram_mb, config=frozen.decode(),
+               workflow_sha256=tree_digest(directory))
+    store.put('runs', run['id'], run)
+    original_run = copy.deepcopy(run)
+    monkeypatch.setattr(unlock, 'command', runs.command)
+    monkeypatch.setattr(runs, 'current_controller', lambda *_: sys.prefix)
+    monkeypatch.setattr('bactologix.engine.find_conda', lambda *_: '/fixture/conda')
+
+    def native(argv):
+        # Exercise the app-generated native argv without installing or invoking
+        # a Conda environment. The disposable workflow contains no real data.
+        start = argv.index('snakemake') + 1
+        return subprocess.run([sys.executable, '-m', 'snakemake', *argv[start:]],
+            cwd=directory, capture_output=True, text=True, timeout=60)
+
+    planned = unlock.details(store, run['id'])['command']
+    assert f'mem_mb={ram_mb + swap_mb}' in planned
+    assert 'kraken_jobs=1' in planned and planned[-1] == '--unlock'
+    assert planned[planned.index('--cores') + 1] == '1'
+    # The former unlock command omitted resources and loaded the 16,000 MB
+    # profile default. Prove that this prevents even maintenance from parsing.
+    legacy = planned[:]
+    start = legacy.index('--resources')
+    del legacy[start:legacy.index('--unlock')]
+    failed = native(legacy)
+    assert failed.returncode != 0
+    assert 'fixture reservation exceeds scheduler budget: 16000' in failed.stdout + failed.stderr
+    assert (locks / '0.input.lock').exists()
+    assert not (directory / 'unexpected-analysis.txt').exists()
+
+    plan = unlock.preview(store, run['id'])
+    assert plan['allowed']
+    jid = unlock.request(store, run['id'], plan['signature'])
+    job = store.claim()
+    assert job['id'] == jid
+    seen = []
+    def execute(argv, **kwargs):
+        seen.append(argv)
+        result = native(argv)
+        assert result.returncode == 0, result.stdout + result.stderr
+    with unlock.ownership(store):
+        unlock.execute(SimpleNamespace(store=store, job=job, write=lambda _: None, command=execute))
+    assert len(seen) == 1 and '--dry-run' not in seen[0] and '--forcerun' not in seen[0]
+    assert '--use-conda' not in seen[0] and '--rerun-incomplete' not in seen[0]
+    assert not locks.exists() or not list(locks.iterdir())
+    assert not (directory / 'unexpected-analysis.txt').exists()
+    assert output.read_text() == 'retained output'
+    assert (directory.parent / 'config.yaml').read_bytes() == frozen
+    assert store.get('runs', run['id']) == original_run
+    assert store.queue_snapshot()['paused']
 
 
 def test_live_lease_blocks_even_without_process_identity(locked):
@@ -221,3 +438,36 @@ def test_pam_identity_rechecked_before_native_unlock(locked,monkeypatch):
 def test_systemd_binary_check_rejects_user_executable(tmp_path):
     binary=tmp_path/'systemd';binary.write_text('fake')
     assert not unlock._trusted_systemd_executable(str(binary))
+
+
+def test_lock_free_check_skips_source_and_sample_reads(low_swap_locked, monkeypatch):
+    store, run, locks, _, _ = low_swap_locked
+    (locks / '0.input.lock').unlink()
+    monkeypatch.setattr(unlock, 'validate_launch', lambda *a, **kw: pytest.fail('No preflight for an absent lock'))
+    monkeypatch.setattr(unlock, 'command', lambda *a: pytest.fail('No command for an absent lock'))
+    plan = unlock.preview(store, run['id'])
+    assert not plan['allowed'] and 'No workflow lock remains' in plan['message']
+
+
+def test_checked_lock_preserves_input_validation_in_worker(low_swap_locked, monkeypatch):
+    from test_input_identity import replace_preserving_metadata
+    store, run, locks, _, _ = low_swap_locked
+    fingerprint = runs._fingerprint
+    reads = []
+
+    def count_read(path):
+        reads.append(path)
+        return fingerprint(path)
+
+    monkeypatch.setattr(runs, '_fingerprint', count_read)
+    plan = unlock.preview(store, run['id'])
+    assert plan['allowed']
+    jid = unlock.request(store, run['id'], plan['signature'])
+    assert reads == []
+    job = store.claim()
+    assert job['id'] == jid
+    replace_preserving_metadata(Path(run['inputs'][0]['path']))
+    with unlock.ownership(store), pytest.raises(ValueError, match='SHA-256 content mismatch'):
+        unlock.execute(SimpleNamespace(store=store, job=job,
+                                      command=lambda *_a, **_kw: pytest.fail('Changed input must block native unlock')))
+    assert reads and (locks / '0.input.lock').is_file()

@@ -1,5 +1,6 @@
 """Real Chromium -> Streamlit -> SQLite checks, enabled in the browser CI job."""
 import os
+import hashlib
 from pathlib import Path
 import socket
 import shutil
@@ -19,6 +20,29 @@ from test_followup_adapter import screening, reviewed_installation
 
 pytestmark = pytest.mark.skipif(os.environ.get('BACTOLOGIX_BROWSER_TESTS') != '1',
                                 reason='Enable the browser acceptance job to run Chromium')
+
+
+def open_databases(page):
+    """Use the consolidated setup navigation rather than a removed sidebar entry."""
+    page.get_by_role('link', name='Pipelines & databases', exact=True).click()
+    page.locator('[data-action="setup-tab"][data-id="databases"]').click()
+
+
+def customize_compute(page):
+    panel = page.locator('.run-wizard details.compute-summary')
+    if panel.count() and panel.get_attribute('open') is None:
+        panel.locator('summary').click()
+
+
+def expand_details(panel):
+    if panel.get_attribute('open') is None:
+        panel.locator(':scope > summary').click()
+
+
+def more_run_actions(page):
+    summary = page.locator('summary').filter(has_text='More run actions')
+    if summary.count() and summary.locator('..').get_attribute('open') is None:
+        summary.click()
 
 
 @pytest.fixture
@@ -50,17 +74,37 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
     workspace = tmp_path / 'workspace'
     store = Store(workspace)
     for tool, recipe in [('hybas', 'workflow/envs/qc.yml'), ('basis', 'envs/diamond.yml')]:
+        commit = PIPELINES[tool]['commit']
         if tool == 'hybas':
             source = Path(os.environ['BACTOLOGIX_HYBAS_SOURCE'])
         else:
             source = tmp_path / (tool + '-ui-fixture')
             (source / recipe).parent.mkdir(parents=True)
             (source / recipe).write_text('dependencies: [python=3.11]\n')
+            # Exercise the actual capability gate with a reviewed, clean source;
+            # a ready flag alone must not authorize database preparation.
+            (source / 'BaSIS.smk').write_text('rule all:\n    input: []\n')
+            (source / 'environment.yml').write_text('dependencies: [python=3.11, snakemake=9.6.2]\n')
+            subprocess.run(['git', 'init', '-q', str(source)], check=True)
+            subprocess.run(['git', '-C', str(source), 'add', '.'], check=True)
+            subprocess.run(['git', '-C', str(source), '-c', 'user.name=Test',
+                            '-c', 'user.email=test@localhost', 'commit', '-qm', 'browser software fixture'], check=True)
+            commit = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
+            from test_release_contract import review
+            contract = review()
+            contract.update(commit=commit, database_downloads=1,
+                files_sha256={name: hashlib.sha256((source / name).read_bytes()).hexdigest()
+                              for name in ('BaSIS.smk', 'environment.yml')})
+            store.put('release_approvals', 'basis:' + commit, contract)
         runner = tmp_path / (tool + '-runner-fixture')
-        runner.mkdir()
+        (runner / 'bin').mkdir(parents=True)
+        for name in ('python', 'snakemake'):
+            command = runner / 'bin' / name
+            command.write_text('#!/bin/sh\nexit 0\n')
+            command.chmod(0o755)
         item = {'id': tool + '-ui-fixture', 'tool': tool, 'source': str(source),
                 'controller': str(runner), 'ready': True,
-                'version': {'commit': PIPELINES[tool]['commit'], 'ref': 'Browser UI fixture'}}
+                'version': {'commit': commit, 'ref': 'Browser UI fixture'}}
         store.put('installs', item['id'], item)
         store.put('settings', 'active-' + tool, item['id'])
     old_cache = tmp_path / 'previous-environments'
@@ -77,14 +121,20 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
     conda.write_text('#!/bin/sh\nexit 1\n')
     conda.chmod(0o755)
     store.put('settings', 'conda', str(conda))
+    from bactologix.maintenance import download_capability
+    capability = download_capability(store.get('installs', 'basis-ui-fixture'), store)
+    assert capability['available'], capability['reason']
     download = tmp_path / 'download destination with spaces'
     download.mkdir()
     card = download / 'card'
     card.mkdir()
     (card / 'card.json').write_text('{"software_fixture": true}')
+    download_job = store.submit('database_download', {
+        'id': 'database-browser-fixture', 'tool': 'basis', 'resource': 'rgi'})
+    store.update_job(download_job, status='succeeded')
     store.put('database_downloads', 'database-browser-fixture', {
         'id': 'database-browser-fixture', 'tool': 'basis', 'resource': 'rgi', 'destination': str(download),
-        'result_path': str(card), 'status': 'completed', 'job': 'software-fixture-job'})
+        'result_path': str(card), 'status': 'completed', 'job': download_job})
     sample = tmp_path / 'sample folder'
     (sample / 'raw/illumina').mkdir(parents=True)
     for mate in (1, 2):
@@ -128,7 +178,11 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             page.goto(url)
             expect(page.locator('#queue-status')).to_have_text('No active jobs')
             expect(page.locator('.local-status')).not_to_contain_text('connected')
-            page.get_by_role('button', name='Add samples', exact=True).click()
+            expect(page.get_by_role('link', name='Home', exact=True)).to_have_attribute('aria-current', 'page')
+            expect(page.get_by_role('link', name='Activity', exact=True)).to_be_visible()
+            capture('beta-home')
+            page.get_by_role('link', name='Samples', exact=True).click()
+            page.get_by_role('button', name='Add sample', exact=True).first.click()
             page.get_by_role('button', name='Browse folders', exact=True).click()
             page.locator('#folder-path').fill(str(sample))
             page.get_by_role('button', name='Go', exact=True).click()
@@ -136,9 +190,11 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             page.get_by_role('button', name='Select this folder', exact=True).click()
             page.locator('#sample-id').fill('browser.fixture')
             page.get_by_role('button', name='Register sample', exact=True).click()
-            expect(page.get_by_role('heading', name='Your input folders.', exact=True)).to_be_visible()
+            expect(page.get_by_role('dialog')).to_have_count(0)
+            expect(page.locator('[data-sample-row="browser.fixture"]')).to_be_visible()
+            expect(page.get_by_role('heading', name='Your isolates.', exact=True)).to_be_visible()
             assert Store(workspace).get('samples', 'browser.fixture')['path'] == str(sample)
-            page.get_by_role('link', name='Configuration', exact=True).click()
+            page.get_by_role('link', name='Settings', exact=True).click()
             expect(page.get_by_role('heading', name='Your defaults, your settings.', exact=True)).to_be_visible()
             def defaults_tab(name):
                 page.locator('.defaults-editor [data-action="guided-run-tab"][data-id="' + name + '"]').click()
@@ -167,8 +223,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             expect(page.get_by_role('button', name='Save defaults', exact=True)).to_be_visible()
             capture('configuration-mobile')
             page.get_by_role('button', name='Open navigation', exact=True).click()
-            expect(page.get_by_role('link', name='Databases & models', exact=True)).to_be_visible()
-            expect(page.get_by_role('link', name='Install & update', exact=True)).to_be_visible()
+            expect(page.get_by_role('link', name='Pipelines & databases', exact=True)).to_be_visible()
             page.keyboard.press('Escape')
             expect(page.get_by_role('button', name='Open navigation', exact=True)).to_be_focused()
             page.set_viewport_size({'width': 1440, 'height': 1100})
@@ -201,7 +256,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             page.get_by_role('button', name='Reload saved defaults', exact=True).click()
             expect(page.locator('[data-run-name="modules.rgi.enabled"]')).to_be_checked()
             defaults_pipeline('hybas')
-            page.get_by_role('link', name='Databases & models', exact=True).click()
+            open_databases(page)
             page.get_by_role('button', name=PIPELINES['basis']['name'], exact=True).click()
             card_panel = page.locator('.database-card').filter(has=page.get_by_role('heading', name='CARD / RGI', exact=True))
             card_panel.get_by_role('button', name='Download and prepare', exact=True).click()
@@ -240,8 +295,8 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             assert cfg['custom_note'] == 'preserve parent' and cfg['run_busco'] is True
             assert not child['dry_run_ok']
             assert Store(workspace).get('runs', parent['id'])['config'] == parent['config']
-            page.get_by_role('button', name='Methods', exact=True).click()
-            expect(page.locator('.methods-prose')).to_contain_text('Illumina-only input')
+            page.get_by_role('button', name='Methods & citation', exact=True).click()
+            expect(page.locator('.methods-prose')).to_contain_text('paired Illumina reads')
             expect(page.locator('.methods-status')).to_contain_text('Planned methods')
             capture('run-methods')
             with page.expect_download() as methods_download:
@@ -260,9 +315,24 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             page.get_by_role('button', name='Close dialog', exact=True).click()
             page.get_by_role('link', name='Samples', exact=True).click()
             expect(page.locator('.saved-runs')).to_have_count(0)
-            page.locator('.registered-samples').get_by_role('button', name='Remove sample', exact=True).click()
+            visibility_before = Store(workspace).all('run_visibility')
+            remove_sample = page.locator('.registered-samples').get_by_role('button', name='Remove from sample list', exact=True)
+            remove_sample.click()
+            removal = page.get_by_role('dialog', name='Remove sample from list?', exact=True)
+            expect(removal).to_be_visible()
+            # Cancelling the confirmation keeps registration and run visibility intact.
+            removal.get_by_role('button', name='Close dialog', exact=True).click()
+            expect(removal).to_have_count(0)
+            expect(page.locator('[data-sample-row="browser.fixture"]')).to_be_visible()
+            assert Store(workspace).get('samples', 'browser.fixture')['path'] == str(sample)
+            assert Store(workspace).all('run_visibility') == visibility_before
+            remove_sample.click()
+            removal.get_by_role('button', name='Remove from list', exact=True).click()
+            expect(removal).to_have_count(0)
             expect(page.locator('.registered-samples')).to_contain_text('0 folders')
             assert Store(workspace).get('samples', 'browser.fixture') is None
+            assert Store(workspace).get('run_visibility', parent['id'])['archived'] is True
+            assert Store(workspace).get('run_visibility', child['id'])['archived'] is True
             page.get_by_role('link', name='Runs', exact=True).click()
             expect(page.locator('.registered-samples')).to_have_count(0)
             expect(page.locator('.saved-runs [data-run-row]')).to_have_count(0)
@@ -288,23 +358,29 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             register_again()
             page.get_by_role('link', name='Runs', exact=True).click()
             page.get_by_role('button', name='Create run drafts', exact=True).first.click()
-            page.locator('#run-cores').fill('3')
-            page.locator('[data-sample="browser.fixture"]').check()
-            page.locator('.run-wizard').get_by_role('button', name='Remove sample', exact=True).click()
-            expect(page.get_by_role('heading', name='Create run drafts', exact=True)).to_be_visible()
-            expect(page.locator('#run-cores')).to_have_value('3')
-            expect(page.locator('[data-sample="browser.fixture"]')).to_have_count(0)
+            expect(page.get_by_role('heading', name='New run', exact=True)).to_be_visible()
+            expect(page.locator('[data-action="run-purpose"]')).to_have_count(3)
+            expect(page.locator('#run-cores')).to_have_count(0)
+            expect(page.locator('#run-memory')).to_have_count(0)
+            capture('beta-new-run-purpose')
+            page.locator('[data-action="run-purpose"][data-id="hybas"]').click()
+            page.get_by_role('button', name='Continue to inputs', exact=True).click()
+            sample_choice = page.locator('[data-sample="browser.fixture"]')
+            sample_choice.check()
+            expect(page.locator('.run-wizard [data-action="remove-sample"]')).to_have_count(0)
+            sample_choice.uncheck()
             expect(page.get_by_role('button', name='Continue to settings', exact=True)).to_be_disabled()
-            assert Store(workspace).get('samples', 'browser.fixture') is None
-            page.get_by_role('button', name='Save & exit', exact=True).click()
+            assert Store(workspace).get('samples', 'browser.fixture')['path'] == str(sample)
+            assert Store(workspace).get('runs', parent['id']) == parent
+            page.get_by_role('button', name='Leave editor', exact=True).click()
             expect(page.locator('.draft-recovery')).to_be_visible()
-            register_again()
-            page.get_by_role('link', name='Runs', exact=True).click()
-            page.get_by_role('button', name='Create run drafts', exact=True).first.click()
-            expect(page.locator('[data-sample="browser.fixture"]')).not_to_be_checked()
-            page.locator('[data-sample="browser.fixture"]').check()
+            page.get_by_role('button', name='Resume editing', exact=True).click()
+            expect(sample_choice).not_to_be_checked()
+            sample_choice.check()
             saved_defaults = Store(workspace).get('configs', 'hybas')
             page.get_by_role('button', name='Continue to settings', exact=True).click()
+            customize_compute(page)
+            page.locator('#run-cores').fill('3')
             capture('hybas-kraken')
             def category(name):
                 page.locator('[data-action="guided-run-tab"][data-id="' + name + '"]').click()
@@ -348,7 +424,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             expect(choice('kraken_decision_mode', 'off')).to_be_visible()
             assert page.locator('.run-wizard').evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
             expect(page.get_by_role('dialog')).to_have_count(0)
-            expect(page.locator('#wizard-save-status')).to_contain_text('Edits saved in this browser tab')
+            expect(page.locator('#wizard-save-status')).to_have_text('Unsaved edits are kept in this browser tab.')
             capture('hybas-mobile')
             page.set_viewport_size({'width': 1440, 'height': 1100})
             category('advanced')
@@ -367,19 +443,25 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             expect(page.locator('#run-cores')).to_have_value('3')
             expect(page.get_by_text('Recovered unfinished edits', exact=True)).to_be_visible()
             assert page.url.endswith('#drafts/new')
-            page.get_by_role('button', name='Run settings', exact=True).click()
+            page.locator('[data-action="run-config-tab"][data-id="settings"]').first.click()
             expect(page.get_by_role('alert')).not_to_be_empty()
             expect(run_yaml).to_have_value('broken: [')
             assert len(Store(workspace).all('runs')) == 2
             run_yaml.fill(original_yaml + '\ncustom_menu: {literal.key: [false, 0, preserve]}\n')
-            page.get_by_role('button', name='Run settings', exact=True).click()
+            page.locator('[data-action="run-config-tab"][data-id="settings"]').first.click()
             expect(page.locator('#run-setting-search')).to_be_visible()
             page.get_by_role('button', name='Review drafts', exact=True).click()
             expect(page.get_by_role('heading', name='Ready to create your drafts?', exact=True)).to_be_visible()
             expect(page.locator('.run-wizard .review-stats')).to_contain_text('3 cores')
+            page.locator('[data-action="run-config-tab"][data-id="settings"]').first.click()
+            customize_compute(page)
             page.locator('#run-cores').fill('2')
+            page.get_by_role('button', name='Review drafts', exact=True).click()
             expect(page.locator('[data-review-budget="cores"]')).to_have_text('2 cores')
+            page.locator('[data-action="run-config-tab"][data-id="settings"]').first.click()
+            customize_compute(page)
             page.locator('#run-cores').fill('3')
+            page.get_by_role('button', name='Review drafts', exact=True).click()
             capture('draft-review')
             page.get_by_role('button', name='Create drafts', exact=True).click()
             expect(page.get_by_role('heading', name='browser.fixture', exact=True)).to_be_visible()
@@ -401,6 +483,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             expect(page.locator('[data-readiness="storage"]')).to_contain_text('GB free')
             expect(page.locator('[data-readiness="databases"]')).to_contain_text('Frozen in this draft')
             expect(page.get_by_role('button', name='Validate run', exact=True)).to_be_enabled()
+            more_run_actions(page)
             expect(page.get_by_role('button', name='Check environments', exact=True)).to_be_disabled()
             expect(page.get_by_role('button', name='Run / resume', exact=True)).to_be_disabled()
             expect(page.get_by_role('dialog')).to_have_count(0)
@@ -443,7 +526,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             expect(choice('kraken_decision_mode', 'off')).to_have_attribute('aria-pressed', 'true')
             choice('kraken_decision_mode', 'aware').click()
             # Navigating away and refreshing retain edits; discarding needs an explicit confirmation.
-            page.get_by_role('button', name='Save & exit', exact=True).click()
+            page.get_by_role('button', name='Leave editor', exact=True).click()
             page.reload()
             expect(page.locator('.draft-recovery')).to_be_visible()
             page.get_by_role('button', name='Resume editing', exact=True).click()
@@ -460,6 +543,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             page.get_by_role('button', name='Edit settings', exact=True).click()
             expect(choice('kraken_decision_mode', 'off')).to_have_attribute('aria-pressed', 'true')
             choice('kraken_decision_mode', 'aware').click()
+            customize_compute(page)
             page.locator('#revision-cores').fill('5')
             page.locator('#revision-memory').fill('12000')
             category('quality')
@@ -470,9 +554,10 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             revision_yaml = page.get_by_label('Run configuration YAML', exact=True)
             revision_yaml.fill(revision_yaml.input_value() + '\nrevision_note: saved-run editor test\n')
             page.get_by_role('button', name='Back to controls', exact=True).click()
-            page.get_by_role('button', name='Review drafts', exact=True).click()
+            page.get_by_role('button', name='Review changes', exact=True).click()
             expect(page.locator('.run-wizard .review-stats')).to_contain_text('5 cores')
-            page.get_by_role('button', name='Create revised draft', exact=True).click()
+            expect(page.get_by_role('button', name='Save changes', exact=True)).to_be_visible()
+            page.get_by_role('button', name='Save as new draft', exact=True).click()
             expect(page.get_by_role('heading', name='browser.fixture · revised', exact=True)).to_be_visible()
             revised, = [r for r in Store(workspace).all('runs') if r.get('parent') == created['id']]
             revised_config = yaml.safe_load(revised['config'])
@@ -515,12 +600,13 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             expect(page.locator('.filter-context')).to_contain_text('browser.fixture')
             expect(page.locator('.saved-runs [data-run-row]')).to_have_count(2)
             page.get_by_role('button', name='Show all samples', exact=True).click()
-            page.get_by_role('link', name='Overview', exact=True).click()
-            expect(page.get_by_role('heading', name='Pick up where you left off.', exact=True)).to_be_visible()
+            page.get_by_role('link', name='Home', exact=True).click()
+            expect(page.get_by_role('link', name='Home', exact=True)).to_have_attribute('aria-current', 'page')
+            expect(page.locator('#main h1')).to_be_visible()
             expect(page.locator('.experiment-card')).to_have_count(0)
             capture('overview-daily-work')
             # A clean defaults editor refreshes after database selections change.
-            page.get_by_role('link', name='Configuration', exact=True).click()
+            page.get_by_role('link', name='Settings', exact=True).click()
             defaults_tab('databases')
             expect(page.locator('[data-run-name="db_root"]')).to_have_value(final_config['db_root'])
             # An edited copy cannot overwrite newer defaults from another window.
@@ -535,10 +621,12 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             page.get_by_role('button', name='Reload saved defaults', exact=True).click()
             expect(page.get_by_role('button', name='Save defaults', exact=True)).to_be_enabled()
             expect(page.locator('#default-save-status')).to_have_text('Saved defaults')
-            page.get_by_role('link', name='Install & update', exact=True).click()
+            page.get_by_role('link', name='Pipelines & databases', exact=True).click()
+            page.get_by_role('button', name='Guided setup', exact=True).click()
             expect(page.locator('.setup-guide')).to_be_visible()
             expect(page.locator('.setup-step')).to_have_count(5)
-            capture('guided-setup-capacity')
+            expect(page.locator('.setup-steps .setup-step').first).to_contain_text('Pipeline')
+            capture('guided-setup-pipeline')
             page.get_by_label('Pipeline to set up', exact=True).select_option('micpscope')
             page.locator('.setup-steps [data-id="databases"]').click()
             expect(page.get_by_role('heading', name='Database Builder', exact=True)).to_be_visible()
@@ -560,11 +648,11 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             capture('guided-setup-mobile')
             page.set_viewport_size({'width': 1440, 'height': 1100})
             page.locator('.guide-review').get_by_role('button', name='Create run drafts', exact=True).click()
-            expect(page.locator('#run-tool')).to_have_value('basis')
+            expect(page.locator('[data-action="run-purpose"][data-id="basis"]')).to_have_attribute('aria-pressed', 'true')
             expect(page.locator('.run-wizard')).to_be_visible()
             page.get_by_role('button', name='Discard edits', exact=True).click()
             page.get_by_role('button', name='Discard unfinished edits', exact=True).click()
-            page.get_by_role('link', name='Install & update', exact=True).click()
+            page.get_by_role('link', name='Pipelines & databases', exact=True).click()
             page.get_by_role('button', name='Pipelines & environments', exact=True).click()
             page.locator('[data-installation="basis-ui-fixture"]').get_by_role('button', name='Check environments', exact=True).click()
             expect(page.get_by_role('heading', name='Check environments', exact=True)).to_be_visible()
@@ -621,7 +709,9 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
                 current_card.get_by_text('Maintenance & installation details', exact=True).click()
             current_card.get_by_role('button', name='Repair environments', exact=True).click()
             expect(page.get_by_role('heading', name='Repair environments', exact=True)).to_be_visible()
-            expect(page.get_by_role('dialog')).to_contain_text('Plotly 6.1.2')
+            expect(page.get_by_role('dialog')).to_contain_text('Conflicting NanoPlot/MultiQC requirements need separate environments')
+            expect(page.get_by_role('dialog')).to_contain_text('when you explicitly choose Install or Repair; Check environments does not download it')
+            expect(page.get_by_role('dialog')).not_to_contain_text('Plotly 6.1.2')
             expect(page.get_by_role('button', name='Repair selected', exact=True)).to_be_enabled()
             page.get_by_role('button', name='Clear selection', exact=True).click()
             expect(page.get_by_role('button', name='Repair selected', exact=True)).to_be_disabled()
@@ -647,11 +737,16 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             page.set_viewport_size({'width': 1440, 'height': 1100})
             page.get_by_role('link', name='Runs', exact=True).click()
             page.get_by_role('button', name='Create run drafts', exact=True).first.click()
-            page.locator('#run-tool').select_option('hybas')
+            page.locator('[data-action="run-purpose"][data-id="hybas"]').click()
+            page.get_by_role('button', name='Continue to inputs', exact=True).click()
+            page.locator('[data-sample="browser.fixture"]').check()
+            page.get_by_role('button', name='Continue to settings', exact=True).click()
+            customize_compute(page)
             expect(page.get_by_label('CPU cores per run', exact=True)).to_have_value(str(budget['cores']))
-            expect(page.get_by_label('Memory budget (MB)', exact=True)).to_have_value(str(budget['memory_mb']))
+            expect(page.get_by_label('Physical RAM budget (MB)', exact=True)).to_have_value(str(budget['memory_mb']))
             page.get_by_label('CPU cores per run', exact=True).fill('3')
             page.locator('#run-tool').select_option('basis')
+            customize_compute(page)
             page.get_by_label('CPU cores per run', exact=True).fill('2')
             page.reload()
             expect(page.locator('#run-tool')).to_have_value('basis')
@@ -680,6 +775,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             page.get_by_role('link', name='Runs', exact=True).click()
             page.locator('[data-action="run-detail"][data-id="' + checked['id'] + '"]').first.click()
             expect(page.locator('[data-readiness="environments"]')).to_contain_text('1 need installation')
+            more_run_actions(page)
             expect(page.get_by_role('button', name='Run / resume', exact=True)).to_be_disabled()
             expect(page.get_by_role('button', name='Install environments', exact=True)).to_be_enabled()
             capture('saved-run-missing-environment')
@@ -702,7 +798,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             store.update_job(jid, status='running')
             page.get_by_role('button', name='Refresh workspace', exact=True).click()
             expect(page.locator('#queue-status')).to_contain_text('1 running')
-            page.get_by_role('link', name='Configuration', exact=True).click()
+            page.get_by_role('link', name='Settings', exact=True).click()
             defaults_tab('advanced')
             search = page.get_by_label('Search all settings', exact=True)
             search.fill('literal edit stays')
@@ -710,7 +806,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             expect(page.locator('#toast.show')).to_have_count(0)
             expect(search).to_be_focused()
             expect(search).to_have_value('literal edit stays')
-            page.get_by_role('link', name='Overview', exact=True).click()
+            page.get_by_role('link', name='Home', exact=True).click()
             expect(page.locator('#queue-status')).to_contain_text('1 running')
             store.log_path(jid).write_text('BUSCO lineage database missing at /software-fixture')
             store.update_job(jid, status='failed', error='Command exited with code 1; see the job log')
@@ -720,9 +816,10 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             validation_job = store.submit('workflow', {'run_id': created['id'], 'action': 'dry-run'})
             store.update_job(validation_job, status='succeeded')
             page.get_by_role('button', name='Refresh workspace', exact=True).click()
-            expect(page.locator('.attention-card')).to_contain_text('Check the database location')
+            expect(page.locator('.attention-card')).to_contain_text('This run stopped before finishing')
+            expect(page.locator('.attention-card').get_by_role('button', name='Review activity', exact=True)).to_be_visible()
             capture('overview-needs-attention')
-            page.get_by_role('link', name='Jobs & progress', exact=True).click()
+            page.get_by_role('link', name='Activity', exact=True).click()
             expect(page.locator('.job-guidance')).to_contain_text('Check the database location')
             expect(page.locator('[data-job-id="' + jid + '"]').get_by_role('button', name='Review run', exact=True)).to_be_visible()
             capture('job-actionable-error')
@@ -741,12 +838,14 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             expect(page.frame_locator('.html-report-frame').get_by_role('heading', name='Browser software fixture')).to_be_visible()
             page.get_by_role('button', name='Close dialog', exact=True).click()
             assert page.url.endswith('/results')
+            expand_details(page.locator('.report-tools'))
             page.get_by_role('button', name='Regenerate report', exact=True).click()
             expect(page.get_by_role('heading', name='Regenerate report', exact=True)).to_be_visible()
             expect(page.get_by_role('button', name='Create refreshed report', exact=True)).to_be_disabled()
             expect(page.get_by_text('Refresh unavailable', exact=True)).to_be_visible()
             page.get_by_role('button', name='Close dialog', exact=True).click()
             saved_tab('overview')
+            more_run_actions(page)
             page.get_by_role('button', name='Validate run', exact=True).click()
             expect(page.locator('.run-activity')).to_be_visible()
             assert page.url.endswith('/activity')
@@ -773,7 +872,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             store.put('database_builds', 'completed-fixture', {'id': 'completed-fixture', 'status': 'completed', 'result_path': str(db_one), 'name': 'MICP fixture', 'version': '1.0'})
             register(store, db_two)
             page.get_by_role('button', name='Refresh workspace', exact=True).click()
-            page.get_by_role('link', name='Configuration', exact=True).click()
+            page.get_by_role('link', name='Settings', exact=True).click()
             page.locator('.configuration-pipelines').get_by_role('button', name='GeneScope', exact=True).click()
             expect(page.get_by_role('heading', name='Default compute resources', exact=True)).to_be_visible()
             picker = page.get_by_label('Application database', exact=True)
@@ -819,7 +918,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             store.update_job(jid, status='running')
             store.put('settings', 'app-update', {'job': jid, 'status': 'installed', 'version': __version__,
                       'launcher_id': live['id'], 'environment': sys.prefix, 'pip_started_at': time.time()})
-            page.get_by_role('link', name='Jobs & progress', exact=True).click()
+            page.get_by_role('link', name='Activity', exact=True).click()
             page.get_by_role('button', name='Refresh', exact=True).click()
             page.wait_for_function('!!window.__bactologixRestart')
             assert store.get('launchers', live['id'])['status'] == 'ready'
@@ -943,7 +1042,7 @@ def test_pipeline_release_picker_refresh_and_explicit_choice(tmp_path, monkeypat
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
         render_component(page, store)
-        page.get_by_role('link', name='Install & update', exact=True).click()
+        page.get_by_role('link', name='Pipelines & databases', exact=True).click()
         page.get_by_role('button', name='Pipelines & environments', exact=True).click()
         page.locator('[data-action="versions"][data-id="basis"]').click()
         dialog = page.get_by_role('dialog', name='Choose BaSIS AWARE version', exact=True)
@@ -1021,6 +1120,7 @@ def test_saved_basis_edit_does_not_resume_an_unrelated_draft(screening, restore)
     from bactologix.ui_backend import dispatch, snapshot
     store, parent = screening
     other = create_run(store, 'basis', parent['sample'], parent['config'], label='Another saved BaSIS run')
+    store.put('samples', parent['sample']['id'], parent['sample'])
     original = {str(p): p.read_bytes() for p in Path(parent['folder']).rglob('*') if p.is_file()}
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -1041,11 +1141,14 @@ def test_saved_basis_edit_does_not_resume_an_unrelated_draft(screening, restore)
 
         page.get_by_role('link', name='Runs', exact=True).click()
         page.get_by_role('button', name='Create run drafts', exact=True).first.click()
+        page.locator('[data-action="run-purpose"][data-id="micpscope"]').click()
+        page.get_by_role('button', name='Continue to inputs', exact=True).click()
         respond('run_config_editor')
-        page.get_by_label('Pipeline', exact=True).select_option('micpscope')
-        respond('run_config_editor')
+        page.locator('[data-sample="' + parent['sample']['id'] + '"]').check()
+        page.get_by_role('button', name='Continue to settings', exact=True).click()
+        customize_compute(page)
         page.get_by_label('CPU cores per run', exact=True).fill('3')
-        page.get_by_role('button', name='Save & exit', exact=True).click()
+        page.get_by_role('button', name='Leave editor', exact=True).click()
         saved = page.evaluate('sessionStorage.getItem("bactologix:run-editor:v1:" + window.acceptanceWorkspace.workspace)')
         assert saved and 'micpscope' in saved
         if restore:
@@ -1078,7 +1181,7 @@ def test_saved_basis_edit_does_not_resume_an_unrelated_draft(screening, restore)
         dialog.get_by_role('button', name='Resume unfinished edits', exact=True).click()
         expect(page.get_by_label('Pipeline', exact=True)).to_have_value('micpscope')
         expect(page.get_by_label('CPU cores per run', exact=True)).to_have_value('3')
-        page.get_by_role('button', name='Save & exit', exact=True).click()
+        page.get_by_role('button', name='Leave editor', exact=True).click()
         page.get_by_role('link', name='Runs', exact=True).click()
         page.locator('[data-action="run-detail"][data-id="' + parent['id'] + '"]').first.click()
         respond('inspect_run')
@@ -1093,7 +1196,7 @@ def test_saved_basis_edit_does_not_resume_an_unrelated_draft(screening, restore)
         page.locator('[data-run-name="modules.rgi.enabled"]').uncheck()
 
         # Reopening this same revision resumes it without a conflict or a lost edit.
-        page.get_by_role('button', name='Save & exit', exact=True).click()
+        page.get_by_role('button', name='Leave editor', exact=True).click()
         page.locator('[data-action="run-detail"][data-id="' + parent['id'] + '"]').first.click()
         respond('inspect_run')
         count = page.evaluate('window.acceptanceEvents.length')
@@ -1103,7 +1206,7 @@ def test_saved_basis_edit_does_not_resume_an_unrelated_draft(screening, restore)
         assert page.evaluate('window.acceptanceEvents.length') == count
 
         # Another run of the same pipeline must also be distinguished by identity.
-        page.get_by_role('button', name='Save & exit', exact=True).click()
+        page.get_by_role('button', name='Leave editor', exact=True).click()
         page.locator('[data-action="run-detail"][data-id="' + other['id'] + '"]').first.click()
         respond('inspect_run')
         page.get_by_role('button', name='Edit settings', exact=True).click()
@@ -1297,10 +1400,10 @@ def test_job_progress_resource_history_and_downloads(tmp_path, worker_lease):
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
         render_component(page, store)
-        page.get_by_role('link', name='Jobs & progress', exact=True).click()
+        page.get_by_role('link', name='Activity', exact=True).click()
         card = page.locator('.job-card')
         expect(card).to_contain_text('1 / 4 tasks in current plan')
-        expect(card).to_contain_text('Active steps: software_check')
+        expect(card).to_contain_text('Current task software_check')
         expect(card).to_contain_text('150%')
         page.get_by_role('button', name='Resource use', exact=True).click()
         def respond(expected_kind):
@@ -1349,7 +1452,7 @@ def test_job_progress_resource_history_and_downloads(tmp_path, worker_lease):
         dialog.get_by_role('button', name='Refresh', exact=True).click()
         respond('job_metrics')
         expect(dialog).to_contain_text('Partial record')
-        expect(dialog).to_contain_text('Last reported steps: software_check')
+        expect(dialog.locator('.usage-step')).to_have_text('Last reported task software_check')
         page.set_viewport_size({'width': 390, 'height': 844})
         assert dialog.evaluate('(node) => node.scrollWidth <= node.clientWidth+1')
         assert dialog.locator('.modal-body').evaluate('(node) => node.scrollWidth <= node.clientWidth+1')
@@ -1379,7 +1482,8 @@ def test_background_poll_preserves_and_queues_a_foreground_action(tmp_path, work
         page.wait_for_function('window.acceptanceEvents.length === 1', timeout=10000)
         first = page.evaluate('window.acceptanceEvents[0].value')
         assert first['kind'] == 'refresh'
-        page.get_by_role('button', name='Add samples', exact=True).click()
+        page.get_by_role('link', name='Samples', exact=True).click()
+        page.get_by_role('button', name='Add sample', exact=True).first.click()
         page.get_by_label('Sample ID', exact=True).fill('queued.fixture')
         page.get_by_label('Input folder', exact=True).fill('/software-fixture/inputs')
         page.get_by_role('button', name='Register sample', exact=True).click()
@@ -1395,7 +1499,7 @@ def test_background_poll_preserves_and_queues_a_foreground_action(tmp_path, work
         page.evaluate('response => window.acceptanceRender(response)',
                       {'id': second['id'], 'ok': True, 'navigate': 'samples', 'message': 'Sample registered.'})
         expect(page.get_by_role('dialog')).to_have_count(0)
-        expect(page.get_by_role('heading', name='Your input folders.', exact=True)).to_be_visible()
+        expect(page.get_by_role('heading', name='Your isolates.', exact=True)).to_be_visible()
         assert page.evaluate('window.acceptanceEvents.length') == 2
         assert store.all('samples') == []  # UI boundary fixture; no backend mutation occurred.
         browser.close()
@@ -1411,7 +1515,7 @@ def test_setup_environment_actions_need_no_sample_or_run(installed, action):
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={'width': 1440, 'height': 1100})
         render_component(page, store)
-        page.get_by_role('link', name='Install & update', exact=True).click()
+        page.get_by_role('link', name='Pipelines & databases', exact=True).click()
         page.get_by_role('button', name='Pipelines & environments', exact=True).click()
         card = page.locator('[data-installation="' + item['id'] + '"]')
         expect(page.get_by_role('button', name='Reuse existing environments', exact=True)).to_have_count(0)
@@ -1468,9 +1572,10 @@ def test_workstation_check_and_failure_recovery_in_streamlit(tmp_path):
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.goto(url)
-            page.get_by_role('link', name='Jobs & progress', exact=True).click()
+            page.get_by_role('link', name='Activity', exact=True).click()
             panel = page.locator('.recovery-panel')
-            panel.locator('summary').click()
+            if panel.get_attribute('open') is None:
+                panel.locator('summary').click()
             expect(panel).to_contain_text('Possible cause')
             expect(panel).to_contain_text('Reported failed step: software_fixture')
             expect(panel.locator('.recovery-evidence')).to_contain_text('<script>')
@@ -1482,7 +1587,7 @@ def test_workstation_check_and_failure_recovery_in_streamlit(tmp_path):
             page.get_by_role('button', name='Start workstation check', exact=True).click()
             page.get_by_role('button', name='Review check', exact=True).click()
             dialog = page.get_by_role('dialog', name='Workstation check', exact=True)
-            expect(dialog).to_contain_text('succeeded', timeout=30000)
+            expect(dialog).to_contain_text('Finished', timeout=30000)
             expect(dialog).to_contain_text('Process cancellation')
             expect(dialog).to_contain_text('App-only checks were selected')
             expect(dialog.locator('.workstation-row').filter(has_text='I opened and could read').get_by_role('button')).to_be_disabled()
@@ -1565,7 +1670,7 @@ def test_queue_controls_persist_and_recover_in_real_browser(tmp_path, worker_lea
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.goto(url)
-            page.get_by_role('link', name='Jobs & progress', exact=True).click()
+            page.get_by_role('link', name='Activity', exact=True).click()
             controls = page.locator('.queue-controls')
             page.get_by_role('button', name='Stop after current job', exact=True).click()
             expect(controls).to_contain_text('Finishing current job · queue paused')
@@ -1579,7 +1684,7 @@ def test_queue_controls_persist_and_recover_in_real_browser(tmp_path, worker_lea
             page.reload()
             expect(controls.locator('.waiting-job').first).to_have_attribute('data-waiting-job', held)
             expect(second.get_by_role('button', name='Release hold', exact=True)).to_be_visible()
-            page.get_by_role('link', name='Overview', exact=True).click()
+            page.get_by_role('link', name='Home', exact=True).click()
             expect(page.locator('.queue-banner')).to_contain_text('Waiting and newly submitted jobs will not start')
             page.get_by_role('button', name='Review queue', exact=True).click()
             store.cancel(interrupted)  # A stale Stop request must not remain pending forever.
@@ -1602,12 +1707,12 @@ def test_queue_controls_persist_and_recover_in_real_browser(tmp_path, worker_lea
             capture('queue-controls-mobile.png')
             page.set_viewport_size({'width': 1440, 'height': 1100})
             page.get_by_role('button', name='Resume queue', exact=True).click()
-            expect(page.locator('.job-card').filter(has_text=workstation)).to_contain_text('succeeded', timeout=30000)
+            expect(page.locator('.job-card').filter(has_text=workstation)).to_contain_text('Finished', timeout=30000)
             expect(controls).to_contain_text('All waiting jobs are held')
             assert store.job(held)['status'] == 'queued' and store.job(interrupted)['status'] == 'interrupted'
             second.get_by_role('button', name='Release hold', exact=True).click()
             # This smoke job has no configured runner. Its expected failure must not alter history.
-            expect(page.locator('.job-card').filter(has_text=held)).to_contain_text('failed', timeout=30000)
+            expect(page.locator('.job-card').filter(has_text=held)).to_contain_text('Failed', timeout=30000)
             expect(controls).to_contain_text('No waiting jobs')
             assert store.job(interrupted)['status'] == 'interrupted'
             assert store.job(workstation)['status'] == 'succeeded'
@@ -1686,16 +1791,21 @@ def test_results_centre_downloads_and_attempt_provenance(tmp_path, installed):
             expect(picker.locator('.result-run:visible')).to_have_count(1)
             picker.get_by_role('button', name='Results & downloads', exact=True).filter(visible=True).click()
             centre = page.locator('.results-centre')
+            expect(page.get_by_role('region', name='Execution status', exact=True)).to_be_visible()
+            expect(page.get_by_role('region', name='Evidence coverage', exact=True)).to_be_visible()
+            expect(page.locator('.result-status-grid .result-status-card')).to_have_count(2)
             expect(centre).to_contain_text('Metadata observed after ' + jid)
             expect(centre).to_contain_text('Producing attempt: not recorded')
-            expect(centre.locator('.results-provenance')).to_contain_text('failed')
+            expect(centre.locator('.results-provenance')).to_contain_text('Failed')
             expect(centre.locator('.result-attempt')).to_have_count(2)
             expect(centre.locator('.result-attempt').first).to_contain_text('Validation')
             expect(centre.locator('.result-attempt').last).to_contain_text('Execution')
             assert page.locator('.page-heading script').count() == 0
+            expand_details(page.locator('.report-tools'))
             with page.expect_download() as event:
                 page.get_by_role('button', name='Frozen YAML', exact=True).click()
             assert Path(event.value.path()).read_text() == run['config']
+            expand_details(page.locator('.report-tools'))
             with page.expect_download() as event:
                 page.get_by_role('button', name='Results manifest', exact=True).click()
             manifest = json.loads(Path(event.value.path()).read_text())
@@ -1704,16 +1814,18 @@ def test_results_centre_downloads_and_attempt_provenance(tmp_path, installed):
                 page.get_by_role('button', name='Download HTML', exact=True).click()
             assert Path(event.value.path()).read_bytes() == report.read_bytes()
             attempt = centre.locator('[data-result-attempt="' + jid + '"]')
+            expand_details(centre.locator('.result-attempt-history'))
             with page.expect_download() as event:
                 attempt.get_by_role('button', name='Download log', exact=True).click()
             assert Path(event.value.path()).read_text() == 'Attempt log fixture\n'
+            expand_details(centre.locator('.result-attempt-history'))
             attempt.get_by_role('button', name='Resource usage', exact=True).click()
             expect(page.locator('.modal')).to_contain_text(jid)
             page.get_by_role('button', name='Close dialog', exact=True).click()
             page.get_by_role('button', name='Open report', exact=True).click()
             expect(page.frame_locator('.html-report-frame').get_by_role('heading', name='Results centre software fixture')).to_be_visible()
             page.get_by_role('button', name='Close dialog', exact=True).click()
-            page.get_by_role('button', name='Methods & downloads', exact=True).click()
+            page.locator('[data-action="saved-run-tab"][data-id="methods"]').click()
             expect(page.locator('.methods-export')).to_be_visible()
             page.locator('[data-action="saved-run-tab"][data-id="results"]').click()
             expect(centre).to_contain_text('Metadata observed after ' + jid)
@@ -1722,20 +1834,23 @@ def test_results_centre_downloads_and_attempt_provenance(tmp_path, installed):
                 if folder:
                     Path(folder).mkdir(parents=True, exist_ok=True)
                     page.screenshot(path=str(Path(folder) / name), full_page=True)
-            expect(page.get_by_role('button', name='Refresh results', exact=True)).to_be_enabled()
+            expect(page.locator('[data-action="refresh-results"]')).to_be_enabled()
             capture('results-centre-desktop.png')
+            expand_details(centre.locator('.result-attempt-history'))
             attempt.scroll_into_view_if_needed()
             capture('results-attempts-desktop.png')
             page.set_viewport_size({'width': 390, 'height': 844})
             assert centre.evaluate('(el) => el.scrollWidth <= el.clientWidth+1')
             centre.locator('.results-report-list').scroll_into_view_if_needed()
             capture('results-centre-mobile.png')
+            expand_details(centre.locator('.result-attempt-history'))
             attempt.scroll_into_view_if_needed()
             capture('results-attempts-mobile.png')
             page.set_viewport_size({'width': 1440, 'height': 1100})
             page.reload()
             expect(centre).to_contain_text('Metadata observed after ' + jid)
             report.write_text('<html>Changed outside the attempt</html>')
+            expand_details(page.locator('.report-tools'))
             page.get_by_role('button', name='Refresh results', exact=True).click()
             expect(centre).to_contain_text('No matching attempt observation')
             assert errors == [] and store.get('runs', run['id']) == original_run
@@ -1787,6 +1902,7 @@ def test_storage_overview_is_explicit_persistent_and_read_only(tmp_path):
             assert store.get('storage', 'latest') is None and not store.jobs()
             page.get_by_role('button', name='Measure storage', exact=True).click()
             expect(page.locator('#main')).to_contain_text('Latest saved measurement')
+            page.locator('summary').filter(has_text='Measurement details and registered paths').click()
             rows = page.locator('.storage-locations')
             expect(rows).to_contain_text('External · not selected')
             saved = store.get('storage', 'latest')
@@ -1820,6 +1936,7 @@ def test_storage_overview_is_explicit_persistent_and_read_only(tmp_path):
             page.set_viewport_size({'width': 1440, 'height': 1100})
             page.reload()
             expect(page.locator('#main')).to_contain_text('Latest saved measurement')
+            page.locator('summary').filter(has_text='Measurement details and registered paths').click()
             assert store.get('storage', 'latest') == saved
             # Registration changes require a fresh location review, not an automatic rescan.
             added = tmp_path / 'new database'; added.mkdir()
@@ -1835,6 +1952,172 @@ def test_storage_overview_is_explicit_persistent_and_read_only(tmp_path):
             expect(page.get_by_role('heading', name='Find installed databases', exact=True)).to_be_visible()
             assert not store.jobs() and payload.read_bytes() == b'y' * 8192
             assert (backup / 'retained').read_bytes() == b'x' * 4096 and errors == []
+            browser.close()
+    finally:
+        proc.terminate(); proc.wait(timeout=15)
+
+
+def test_storage_cleanup_requires_review_and_preserves_unselected_files(tmp_path, installed):
+    """A real cleanup job deletes only confirmed fixture output; preview is inert."""
+    from playwright.sync_api import sync_playwright, expect
+    store, item = installed
+    sample = tmp_path / 'cleanup sample'
+    inputs = sample / 'raw/illumina'
+    inputs.mkdir(parents=True)
+    for mate in (1, 2):
+        (inputs / f'fixture_R{mate}.fastq').write_text('@fixture\nACGT\n+\nIIII\n')
+    from bactologix.runs import register_sample
+    registered = register_sample(store, 'cleanup.fixture', str(sample), 'illumina_only')
+    run = create_run(store, 'hybas', registered, 'custom_note: cleanup fixture\n',
+                     label='Transferred fixture results')
+    output = Path(run['output'])
+    output.mkdir(parents=True, exist_ok=True)
+    report = output / 'retired-report.txt'
+    report.write_bytes(b'confirmed temporary browser fixture\n' * 100)
+    retained = tmp_path / 'transferred copies'
+    retained.mkdir()
+    copy = retained / report.name
+    copy.write_bytes(report.read_bytes())
+    with socket.socket() as sock:
+        sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
+    with (tmp_path / 'cleanup-server.log').open('w') as log:
+        proc = subprocess.Popen([str(Path(sys.executable).with_name('bactologix')), '--home', str(store.home),
+                                 '--host', '127.0.0.1', '--port', str(port), '--no-browser'],
+                                stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    try:
+        url = f'http://127.0.0.1:{port}'
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                with urlopen(url + '/_stcore/health', timeout=1) as response:
+                    if response.status == 200: break
+            except OSError:
+                if time.monotonic() >= deadline: pytest.fail((tmp_path / 'cleanup-server.log').read_text())
+                time.sleep(.2)
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 1440, 'height': 1100})
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            page.goto(url)
+            page.get_by_role('link', name='Storage', exact=True).click()
+            cleanup = page.get_by_role('region', name='Storage cleanup', exact=True)
+            expect(cleanup.get_by_role('heading', name='Reclaim disk space')).to_be_visible()
+            cleanup.get_by_role('button', name='Load cleanup candidates', exact=True).click()
+            expect(cleanup).to_contain_text('This cleanup action does not recheck the destination')
+            cleanup.get_by_role('button', name='Input files', exact=True).click()
+            expect(cleanup).to_contain_text('Registration only · files stay on disk')
+            protected = cleanup.locator('[data-cleanup-key="sample_files:cleanup.fixture"]')
+            expect(protected.locator('input')).to_be_disabled()
+            expect(protected.locator('.cleanup-size strong')).to_have_text('Not measured')
+            protected.locator('summary').click()
+            protected.get_by_role('button', name='Review protection', exact=True).click()
+            dialog = page.get_by_role('dialog', name='Review permanent cleanup')
+            expect(dialog).to_contain_text('Cleanup is blocked')
+            expect(dialog.get_by_role('button', name='Permanently delete selected')).to_be_disabled()
+            expect(dialog.locator('#cleanup-acknowledged')).to_have_count(0)
+            preview_bytes = dialog.locator('.cleanup-preview-summary > div').nth(1).locator('strong').inner_text()
+            dialog.get_by_role('button', name='Close', exact=True).click()
+            expect(protected.locator('.cleanup-size strong')).to_have_text(preview_bytes)
+            assert report.exists() and not store.jobs()
+            page.get_by_role('button', name='Measure storage', exact=True).click()
+            expect(page.locator('#main')).to_contain_text('Latest saved measurement')
+            cleanup.get_by_role('button', name='Refresh cleanup list', exact=True).click()
+            expect(cleanup).not_to_contain_text('A new measurement is available')
+            cleanup.get_by_role('button', name='Run results', exact=True).click()
+            candidate = cleanup.locator(f'[data-cleanup-key="run:{run["id"]}"]')
+            cleanup.get_by_label('Find an item', exact=True).fill('no-matching-cleanup-fixture')
+            expect(candidate).to_have_count(0)
+            expect(cleanup.locator('[data-action="cleanup-select-visible"]')).to_be_disabled()
+            cleanup.get_by_label('Find an item', exact=True).fill('')
+            cleanup.locator('[data-action="cleanup-select-visible"]').click()
+            expect(candidate.locator('input')).to_be_checked()
+            cleanup.get_by_role('button', name='Clear selection', exact=True).click()
+            expect(candidate.locator('input')).not_to_be_checked()
+            measured_run_bytes = candidate.locator('.cleanup-size strong').inner_text()
+            assert measured_run_bytes != 'Not measured'
+            candidate.locator('input').check()
+            preview = cleanup.get_by_role('button', name='Preview selected cleanup', exact=True)
+            preview.click()
+            expect(dialog).to_contain_text(run['folder'])
+            # Nested output locations are partitioned out of the parent scan row.
+            # Their combined size must agree with the exact cleanup-root preview.
+            expect(dialog.locator('.cleanup-preview-summary > div').nth(1).locator('strong')).to_have_text(measured_run_bytes)
+            expect(dialog).to_contain_text('Cleanup does not recheck your destination or its current contents')
+            destructive = dialog.get_by_role('button', name='Permanently delete selected', exact=True)
+            confirm = dialog.get_by_label('Type DELETE to confirm permanent deletion', exact=True)
+            acknowledged = dialog.locator('#cleanup-acknowledged')
+            expect(destructive).to_be_disabled()
+            confirm.fill('DELETE')
+            expect(destructive).to_be_disabled()
+            acknowledged.check()
+            expect(destructive).to_be_enabled()
+            confirm.fill('delete')
+            expect(destructive).to_be_disabled()
+            confirm.fill('DELETE')
+            acknowledged.uncheck()
+            expect(destructive).to_be_disabled()
+            acknowledged.check()
+            expect(destructive).to_be_enabled()
+            destructive.focus(); page.keyboard.press('Tab')
+            expect(dialog.get_by_role('button', name='Close dialog', exact=True)).to_be_focused()
+            page.keyboard.press('Shift+Tab')
+            expect(destructive).to_be_focused()
+            # Closing a fully completed confirmation must still perform no deletion.
+            dialog.get_by_role('button', name='Close', exact=True).click()
+            expect(preview).to_be_focused()
+            assert report.exists() and not store.jobs()
+            preview.click()
+            expect(dialog.locator('#cleanup-acknowledged')).not_to_be_checked()
+            expect(dialog.locator('#cleanup-confirmation')).to_have_value('')
+            dialog.locator('#cleanup-confirmation').fill('DELETE')
+            dialog.locator('#cleanup-acknowledged').check()
+            folder = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+            if folder:
+                Path(folder).mkdir(parents=True, exist_ok=True)
+                page.screenshot(path=str(Path(folder) / 'storage-cleanup-confirmation.png'), full_page=True)
+            destructive.click()
+            expect(dialog).not_to_be_visible()
+            refresh_candidates = cleanup.get_by_role('button', name='Refresh cleanup candidates', exact=True)
+            expect(refresh_candidates).to_be_enabled(timeout=30000)
+            refresh_candidates.click()
+            history = page.get_by_role('region', name='Cleanup history', exact=True)
+            expect(history).to_contain_text('Completed', timeout=30000)
+            assert not report.exists()
+            assert copy.read_bytes() == b'confirmed temporary browser fixture\n' * 100
+            assert all((inputs / f'fixture_R{mate}.fastq').exists() for mate in (1, 2))
+            assert Path(item['source']).is_dir() and store.get('installs', item['id'])
+            assert any(j['kind'] == 'storage_cleanup' for j in store.jobs())
+            history.get_by_role('button', name='View receipt', exact=True).first.click()
+            receipt = page.get_by_role('dialog', name='Cleanup receipt')
+            expect(receipt).to_contain_text('Measure storage again')
+            expect(receipt).to_contain_text('Transferred fixture results')
+            receipt.get_by_role('button', name='Close', exact=True).click()
+            # A persisted interruption must clearly show the error and remaining path.
+            # This fixture only exercises receipt rendering; it never queues recovery.
+            from bactologix.store import now
+            store.put('storage_cleanup_receipts', 'cleanup-partial-browser-fixture', {
+                'id': 'cleanup-partial-browser-fixture', 'created_at': now(), 'status': 'partial',
+                'targets': [{'kind': 'run', 'id': 'interrupted-fixture'}],
+                'candidates': [{'kind': 'run', 'id': 'interrupted-fixture', 'label': 'Interrupted fixture'}],
+                'logical_bytes': copy.stat().st_size,
+                'error': 'Fixture cleanup stopped before removing the retained file.',
+                'operations': [{'original': str(copy), 'quarantine': str(retained / '.fixture-staged'),
+                                'state': 'planned'}]})
+            cleanup.get_by_role('button', name='Refresh cleanup list', exact=True).click()
+            partial = history.locator('article').filter(has_text='Partially completed')
+            expect(partial).to_contain_text('Fixture cleanup stopped')
+            partial.get_by_role('button', name='View receipt', exact=True).click()
+            expect(receipt).to_contain_text('Retained paths · 1')
+            expect(receipt).to_contain_text(str(copy))
+            expect(receipt).to_contain_text('Fixture cleanup stopped')
+            receipt.get_by_role('button', name='Close', exact=True).click()
+            assert copy.exists()
+            page.set_viewport_size({'width': 390, 'height': 844})
+            assert cleanup.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
+            if folder:
+                page.screenshot(path=str(Path(folder) / 'storage-cleanup-mobile.png'), full_page=True)
+            assert errors == []
             browser.close()
     finally:
         proc.terminate(); proc.wait(timeout=15)
@@ -1881,7 +2164,7 @@ def test_version_compatibility_overview_preserves_saved_bindings(tmp_path, insta
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.goto(url)
-            page.get_by_role('link', name='Install & update', exact=True).click()
+            page.get_by_role('link', name='Pipelines & databases', exact=True).click()
             page.get_by_role('button', name='Compatibility', exact=True).click()
             overview = page.locator('.compatibility-overview')
             expect(overview).to_contain_text('Versions and compatibility')
@@ -1939,7 +2222,7 @@ def test_version_compatibility_overview_preserves_saved_bindings(tmp_path, insta
 
 
 def test_job_history_filters_pages_export_and_active_visibility(tmp_path, installed, worker_lease):
-    """Real Chromium component uses stored attempts without submitting or editing work."""
+    """History filters, downloads and clearing affect the activity list independently of execution."""
     import json
     from playwright.sync_api import sync_playwright, expect
     from bactologix.ui_backend import snapshot, dispatch
@@ -1970,14 +2253,14 @@ def test_job_history_filters_pages_export_and_active_visibility(tmp_path, instal
     original = store.jobs()
     original_run = store.get('runs', run['id'])
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, executable_path=os.environ.get('BACTOLOGIX_BROWSER_EXECUTABLE'))
         page = browser.new_page(viewport={'width': 1440, 'height': 1100})
         page.clock.install(time='2026-10-28T12:00:00Z')
         page.clock.pause_at('2026-10-28T12:00:10Z')
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
         render_component(page, store)
-        page.get_by_role('link', name='Jobs & progress', exact=True).click()
+        page.get_by_role('link', name='Activity', exact=True).click()
         active = page.get_by_role('region', name='Active jobs', exact=True)
         panel = page.get_by_role('region', name='Job history', exact=True)
         expect(active.locator('.job-card')).to_have_count(2)
@@ -2045,11 +2328,51 @@ def test_job_history_filters_pages_export_and_active_visibility(tmp_path, instal
         result = dispatch(store, request['kind'], request['payload'])
         page.evaluate('response => window.acceptanceRender(response)', {'id': request['id'], 'ok': True, **result})
         expect(page.locator('.run-workspace')).to_be_visible()
-        page.get_by_role('link', name='Jobs & progress', exact=True).click()
+        page.get_by_role('link', name='Activity', exact=True).click()
         expect(page.get_by_label('Search history', exact=True)).to_have_value(history[0])
         assert len(store.jobs()) == len(original) and store.get('runs', run['id']) == original_run
         assert [j for j in store.jobs() if j['id'] != running] == [j for j in original if j['id'] != running]
         assert [e['value']['kind'] for e in page.evaluate('window.acceptanceEvents')] == ['inspect_run']
+        # Clearing from a filtered view applies to the whole history, after confirmation.
+        clear = panel.get_by_role('button', name='Clear job history', exact=True)
+        clear.click()
+        dialog = page.get_by_role('dialog', name='Clear job history?', exact=True)
+        expect(dialog).to_contain_text('including those outside the current filters')
+        dialog.get_by_role('button', name='Close', exact=True).click()
+        expect(panel).to_contain_text('1–1 of 1 matching attempts · 32 total history')
+        assert len(page.evaluate('window.acceptanceEvents')) == 1
+        clear.click()
+        dialog.get_by_role('button', name='Clear job history', exact=True).click()
+        request = page.evaluate('window.acceptanceEvents.at(-1).value')
+        assert request['kind'] == 'clear_job_history' and request['payload'] == {}
+        result = dispatch(store, request['kind'], request['payload'])
+        page.evaluate('''({workspace,response}) => {
+            Object.assign(window.acceptanceWorkspace,workspace);
+            window.acceptanceRender(response);
+        }''', {'workspace': snapshot(store), 'response': {'id': request['id'], 'ok': True, **result}})
+        expect(dialog).to_have_count(0)
+        expect(panel).to_contain_text('Job history is empty.')
+        expect(panel.locator('.job-card')).to_have_count(0)
+        expect(panel.get_by_role('button', name='Download matching history')).to_be_disabled()
+        expect(clear).to_be_disabled()
+        expect(page.get_by_label('Search history', exact=True)).to_have_value('')
+        expect(active.locator('.job-card')).to_have_attribute('data-job-id', waiting)
+        expect(page.locator('[data-waiting-job="' + waiting + '"]')).to_be_visible()
+        assert store.get('runs', run['id']) == original_run
+        store.update_job(waiting, status='succeeded')
+        # Reopen the app to read persisted visibility and the latest completion.
+        page.close()
+        reopened = browser.new_page()
+        reopened.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(reopened, store)
+        reopened.get_by_role('link', name='Activity', exact=True).click()
+        history_panel = reopened.get_by_role('region', name='Job history', exact=True)
+        expect(history_panel.locator('.job-card')).to_have_attribute('data-job-id', waiting)
+        expect(history_panel).to_contain_text('1–1 of 1 matching attempts · 1 total history')
+        expect(history_panel.get_by_role('button', name='Clear job history', exact=True)).to_be_enabled()
+        with reopened.expect_download() as event:
+            history_panel.get_by_role('button', name='Download matching history').click()
+        assert [j['id'] for j in json.loads(Path(event.value.path()).read_text())['jobs']] == [waiting]
         assert errors == []
         browser.close()
 
@@ -2121,7 +2444,7 @@ def test_full_saved_configuration_comparison(tmp_path, installed):
         page.get_by_label('Search setting paths', exact=True).fill('not a recorded key')
         expect(panel).to_contain_text('No matching rows')
         page.get_by_label('Reference run', exact=True).select_option(runs[1]['id'])
-        expect(panel).to_contain_text('Selection changed')
+        expect(panel).to_contain_text('Selection or saved settings changed')
         expect(panel.locator('table')).to_have_count(0)
         expect(page.get_by_role('button', name='Refresh & download comparison', exact=True)).to_have_count(0)
         page.get_by_role('button', name='Compare configurations', exact=True).click()
@@ -2130,7 +2453,7 @@ def test_full_saved_configuration_comparison(tmp_path, installed):
         expect(panel.locator('thead th').nth(1)).to_contain_text('Right fixture')
         page.locator('.comparison-picker summary').click()
         page.get_by_label('Select ' + runs[2]['label'], exact=True).check()
-        expect(panel).to_contain_text('Selection changed')
+        expect(panel).to_contain_text('Selection or saved settings changed')
         page.get_by_role('button', name='Compare configurations', exact=True).click()
         assert len(respond('compare_saved_runs')['comparison']['runs']) == 3
         expect(panel.locator('thead th')).to_have_count(4)
@@ -2148,6 +2471,19 @@ def test_full_saved_configuration_comparison(tmp_path, installed):
         assert panel.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1'), panel.evaluate('(el) => [...el.children].map(x=>[x.className,x.clientWidth,x.scrollWidth])')
         expect(panel.locator('.table-wrap')).to_be_visible()
         assert store.all('runs') == original and not store.jobs() and errors == []
+
+        # A second tab saves an edit in place. Keep the selection, refresh its comparison.
+        from test_run_revisions import request as draft_request
+        edit = draft_request(store, runs[0])
+        edit['memory_mb'] += 512
+        dispatch(store, 'update_run_draft', edit)
+        page.evaluate('w => {Object.assign(window.acceptanceWorkspace,w);window.acceptanceRender(null);}', snapshot(store))
+        expect(panel).to_contain_text('Selection or saved settings changed')
+        expect(panel.locator('table')).to_have_count(0)
+        page.get_by_role('button', name='Compare configurations', exact=True).click()
+        refreshed = respond('compare_saved_runs')['comparison']['runs']
+        assert next(r for r in refreshed if r['id'] == runs[0]['id'])['draft_generation'] == 1
+        expect(panel.locator('.table-wrap')).to_be_visible()
         browser.close()
 
 
@@ -2252,6 +2588,20 @@ def test_reviewed_sample_import_preview_staleness_and_commit(tmp_path):
         browser.close()
 
 
+def assert_workspace_fits_viewport(page, context):
+    """Report the responsible layout when a header or page overflows."""
+    bounds = page.locator('.bacto-root').evaluate("""node => ({
+        viewport: innerWidth,
+        width: node.scrollWidth,
+        overflow: [...node.querySelectorAll('*')].map(el => {
+            const rect = el.getBoundingClientRect();
+            return {element: el.tagName + '.' + el.className,
+                    left: rect.left, right: rect.right, width: rect.width};
+        }).filter(rect => rect.width && rect.right > innerWidth + 1).slice(0, 8)
+    })""")
+    assert bounds['width'] <= bounds['viewport'] + 1, f'{context}: {bounds}'
+
+
 def test_responsive_navigation_and_workspace_tools(tmp_path):
     from playwright.sync_api import sync_playwright, expect
     from bactologix.ui_backend import dispatch, snapshot
@@ -2264,7 +2614,7 @@ def test_responsive_navigation_and_workspace_tools(tmp_path):
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
         render_component(page, store)
-        page.get_by_role('link', name='Install & update', exact=True).click()
+        page.get_by_role('link', name='Pipelines & databases', exact=True).click()
         for width in (1440, 1024, 390):
             page.set_viewport_size({'width': width, 'height': 844})
             for name in ('Guided setup', 'Pipelines & environments', 'Compute & CUDA', 'Workstation check', 'Compatibility'):
@@ -2274,14 +2624,22 @@ def test_responsive_navigation_and_workspace_tools(tmp_path):
                     if req and req['kind'] == 'inspect_compatibility':
                         result = {'id': req['id'], 'ok': True, **dispatch(store, req['kind'], req['payload'])}
                         page.evaluate('({r,s})=>{Object.assign(window.acceptanceWorkspace,s);window.acceptanceRender(r)}', {'r': result, 's': snapshot(store)})
-                assert page.locator('.bacto-root').evaluate('(el) => el.scrollWidth <= innerWidth+1')
+                assert_workspace_fits_viewport(page, f'{width}px, {name}')
                 for tab in page.locator('.setup-tabs button').all():
                     expect(tab).to_be_visible()
+            expect(page.get_by_role('button', name='Notifications', exact=True)).to_be_visible()
+            page.locator('.workspace-tools > summary').click()
+            menu = page.locator('.workspace-tools-menu')
+            expect(menu).to_be_visible()
+            bounds = menu.bounding_box()
+            assert bounds and bounds['x'] >= -1 and bounds['x'] + bounds['width'] <= width + 1, (width, bounds)
+            assert_workspace_fits_viewport(page, f'{width}px, workspace tools open')
+            page.locator('.workspace-tools > summary').click()
         toggle = page.get_by_role('button', name='Open navigation', exact=True)
         expect(page.locator('.sidebar')).to_be_hidden()
         toggle.click()
         expect(toggle).to_have_attribute('aria-expanded', 'true')
-        expect(page.get_by_role('link', name='Overview', exact=True)).to_be_focused()
+        expect(page.get_by_role('link', name='Home', exact=True)).to_be_focused()
         page.locator('.sidebar a').first.focus()
         page.keyboard.press('Shift+Tab')
         expect(page.locator('.sidebar button').last).to_be_focused()
@@ -2293,7 +2651,7 @@ def test_responsive_navigation_and_workspace_tools(tmp_path):
         expect(page.locator('.sidebar')).to_be_hidden()
         expect(page.locator('.workspace-shell')).not_to_have_attribute('inert', '')
         page.locator('.workspace-tools > summary').click()
-        page.locator('#main h1').click(position={'x': 5, 'y': 5})
+        page.locator('.page-footer > span').click()
         expect(page.locator('.workspace-tools')).not_to_have_attribute('open', '')
         page.locator('.workspace-tools > summary').click()
         page.get_by_role('button', name='Desktop window', exact=True).click()
@@ -2314,7 +2672,7 @@ def test_responsive_navigation_and_workspace_tools(tmp_path):
         page.keyboard.press('Escape')
         expect(toggle).to_be_focused()
         page.set_viewport_size({'width': 1440, 'height': 1000})
-        expect(page.get_by_role('link', name='Overview', exact=True)).to_be_visible()
+        expect(page.get_by_role('link', name='Home', exact=True)).to_be_visible()
         page.locator('a.skip').focus()
         page.keyboard.press('Enter')
         expect(page.locator('#main')).to_be_focused()
@@ -2332,16 +2690,43 @@ def test_job_status_column_and_browser_switch(tmp_path):
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={'width': 1600, 'height': 1000})
         render_component(page, store)
-        page.get_by_role('link', name='Jobs & progress', exact=True).click()
+        page.get_by_role('link', name='Activity', exact=True).click()
         badges = page.locator('.job-card > div:nth-child(2) > .pill')
         expect(badges).to_have_count(3)
         positions = badges.evaluate_all('(nodes)=>nodes.map(n=>n.getBoundingClientRect().left)')
         assert max(positions)-min(positions) < 1
         page.locator('.workspace-tools > summary').click()
+        expect(page.get_by_role('button', name='Close Bactologix', exact=True)).to_have_count(0)
         page.get_by_role('button', name='Restart as browser', exact=True).click()
         req = page.evaluate('window.acceptanceEvents.at(-1).value')
         assert req['kind'] == 'restart_as_browser' and req['payload'] == {}
         browser.close()
+
+
+def test_close_desktop_shows_feedback_before_supervisor_response(tmp_path, monkeypatch):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix import desktop
+    key = 'a' * 32
+    monkeypatch.setenv(desktop.ENV, key)
+    monkeypatch.setenv(desktop.STORAGE_SESSION_DIR, str(tmp_path / key))
+    store = Store(tmp_path / 'workspace')
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True, executable_path=os.environ.get('BACTOLOGIX_BROWSER_EXECUTABLE'))
+        page = browser.new_page(viewport={'width': 1440, 'height': 1000})
+        render_component(page, store)
+        page.locator('.workspace-tools > summary').click()
+        page.get_by_role('button', name='Close Bactologix', exact=True).click()
+        expect(page.get_by_role('heading', name='Close Bactologix?')).to_be_visible()
+        assert not page.evaluate('window.acceptanceEvents.some(e=>e.value.kind==="close_desktop")')
+        page.get_by_role('button', name='Close desktop session', exact=True).click()
+        expect(page.get_by_role('heading', name='Closing Bactologix…')).to_be_visible()
+        req = page.evaluate('window.acceptanceEvents.at(-1).value')
+        assert req['kind'] == 'close_desktop' and req['payload'] == {}
+        page.evaluate('req=>window.acceptanceRender({id:req.id,ok:false,message:"Desktop unavailable."})', req)
+        expect(page.get_by_role('button', name='Close desktop session', exact=True)).to_be_enabled()
+        expect(page.get_by_role('dialog')).to_contain_text('Desktop unavailable.')
+        browser.close()
+
 def test_saved_report_section_links_and_print(tmp_path):
     from playwright.sync_api import sync_playwright, expect
     from bactologix.ui_backend import dispatch
@@ -2406,7 +2791,7 @@ def test_pipeline_order_and_reference_builder(tmp_path):
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={'width':1440,'height':1000})
         render_component(page,store)
-        page.get_by_role('link',name='Databases & models',exact=True).click()
+        open_databases(page)
         tabs=page.locator('[data-action="database-tool"]')
         assert tabs.all_text_contents()==['HybAs AWARE','BaSIS AWARE','GeneScope']
         for width in (1440,390):
@@ -2475,7 +2860,7 @@ def test_reference_starter_default_edit_restore_and_build(tmp_path, monkeypatch)
         page_errors=[]
         page.on('pageerror',lambda error: page_errors.append(str(error)))
         render_component(page,store)
-        page.get_by_role('link',name='Databases & models',exact=True).click()
+        open_databases(page)
         page.get_by_role('button',name='GeneScope',exact=True).click()
         page.set_viewport_size({'width':390,'height':900})
         expect(page.locator('#reference-spec')).to_have_value(text)
@@ -2503,7 +2888,12 @@ def test_workflow_lock_review_and_guarded_unlock(tmp_path, installed, monkeypatc
     (sample/'raw/illumina').mkdir(parents=True)
     for mate in (1,2):
         (sample/f'raw/illumina/fixture_R{mate}.fastq').write_text('@fixture\nA\n+\nI\n')
-    run = create_run(store,'hybas',{'id':'unlock.fixture','path':str(sample),'mode':'illumina_only'},'custom_note: retained\n',label='Interrupted fixture')
+    from bactologix import hardware
+    from test_compute_memory import host
+    monkeypatch.setattr(hardware, 'inventory', lambda *a, **k: host(0))
+    run = create_run(store,'hybas',{'id':'unlock.fixture','path':str(sample),'mode':'illumina_only'},
+                     'custom_note: retained\nbactologix_compute: {swap_mb: 98160}\n',
+                     memory_mb=46080, label='Interrupted fixture')
     locks = Path(run['folder'])/'workflow/.snakemake/locks'
     locks.mkdir(parents=True)
     (locks/'0.input.lock').write_text('/software-fixture')
@@ -2522,9 +2912,10 @@ def test_workflow_lock_review_and_guarded_unlock(tmp_path, installed, monkeypatc
         browser=p.chromium.launch(headless=True)
         page=browser.new_page(viewport={'width':1440,'height':1000})
         render_component(page,store)
-        page.get_by_role('link',name='Jobs & progress',exact=True).click()
+        page.get_by_role('link',name='Activity',exact=True).click()
         panel=page.locator('[data-recovery-job="'+jid+'"]')
-        panel.locator('summary').click()
+        if panel.get_attribute('open') is None:
+            panel.locator('summary').click()
         expect(panel).to_contain_text('Workflow locked')
         def respond():
             req=page.evaluate('window.acceptanceEvents.at(-1).value')
@@ -2532,8 +2923,20 @@ def test_workflow_lock_review_and_guarded_unlock(tmp_path, installed, monkeypatc
             page.evaluate('''({workspace,response})=>{Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}''',
                           {'workspace':snapshot(store),'response':{'id':req['id'],'ok':True,**result}})
             return result
+        lock_list=page.get_by_role('region',name='Workflow locks to review',exact=True)
+        expect(lock_list).to_contain_text(run['label'])
+        if with_pam:
+            history=page.get_by_role('region',name='Job history',exact=True)
+            history.get_by_role('button',name='Clear job history',exact=True).click()
+            page.get_by_role('dialog').get_by_role('button',name='Clear job history',exact=True).click()
+            respond()
+            expect(history).to_contain_text('Job history is empty.')
+            expect(lock_list).to_contain_text(run['id'])
+            review=lock_list.get_by_role('button',name='Review lock',exact=True)
+        else:
+            review=panel.get_by_role('button',name='Check workflow lock',exact=True)
         lease=worker_lease(store)
-        panel.get_by_role('button',name='Check workflow lock',exact=True).click()
+        review.click()
         respond()
         expect(page.get_by_role('button',name='Unlock workflow',exact=True)).to_be_disabled()
         expect(page.get_by_role('dialog')).to_contain_text('currently in use')
@@ -2544,6 +2947,7 @@ def test_workflow_lock_review_and_guarded_unlock(tmp_path, installed, monkeypatc
         page.get_by_role('button',name='Unlock workflow',exact=True).click()
         result=respond()
         assert store.job(result['unlock_job'])['kind']=='workflow_unlock'
+        expect(lock_list).to_have_count(0)
         assert store.queue_snapshot()['paused']
         assert store.job(jid)['status']=='failed'
         assert store.get('runs',run['id'])==run
@@ -2593,7 +2997,7 @@ def test_genescope_custom_database_label(tmp_path):
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=True);page=browser.new_page(viewport={'width':1440,'height':1000})
         render_component(page,store)
-        page.get_by_role('link',name='Databases & models',exact=True).click()
+        open_databases(page)
         page.get_by_role('button',name='GeneScope',exact=True).click()
         expect(page.get_by_text('Selected application: Custom engineering · 2.0',exact=True)).to_be_visible()
         expect(page.get_by_text('A different application',exact=True)).to_be_visible()
@@ -2705,7 +3109,11 @@ def test_aware_plus_mode_controls_and_experimental_notice(tmp_path):
         page=browser.new_page(viewport={'width':1440,'height':1000})
         errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
         render_component(page,store)
-        page.get_by_role('link',name='Configuration',exact=True).click()
+        page.get_by_role('link',name='Settings',exact=True).click()
+        from bactologix.ui_backend import dispatch, snapshot
+        req=page.evaluate('window.acceptanceEvents.at(-1).value')
+        response=dispatch(store,req['kind'],req['payload'])
+        page.evaluate('({workspace,response})=>{Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',{'workspace':snapshot(store),'response':{'id':req['id'],'ok':True,**response}})
         panel=page.locator('.defaults-editor')
         expect(panel).to_contain_text('HybAs 10 — Experimental')
         expect(panel).to_contain_text('Reconstruct populations — Not implemented')
@@ -2721,4 +3129,79 @@ def test_aware_plus_mode_controls_and_experimental_notice(tmp_path):
             page.set_viewport_size({'width':width,'height':1000})
             assert panel.evaluate('(e)=>e.scrollWidth<=e.clientWidth+1')
         assert not errors,errors
+        browser.close()
+
+
+def test_development_banner_and_catalog_isolation(tmp_path, monkeypatch):
+    from playwright.sync_api import sync_playwright, expect
+    monkeypatch.setenv('BACTOLOGIX_CHANNEL','dev')
+    store=Store(tmp_path/'dev-workspace')
+    from bactologix.ui_backend import snapshot
+    view=snapshot(store)
+    assert view['channel']=='dev'
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True)
+        page=browser.new_page(viewport={'width':1440,'height':1000})
+        errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
+        render_component(page,store)
+        expect(page).to_have_title('Bactologix Dev')
+        expect(page.locator('#release-channel-badge')).to_have_text('DEV · Experimental')
+        expect(page.locator('#release-channel-badge')).to_have_count(1)
+        page.get_by_role('link',name='Runs',exact=True).click()
+        expect(page.locator('#release-channel-badge')).to_have_count(1)
+        for width in (390,1440):
+            page.set_viewport_size({'width':width,'height':1000})
+            assert page.locator('#release-channel-badge').evaluate('(e)=>e.scrollWidth<=e.clientWidth+1')
+        assert not errors,errors
+        browser.close()
+
+
+def test_beta_navigation_purpose_and_empty_inputs(tmp_path):
+    """A novice can choose a purpose without installation, execution or sample removal."""
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import dispatch, snapshot
+    store = Store(tmp_path / 'beta purpose workspace')
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1000})
+        page.route('http://workspace.test/**', lambda route: route.fulfill(
+            body='<html><body></body></html>', content_type='text/html'))
+        page.goto('http://workspace.test/')
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        render_component(page, store)
+        assert page.locator('#navigation a').all_text_contents() == [
+            'Home', 'Samples', 'Runs', 'Results & reports', 'Comparisons',
+            'Pipelines & databases', 'Storage', 'Settings']
+        expect(page.get_by_role('link', name='Activity', exact=True)).to_be_visible()
+        page.get_by_role('link', name='Runs', exact=True).click()
+        page.get_by_role('button', name='Create run drafts', exact=True).first.click()
+        expect(page.locator('[data-action="run-purpose"]')).to_have_count(3)
+        expect(page.locator('#run-cores')).to_have_count(0)
+        expect(page.locator('#run-memory')).to_have_count(0)
+        assert not page.evaluate('window.acceptanceEvents')
+        purpose = page.locator('[data-action="run-purpose"][data-id="micpscope"]')
+        purpose.focus()
+        page.keyboard.press('Enter')
+        expect(purpose).to_have_attribute('aria-pressed', 'true')
+        for width in (1440, 1024, 390):
+            page.set_viewport_size({'width': width, 'height': 900})
+            expect(purpose).to_be_visible()
+            expect(page.get_by_role('button', name='Continue to inputs', exact=True)).to_be_visible()
+            assert_workspace_fits_viewport(page, f'{width}px, purpose selection')
+        page.get_by_role('button', name='Continue to inputs', exact=True).click()
+        request = page.evaluate('window.acceptanceEvents.at(-1).value')
+        assert request['kind'] == 'run_config_editor'
+        result = dispatch(store, request['kind'], request['payload'])
+        page.evaluate('({response,workspace}) => {Object.assign(window.acceptanceWorkspace,workspace);window.acceptanceRender(response);}',
+                      {'response': {'id': request['id'], 'ok': True, **result}, 'workspace': snapshot(store)})
+        expect(page.get_by_role('button', name='Continue to settings', exact=True)).to_be_disabled()
+        expect(page.locator('.run-wizard [data-action="remove-sample"]')).to_have_count(0)
+        page.get_by_role('button', name='Leave editor', exact=True).click()
+        expect(page.locator('.draft-recovery')).to_contain_text('GeneScope')
+        expect(page.locator('.draft-recovery')).to_contain_text('Unsaved edits are kept in this browser tab.')
+        page.get_by_role('button', name='Resume editing', exact=True).click()
+        expect(page.get_by_role('button', name='Continue to settings', exact=True)).to_be_disabled()
+        assert not store.jobs() and not store.all('runs') and not store.all('samples')
+        assert not errors, errors
         browser.close()

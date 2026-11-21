@@ -26,6 +26,41 @@ def request(item, action, key=None):
     desktop.atomic(item.root / 'request.json', {'session': key or item.key, 'action': action, 'nonce': uuid.uuid4().hex})
 
 
+def test_close_menu_signals_owned_session_while_database_is_locked(tmp_path, monkeypatch):
+    from bactologix.ui_backend import dispatch
+    store = Store(tmp_path / 'workspace')
+    item = session(tmp_path, store)
+    monkeypatch.setenv(desktop.ENV, item.key)
+    monkeypatch.setenv(desktop.STORAGE_SESSION_DIR, str(item.root))
+    jid = store.submit('smoke', {})
+    with store.connect() as writer:
+        writer.execute('BEGIN EXCLUSIVE')
+        assert dispatch(store, 'close_desktop', {})['desktop_closing']
+        signal = desktop.read(item.root / 'request.json')
+        assert signal['session'] == item.key and signal['action'] == 'confirm_close' and signal['nonce']
+        assert not item.record_contended_lease()
+    assert item.tick('', True)
+    assert store.job(jid)['status'] == 'cancelled'
+
+
+def test_close_menu_only_accepts_its_own_session(tmp_path, monkeypatch):
+    from bactologix.ui_backend import dispatch
+    store = Store(tmp_path / 'workspace')
+    item = session(tmp_path, store)
+    monkeypatch.delenv(desktop.ENV, raising=False)
+    monkeypatch.setenv(desktop.STORAGE_SESSION_DIR, str(item.root))
+    assert desktop.close_directory() is None
+    with pytest.raises(ValueError, match='desktop shortcut'):
+        dispatch(store, 'close_desktop', {})
+    monkeypatch.setenv(desktop.ENV, item.key)
+    with pytest.raises(ValueError, match='no parameters'):
+        dispatch(store, 'close_desktop', {'id': 'other'})
+    desktop.atomic(item.root / 'status.json', {'session': 'other', 'phase': 'ready'})
+    with pytest.raises(ValueError, match='could not be verified'):
+        dispatch(store, 'close_desktop', {})
+    assert not (item.root / 'request.json').exists()
+
+
 def test_close_owns_only_its_jobs_and_blocks_racing_submissions(tmp_path, monkeypatch):
     store = Store(tmp_path / 'workspace')
     a, b = session(tmp_path, store), session(tmp_path, store)
@@ -39,30 +74,32 @@ def test_close_owns_only_its_jobs_and_blocks_racing_submissions(tmp_path, monkey
     assert not a.tick('http://127.0.0.1:8501', True)
     assert a.phase == 'ready'
     request(a, 'close')
-    assert not a.tick('http://127.0.0.1:8501', True)
-    assert a.phase == 'confirming'
+    assert a.tick('http://127.0.0.1:8501', True)
+    assert a.phase == 'stopping'
     monkeypatch.setenv(desktop.ENV, a.key)
     with pytest.raises(ValueError, match='closing'):
         store.submit('smoke', {})
     request(a, 'reopen')
-    a.tick('', True)
-    assert a.phase == 'ready' and store.job(ja)['status'] == 'queued'
-    request(a, 'confirm_close')
     assert a.tick('', True)
+    assert a.phase == 'stopping'
     assert store.job(ja)['status'] == 'cancelled'
     assert store.job(jb)['status'] == store.job(independent)['status'] == 'queued'
 
 
-def test_lost_supervisor_cancels_only_owned_work(tmp_path, monkeypatch):
+def test_lost_supervisor_preserves_job_and_reconnects(tmp_path, monkeypatch):
     store = Store(tmp_path / 'workspace')
     item = session(tmp_path, store)
     monkeypatch.setenv(desktop.ENV, item.key)
     jid = store.submit('smoke', {})
-    item.started -= 100
+    item.heartbeat_observed -= 100
     desktop.atomic(item.root / 'heartbeat.json', {'session': item.key, 'time': time.time() - 100})
-    assert item.tick('', True)
-    assert store.job(jid)['status'] == 'cancelled'
-    assert desktop.owner_cancelled(store, jid)
+    assert not item.tick('', True)
+    assert not desktop.read(item.root / 'status.json')['desktop_connected']
+    assert not desktop.owner_cancelled(store, jid)
+    desktop.atomic(item.root / 'heartbeat.json', {'session': item.key, 'time': time.time()})
+    assert not item.tick('', True)
+    assert desktop.read(item.root / 'status.json')['desktop_connected']
+    assert store.job(jid)['status'] == 'queued'
 
 
 def test_running_application_update_finishes_before_shutdown(tmp_path, monkeypatch):
@@ -79,14 +116,18 @@ def test_running_application_update_finishes_before_shutdown(tmp_path, monkeypat
     assert item.tick('', True)
 
 
-def test_job_lease_detects_killed_launcher(tmp_path, monkeypatch):
+def test_stale_job_lease_does_not_cancel_worker(tmp_path, monkeypatch):
     store = Store(tmp_path / 'workspace')
     item = session(tmp_path, store)
     monkeypatch.setenv(desktop.ENV, item.key)
     jid = store.submit('smoke', {})
     assert not desktop.owner_cancelled(store, jid)
     store.put('desktop_sessions', item.key, {'phase':'ready', 'last_seen':time.time()-100})
-    assert desktop.owner_cancelled(store, jid)
+    assert not desktop.owner_cancelled(store, jid)
+    store.update_job(jid, status='running')
+    request(item, 'close')
+    assert not item.tick('', True)
+    assert store.job(jid)['cancel'] == 1
 
 
 def test_real_desktop_server_stops_cleanly_and_preserves_unrelated_process(tmp_path):

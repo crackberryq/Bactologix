@@ -161,7 +161,9 @@ def test_download_checks_checksum_and_python_before_install(tmp_path, monkeypatc
     def response(data):
         result = io.BytesIO(data); result.url = record["wheel_url"]; return result
     monkeypatch.setattr(updates, "urlopen", lambda *a, **k: response(content))
-    assert updates.download_wheel(record, tmp_path).read_bytes() == content
+    received = []
+    assert updates.download_wheel(record, tmp_path, received.append).read_bytes() == content
+    assert received == [len(content)]
     monkeypatch.setattr(updates, "urlopen", lambda *a, **k: response(b"x"*len(content)))
     with pytest.raises(ValueError, match="SHA-256"):
         updates.download_wheel(record, tmp_path)

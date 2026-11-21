@@ -67,6 +67,7 @@ class Execution:
         self.store, self.job, self.fail = store, job, fail
         self.commands = []
     def write(self, message): pass
+    def check_cancel(self): pass
     def command(self, argv, **kwargs):
         self.commands.append(argv)
         if self.fail:
@@ -149,3 +150,38 @@ def test_legacy_failed_rerun_status_survives_successful_check(workspace, install
     monkeypatch.setattr('bactologix.engine.find_conda', lambda s: '/fixture/conda')
     perform(workspace, run, 'dry-run')
     assert snapshot(workspace)['runs'][0]['status'] == 'failed'
+
+
+def test_tree_digest_preserves_frozen_hash_and_prunes_native_state(tmp_path, monkeypatch):
+    import hashlib
+    import os
+    from bactologix.runs import tree_digest
+    source = tmp_path / 'workflow'
+    ignored = {'.git', '.snakemake', '__pycache__'}
+    for name in ['Snakefile', '.tracked', 'a.py', 'a/b', 'a/cache.pyc', 'a.pyc/data',
+                 'nested/.git/objects/blob', 'nested/__pycache__/python', '.snakemake/metadata/entry',
+                 'not.snakemake/file', 'nested/.gitignore', 'unrelated/.git']:
+        target = source / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(name)
+    external = tmp_path / 'other'
+    external.mkdir()
+    (external / 'file').write_text('outside')
+    (source / 'linked-folder').symlink_to(external, target_is_directory=True)
+    (source / 'linked-file').symlink_to(external / 'file')
+    (source / 'broken-link').symlink_to(tmp_path / 'missing')
+
+    # Reproduce the hash saved with earlier releases.
+    legacy = hashlib.sha256()
+    for path in sorted(source.rglob('*')):
+        relative = path.relative_to(source)
+        if not ignored.intersection(relative.parts) and path.suffix != '.pyc' and path.is_file():
+            legacy.update(str(relative).encode() + b'\0')
+            legacy.update(path.read_bytes())
+
+    original = os.scandir
+    def guarded(path):
+        assert not (ignored | {'linked-folder'}).intersection(Path(path).relative_to(source).parts)
+        return original(path)
+    monkeypatch.setattr(os, 'scandir', guarded)
+    assert tree_digest(source) == legacy.hexdigest()

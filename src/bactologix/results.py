@@ -77,6 +77,8 @@ def read_file(path, limit):
 def observe(ctx, run, phase):
     if ctx.job['payload'].get('action') not in {'run', 'continue'}:
         return
+    from . import report_evidence
+    report_evidence.observe(ctx, run, phase)
     try:
         record = ctx.store.get('result_observations', ctx.job['id'], {
             'id': ctx.job['id'], 'run_id': run['id'], 'schema': 1})
@@ -137,7 +139,8 @@ def inspect(store, rid):
             'resource_record': bool(usage), 'resource_partial': bool(usage and (usage.get('incomplete') or usage.get('state') == 'recording')),
             'report_observation': observations.get(job['id'], {}).get('after', {}).get('at')})
     return {'schema': 1, 'id': rid, 'label': run['label'], 'tool': run['tool'], 'sample': run['sample']['id'],
-            'created_at': now(), 'status': run_status(run, jobs, dry_run_current(store, run)),
+            'created_at': now(), 'draft_generation': run.get('draft_generation', 0),
+            'status': run_status(run, jobs, dry_run_current(store, run)),
             'commit': run.get('commit'), 'config_sha256': hashlib.sha256(run['config'].encode()).hexdigest(),
             'variant': run.get('variant'),
             'variant_manifest_sha256': run.get('variant_manifest_sha256'),

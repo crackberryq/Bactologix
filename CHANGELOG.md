@@ -1,3 +1,331 @@
+## 0.1.0a133.dev1 — 2026-11-21 · Compact drive warnings
+
+- Resource use shows a compact orange indicator for each drive below the warning threshold. Storage protection and resume controls retain their existing behavior.
+
+## 0.1.0a132.dev1 — 2026-11-21 · Windows heartbeat file contention
+
+- A Windows reader blocking heartbeat replacement leaves the previous heartbeat intact. The launcher retries on the next poll and records the delay and recovery in launcher-events.log. Install the updated Windows Dev launcher to apply this change.
+
+## 0.1.0a131.dev1 — 2026-11-21 · Windows launcher shutdown
+
+- The Windows launcher asks before stopping jobs after the browser disappears. Choose No to reopen. Launcher cleanup no longer submits a quit request after an error. Install the updated Windows launcher with the Dev setup executable.
+
+## 0.1.0a130.dev1 — 2026-11-21 · Dedicated swap volume reserve
+
+- Dedicated Windows swap drives stop at 5 GiB free and can clear a previous storage stop above 5 GiB. Data and shared drives stop at 10 GiB and recover at 15 GiB.
+
+## 0.1.0a129.dev1 — 2026-11-21 · Desktop heartbeat recovery
+
+- Jobs continue when desktop heartbeat measurements lapse. The session status records the disconnect and recovers on a fresh heartbeat. Explicit close and stop requests still stop owned work.
+
+## 0.1.0a128.dev1 — 2026-11-21 · Alpha · Draft creation and input progress
+
+- **Create drafts** acknowledges the click immediately. During longer input reads, the app shows the current filename and how much of that file it has read. The save button stays disabled while the request is in progress.
+- The first Overview uses the workflow fingerprint recorded during the save. Automatic swap sizing and the first Overview read current CPU and memory capacity without repeating a full hardware inventory.
+- Separate run revisions and drafts from imported AWARE manifests reuse input hashes calculated during the same save. Subsequent launches still verify the saved inputs.
+
+## 0.1.0a127.dev1 — 2026-11-21 · Alpha · Faster run controls, job history and workflow locks
+
+- **Jobs & progress → Clear job history** hides finished attempts across all filters. Saved runs retain their logs and outputs. Queued and running jobs appear in history when they finish.
+- **Workflow locks to review** shows saved runs with leftover scheduler locks even after their history has been cleared. Choose **Review lock** to check ownership before requesting a native unlock.
+- **Run / resume** checks input metadata when queueing. The worker verifies saved input fingerprints before native execution. Live RAM and swap checks read available capacity directly.
+- A lock check on a workflow with no lock returns before inspecting inputs. Background progress refreshes reuse unchanged history and configuration data.
+- On Windows, **Workspace tools → Close Bactologix** shows closing progress and sends the stop request directly. The updated Windows launcher also recognizes a confirmed exit of its dedicated browser sooner.
+
+## 0.1.0a126.dev1 — 2026-11-20 · Alpha · Workspace stop controls and resource monitoring
+
+- Closing the last Bactologix desktop window stops its work. The worker can receive a Stop request while the workspace database is busy.
+- During an active command, the worker can keep monitoring disk space, the desktop session and Stop requests while it retries a busy database. Starting another command requires fresh controls.
+- A measured 10 GiB or less on a monitored drive stops active work and blocks the workspace queue. Use **Jobs & progress** to check recovery after every required drive reaches 15 GiB free, then choose the work to resume.
+- The **Resource use** window fits the screen and shows system RAM, swap and remaining disk space separately. A high percentage of swap use alone does not trigger a stop.
+
+## 0.1.0a125.dev1 — 2026-11-20 · Alpha · Reconnecting after a delayed WSL heartbeat check
+
+- When WSL resumes after a long gap in desktop monitoring, Bactologix can check whether the same Windows launcher is responding before interrupting its job. The worker can recover even when it checks the session before the main launcher does.
+- A confirmed close or Stop still ends the job. Existing storage checks apply when a suspended command resumes. Install this update through **Update Bactologix** in the Dev app.
+
+## 0.1.0a124.dev1 — 2026-11-20 · Alpha · Desktop monitoring during a delayed workspace check
+
+- Bactologix Dev watches the Windows launcher's heartbeat independently while it checks the workspace. A delayed check can continue the session when those observations confirm that the same launcher stayed connected throughout the delay.
+- If the supervisor declares a disconnect, the launcher log records how old the last observed heartbeat was and whether a newer matching heartbeat was present. The fix works with the existing Windows launcher.
+
+## 0.1.0a123.dev1 — 2026-11-20 · Alpha · Storage checks during active runs
+
+- During a running command, **Rechecking storage** appears if a reading is delayed and every monitored volume last had at least 20 GiB free. Bactologix requests another reading and allows the same command to continue if fresh measurements arrive within 15 seconds of the last sample.
+- A reading of 10 GiB or less still triggers an immediate pause. A new command and a manual resume each require a fresh storage check. The job log retains the reason for a pause even if the tools take too long to suspend.
+
+## 0.1.0a122.dev1 — 2026-11-20 · Alpha · Windows desktop connection
+
+- Bactologix rechecks the Windows launcher's heartbeat when a read briefly fails or the Windows and WSL clocks differ slightly. The worker can continue the current job when it confirms the same desktop session is still open.
+- The job log records whether Bactologix received a stop request or lost contact with the desktop session that launched the job.
+- If a workspace database lock delays the next screen update, the app labels the last available view and retries automatically.
+
+## 0.1.0a121.dev1 — 2026-11-20 · Alpha · Workflow monitoring and task progress
+
+- During a workflow or setup command, the worker keeps a workspace database connection open. If the database stays locked after 30 seconds of retries, the worker can suspend the tools it owns and wait up to five more minutes for access to return. The same command can continue after the worker checks for a stop request and verifies the required storage. An existing storage pause still requires **Resume run**.
+- **Jobs & progress** shows completed tasks, the current plan total and the names of active tasks beside CPU and memory usage when the workflow reports them. A retry shows the tasks in its own plan.
+- When the worker regains access to a locked workspace database, the attempt’s activity records **Workspace connection restored**. The workflow log records which tasks completed.
+
+## 0.1.0a120.dev1 — 2026-11-20 · Alpha · Kraken swap calculation
+
+- **Calculate and fill swap allowance** fills the form with the smallest whole-MB allowance that covers the selected Kraken requirement with the RAM HybAs can use. The calculation checks usable swap after reserves and the combined memory limit.
+- Save the draft or pipeline defaults to keep the calculated allowance. Use **Validate run** to check the saved settings against current capacity before launch.
+- Select **Calculate swap for each new HybAs draft** in pipeline compute defaults to size future drafts against their selected database and available memory automatically. Each saved run records its own numeric allowance.
+
+## 0.1.0a119.dev1 — 2026-11-20 · Alpha · WSL storage monitoring
+
+- During brief gaps in Windows storage updates, Bactologix can measure free space through the same drives in Ubuntu when their identities have been verified. The Windows launcher also retries brief file-sharing conflicts when publishing its readings.
+- The run page shows **Paused — ready to resume** when all required drives pass their checks. It retains the original reason for the pause, and **View log** records the specific error or low-space measurement.
+
+## 0.1.0a118.dev1 — 2026-11-20 · Alpha · Windows storage checks
+
+- The Windows Dev launcher can measure free space on the drives holding the WSL distribution and its swap file when Ubuntu cannot start Windows PowerShell. Install the Windows Dev setup package to update the launcher.
+- The run page distinguishes a failed storage check from a measured shortage. It explains when the check will retry and when you can choose **Resume run**.
+
+## 0.1.0a117.dev1 — 2026-11-20 · Alpha · Match HybAs 10 memory validation
+
+- The Kraken swap calculator uses the same physical RAM ceiling as the selected HybAs 10 build. It accounts for Auto, an explicit `total_mem_mb`, and Linux or WSL container limits.
+- The calculator shows requested RAM, the RAM HybAs can use, and the effective scheduling budget after adding swap. Applying a recommendation changes only the swap allowance in the draft.
+- Run and revision reviews show the usable swap at the last hardware check and the exact shortfall when the requested allowance exceeds it.
+- **Edit settings** can save changes to an unexecuted draft under its existing run ID, including after a failed validation. Activity keeps the earlier logs. Validate the updated settings before starting the run.
+- Workflow monitoring retries brief SQLite locks while it supervises the running processes and continues to check disk capacity. Jobs & progress explains how to retry the same run after a persistent monitoring lock.
+- Refreshing the notification window takes a database write lock only when there are changes to save. If Bactologix encounters a lock while saving a command's final status, its diagnostics retain the original error and any exit code observed before cleanup.
+
+## 0.1.0a116.dev1 — 2026-11-19 · Alpha · Job network activity
+
+- **Jobs & progress** shows live download and upload rates for each monitored job. **Resource use** shows observed totals, transfer history and when data last moved. Setup downloads by child processes such as Conda and MOB-suite are included.
+- Unavailable readings and gaps in observation are marked. A quiet connection can accompany local work such as unpacking or indexing. Historic jobs keep their original records.
+
+## 0.1.0a115.dev1 — 2026-11-19 · Alpha · Clear notifications and clean up failed work
+
+- Open the notification bell and choose **Clear all notifications** to clear the current alerts. New alerts continue to appear.
+- In **Jobs & progress**, choose **Clean up failed items** to review failed runs and files left by failed database or pipeline installations. Confirm the listed items to reclaim space. Shared databases, original inputs and files required by retained work are protected.
+
+## 0.1.0a114.dev1 — 2026-11-19 · Alpha · Share an existing Kraken2 database
+
+- Connect an existing Kraken2 index from a Windows drive or another local folder to HybAs in Bactologix Dev. **Save for future runs** records its location and **Calculate swap recommendation** reads the index files there.
+- Dev reads the external index in place. Dev-managed downloads, builds and run outputs stay in the workspace.
+
+## 0.1.0a113.dev1 — 2026-11-19 · Alpha · BUSCO lineage preparation in HybAs 10
+
+- Add HybAs AWARE v10.0.0a7 to the Dev pipeline catalog. It verifies datasets extracted under BUSCO’s `lineages` folder and installs them in the location expected by HybAs. The controller and tool environment versions match v10.0.0a6.
+- Select v10.0.0a7 in **Install & update**. Under **Databases & models**, open the HybAs BUSCO card and select **Download and prepare**. Once preparation succeeds, choose **Select downloaded location**, then **Save for future runs**.
+
+## 0.1.0a112.dev1 — 2026-11-19 · Alpha · Keep environment setup running during brief workspace database locks
+
+- During pipeline setup, keep the installer and its child processes under supervision while retrying a temporary workspace database lock for up to 30 seconds. Read pending stop requests as soon as access returns. If control remains unavailable, stop the owned processes and pause the queue for review.
+- Keep the Windows desktop session open through brief heartbeat contention. Reuse the initialized workspace on progress refreshes while reading fresh job data.
+- For a previously interrupted installation, open **Install & update**, select the pipeline version, and choose **Retry setup**. Bactologix reuses completed environments and verifies the installation.
+
+## 0.1.0a111.dev1 — 2026-11-18 · Alpha · Unlock maintenance without analysis memory requirements
+
+- Allow guarded native workflow unlock when the saved analysis RAM/swap budget exceeds current free capacity. Unlock performs maintenance only and no longer applies analysis memory admission checks.
+- Keep queue/worker ownership, active-process inspection, frozen run/source checks, lock identity verification and writable-folder checks at review, submission and execution. Native unlock preserves the saved resource arguments and leaves the queue paused.
+- Continue enforcing current memory capacity for analysis validation, run and resume. Preserve saved settings, inputs, outputs, database selections and reset deletion protections.
+- Reproduce the reported 98,160 MB swap allowance / 72,704 MB usable swap case in regression tests, including native unlock and unchanged analysis rejection.
+
+## 0.1.0a110.dev1 — 2026-11-18 · Alpha · Large workspace reset review
+
+- Give full workspace reset and interrupted-reset recovery a dedicated large-workspace scan budget, instead of sharing the ordinary 300,000-entry / 30-second cleanup limits.
+- Show live scan stage, entry counts and elapsed time. Cancellation stops the traversal between filesystem operations; partial totals are labelled incomplete and cannot authorize deletion.
+- Preserve full file identity inventories, fresh verification before deletion, native process/lock checks, original inputs, linked databases and separate managed-database confirmation.
+- Bound inventory metadata and scan duration, identify the specific limit when a review cannot finish, and prune obsolete reset previews while retaining pending work and recovery receipts.
+
+## 0.1.0a109.dev1 — 2026-11-18 · Alpha · Responsive Storage and workspace reset access
+
+- Move Reset workspace into the top-right Workspace tools menu, available without loading Storage first.
+- Separate registered-location loading, size measurements and cleanup discovery. Long observations use bounded background tasks with local progress, cancellation and retry; late or stale results are discarded.
+- Keep cleanup discovery explicit and avoid duplicate source Git scans within one display request. Deletion previews and execution retain fresh ownership and dependency checks.
+- Run database scans/checks and saved-run editor loading in the background. Opening the editor reads saved settings; saving revisions and launching still verify original inputs and workflow identities.
+- Preserve pipeline versions, scientific parameters, database selections and generated data. This is an application responsiveness update, including the regular channel used with frozen HybAs 9.
+
+## 0.1.0a108.dev1 — 2026-11-17 · Alpha · Reviewed reset and responsive setup
+
+- Add a developer workspace reset with an exact deletion preview, typed confirmation, separate managed-database opt-in, process checks and recoverable deletion receipts. Original inputs, manually linked databases and application/bootstrap files are protected.
+- Add Download again for a separate database snapshot. Existing selections and saved runs remain unchanged; a new provider snapshot may differ from the old database.
+- Open saved-run settings without rehashing raw reads. Run database scans/checks, reset previews and compute recommendations in bounded background tasks; stale results do not override newer selections.
+- Calculate Kraken swap guidance from database size, the selected RAM budget, usable active swap and required storage volumes. Use recommendation fills editable controls; it does not alter Linux/WSL or start a run.
+- Support the checked HybAs documented-default Medaka selection policy, preserve strict semantics for older saved runs, and disclose recorded fallback in Methods.
+
+## 0.1.0a107.dev1 — 2026-11-17 · Alpha · Preserve run ownership during monitoring failures
+
+- Retry brief SQLite control-read contention with bounded delays. Record monitoring interruptions separately from native tool failures, preserve process identities and block recovery while native exit is unconfirmed.
+- Retry explicit Stop and desktop lease transactions after transient contention; preserve confirmed stop intent and complete launcher cleanup when control storage remains unavailable.
+- Offer a reviewed VFDB reference repair that creates an independent draft for native preparation; retain frozen runs, outputs and scientific thresholds.
+- Determine database preparation support from the installed source's reviewed capability, with an actionable unavailable reason, rather than one global default commit.
+- Reject the conflicting NanoPlot 1.46.2 / MultiQC 1.32 dependency repair instead of silently forcing an unsupported Kaleido downgrade. Keep complete environments and report the required separation.
+- New reviewed HybAs sources expose bound Medaka model-review controls and retain their review status/reason in Methods; old frozen sources cannot silently acquire those semantics.
+- Warn when the selected Kraken database exceeds physical RAM while keeping the user’s explicit swap allowance available.
+- Prepare a missing NanoPlot browser only during explicit Install/Repair for a reviewed split environment. Read-only checks and ordinary runs never silently download it.
+- These are software reliability changes. Existing frozen workflows are not rewritten, and no historical run or model choice gains validation by updating Bactologix.
+
+## 0.1.0a106.dev1 — 2026-11-11 · Alpha · Pause local runs when storage is low
+
+- Monitor required run, workspace, workflow and temporary storage, including the Windows volume behind WSL and its enabled swap location. Report unavailable required measurements explicitly.
+- Warn below 20 GiB and hold or suspend owned local analysis processes at or below 10 GiB. Require fresh measurements of at least 15 GiB on every required volume and manual resume; retain Stop while paused.
+- Guard prelaunch output preservation as well as native workflow execution, retain existing busy locks, and clean up owned processes after worker loss. Never automatically delete data or alter pipeline settings.
+- Show affected storage, pause reason and recovery controls in run views, lists and notifications without a page fade or moving progress while paused.
+- Add capacity, real-process, worker-loss and browser regressions. The sampled guard does not control external writers or standalone workflows; full WSL workload validation remains a host acceptance check.
+- Synchronize bundled application citation versions with this release.
+
+## 0.1.0a105.dev1 — 2026-11-11 · Alpha · Steady workspace and localized run progress
+
+- Keep the workspace readable during connected background refreshes. Scope the change to the Bactologix workspace so native disconnection and error feedback remains available.
+- Show activity beneath the isolate/run heading and in run lists. Use recorded tasks in the current workflow plan when available; otherwise show an indeterminate striped indicator without an estimated percentage or completion time.
+- Distinguish queued, delayed, disconnected and finished states, and respect reduced-motion preferences. Preserve user controls and reading position during background updates.
+- Make Stop run, log access and queue controls available beside the run heading. Queue pause lets the current job finish; stopping an attempt retains its outputs and logs, and saved-run resume remains a separate action.
+- Add browser regressions for slow real refreshes, progress states and accessibility. Pipeline settings, execution and generated data are unchanged.
+
+## 0.1.0a104.dev1 — 2026-11-11 · Alpha · Branded Windows setup executable
+
+- Offer a single Windows setup executable with the existing installer, branding and channel-specific files embedded. Verify the embedded payload before starting setup under the current Windows user.
+- Refresh setup with a clear welcome screen, named steps, honest progress, restart guidance, visible errors and log access, and completion actions. Preserve the existing WSL, Ubuntu account, environment and desktop ownership behavior.
+- Build and test the native executable on Windows, bind the package to its checked source and payload, and require matching build receipts before publishing. Keep a ZIP fallback for manual setup.
+- The executable is an online setup package: required Windows/Linux components and dependencies can still need downloads. Regular setup selects a verified current application release; Dev retains its exact bundled application wheel. Existing workspaces and results are retained.
+
+## 0.1.0a103.dev1 — 2026-11-11 · Alpha · Pipeline compute defaults and archived-run recovery
+
+- Save an independent disk-swap allowance in each pipeline's compute setup. New drafts inherit that default; per-run edits can change or disable it. Saved runs and revisions retain their own policy, and physical RAM remains separate from swap.
+- Preserve swap, GPU policy and other compute settings when applying CPU/RAM power presets. Keep YAML defaults and displayed compute settings consistent, with atomic saves and existing cleanup protections.
+- Add direct restoration from archived Storage entries and cleanup previews. Restoration cancels the cleanup preview, returns the run to its Activity page, and preserves every file and native lock. Archived failed-job recovery guides users to restore before checking the workflow lock.
+- Cover default inheritance, per-run overrides, locked-run restoration and desktop/mobile controls with regression tests. These application changes do not alter pipeline source versions or analytical parameters.
+
+## 0.1.0a102.dev1 — 2026-11-11 · Alpha · Preserve memory settings during workflow unlock
+
+- Keep the saved scheduler memory budget, including an explicit disk-swap allowance, when invoking native workflow unlock. This prevents a lower workflow-profile default from rejecting maintenance before the lock can be released.
+- Preserve the existing ownership checks, frozen source/configuration checks and paused queue. Unlock remains a separate maintenance operation; it does not execute analysis steps or change their settings.
+- Cover the profile-default failure with native Snakemake regression tests that verify output preservation and no automatic analysis or resume.
+
+## 0.1.0a101.dev1 — 2026-11-10 · Alpha · Explicit disk-swap scheduling
+
+- Add a per-run disk-swap allowance separate from physical RAM. A revision preserves the original run, and physical-RAM presets and individual tool memory settings retain their existing behavior.
+- Check currently available Linux/WSL swap and reported container limits before validation and execution, with system headroom and clear capacity errors. Keep the native workflow reservation guard and single concurrent Kraken job limit.
+- Record the allowance and combined scheduler budget in frozen settings, launch logs and Methods. These are configured limits, not measurements of actual RAM or swap use.
+- Recognize the reviewed HybAs 10.0.0a4 swap interface. Its native Auto resolver keeps physical-RAM limits separate from the additional scheduler allowance; older Dev sources require a new run with the updated pipeline for swap support.
+- Keep reference databases, scientific thresholds and retained outputs unchanged. Disk paging can substantially slow execution; available capacity is not a completion guarantee.
+
+## 0.1.0a100.dev1 — 2026-11-10 · Alpha · Native output retention and validation baseline
+
+- Recognize the reviewed HybAs 10.0.0a3 native-retention source while preserving earlier approvals, saved runs, Methods settings and processing diagrams.
+- Preserve reviewed Flye/BUSCO Python-managed analysis artifacts and logs before deletion or replacement. BUSCO per-job stdout/stderr is retained for successful and failed attempts; native compiled-program spill files and in-memory states remain outside this capture.
+- Document an exact source baseline and the separate requirement to freeze actual validation-run environments, inputs and database/model identities. Software acceptance does not establish analytical validation.
+- Install the updated pipeline and create a new run to use its native retention. Existing frozen workflows and previously deleted files are unchanged.
+
+## 0.1.0a99.dev1 — 2026-11-10 · Alpha · Run-specific Methods narratives
+
+- Lead Methods with a continuous, run-specific account of input preparation, tools, processing and outputs across HybAs, BaSIS and GeneScope. Place saved settings and reviewed source arguments beside their corresponding tool steps.
+- Distinguish configured steps, controller-reported rules, native execution, skipped stages and reused results. Report recorded Racon stages separately from requested rounds; preserve incomplete and historical evidence qualifications.
+- Add a Methods-only text download and include it in the reproducibility ZIP. Keep the run diagram, complete settings and detailed evidence as supporting material.
+- Do not infer unrecorded tool defaults, historical versions or scientific validation. Refreshing Methods does not rerun analyses or change pipeline algorithms, thresholds or retained outputs.
+
+## 0.1.0a98.dev1 — 2026-11-10 · Alpha · Preserve engineering research outputs
+
+- Retain native results, intermediate files, failed products and earlier attempts across HybAs, BaSIS and GeneScope.
+- Include the corrected Conda-compatible runtime guards and HybAs Snakemake version evidence, verified through native Conda controller tests.
+- Use reviewed per-job archive adapters in current pipeline versions. Older frozen workflows receive verified independent output snapshots before execution; preservation failure stops launch. Registered original inputs remain references.
+- Keep incomplete and temporary-marked workflow products. Preserve replaced checkpoint contents and failed staging copies.
+- Add All tool outputs, analysis folders, run files, native retained histories and prior snapshots. Isolate exports include these histories. Storage removal remains an explicit reviewed action.
+- Preservation cannot reconstruct previously deleted files, calculate missing stage measurements or establish scientific validation.
+
+
+## 0.1.0a96.dev1 — 2026-11-10 · Alpha · Run-specific Methods and data-flow evidence
+
+- State explicitly that the assembled scientific pipelines are experimental and have not established application-level scientific validation. Explain configured tools, their inputs, outputs and purpose; keep execution evidence separate.
+- Preserve recorded Snakemake controller versions after later environment checks. Display attributable versions for failed or interrupted attempts with their actual outcome; never substitute current installed versions into historical runs.
+- Capture bounded scheduler rule events during new executions and export their declared file dependencies and outcomes as a run-specific diagram. Preserve explicit partial coverage and no-op runs. Older runs receive a clearly labelled source-matched configuration diagram when supported.
+- Add diagram SVG/JSON downloads, embed the figure in printable Methods HTML, and include the figure and structured graph in the reproducibility ZIP. Keep regular and Dev installations independent.
+
+## 0.1.0a95.dev1 — 2026-11-10 · Alpha · Notifications and update availability
+
+- Add a persistent notification center for job outcomes, identification review and available application/pipeline updates. Distinguish validation, execution and paused-for-review outcomes; keep failed-job details in the log.
+- Offer opt-in desktop alerts with browser permission and an in-app fallback. Prevent repeat delivery attempts across tabs and restarts, with separate preferences and history for each workspace.
+- Check update availability in the background while the application is open, with offline status, bounded requests and regular/Dev channel separation. Installation remains an explicit choice.
+
+## 0.1.0a94.dev1 — 2026-11-10 · Alpha · Sample-aware setup review
+
+- Add a Setup adviser in new-run Settings and Review. Check registered input availability and explain polishing routes for exact reviewed HybAs versions; show pipeline-specific annotation and evidence guidance for BaSIS and GeneScope.
+- Read starting values from the selected clean source commit. Distinguish these template values from saved settings and unknown native fallbacks. Do not infer optimal polishing rounds, a Medaka model or biological suitability from input names or file size.
+- Apply individual source values explicitly to the unsaved draft, with freshness checks for samples, source, settings and compute limits. Keep manual edits, saved defaults and previous runs intact.
+
+## 0.1.0a93.dev1 — 2026-11-09 · Alpha · Open isolate analysis folders
+
+- Point the Samples page’s Open isolate folder action at saved Bactologix analysis outputs. Open a single available output directly; offer a folder chooser for multiple linked analyses. Shared follow-up output paths appear once.
+- Keep original inputs accessible through the explicitly labelled Open input folder action in isolate details. Missing analyses show an explanation and never fall back to source inputs.
+- Keep existing files and run locations unchanged; regular and Dev workspaces remain independent.
+
+## 0.1.0a92.dev1 — 2026-11-09 · Alpha · Methods across all pipelines
+
+- Validate HybAs and BaSIS publication metadata against the selected sample and available source, configuration and input identities. Stream large BaSIS reports and preserve original completion snapshots during explicitly labelled metadata recovery.
+- Keep configured settings, environment inventories, actual controller versions, reused results and incomplete native scope distinct. Report requested and effective Medaka models separately; preserve recorded versions even when a source has no reviewed prose template.
+- Capture Snakemake and controller Python from future actual workflow invocations in immutable attempt records. This does not reconstruct missing historical versions or individual rule execution.
+- Include database fingerprints in readable Methods exports and isolate packages. Add reviewed defaults for current regular sources and a saved-settings-only template for experimental HybAs 10.
+- Clarify the existing per-run output layout. No scientific pipeline algorithm, analysis setting or result location changes.
+
+
+## 0.1.0a91.dev1 — 2026-11-09 · Alpha · GeneScope Methods recovery
+
+- Stream and hash complete GeneScope results while retaining only publication metadata, removing the former 8 MB Methods limit for these outputs. Reject malformed, changing, linked and identity-conflicting evidence; keep missing results distinct from read failures and sample mismatches.
+- Recover metadata from surviving outputs for historical GeneScope completion snapshots affected by that limit. Preserve original snapshots and distinguish output matched to a recorded successful attempt from retrospectively read metadata with unverified attribution.
+- Add Methods templates for the reviewed GeneScope a13/a14/a16 source commits, including the configured optional reference-search scope. Report runtime versions from output evidence; do not infer missing Snakemake versions or executed steps.
+- Refresh Methods on an existing completed run to obtain the corrected export. No analysis rerun or pipeline algorithm change is required for metadata recovery when its output is still available.
+
+
+## 0.1.0a90.dev1 — 2026-11-09 · Alpha · Isolate export and history
+
+- Add sample location and linked-analysis dossiers, including archived analyses and explicit downstream handoffs.
+- Copy an isolate's available inputs, outputs, reports, logs, frozen settings and relevant records to a new folder; preview scope and verify destination contents with SHA256.
+- Preserve original files, deduplicate repeated staged input links, retain failed-copy receipts and distinguish local verification from SharePoint cloud synchronization.
+- Export the recorded sample-history graph as SVG, PDF, JSON and HTML, with explicit planned, observed and unknown evidence.
+- Retain completion evidence per execution attempt and keep legacy evidence gaps visible.
+- Keep scientific pipeline algorithms and settings unchanged; sample-specific settings advice is not part of this release.
+
+## 0.1.0a89.dev1 — 2026-11-09 · Ubuntu account readiness
+
+- Carry the regular installer's account readiness fix into the independent Dev installer.
+- Skip an unnecessary account terminal for a working non-root user; recheck readiness after the window closes, including interruption exits.
+- Preserve root-only and startup-failure checks, continuation, and separate Dev installation paths.
+
+## 0.1.0a88.dev1 — 2026-11-09 · Experimental development · Beta interface preparation
+
+- Apply the approved teal workspace design with readable typography, stronger status contrast, responsive controls, clear workspace identity and a visible release-channel badge.
+- Simplify navigation into Home, Samples, Runs, Results, Comparisons and three management areas; keep global Activity and existing deep links accessible.
+- Start new runs with Purpose → Inputs → Settings → Review, keep advanced configuration available, and explain tab-only editor recovery accurately.
+- Keep sample deselection separate from workspace unregistration; give the next eligible run action priority while retaining secondary controls.
+- Confirm removal from the sample list and close the confirmation after a successful response; original files remain on disk.
+- Retry a cancelled Windows browser-close request within a bounded window, using only the original session endpoint.
+- Present execution and evidence coverage together, lead results with reports, and group technical exports and attempt history into expandable sections.
+- Put measured storage capacity first, add category/search/sort controls and visible-item selection, preserve exact deletion previews and receipts, and route interrupted cleanup to its own recovery record.
+- Preserve pipeline algorithms, scientific defaults, installation consent and independent regular/Dev workspaces. This remains an alpha release preparing for beta testing.
+
+
+This is the independent Dev application; development-only workflows and experimental HybAs 10 controls are retained.
+
+## 0.1.0a87.dev1 — 2026-11-09 · Experimental development · Storage management
+
+- Add Storage cleanup controls for saved run results, sample registrations, explicitly selected known input files, and unused managed pipeline sources and environments.
+- Preview exact removal paths and measured file sizes, show dependency blocks, and require transfer/discard acknowledgment plus typed confirmation before queuing permanent deletion.
+- Recheck ownership and references before removal; protect active work, retained runs, shared resources, external environments and source files reached through links.
+- Keep cleanup receipts and expose incomplete cleanup for review and retry. Removing a registration or archiving a run remains distinct from freeing file space.
+- Retain explicit read-only storage measurement and report file-byte estimates separately from actual filesystem availability.
+
+This adds the shared storage controls to the independent Dev application. HybAs 10 remains experimental; pipeline algorithms and the Dev update channel are unchanged.
+
+## 0.1.0a86.dev7 — 2026-11-09 · Independent Dev release delivery
+
+Publish checked Dev builds from the development branch with separate Dev release tags, download asset names and the bundled Dev installer. Older regular updaters and installers cannot select these Dev downloads. Dev updates restore the canonical wheel filename locally and retain checksum and package-identity checks.
+
+Includes the evidence-integrity corrections, the reviewed HybAs 10 snapshot, and the shared BaSIS 0.4.0a6 and GeneScope 0.1.0a16 fixes. This remains an experimental HybAs 10 development installation; the near-beta HybAs 9 line is maintained separately. No analytical validation or beta promotion is claimed.
+
+Older Dev builds that cannot discover the new release format need the new Dev setup bundle once. Windows setup updates the separate application environment and preserves its Dev workspace. For Linux/WSL, run the bundled installer with `--dev --install-conda --upgrade-app`.
+
+## 0.1.0a86.dev6 — Pre-beta evidence integrity fixes
+
+Bind refreshed evidence to sample identity and recorded execution observations; reject conflicting available provenance. Preserve failed/cancelled analysis status, evidence attribution, assessment coverage and report rendering status separately. Legacy evidence and absent native versions remain explicitly unverified.
+
+New drafts record streaming input SHA-256 fingerprints, rechecked before launch/reuse. Quick readiness checks stay lightweight and disclose their scope. Methods exports retain recorded identity without claiming a new verification.
+
+Includes corrected development pipeline snapshots after their exact-commit checks. See [fix status and remaining qualification](docs/PREBETA_FIXES.md). This development update does not promote a beta or establish analytical accuracy.
+
 ## 0.1.0a86.dev3 — AWARE reporting and testing package (unreleased)
 
 - Export evidence-verified, stage-specific Methods for identification and AWARE completion, including optional preservation/statistics and derived-input provenance.
@@ -627,3 +955,8 @@ Created by **Jimi Goldstein · Human Link**.
 ## 0.1.0a86.dev4 — experimental AWARE+ modes
 
 Unified Off / Taxonomy / Auto / Split controls with source capability checks, automatic ambiguity review, unchanged legacy configurations, and experimental status in run details and Methods. Reconstruct remains unavailable. Full analytical validation of HybAs 10 inputs, polishing and AWARE+ is pending.
+
+## 0.1.0a86.dev5 — independent development platform
+
+Adds Bactologix Dev with dedicated installers/launchers, workspace ownership, separate Conda/application/pipeline environments, caches and model/database storage. Development catalog and app updates are isolated from the regular channel. Initial exact builds cover HybAs 10 and reviewed BaSIS/GeneScope baselines. Adds isolation and installer regression checks; fixes the AWARE+ component test's missing backend response. No analytical validation or beta access-control features are claimed.
+
