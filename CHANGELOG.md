@@ -1,3 +1,7 @@
+## 0.1.0a133.dev1 — 2026-11-21 · Compact drive warnings
+
+- Resource use shows a compact orange indicator for each drive below the warning threshold. Storage protection and resume controls retain their existing behavior.
+
 ## 0.1.0a132.dev1 — 2026-11-21 · Windows heartbeat file contention
 
 - A Windows reader blocking heartbeat replacement leaves the previous heartbeat intact. The launcher retries on the next poll and records the delay and recovery in launcher-events.log. Install the updated Windows Dev launcher to apply this change.
