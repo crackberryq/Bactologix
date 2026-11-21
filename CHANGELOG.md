@@ -1,3 +1,7 @@
+## 0.1.0a135.dev1 — Storage pause and resume history
+
+- New job attempts record each storage pause, resume request and outcome in an append-only job journal. Resource JSON and ZIP include event timestamps, sequence numbers and elapsed intervals.
+
 ## 0.1.0a134.dev1 — Monitoring cycles and storage timing
 
 - Resource detail records observed desktop pulses, source times, current phase and observed Kraken2 Nanopore output records. Storage measurements distinguish probe time from status-write retries. Dedicated swap readings above their stop floor qualify for the bounded active-command recheck when data drives have headroom.

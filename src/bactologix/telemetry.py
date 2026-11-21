@@ -514,6 +514,9 @@ def download(store, jid, format):
     if not isinstance(format, str) or format not in {'json', 'csv', 'zip'}:
         raise ValueError('Choose JSON, CSV or ZIP.')
     data = inspect(store, jid)
+    if format in {'json', 'zip'}:
+        from .storage_events import timeline
+        data['storage_events'] = timeline(store, jid)
     text = json.dumps(data, indent=2, allow_nan=False) + '\n'
     if len(text.encode()) > RECORD_LIMIT:
         raise ValueError('This resource record exceeds the download limit.')

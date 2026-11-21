@@ -7,6 +7,7 @@ import time
 import uuid
 from .disk_capacity import CapacityProbe, SAMPLE_MAX_AGE_SECONDS
 from .disk_process import OwnedTree, OwnerWatch, ProcessOwner, STORAGE_SUSPEND_SECONDS, SuspensionError
+from . import storage_events
 from .store import CONTROL_TIMEOUT, now
 
 GIB = 1024 ** 3
@@ -54,22 +55,29 @@ def display_state(job, record, request):
 def request_resume(store, jid, expected_generation):
     if isinstance(expected_generation, bool) or not isinstance(expected_generation, int):
         raise ValueError('Refresh the run before requesting resume.')
-    with store.connect(timeout=CONTROL_TIMEOUT) as db:
-        db.execute('BEGIN IMMEDIATE')
-        job = db.execute('SELECT * FROM jobs WHERE id=?', (jid,)).fetchone()
-        saved = db.execute("SELECT body FROM items WHERE kind='disk_safety' AND id=?", (jid,)).fetchone()
-        state = json.loads(saved[0]) if saved else {}
-        if not job or job['status'] != 'running' or job['cancel'] or job['kind'] != 'workflow':
-            raise ValueError('Only a currently paused workflow can be resumed.')
-        if state.get('state') != 'paused' or state.get('generation') != expected_generation:
-            raise ValueError('The pause changed. Refresh the run before resuming.')
-        if not state.get('can_resume') or not _fresh(state.get('checked_at')):
-            raise ValueError('Resume requires a fresh check with at least 15 GiB on data drives and more than 5 GiB on a dedicated swap drive.')
-        previous = db.execute("SELECT body FROM items WHERE kind='disk_safety_requests' AND id=?", (jid,)).fetchone()
-        if previous and json.loads(previous[0]).get('generation') == expected_generation:
-            return json.loads(previous[0])
-        request = {'generation': expected_generation, 'nonce': uuid.uuid4().hex, 'requested_at': now()}
-        db.execute("INSERT INTO items VALUES ('disk_safety_requests',?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body", (jid, json.dumps(request)))
+    click = uuid.uuid4().hex
+    storage_events.append(store, jid, 'resume_received', expected_generation, request_id=click)
+    try:
+        with store.connect(timeout=CONTROL_TIMEOUT) as db:
+            db.execute('BEGIN IMMEDIATE')
+            job = db.execute('SELECT * FROM jobs WHERE id=?', (jid,)).fetchone()
+            saved = db.execute("SELECT body FROM items WHERE kind='disk_safety' AND id=?", (jid,)).fetchone()
+            state = json.loads(saved[0]) if saved else {}
+            if not job or job['status'] != 'running' or job['cancel'] or job['kind'] != 'workflow':
+                raise ValueError('Only a currently paused workflow can be resumed.')
+            if state.get('state') != 'paused' or state.get('generation') != expected_generation:
+                raise ValueError('The pause changed. Refresh the run before resuming.')
+            if not state.get('can_resume') or not _fresh(state.get('checked_at')):
+                raise ValueError('Resume requires a fresh check with at least 15 GiB on data drives and more than 5 GiB on a dedicated swap drive.')
+            previous = db.execute("SELECT body FROM items WHERE kind='disk_safety_requests' AND id=?", (jid,)).fetchone()
+            if previous and json.loads(previous[0]).get('generation') == expected_generation:
+                storage_events.append(store, jid, 'resume_duplicate', expected_generation, request_id=click)
+                return json.loads(previous[0])
+            request = {'generation': expected_generation, 'nonce': click, 'requested_at': now()}
+            db.execute("INSERT INTO items VALUES ('disk_safety_requests',?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body", (jid, json.dumps(request)))
+    except Exception as exc:
+        storage_events.append(store, jid, 'resume_rejected', expected_generation, request_id=click, reason=str(exc))
+        raise
     return request
 
 class Samples:
@@ -161,6 +169,12 @@ class Guard(ProcessOwner):
             'state': 'monitoring', 'generation': 0, 'pause_kind': None, 'reason': None,
             'volumes': [], 'errors': [], 'checked_at': None, 'can_resume': False,
             'thresholds': dict(THRESHOLDS)}
+
+    def log_storage_event(self, event, generation, **detail):
+        try:
+            storage_events.append(self.store, self.job['id'], event, generation, **detail)
+        except OSError as exc:
+            self.record['storage_event_write_error'] = str(exc)
 
     def _control(self, key, operation, *args, poll=True):
         if self.control_operation is None:
@@ -283,6 +297,9 @@ class Guard(ProcessOwner):
             if old_state != 'paused':
                 details = list(errors)
                 trigger = 'stale' if value.get('stale_only') else 'monitor_unavailable'
+                self.log_storage_event('pause_requested', self.record['generation'] + 1,
+                                      reason=trigger, details=details, checked_at=value.get('checked_at'),
+                                      volumes=volumes)
                 self.record.update(pause_trigger=trigger, pause_details=details)
                 try:
                     self.write('Storage safety pause requested. ' + ' '.join(details))
@@ -302,6 +319,8 @@ class Guard(ProcessOwner):
                 self.record.update(state='paused', generation=self.record['generation'] + 1,
                     paused_at=now(), pause_kind='processes_suspended' if self.tree else 'before_launch',
                     reason='monitor_unavailable')
+                self.log_storage_event('pause_confirmed', self.record['generation'],
+                                      reason=trigger, kind=self.record['pause_kind'])
                 self.write('Storage safety paused this run.')
             if errors:
                 self.record['reason'] = 'monitor_unavailable'
@@ -321,12 +340,16 @@ class Guard(ProcessOwner):
                     if ready:
                         if self.tree is not None:
                             self.tree.resume()
+                        self.log_storage_event('resume_confirmed', self.record['generation'],
+                                              request_id=request['nonce'])
                         since = self.record.pop('pause_start_mono', time.monotonic())
                         self.record['paused_total_s'] = self.record.get('paused_total_s', 0) + max(0, time.monotonic() - since)
                         self.record.update(state='monitoring', can_resume=False, pause_kind=None, reason=None, resumed_at=now())
                         self.write('Storage checks passed on every required volume; resumed by user request.')
                     else:
                         self.record['can_resume'] = False
+                        self.log_storage_event('resume_rejected', self.record['generation'],
+                                              request_id=request['nonce'], reason='storage recheck failed')
                         self.write('Resume was not applied: fresh storage checks did not meet the recovery requirements for each drive.')
             saved = self.publish(force=old_state != self.record['state'])
             return saved and self.record['state'] != 'paused'
