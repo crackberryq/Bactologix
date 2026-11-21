@@ -1,3 +1,7 @@
+## 0.1.0a131.dev1 — 2026-11-21 · Windows launcher shutdown
+
+- The Windows launcher asks before stopping jobs after the browser disappears. Choose No to reopen. Launcher cleanup no longer submits a quit request after an error. Install the updated Windows launcher with the Dev setup executable.
+
 ## 0.1.0a130.dev1 — 2026-11-21 · Dedicated swap volume reserve
 
 - Dedicated Windows swap drives stop at 5 GiB free and can clear a previous storage stop above 5 GiB. Data and shared drives stop at 10 GiB and recover at 15 GiB.

@@ -812,7 +812,7 @@ function Run-Desktop($View) {
             }
             $status = Read-Json (Join-Path $directory 'status.json')
             if (-not $status -or $status.session -ne $id) {
-                if ($clock.Elapsed.TotalSeconds -gt 90) { throw 'Desktop startup did not respond. The supervisor will request cancellation; check the session log.' }
+                if (-not $opened -and $clock.Elapsed.TotalSeconds -gt 90) { throw 'Desktop startup did not respond. Check the session log.' }
                 [Windows.Forms.Application]::DoEvents(); continue
             }
             if ($status.phase -eq 'ready' -and -not $opened) {
@@ -834,8 +834,15 @@ function Run-Desktop($View) {
                 $browserClosed = Update-BrowserPresence $presence $browserState $browserClock.Elapsed.TotalSeconds $ownerState
                 $browserReady = $presence.ready
                 if ($browserClosed) {
-                    $closing = $true
-                    Request-DesktopClose $View $request
+                    Add-Content -LiteralPath (Join-Path $directory 'launcher-events.log') -Value "$(Get-Date -Format o) Browser window no longer detected."
+                    $answer = [Windows.Forms.MessageBox]::Show('Stop this Bactologix session and its running jobs? Choose No to reopen the workspace and keep jobs running.', 'Bactologix', 'YesNo', 'Question', 'Button2')
+                    if ($answer -eq [Windows.Forms.DialogResult]::Yes) {
+                        Add-Content -LiteralPath (Join-Path $directory 'launcher-events.log') -Value "$(Get-Date -Format o) User confirmed session stop."
+                        $closing = $true
+                        Request-DesktopClose $View $request
+                    } else {
+                        $opened = $false
+                    }
                 } elseif (-not $browserReady -and $browserClock.Elapsed.TotalSeconds -gt 30) {
                     throw 'The dedicated browser did not become ready. Check local browser policies; this session will stop.'
                 }
@@ -847,20 +854,24 @@ function Run-Desktop($View) {
             }
             [Windows.Forms.Application]::DoEvents()
         }
+    } catch {
+        Add-Content -LiteralPath (Join-Path $directory 'launcher-events.log') -Value "$(Get-Date -Format o) Launcher error: $($_.Exception.Message)"
+        throw
     } finally {
         Stop-DesktopStorageMonitor $storageMonitor
-        if (-not $task.Process.HasExited -and -not (Read-Json (Join-Path $directory 'status.json'))) {
+        if (-not $opened -and -not $browserClock -and -not $task.Process.HasExited -and -not (Read-Json (Join-Path $directory 'status.json'))) {
             $task.Process.Kill() # Only our Windows startup client; no UI or jobs were admitted.
         }
-        if (-not $task.Process.HasExited) {
-            & $request 'confirm_close'
+        if ($closing -and -not $task.Process.HasExited) {
             # Keep the supervisor visible until owned work has actually stopped.
             Show-Stage $View 'Stopping this session' 'Waiting for owned jobs to clean up. Other Ubuntu processes are untouched.'
             while (-not $task.Process.WaitForExit(250)) { & $heartbeat; [Windows.Forms.Application]::DoEvents() }
         }
         Save-Log $task (Join-Path $directory 'launcher.log')
-        Close-OwnedBrowser $profile
-        if ($window -and -not $window.Process.HasExited) { $null = $window.Process.CloseMainWindow() }
+        if ($closing -or $task.Process.HasExited) {
+            Close-OwnedBrowser $profile
+            if ($window -and -not $window.Process.HasExited) { $null = $window.Process.CloseMainWindow() }
+        }
     }
     if ($task.Process.ExitCode -ne 0) { throw "Bactologix stopped unexpectedly. See $directory\launcher.log ." }
 }
