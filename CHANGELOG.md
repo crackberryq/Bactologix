@@ -1,3 +1,7 @@
+## 0.1.0a134.dev1 — Monitoring cycles and storage timing
+
+- Resource detail records observed desktop pulses, source times, current phase and observed Kraken2 Nanopore output records. Storage measurements distinguish probe time from status-write retries. Dedicated swap readings above their stop floor qualify for the bounded active-command recheck when data drives have headroom.
+
 ## 0.1.0a133.dev1 — 2026-11-21 · Compact drive warnings
 
 - Resource use shows a compact orange indicator for each drive below the warning threshold. Storage protection and resume controls retain their existing behavior.

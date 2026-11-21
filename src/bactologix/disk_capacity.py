@@ -484,12 +484,14 @@ class CapacityProbe:
                     raise OSError('The workflow storage filesystem changed after monitoring started.')
                 self.anchors[value] = (anchor, device)
                 rows.append({'id': 'linux:' + str(device), 'kind': 'linux', 'label': label,
-                             'path': str(anchor), 'available_bytes': available, 'total_bytes': total})
+                             'path': str(anchor), 'sampled_at': now(), 'available_bytes': available, 'total_bytes': total})
             except (OSError, ValueError, RuntimeError) as exc:
                 errors.append(label + ': ' + str(exc))
         host_time = None
         if self.is_wsl:
             host_rows, host_errors, host_time = self._host_volumes()
+            for row in host_rows:
+                row['sampled_at'] = datetime.fromtimestamp(host_time, timezone.utc).isoformat() if host_time is not None else now()
             rows.extend(host_rows)
             errors.extend(host_errors)
         volumes = {}
@@ -499,6 +501,7 @@ class CapacityProbe:
                 volumes[key] = dict(row, labels=[row['label']], paths=[row['path']], roles=[row.get('role', 'data')])
             else:
                 old = volumes[key]
+                old['sampled_at'] = min(old['sampled_at'], row['sampled_at'])
                 old['available_bytes'] = min(old['available_bytes'], row['available_bytes'])
                 role = row.get('role', 'data')
                 if role not in old['roles']:

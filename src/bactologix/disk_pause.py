@@ -112,6 +112,7 @@ class Samples:
                     # Retry requested paths after failed discovery/registration.
                     self.pending = pending + self.pending
             completed = time.monotonic()
+            value['probe_ms'] = round((completed - sample_started) * 1000, 1)
             host_time = value.get('windows_sampled_at')
             if host_time is not None:
                 # A desktop snapshot can span multiple polls. Rereading a
@@ -171,7 +172,12 @@ class Guard(ProcessOwner):
             self.record['updated_at'] = now()
             # Store.put returns the recorded value. None means the supervisor
             # deferred a locked write. Keep sampling and retry the newest state.
+            started = time.monotonic()
             saved = self._control('disk-status', self.store.put, 'disk_safety', self.job['id'], self.record, poll=poll)
+            self.record['write_ms'] = round((time.monotonic() - started) * 1000, 1)
+            if not self.publish_pending:
+                self.write_started = started
+            self.record['write_delay_ms'] = round((time.monotonic() - getattr(self, 'write_started', started)) * 1000, 1)
             self.publish_pending = saved is None
             if self.publish_pending:
                 return False
@@ -248,7 +254,7 @@ class Guard(ProcessOwner):
             raise Cancelled(reason)
         ready = _resume_capacity(value)
         old_state = self.record['state']
-        self.record.update(volumes=volumes, errors=errors, checked_at=value.get('checked_at'))
+        self.record.update(probe_ms=value.get('probe_ms'), volumes=volumes, errors=errors, checked_at=value.get('checked_at'))
         workflow_run = self.job['kind'] == 'workflow' and self.job['payload'].get('action') in {'run', 'continue'}
         if not workflow_run and errors:
             # Setup operations use measured capacity for the workspace stop.
@@ -257,8 +263,8 @@ class Guard(ProcessOwner):
             self.publish(force=old_state != 'unavailable')
             return True
         if (command_running and self.tree is not None and not self.control_suspended
-                and old_state in {'monitoring', 'rechecking'} and value.get('stale_only')
-                and valid and all(v['available_bytes'] >= WARNING_BYTES for v in volumes)):
+                and old_state in {'monitoring', 'warning', 'rechecking'} and value.get('stale_only')
+                and valid and all(v['available_bytes'] > stop_limit(v) if stop_limit(v) < PAUSE_BYTES else v['available_bytes'] >= WARNING_BYTES for v in volumes)):
             # Use the original measurement time. Even a stream of newer but
             # already-stale snapshots cannot restart the current retry window.
             deadline = sample_started + ACTIVE_RECHECK_MAX_AGE_SECONDS
@@ -292,6 +298,7 @@ class Guard(ProcessOwner):
                     raise
                 self.watch.publish()
             if old_state != 'paused':
+                self.record['pause_start_mono'] = time.monotonic()
                 self.record.update(state='paused', generation=self.record['generation'] + 1,
                     paused_at=now(), pause_kind='processes_suspended' if self.tree else 'before_launch',
                     reason='monitor_unavailable')
@@ -314,6 +321,8 @@ class Guard(ProcessOwner):
                     if ready:
                         if self.tree is not None:
                             self.tree.resume()
+                        since = self.record.pop('pause_start_mono', time.monotonic())
+                        self.record['paused_total_s'] = self.record.get('paused_total_s', 0) + max(0, time.monotonic() - since)
                         self.record.update(state='monitoring', can_resume=False, pause_kind=None, reason=None, resumed_at=now())
                         self.write('Storage checks passed on every required volume; resumed by user request.')
                     else:

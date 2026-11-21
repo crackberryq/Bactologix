@@ -111,10 +111,48 @@ class Progress:
                 'source': 'workflow log' if self.enabled else 'not applicable'}
 
 
+class KrakenProgress:
+    """Count complete records from the current classifier's open output only."""
+    def __init__(self):
+        self.key = None
+        self.offset = self.reads = 0
+
+    def sample(self, processes):
+        for proc in processes:
+            try:
+                if proc.name() != 'classify':
+                    continue
+                fd = Path('/proc') / str(proc.pid) / 'fd'
+                output = (fd / '1').readlink()
+                if output.name != 'nanopore.kraken2.txt':
+                    continue
+                with (fd / '1').open('rb') as stream:
+                    stat = os.fstat(stream.fileno())
+                    key = (proc.pid, proc.create_time(), stat.st_dev, stat.st_ino)
+                    if key != self.key or stat.st_size < self.offset:
+                        self.key, self.offset, self.reads = key, 0, 0
+                    stream.seek(self.offset)
+                    block = stream.read(1024 * 1024)
+                    self.offset += len(block)
+                    self.reads += block.count(b'\n')
+                phase = 'Processing Nanopore reads' if self.reads else 'Starting Kraken2'
+                if not self.reads and (fd / '2').readlink().name == 'kraken2_nanopore.log':
+                    with (fd / '2').open('rb') as stream:
+                        message = stream.read(4096)
+                    if b'Loading database information...' in message:
+                        phase = ('Waiting for first read results' if b'Loading database information... done.' in message
+                                 else 'Loading Kraken database')
+                return {'phase': phase, 'reads_observed': self.reads}
+            except (AttributeError, OSError, psutil.Error):
+                continue
+        return None
+
+
 class Sampler:
     def __init__(self, pid):
         self.root = psutil.Process(pid) if psutil else None
         self.counters = {}
+        self.kraken = KrakenProgress()
         self.partial = not bool(psutil)
         self.network = None
         self.network_partial = False
@@ -158,6 +196,7 @@ class Sampler:
             self.network = None
             return None
         result = {'cpu_s': cpu, 'rss_mb': rss / 1024 ** 2, 'processes': len(observed_processes)}
+        result['tool_progress'] = self.kraken.sample(observed_processes)
         try:
             had_baseline_attempt = self.network is not None
             if self.network is None:
@@ -232,6 +271,9 @@ class Recorder:
         self.position, self.pending = 0, b''
         self.discard_line = False
         self.history = []
+        self.monitor_sources = None
+        self.cycle = 0
+        self.beats = []
         action = job['payload'].get('action')
         # Continuations first validate the revised workflow using a dry run in the same job log.
         marker = f"Run {job['payload'].get('run_id')} · source " if action == 'continue' else None
@@ -358,6 +400,27 @@ class Recorder:
         self.last = current
         self.read_log()
         self.record.update(elapsed_s=elapsed, updated_at=now(), progress=self.progress.value())
+        self.cycle += 1
+        disk, heartbeat = self.monitor_sources() if self.monitor_sources else ({}, None)
+        if isinstance(heartbeat, (int, float)) and (not self.beats or heartbeat > self.beats[-1]):
+            self.beats = (self.beats + [heartbeat])[-120:]
+        progress = (sample or {}).get('tool_progress') or {}
+        tasks = self.record['progress'].get('active_tasks') or []
+        phase = progress.get('phase') or ', '.join(tasks) or self.record.get('command_name')
+        previous = self.record.get('monitor_cycle') or {}
+        stamp = self.record['updated_at']
+        changed = phase != previous.get('phase')
+        advanced = changed or progress.get('reads_observed') != previous.get('reads_observed')
+        paused = disk.get('paused_total_s', 0)
+        if disk.get('pause_start_mono') is not None:
+            paused += max(0, current - disk['pause_start_mono'])
+        self.record['monitor_cycle'] = {
+            'id': self.cycle, 'sampled_at': stamp, 'resource_sampled_at': stamp if sample else None,
+            'storage': {k: disk.get(k) for k in ('checked_at', 'volumes', 'probe_ms', 'write_ms', 'write_delay_ms')},
+            'heartbeats': list(self.beats), 'phase': phase, **progress,
+            'phase_since': stamp if changed else previous.get('phase_since'),
+            'last_progress_at': stamp if advanced else previous.get('last_progress_at'),
+            'paused_s': min(elapsed, paused), 'active_s': max(0, elapsed - paused)}
         self.store.put('job_telemetry', self.job['id'], self.record)
         if force or current - self.last_save >= 30:
             self.persist_history()

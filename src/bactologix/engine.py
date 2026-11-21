@@ -139,6 +139,18 @@ class Context:
             self.disk_guard = Guard(store, job, self.check_cancel_only, self.write,
                                     initial_env=environment(store.home), control_operation=self.control_operation)
 
+        if self.observer is not None:
+            self.observer.monitor_sources = self.monitor_sources
+
+    def monitor_sources(self):
+        disk = self.disk_guard.record if self.disk_guard else {}
+        beat = None
+        if self.verified_desktop:
+            from .desktop import _lease_records
+            proof, pulse = _lease_records(self.store, self.verified_desktop[0])
+            beat = pulse.get('heartbeat') or proof.get('heartbeat')
+        return disk, beat
+
     def observation_warning(self):
         if not self.observer_warned:
             self.observer_warned = True
