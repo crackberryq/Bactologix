@@ -185,14 +185,14 @@ def test_stale_heartbeat_or_reopen_cannot_clear_durable_stop(session, monkeypatc
     assert item.phase == state['phase'] and store.job(owned)['cancel'] == 1
 
 
-def test_expired_lease_cannot_be_refreshed_back_to_ready(session, monkeypatch):
+def test_expired_lease_allows_ready_session_to_continue(session, monkeypatch):
     store, item = session
     monkeypatch.setenv(desktop.ENV, item.key)
     owned = store.submit('smoke', {})
     store.put('desktop_sessions', item.key, {'phase': 'ready', 'last_seen': time.time() - 100})
     item.publish('')
-    assert item.phase == 'stopping' and desktop.owner_cancelled(store, owned)
-    assert store.job(owned)['cancel'] == 1
+    assert item.phase == 'ready' and not desktop.owner_cancelled(store, owned)
+    assert store.job(owned)['cancel'] == 0
 
 
 def test_atomic_stop_preserves_running_application_update(session, monkeypatch):
@@ -372,10 +372,12 @@ def test_old_proof_cannot_revive_expired_or_disconnected_owner(session, monkeypa
     desktop.atomic(item.root / 'heartbeat.json', {'session': item.key, 'time': time.time()})
     item.proven_until = current + .05
     assert not item.record_contended_lease()
-    assert desktop.session_value_stopped(state, store=store, owner=item.key)
+    assert desktop._session_lease_reason(state, store=store, owner=item.key) == desktop.HEARTBEAT_EXPIRED
+    assert not desktop.session_value_stopped(state, store=store, owner=item.key)
     # A proof of a different committed database version cannot bridge this one.
     desktop.atomic(item.proof_path, dict(atomic_record, recorded=state['last_seen'] - .1, heartbeat=time.time()))
-    assert desktop.session_value_stopped(state, store=store, owner=item.key)
+    assert desktop._session_lease_reason(state, store=store, owner=item.key) == desktop.HEARTBEAT_EXPIRED
+    assert not desktop.session_value_stopped(state, store=store, owner=item.key)
 
 
 def test_idle_restart_poll_returns_promptly_through_exclusive_read_lock(session):

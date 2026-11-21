@@ -77,17 +77,19 @@ def test_confirmed_close_during_global_stall_wins_when_worker_wakes_first(connec
 
 
 @pytest.mark.parametrize('which', ['stale', 'other-session'])
-def test_stale_or_other_windows_owner_fails_closed(connected, which):
+def test_stale_or_other_windows_owner_cannot_renew_lease(connected, which):
     clock, session, store, job = connected
     clock.advance(123.8)
     if which == 'other-session':
         windows_files(session.root, uuid.uuid4().hex, clock.wall)
-    assert worker_stop_reason(store, job)
+    state = store.control_state(job)
+    assert desktop._session_lease_reason(state['session'], store=store, owner=state['owner']) == desktop.HEARTBEAT_EXPIRED
+    assert not worker_stop_reason(store, job)
     session.tick('', True)
-    assert store.job(job)['cancel'] == 1
+    assert store.job(job)['cancel'] == 0
 
 
-def test_recorded_disconnect_cannot_be_reopened_by_later_host_files(connected):
+def test_disconnected_session_recovers_on_fresh_host_files(connected):
     clock, session, store, job = connected
     # Both control checks repeatedly observe the silent host for a whole lease.
     for _ in range(3):
@@ -96,12 +98,12 @@ def test_recorded_disconnect_cannot_be_reopened_by_later_host_files(connected):
         assert not worker_stop_reason(store, job)
     clock.advance(4)
     session.tick('', True)
-    assert store.job(job)['cancel'] == 1
+    assert store.job(job)['cancel'] == 0
     wake_after_gap(clock, session)
-    assert worker_stop_reason(store, job)
+    assert not worker_stop_reason(store, job)
     session.tick('', True)
-    assert session.phase == 'stopping'
-    assert store.job(job)['cancel'] == 1
+    assert session.phase == 'ready'
+    assert store.job(job)['cancel'] == 0
 
 
 def test_worker_uses_the_job_owners_bound_directory(connected, monkeypatch, tmp_path):
@@ -113,7 +115,9 @@ def test_worker_uses_the_job_owners_bound_directory(connected, monkeypatch, tmp_
     other.mkdir(parents=True)
     windows_files(other, session.key, clock.wall)
     monkeypatch.setenv(desktop.STORAGE_SESSION_DIR, str(other))
-    assert worker_stop_reason(store, job)
+    state = store.control_state(job)
+    assert desktop._session_lease_reason(state['session'], store=store, owner=state['owner']) == desktop.HEARTBEAT_EXPIRED
+    assert not worker_stop_reason(store, job)
 
 
 def test_advancing_second_windows_pulse_without_storage_helper(connected, monkeypatch):
@@ -174,6 +178,7 @@ def test_host_recheck_leaves_sqlite_available_to_other_writers(connected, monkey
         return read(directory, name)
 
     monkeypatch.setattr(desktop_reconnect, '_read', host_read)
+    assert not worker_stop_reason(store, job)
     session.tick('', True)
     assert 'heartbeat.json' in checked
     assert store.job(job)['cancel'] == 0
@@ -185,7 +190,9 @@ def test_reused_linux_supervisor_pid_cannot_validate_windows_files(connected):
     record = store.get('desktop_sessions', session.key)
     record['supervisor']['created'] -= 60
     store.put('desktop_sessions', session.key, record)
-    assert worker_stop_reason(store, job)
+    state = store.control_state(job)
+    assert desktop._session_lease_reason(state['session'], store=store, owner=state['owner']) == desktop.HEARTBEAT_EXPIRED
+    assert not worker_stop_reason(store, job)
 
 
 def test_workspace_relocks_during_host_check_then_worker_honors_stop(connected, monkeypatch):

@@ -81,7 +81,7 @@ def test_missing_pulse_does_not_cancel_an_established_desktop(owner, miss):
 
 
 @pytest.mark.parametrize('bad', ['repeat', 'reverse', 'mismatched', 'far-future', 'late-fresh'])
-def test_stale_unrelated_or_late_beats_cannot_revive_work(owner, bad):
+def test_only_fresh_matching_beats_restore_connection_while_work_continues(owner, bad):
     item, store, clock, job = owner
     original = item.last_host_heartbeat
     for i in range(3):
@@ -96,11 +96,12 @@ def test_stale_unrelated_or_late_beats_cannot_revive_work(owner, bad):
     clock.advance(4)
     if bad == 'late-fresh':
         pulse(item, clock.wall)
-    assert item.tick('', True) is True
-    assert store.job(job)['cancel'] and item.reason.startswith('Desktop supervisor disconnected')
+    assert not item.tick('', True)
+    assert not store.job(job)['cancel']
+    assert bool(item.disconnect_detail) == (bad != 'late-fresh')
     pulse(item, clock.wall + 1)
-    assert item.tick('', True) is True
-    assert not item.record_contended_lease()
+    assert not item.tick('', True)
+    assert not item.disconnect_detail
 
 
 def test_confirmed_close_during_read_gap_stops_immediately(owner):

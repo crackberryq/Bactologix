@@ -144,15 +144,19 @@ def test_desktop_owned_native_command_during_exclusive_lock(fixture, monkeypatch
                     assert 'Stop requested' in result['message']
                 elif action == 'close':
                     desktop.atomic(pulse, {'session': owner, 'stopping': True, 'reason': 'Window closed'})
-                if action != 'recover':
+                if action == 'expire':
+                    desktop.atomic(pulse, {'session': owner, 'expired': True})
+                    before = marker.stat().st_mtime_ns
+                    wait_for(lambda: marker.stat().st_mtime_ns > before)
+                if action in {'stop', 'close'}:
                     wait_for(lambda: not supervision.remaining(identities))
-            if action == 'recover':
+            if action in {'recover', 'expire'}:
                 wait_for(lambda: supervision.snapshot(store, jid)['state'] == 'recovered')
                 assert supervision.snapshot(store, jid, 'process')['identities'] == identities
                 done.touch()
             thread.join(8)
             assert not thread.is_alive()
-            if action == 'recover':
+            if action in {'recover', 'expire'}:
                 assert not outcome
             else:
                 assert len(outcome) == 1 and isinstance(outcome[0], engine.Cancelled)
@@ -163,7 +167,7 @@ def test_desktop_owned_native_command_during_exclusive_lock(fixture, monkeypatch
             done.touch()
             store.cancel(jid)
             thread.join(8)
-            ctx.disk_guard.finish('succeeded' if action == 'recover' else 'cancelled')
+            ctx.disk_guard.finish('succeeded' if action in {'recover', 'expire'} else 'cancelled')
             ctx.log.close()
 
 

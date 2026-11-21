@@ -11,7 +11,7 @@ from test_supervision import background, fixture, wait_for
 @pytest.mark.parametrize(('trigger', 'expected'), [
     ('job', 'A stop request was recorded for this job.'),
     ('close', 'The owning desktop session requested a stop (Window closed).'),
-    ('expiry', 'The owning desktop session heartbeat expired.'),
+    ('expiry', 'A stop request was recorded for this job.'),
     ('stopping-proof', 'The owning desktop session signalled a stop.'),
     ('proof-with-reason', 'The owning desktop session requested a stop (Desktop disconnected).'),
 ])
@@ -35,6 +35,9 @@ def test_stop_reason_survives_native_teardown(fixture, trigger, expected):
                 db.execute('UPDATE jobs SET cancel=1 WHERE id=?', (jid,))
         elif trigger == 'expiry':
             store.put('desktop_sessions', owner, dict(session, last_seen=time.time() - 100))
+            assert not ctx.refresh_desktop_cancel()
+            assert thread.is_alive()
+            store.cancel(jid)
         else:
             proof = {'session': owner, 'stopping': True}
             if trigger == 'proof-with-reason':
