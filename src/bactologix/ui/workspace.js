@@ -295,6 +295,12 @@ function diskVolumeList(volumes){
 }
 function diskSafetyPanel(j){
  const d=diskSafety(j);if(workspaceDiskStop()||!d||!['paused','warning','rechecking'].includes(d.state))return '';
+ if(d.state==='warning'){
+  const warningBytes=d.thresholds?.warning_bytes??20*1024**3;
+  const affected=(d.volumes||[]).filter(v=>Number.isFinite(v.available_bytes)&&v.available_bytes<warningBytes);
+  if(!affected.length)return '';
+  return `<div role="status" aria-label="Storage warning">${affected.map(v=>badge(`${v.label||'Monitored storage'} · ${v.path||''} · ${storageBytes(v.available_bytes)} free`,'amber')).join(' ')}</div>`;
+ }
  const rechecking=d.state==='rechecking';
  const paused=d.state==='paused',waiting=d.pause_kind==='before_launch',thresholds=d.thresholds||{};
  const resumeBytes=thresholds.resume_bytes??15*1024**3;
