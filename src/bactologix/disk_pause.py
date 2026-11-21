@@ -15,10 +15,16 @@ POLL_SECONDS, STALE_SECONDS = 1.0, SAMPLE_MAX_AGE_SECONDS
 ACTIVE_RECHECK_MAX_AGE_SECONDS = 15.0
 THRESHOLDS = {'pause_bytes': PAUSE_BYTES, 'resume_bytes': RESUME_BYTES, 'warning_bytes': WARNING_BYTES}
 
+def stop_limit(volume):
+    if volume.get('kind') == 'windows_host' and volume.get('roles') == ['wsl_swap']:
+        return 5 * GIB
+    return PAUSE_BYTES
+
+
 def _resume_capacity(value):
     volumes = value.get('volumes') or []
     return bool(volumes) and not value.get('errors') and all(
-        type(volume.get('available_bytes')) is int and volume['available_bytes'] >= RESUME_BYTES
+        type(volume.get('available_bytes')) is int and volume['available_bytes'] >= (RESUME_BYTES if stop_limit(volume) == PAUSE_BYTES else 5 * GIB + 1)
         for volume in volumes)
 
 def _fresh(checked_at):
@@ -58,7 +64,7 @@ def request_resume(store, jid, expected_generation):
         if state.get('state') != 'paused' or state.get('generation') != expected_generation:
             raise ValueError('The pause changed. Refresh the run before resuming.')
         if not state.get('can_resume') or not _fresh(state.get('checked_at')):
-            raise ValueError('Resume requires a fresh check with at least 15 GiB available on every required volume.')
+            raise ValueError('Resume requires a fresh check with at least 15 GiB on data drives and more than 5 GiB on a dedicated swap drive.')
         previous = db.execute("SELECT body FROM items WHERE kind='disk_safety_requests' AND id=?", (jid,)).fetchone()
         if previous and json.loads(previous[0]).get('generation') == expected_generation:
             return json.loads(previous[0])
@@ -210,7 +216,7 @@ class Guard(ProcessOwner):
         value = sample[0]
         volumes = value.get('volumes') or []
         return bool(volumes) and not value.get('errors') and all(
-            type(v.get('available_bytes')) is int and v['available_bytes'] > PAUSE_BYTES for v in volumes)
+            type(v.get('available_bytes')) is int and v['available_bytes'] > stop_limit(v) for v in volumes)
 
     def attach(self, proc):
         self.tree = OwnedTree(proc.pid)
@@ -229,7 +235,7 @@ class Guard(ProcessOwner):
         valid = bool(volumes) and all(isinstance(v.get('available_bytes'), int) and not isinstance(v['available_bytes'], bool) and v['available_bytes'] >= 0 for v in volumes)
         if not valid:
             errors.append('Required storage capacities are unavailable or invalid.')
-        critical = [v for v in volumes if type(v.get('available_bytes')) is int and 0 <= v['available_bytes'] <= PAUSE_BYTES]
+        critical = [v for v in volumes if type(v.get('available_bytes')) is int and 0 <= v['available_bytes'] <= stop_limit(v)]
         if critical and not value.get('stale') and _fresh(value.get('checked_at')):
             from . import disk_stop
             from .engine import Cancelled
@@ -312,14 +318,14 @@ class Guard(ProcessOwner):
                         self.write('Storage checks passed on every required volume; resumed by user request.')
                     else:
                         self.record['can_resume'] = False
-                        self.write('Resume was not applied: fresh storage checks did not meet the 15 GiB requirement.')
+                        self.write('Resume was not applied: fresh storage checks did not meet the recovery requirements for each drive.')
             saved = self.publish(force=old_state != self.record['state'])
             return saved and self.record['state'] != 'paused'
         self.record.update(state='warning' if any(v['available_bytes'] < WARNING_BYTES for v in volumes) else 'monitoring', can_resume=False)
         if old_state == 'rechecking':
             self.write('Fresh storage readings received. The current command continued without a pause.')
         if self.record['state'] == 'warning' and old_state != 'warning':
-            self.write('Storage is running low: less than 20 GiB available. All runs stop at or below 10 GiB free on a monitored drive.')
+            self.write('Storage is running low: less than 20 GiB available. Runs stop at 10 GiB on data drives or 5 GiB on dedicated swap drives.')
         return self.publish(force=old_state != self.record['state'])
 
     def stop(self):

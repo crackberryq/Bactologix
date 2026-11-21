@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a129.dev1 — Experimental development
+# Bactologix 0.1.0a130.dev1 — Experimental development
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
 
@@ -216,9 +216,7 @@ not redacted; review it before sharing.
 
 ### Storage management
 
-The workspace warns below 20 GiB of measured free disk space. At 10 GiB or
-less on any monitored volume it stops active work and blocks the queue. After
-every required volume has at least 15 GiB free, recheck storage in **Jobs &
+The workspace warns below 20 GiB of measured free disk space. At or below 5 GiB on dedicated swap volumes or 10 GiB on data volumes it stops active work. Once swap-only drives have more than 5 GiB and data drives have at least 15 GiB free, recheck storage in **Jobs &
 progress** and choose which saved work to resume. WSL monitoring covers the
 Linux filesystem and Windows drives holding the distribution and swap.
 **Resource use** shows sampled system RAM and swap separately from free disk

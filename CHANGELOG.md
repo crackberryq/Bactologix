@@ -1,3 +1,7 @@
+## 0.1.0a130.dev1 — 2026-11-21 · Dedicated swap volume reserve
+
+- Dedicated Windows swap drives stop at 5 GiB free and can clear a previous storage stop above 5 GiB. Data and shared drives stop at 10 GiB and recover at 15 GiB.
+
 ## 0.1.0a129.dev1 — 2026-11-21 · Desktop heartbeat recovery
 
 - Jobs continue when desktop heartbeat measurements lapse. The session status records the disconnect and recovers on a fresh heartbeat. Explicit close and stop requests still stop owned work.

@@ -790,7 +790,7 @@ function jobLabel(j){return j.kind==='factory_reset'?'Workspace reset':j.kind===
 
 function storageStopPanel(stop){
  const detail=stop.reason||'A monitored drive reached the critical free-space threshold.';
- return `<section class="disk-safety-panel workspace-storage-stop" aria-label="Workspace storage stop"><h3>Workspace storage stop</h3><p>${e(detail)}</p>${diskVolumeList(stop.volumes)}${stop.errors?.length?`<p class="disk-safety-error">${stop.errors.map(e).join(' · ')}</p>`:''}<small>Last storage check · ${e(stop.checked_at||'Unavailable')}</small><p>Free at least 15 GiB on every monitored drive, then recheck. Clearing the stop leaves the queue paused and waiting jobs held.</p>${btn('release-storage-stop','Recheck and clear storage stop',true,stop.id,'clock',!stop.id||!!S.workspace_busy)}</section>`;
+ return `<section class="disk-safety-panel workspace-storage-stop" aria-label="Workspace storage stop"><h3>Workspace storage stop</h3><p>${e(detail)}</p>${diskVolumeList(stop.volumes)}${stop.errors?.length?`<p class="disk-safety-error">${stop.errors.map(e).join(' · ')}</p>`:''}<small>Last storage check · ${e(stop.checked_at||'Unavailable')}</small><p>Ensure data drives have at least 15 GiB free and dedicated swap drives have more than 5 GiB free, then recheck. Clearing the stop leaves the queue paused and waiting jobs held.</p>${btn('release-storage-stop','Recheck and clear storage stop',true,stop.id,'clock',!stop.id||!!S.workspace_busy)}</section>`;
 }
 function queueNotice(){
  const q=S.queue;if(U.view==='jobs')return '';

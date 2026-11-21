@@ -8,9 +8,9 @@ A storage stop applies to the current Bactologix workspace.
 
 | Measured free space | What happens |
 | --- | --- |
-| Below 20 GiB and above 10 GiB on any monitored drive | Bactologix warns and work continues. |
-| At or below 10 GiB on any monitored drive | Bactologix stops active work, blocks new starts and retains outputs and logs. **Jobs & progress** shows the affected drive and its last reading. |
-| At least 15 GiB on every monitored drive after a storage stop | You can ask Bactologix to check and clear the stop. You decide which work to resume. |
+| Below 20 GiB and above the drive’s stop threshold | Bactologix warns and work continues. |
+| At or below 10 GiB on a data drive or 5 GiB on a dedicated swap drive | Bactologix stops active work, blocks new starts and retains outputs and logs. **Jobs & progress** shows the affected drive and its last reading. |
+| At least 15 GiB free on data drives and more than 5 GiB on a dedicated swap drive | You can ask Bactologix to check and clear the stop. You decide which work to resume. |
 
 The monitor uses measured free bytes on each drive. High RAM usage and high use
 of an authorized swap allowance can occur during large jobs. The storage stop
@@ -25,7 +25,7 @@ from that measurement. Limits use binary GiB (1 GiB = 1,073,741,824 bytes).
    intend to resume. Removing files inside Ubuntu may leave the Windows virtual
    disk at its previous size.
 3. Choose **Recheck and clear storage stop**. Bactologix measures the original
-   storage locations again. Every monitored drive needs at least 15 GiB free.
+   storage locations again. Every monitored drive needs its recovery minimum.
 4. Review the saved run and choose **Run / resume** when ready. The queue
    remains paused after a successful recheck, and earlier waiting jobs stay
    held. Release the jobs you want to run and explicitly resume the queue.
@@ -44,7 +44,7 @@ workspace-wide low-space stop.
 A workflow waiting before a command has no active tool to suspend. Once a
 running command is suspended, its processes retain memory and workspace locks.
 The job log records the failed check. When the run page shows that storage has
-recovered and every required drive has at least 15 GiB free, choose **Resume
+recovered and every required drive has its recovery minimum, choose **Resume
 run** to continue the same attempt. **Stop run** ends the attempt and retains
 its outputs and logs. Older attempts may also show this per-run pause after a
 low-space reading.

@@ -9,7 +9,7 @@ import tempfile
 import uuid
 
 from .disk_capacity import CapacityProbe
-from .disk_pause import GIB, RESUME_BYTES, _fresh, _resume_capacity
+from .disk_pause import GIB, stop_limit, _fresh, _resume_capacity
 from .store import now
 
 
@@ -59,9 +59,9 @@ def trip(store, job, value, critical):
     previous = snapshot(store)
     if previous:
         return previous['reason']
-    readings = ', '.join(f"{v.get('label') or v.get('path') or 'Drive'} ({v['available_bytes'] / GIB:.2f} GiB free)"
+    readings = ', '.join(f"{v.get('label') or v.get('path') or 'Drive'} ({v['available_bytes'] / GIB:.2f} GiB free, {stop_limit(v) // GIB} GiB limit)"
                          for v in critical)
-    reason = f'Workspace storage stop. {readings} reached the 10 GiB limit. The queue is blocked.'
+    reason = f'Workspace storage stop. {readings} reached the storage stop threshold. The queue is blocked.'
     _save(store, {'id': uuid.uuid4().hex, 'blocked': True, 'job_id': job['id'], 'reason': reason,
                   'checked_at': value['checked_at'], 'volumes': value['volumes'],
                   'required_volumes': value['volumes'], 'errors': value.get('errors') or []})
@@ -111,7 +111,7 @@ def release(store, expected_id):
                          checked_at=value.get('checked_at'))
             _save(store, state)
             raise ValueError('The queue remains blocked. A fresh storage check must confirm at least '
-                             f'{RESUME_BYTES // GIB} GiB free on every monitored drive. ' + ' '.join(state['errors']))
+                             '15 GiB free on data drives and more than 5 GiB on a dedicated swap drive. ' + ' '.join(state['errors']))
         with store.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             # Each operation uses one workspace worker; orphaned work also holds

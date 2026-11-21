@@ -496,10 +496,13 @@ class CapacityProbe:
         for row in rows:
             key = row['id']
             if key not in volumes:
-                volumes[key] = dict(row, labels=[row['label']], paths=[row['path']])
+                volumes[key] = dict(row, labels=[row['label']], paths=[row['path']], roles=[row.get('role', 'data')])
             else:
                 old = volumes[key]
                 old['available_bytes'] = min(old['available_bytes'], row['available_bytes'])
+                role = row.get('role', 'data')
+                if role not in old['roles']:
+                    old['roles'].append(role)
                 if row['label'] not in old['labels']:
                     old['labels'].append(row['label'])
                 if row['path'] not in old['paths']:
