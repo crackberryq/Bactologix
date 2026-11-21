@@ -1,3 +1,7 @@
+## 0.1.0a132.dev1 — 2026-11-21 · Windows heartbeat file contention
+
+- A Windows reader blocking heartbeat replacement leaves the previous heartbeat intact. The launcher retries on the next poll and records the delay and recovery in launcher-events.log. Install the updated Windows Dev launcher to apply this change.
+
 ## 0.1.0a131.dev1 — 2026-11-21 · Windows launcher shutdown
 
 - The Windows launcher asks before stopping jobs after the browser disappears. Choose No to reopen. Launcher cleanup no longer submits a quit request after an error. Install the updated Windows launcher with the Dev setup executable.

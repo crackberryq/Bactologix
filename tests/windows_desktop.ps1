@@ -226,6 +226,21 @@ public static class ControlFileFixture {
     Assert ($failure -like '*state.json*Windows error*') 'Persistent lock failure lacked actionable diagnostics'
     Assert ((Read-Json $controlPath).phase -eq 'shared-reader') 'Failed replacement damaged last valid control file'
     Assert (@(Get-ChildItem $temporary -Filter '*.writing').Count -eq 0) 'Control temporary files leaked'
+    $beatPath = Join-Path $temporary 'heartbeat.json'
+    Write-Json $beatPath @{session='test';time=1}
+    $beatState = @{gap=$null}
+    $held = [IO.File]::Open($beatPath, 'Open', 'Read', 'Read')
+    try {
+        Send-DesktopHeartbeat $temporary 'test' $beatState
+        Send-DesktopHeartbeat $temporary 'test' $beatState
+        Assert ($null -ne $beatState.gap) 'Heartbeat sharing failure escaped detection'
+        Assert ((Read-Json $beatPath).time -eq 1) 'Last complete heartbeat was lost'
+    } finally { $held.Dispose() }
+    Send-DesktopHeartbeat $temporary 'test' $beatState
+    Assert (($null -eq $beatState.gap) -and (Read-Json $beatPath).time -gt 1) 'Heartbeat did not recover'
+    $events = @(Get-Content (Join-Path $temporary 'launcher-events.log'))
+    Assert (($events -match 'Heartbeat replacement delayed').Count -eq 1) 'Expected one delay event per incident'
+    Assert (($events -match 'Heartbeat writes recovered').Count -eq 1) 'Missing recovery duration'
     $presence = @{ready=$false;missing_since=$null}
     $present = @{reachable=$true;pages=1}; $absent = @{reachable=$false;pages=0}
     Assert (-not (Update-BrowserPresence $presence $absent 0)) 'Startup was treated as a close'

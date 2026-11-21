@@ -281,7 +281,7 @@ function Capture([string[]]$Arguments, [switch]$Unicode) {
     if ($task.Process.ExitCode -ne 0) { throw ("WSL exit $($task.Process.ExitCode): " + $output + ' ' + $task.Err.Result) }
     return $output
 }
-function Write-Json([string]$Path, $Value) {
+function Write-Json([string]$Path, $Value, [switch]$Heartbeat) {
     $temporary = $Path + '.' + [Guid]::NewGuid().ToString('N') + '.writing'
     try {
         [IO.File]::WriteAllText($temporary, ($Value | ConvertTo-Json -Depth 8 -Compress), $script:Utf8)
@@ -290,6 +290,7 @@ function Write-Json([string]$Path, $Value) {
             $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
             # WSL readers and scanners can briefly deny replacement on NTFS.
             # Keep the old complete JSON while retrying only sharing/access errors.
+            if ($Heartbeat -and $code -in @(5,32,33)) { return $code }
             if ($code -notin @(5,32,33) -or $deadline.Elapsed.TotalSeconds -ge 2) {
                 throw "Could not update desktop control file '$Path' (Windows error $code)."
             }
@@ -306,6 +307,26 @@ public static class BactoFiles {
  public static extern bool MoveFileEx(string from, string to, int flags);
 }
 '@
+function Send-DesktopHeartbeat($Directory, $SessionId, $State) {
+    $now = [DateTimeOffset]::UtcNow
+    $path = Join-Path $Directory 'heartbeat.json'
+    $code = Write-Json $path @{session=$SessionId; time=$now.ToUnixTimeSeconds()} -Heartbeat
+    $event = $null
+    if ($code) {
+        if (-not $State.gap) {
+            $State.gap = [Diagnostics.Stopwatch]::StartNew()
+            $event = "Heartbeat replacement delayed (Windows error $code)."
+        }
+    } elseif ($State.gap) {
+        $event = 'Heartbeat writes recovered after {0:N1}s.' -f $State.gap.Elapsed.TotalSeconds
+        $State.gap = $null
+    }
+    if ($event) {
+        try { Add-Content -LiteralPath (Join-Path $Directory 'launcher-events.log') -Value "$($now.ToString('o')) $event" -ErrorAction Stop }
+        catch { Write-Verbose "Could not record heartbeat diagnostic: $_" }
+    }
+}
+
 function Read-SharedText([string]$Path) {
     $stream = [IO.FileStream]::new($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
     try {
@@ -775,7 +796,8 @@ function Run-Desktop($View) {
     $directory = Join-Path $script:Root "sessions\$id"
     New-Item -ItemType Directory -Path $directory -Force | Out-Null
     $linuxDirectory = Capture @('--distribution',$installed.distro,'--exec','wslpath','-u',$directory)
-    $heartbeat = { Write-Json (Join-Path $directory 'heartbeat.json') @{session=$id; time=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()} }
+    $heartbeatState = @{gap=$null}
+    $heartbeat = { Send-DesktopHeartbeat $directory $id $heartbeatState }
     $request = { param($action) Write-Json (Join-Path $directory 'request.json') @{session=$id; action=$action; nonce=[Guid]::NewGuid().ToString('N')} }
     & $heartbeat
     $task = Start-Owned 'wsl.exe' @('--distribution',$installed.distro,'--exec',$installed.python,'-m','bactologix.cli','--desktop-control',$linuxDirectory,'--desktop-session',$id,'--no-browser')
