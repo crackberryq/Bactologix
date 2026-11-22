@@ -138,7 +138,8 @@ def test_running_job_rechecks_verified_drives_during_desktop_gap(dev, desktop_st
         wait_for(lambda: progress.stat().st_size > size)
 
         free[swap] = 15 * gib
-        wait_for(lambda: state().get('state') == 'warning')
+        wait_for(lambda: any(v['available_bytes'] == free[swap] for v in state().get('volumes', [])))
+        assert state()['state'] == 'monitoring'
         size = progress.stat().st_size
         wait_for(lambda: progress.stat().st_size > size)
 

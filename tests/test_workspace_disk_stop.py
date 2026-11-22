@@ -20,7 +20,7 @@ def test_workspace_disk_stop_and_explicit_recovery(tmp_path, monkeypatch):
     store = Store(tmp_path / 'workspace')
     waiting = store.submit('smoke', {})
     unlock = store.submit('workflow_unlock', {'run_id': 'saved'})
-    rows = [volume('workspace', store.home, 20), volume('swap', tmp_path, 10)]
+    rows = [volume('workspace', store.home, 20), volume('swap', tmp_path, 5)]
     initial = dict(checked_at=now(), volumes=rows, errors=[])
     with store.connect() as writer:
         writer.execute('BEGIN IMMEDIATE')
@@ -57,10 +57,10 @@ def test_workspace_disk_stop_and_explicit_recovery(tmp_path, monkeypatch):
         with pytest.raises(ValueError, match='still stopping'):
             disk_stop.release(store, latch['id'])
 
-    current['volumes'][1]['available_bytes'] = 14 * GIB
-    with pytest.raises(ValueError, match='at least 15 GiB'):
+    current['volumes'][1]['available_bytes'] = 5 * GIB
+    with pytest.raises(ValueError, match='more than 5 GiB'):
         disk_stop.release(store, latch['id'])
-    assert disk_stop.snapshot(store)['volumes'][1]['available_bytes'] == 14 * GIB
+    assert disk_stop.snapshot(store)['volumes'][1]['available_bytes'] == 5 * GIB
     current['volumes'].pop()
     with pytest.raises(ValueError, match='Missing original storage location: swap'):
         disk_stop.release(store, latch['id'])
@@ -85,7 +85,7 @@ def test_deleted_run_folder_can_recover_on_original_filesystem(tmp_path, monkeyp
     removed = store.home / 'runs/removed'
     removed.mkdir()
     device = removed.stat().st_dev
-    initial = dict(checked_at=now(), volumes=[volume('linux:' + str(device), removed, 9)], errors=[])
+    initial = dict(checked_at=now(), volumes=[volume('linux:' + str(device), removed, 4)], errors=[])
     disk_stop.trip(store, {'id': 'previous'}, initial, initial['volumes'])
     removed.rmdir()
     monkeypatch.setattr(disk_stop.CapacityProbe, '_reading',
@@ -98,8 +98,8 @@ def test_deleted_run_folder_can_recover_on_original_filesystem(tmp_path, monkeyp
     (['wsl_swap'], int(9.98 * GIB), 5 * GIB, True),
     (['wsl_swap'], 5 * GIB, 5 * GIB, False),
     (['wsl_swap'], 5 * GIB + 1, 5 * GIB, True),
-    (['wsl_swap', 'wsl_backing'], int(9.98 * GIB), 10 * GIB, False),
-    ([], int(9.98 * GIB), 10 * GIB, False),
+    (['wsl_swap', 'wsl_backing'], int(9.98 * GIB), 5 * GIB, True),
+    ([], int(9.98 * GIB), 5 * GIB, True),
 ])
 def test_swap_volume_limits(roles, free, stop, can_resume):
     from bactologix.disk_pause import _resume_capacity, stop_limit

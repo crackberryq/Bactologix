@@ -110,8 +110,8 @@ def release(store, expected_id):
             state.update(volumes=value.get('volumes') or [], errors=value.get('errors') or [],
                          checked_at=value.get('checked_at'))
             _save(store, state)
-            raise ValueError('The queue remains blocked. A fresh storage check must confirm at least '
-                             '15 GiB free on data drives and more than 5 GiB on a dedicated swap drive. ' + ' '.join(state['errors']))
+            raise ValueError('The queue remains blocked. A fresh storage check must confirm more than '
+                             '5 GiB free on every monitored drive. ' + ' '.join(state['errors']))
         with store.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             # Each operation uses one workspace worker; orphaned work also holds

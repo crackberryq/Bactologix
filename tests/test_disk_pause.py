@@ -72,10 +72,10 @@ def test_missing_storage_before_launch_requires_fresh_capacity_and_manual_resume
         assert not marker.exists()
         with pytest.raises(ValueError):
             disk_pause.request_resume(store, jid, state['generation'])
-        values.update(errors=[], available=14 * disk_pause.GIB)
+        values.update(errors=['Output volume unavailable'], available=6 * disk_pause.GIB)
         time.sleep(.15)
         assert not disk_pause.snapshot(store, jid)['can_resume']
-        values['available'] = 15 * disk_pause.GIB
+        values.update(errors=[], available=5 * disk_pause.GIB + 1)
         wait_for(lambda: disk_pause.snapshot(store, jid)['can_resume'])
         assert not marker.exists()
         with pytest.raises(ValueError):
@@ -172,7 +172,7 @@ def test_critical_space_stops_owned_writers_and_keeps_existing_outputs(safety, t
     try:
         wait_for(lambda: all((tmp_path / (role + '.out')).exists() for role in ('parent', 'child')))
         processes = [psutil.Process(int((tmp_path / (role + '.pid')).read_text())) for role in ('parent', 'child')]
-        values['available'] = 10 * disk_pause.GIB
+        values['available'] = 5 * disk_pause.GIB
         thread.join(8)
         assert not thread.is_alive()
         assert len(result) == 1 and isinstance(result[0], Cancelled)
@@ -252,8 +252,8 @@ def test_temporary_storage_delay_keeps_native_writer_running(safety, tmp_path, m
 
 @pytest.mark.parametrize(('running', 'prior_gib', 'errors', 'expected_trigger'), [
     (False, 140, [], 'stale'),  # A checkpoint before exec must still require fresh storage.
-    (True, 19, [], 'stale'),
-    (True, 10, [], 'stale'),
+    (True, 5, [], 'stale'),
+    (True, 4, [], 'stale'),
     (True, 140, ['Windows swap volume missing'], 'monitor_unavailable'),
 ])
 def test_stale_retry_requires_healthy_capacity_and_active_command(safety, monkeypatch,
@@ -378,6 +378,7 @@ def test_resume_requires_new_sample_and_never_retries_rejected_request(safety):
     sample = guard.samples = ControlledSamples()
     assert not guard.tick()
     sample.errors.clear()
+    sample.errors = []
     sample.available = 40 * disk_pause.GIB
     guard.tick()
     guard.publish(force=True)
@@ -388,9 +389,10 @@ def test_resume_requires_new_sample_and_never_retries_rejected_request(safety):
     assert not guard.tick()  # Existing measurement cannot satisfy a new request.
     assert guard.record['state'] == 'paused'
     sample.started = time.monotonic()
-    sample.available = 14 * disk_pause.GIB
+    sample.errors = ['Output volume unavailable']
     assert not guard.tick()
     assert store.get('disk_safety_requests', jid) is None
+    sample.errors = []
     sample.available = 40 * disk_pause.GIB
     sample.started = time.monotonic()
     assert not guard.tick()  # Free space does not retry a rejected request.
@@ -401,7 +403,7 @@ def test_resume_requires_new_sample_and_never_retries_rejected_request(safety):
     check_cancel = guard.check_cancel
     def capacity_falls_while_checking_cancel():
         check_cancel()
-        sample.available = 14 * disk_pause.GIB
+        sample.errors = ['Output volume unavailable']
         sample.started = time.monotonic()
     guard.check_cancel = capacity_falls_while_checking_cancel
     assert not guard.tick()
@@ -409,6 +411,7 @@ def test_resume_requires_new_sample_and_never_retries_rejected_request(safety):
     assert store.get('disk_safety_requests', jid) is None
 
     guard.check_cancel = check_cancel
+    sample.errors = []
     sample.available = 40 * disk_pause.GIB
     sample.started = time.monotonic()
     assert not guard.tick()

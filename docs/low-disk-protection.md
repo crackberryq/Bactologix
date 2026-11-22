@@ -8,9 +8,8 @@ A storage stop applies to the current Bactologix workspace.
 
 | Measured free space | What happens |
 | --- | --- |
-| Below 20 GiB and above the drive’s stop threshold | Bactologix warns and work continues. |
-| At or below 10 GiB on a data drive or 5 GiB on a dedicated swap drive | Bactologix stops active work, blocks new starts and retains outputs and logs. **Jobs & progress** shows the affected drive and its last reading. |
-| At least 15 GiB free on data drives and more than 5 GiB on a dedicated swap drive | You can ask Bactologix to check and clear the stop. You decide which work to resume. |
+| At or below 5 GiB on any monitored drive | Bactologix stops active work, blocks new starts and retains outputs and logs. **Jobs & progress** shows the affected drive and its last reading. |
+| More than 5 GiB free on every monitored drive | You can ask Bactologix to check and clear the stop. You decide which work to resume. |
 
 The monitor uses measured free bytes on each drive. High RAM usage and high use
 of an authorized swap allowance can occur during large jobs. The storage stop
@@ -36,7 +35,7 @@ from that measurement. Limits use binary GiB (1 GiB = 1,073,741,824 bytes).
 
 A missing or stale reading can pause an individual workflow while Bactologix
 tries to verify space. During an active command, **Rechecking storage** appears
-briefly if the last complete measurement showed at least 20 GiB free on every
+briefly if the last complete measurement showed more than 5 GiB free on every
 monitored drive. If the new reading arrives in time and confirms sufficient
 capacity, the command continues. A stale reading alone cannot trigger a
 workspace-wide low-space stop.

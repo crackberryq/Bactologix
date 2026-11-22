@@ -1,3 +1,7 @@
+## 0.1.0a136.dev1 — Uniform storage reserve
+
+- Every monitored volume uses a 5 GiB stop floor. Fresh readings above 5 GiB permit recovery and qualify for the existing bounded active-command stale-reading retry. No early capacity warning above the floor.
+
 ## 0.1.0a135.dev1 — Storage pause and resume history
 
 - New job attempts record each storage pause, resume request and outcome in an append-only job journal. Resource JSON and ZIP include event timestamps, sequence numbers and elapsed intervals.

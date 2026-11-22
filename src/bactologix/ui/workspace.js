@@ -296,15 +296,15 @@ function diskVolumeList(volumes){
 function diskSafetyPanel(j){
  const d=diskSafety(j);if(workspaceDiskStop()||!d||!['paused','warning','rechecking'].includes(d.state))return '';
  if(d.state==='warning'){
-  const warningBytes=d.thresholds?.warning_bytes??20*1024**3;
+  const warningBytes=d.thresholds?.warning_bytes??5*1024**3;
   const affected=(d.volumes||[]).filter(v=>Number.isFinite(v.available_bytes)&&v.available_bytes<warningBytes);
   if(!affected.length)return '';
   return `<div role="status" aria-label="Storage warning">${affected.map(v=>badge(`${v.label||'Monitored storage'} · ${v.path||''} · ${storageBytes(v.available_bytes)} free`,'amber')).join(' ')}</div>`;
  }
  const rechecking=d.state==='rechecking';
  const paused=d.state==='paused',waiting=d.pause_kind==='before_launch',thresholds=d.thresholds||{};
- const resumeBytes=thresholds.resume_bytes??15*1024**3;
- const floor=storageBytes(thresholds.pause_bytes??10*1024**3),resume=storageBytes(resumeBytes),warning=storageBytes(thresholds.warning_bytes??20*1024**3);
+ const resumeBytes=thresholds.resume_bytes??5*1024**3;
+ const floor=storageBytes(thresholds.pause_bytes??5*1024**3),resume=storageBytes(resumeBytes),warning=storageBytes(thresholds.warning_bytes??5*1024**3);
  const errors=d.errors||[],needsSpace=(d.volumes||[]).some(v=>Number.isFinite(v.available_bytes)&&v.available_bytes<resumeBytes);
  const title=paused?diskPauseTitle(j):rechecking?(diskConnectionFresh()?'Rechecking storage':'Last reported storage recheck'):'Storage is running low';
  const original=paused?(d.pause_details||[]).filter(detail=>!errors.includes(detail)):[];
@@ -314,7 +314,7 @@ function diskSafetyPanel(j){
  else if(diskCanResume(j))resumeMessage='Choose Resume run to continue after a fresh check.';
  else if(d.can_resume)resumeMessage='Waiting for a current status before enabling Resume run.';
  else if(errors.length)resumeMessage='Bactologix retries the storage check automatically. You can choose Resume run once all drives pass.';
- return `<section class="disk-safety-panel" data-disk-safety="${e(j.id)}" data-connection-fresh="${diskConnectionFresh()}" aria-label="Storage protection"><div role="status" aria-live="polite"><h3>${e(title)}</h3><p>${e(explanation)}</p></div>${diskVolumeList(d.volumes)}${!rechecking&&errors.length?`<p class="disk-safety-error">${errors.map(e).join(' · ')}</p>`:''}${original.length?`<p><strong>Reason for this pause</strong> · ${original.map(e).join(' · ')}</p>`:''}<p class="disk-safety-policy">Warning below ${e(warning)} · ${paused&&d.reason==='low_space'?'Pause at or below':'All runs stop at or below'} ${e(floor)} · Resume requires at least ${e(resume)} free on every monitored drive and a successful storage check.</p>${paused&&needsSpace?'<p>Free space outside this active run, or use Stop run before Bactologix export or cleanup. Never remove files from the active run.</p>':''}${paused?`<p class="disk-safety-resume">${e(resumeMessage)}</p>`:''}<small>${rechecking?'Last successful storage check':'Last storage check'}: ${e(d.checked_at||'Unavailable')}. <span class="disk-safety-connection">${diskConnectionFresh()?'':'Connection is stale; reconnect for current storage and resume controls.'}</span></small></section>`;
+ return `<section class="disk-safety-panel" data-disk-safety="${e(j.id)}" data-connection-fresh="${diskConnectionFresh()}" aria-label="Storage protection"><div role="status" aria-live="polite"><h3>${e(title)}</h3><p>${e(explanation)}</p></div>${diskVolumeList(d.volumes)}${!rechecking&&errors.length?`<p class="disk-safety-error">${errors.map(e).join(' · ')}</p>`:''}${original.length?`<p><strong>Reason for this pause</strong> · ${original.map(e).join(' · ')}</p>`:''}<p class="disk-safety-policy">${thresholds.warning_bytes>thresholds.pause_bytes?`Warning below ${e(warning)} · `:''}${paused&&d.reason==='low_space'?'Pause at or below':'All runs stop at or below'} ${e(floor)} · Resume requires ${thresholds.resume_bytes===thresholds.pause_bytes?'more than':'at least'} ${e(resume)} free on every monitored drive and a successful storage check.</p>${paused&&needsSpace?'<p>Free space outside this active run, or use Stop run before Bactologix export or cleanup. Never remove files from the active run.</p>':''}${paused?`<p class="disk-safety-resume">${e(resumeMessage)}</p>`:''}<small>${rechecking?'Last successful storage check':'Last storage check'}: ${e(d.checked_at||'Unavailable')}. <span class="disk-safety-connection">${diskConnectionFresh()?'':'Connection is stale; reconnect for current storage and resume controls.'}</span></small></section>`;
 }
 function runProgress(r,compact=false){
  // Jobs are newest first. Never carry an earlier attempt's counts into a retry.
@@ -814,7 +814,7 @@ function jobLabel(j){return j.kind==='factory_reset'?'Workspace reset':j.kind===
 
 function storageStopPanel(stop){
  const detail=stop.reason||'A monitored drive reached the critical free-space threshold.';
- return `<section class="disk-safety-panel workspace-storage-stop" aria-label="Workspace storage stop"><h3>Workspace storage stop</h3><p>${e(detail)}</p>${diskVolumeList(stop.volumes)}${stop.errors?.length?`<p class="disk-safety-error">${stop.errors.map(e).join(' · ')}</p>`:''}<small>Last storage check · ${e(stop.checked_at||'Unavailable')}</small><p>Ensure data drives have at least 15 GiB free and dedicated swap drives have more than 5 GiB free, then recheck. Clearing the stop leaves the queue paused and waiting jobs held.</p>${btn('release-storage-stop','Recheck and clear storage stop',true,stop.id,'clock',!stop.id||!!S.workspace_busy)}</section>`;
+ return `<section class="disk-safety-panel workspace-storage-stop" aria-label="Workspace storage stop"><h3>Workspace storage stop</h3><p>${e(detail)}</p>${diskVolumeList(stop.volumes)}${stop.errors?.length?`<p class="disk-safety-error">${stop.errors.map(e).join(' · ')}</p>`:''}<small>Last storage check · ${e(stop.checked_at||'Unavailable')}</small><p>Ensure every monitored drive has more than 5 GiB free, then recheck. Clearing the stop leaves the queue paused and waiting jobs held.</p>${btn('release-storage-stop','Recheck and clear storage stop',true,stop.id,'clock',!stop.id||!!S.workspace_busy)}</section>`;
 }
 function queueNotice(){
  const q=S.queue;if(U.view==='jobs')return '';

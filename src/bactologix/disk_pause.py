@@ -11,21 +11,19 @@ from . import storage_events
 from .store import CONTROL_TIMEOUT, now
 
 GIB = 1024 ** 3
-PAUSE_BYTES, RESUME_BYTES, WARNING_BYTES = 10 * GIB, 15 * GIB, 20 * GIB
+PAUSE_BYTES, RESUME_BYTES, WARNING_BYTES = (5 * GIB,) * 3
 POLL_SECONDS, STALE_SECONDS = 1.0, SAMPLE_MAX_AGE_SECONDS
 ACTIVE_RECHECK_MAX_AGE_SECONDS = 15.0
 THRESHOLDS = {'pause_bytes': PAUSE_BYTES, 'resume_bytes': RESUME_BYTES, 'warning_bytes': WARNING_BYTES}
 
 def stop_limit(volume):
-    if volume.get('kind') == 'windows_host' and volume.get('roles') == ['wsl_swap']:
-        return 5 * GIB
     return PAUSE_BYTES
 
 
 def _resume_capacity(value):
     volumes = value.get('volumes') or []
     return bool(volumes) and not value.get('errors') and all(
-        type(volume.get('available_bytes')) is int and volume['available_bytes'] >= (RESUME_BYTES if stop_limit(volume) == PAUSE_BYTES else 5 * GIB + 1)
+        type(volume.get('available_bytes')) is int and volume['available_bytes'] > RESUME_BYTES
         for volume in volumes)
 
 def _fresh(checked_at):
@@ -68,7 +66,7 @@ def request_resume(store, jid, expected_generation):
             if state.get('state') != 'paused' or state.get('generation') != expected_generation:
                 raise ValueError('The pause changed. Refresh the run before resuming.')
             if not state.get('can_resume') or not _fresh(state.get('checked_at')):
-                raise ValueError('Resume requires a fresh check with at least 15 GiB on data drives and more than 5 GiB on a dedicated swap drive.')
+                raise ValueError('Resume requires a fresh check with more than 5 GiB free on every monitored drive.')
             previous = db.execute("SELECT body FROM items WHERE kind='disk_safety_requests' AND id=?", (jid,)).fetchone()
             if previous and json.loads(previous[0]).get('generation') == expected_generation:
                 storage_events.append(store, jid, 'resume_duplicate', expected_generation, request_id=click)
@@ -228,7 +226,7 @@ class Guard(ProcessOwner):
     def control_recovery_ready(self, after):
         if self.record['state'] == 'paused':
             # Ownership of the freeze returns to the disk guard. Its normal
-            # user-requested resume still requires a new 15 GiB sample.
+            # user-requested resume still requires a fresh reading above the reserve.
             return True
         sample = self.samples.current()
         if sample is None or sample[1] <= after:
@@ -278,7 +276,7 @@ class Guard(ProcessOwner):
             return True
         if (command_running and self.tree is not None and not self.control_suspended
                 and old_state in {'monitoring', 'warning', 'rechecking'} and value.get('stale_only')
-                and valid and all(v['available_bytes'] > stop_limit(v) if stop_limit(v) < PAUSE_BYTES else v['available_bytes'] >= WARNING_BYTES for v in volumes)):
+                and valid and all(v['available_bytes'] > stop_limit(v) for v in volumes)):
             # Use the original measurement time. Even a stream of newer but
             # already-stale snapshots cannot restart the current retry window.
             deadline = sample_started + ACTIVE_RECHECK_MAX_AGE_SECONDS
@@ -353,11 +351,9 @@ class Guard(ProcessOwner):
                         self.write('Resume was not applied: fresh storage checks did not meet the recovery requirements for each drive.')
             saved = self.publish(force=old_state != self.record['state'])
             return saved and self.record['state'] != 'paused'
-        self.record.update(state='warning' if any(v['available_bytes'] < WARNING_BYTES for v in volumes) else 'monitoring', can_resume=False)
+        self.record.update(state='monitoring', can_resume=False)
         if old_state == 'rechecking':
             self.write('Fresh storage readings received. The current command continued without a pause.')
-        if self.record['state'] == 'warning' and old_state != 'warning':
-            self.write('Storage is running low: less than 20 GiB available. Runs stop at 10 GiB on data drives or 5 GiB on dedicated swap drives.')
         return self.publish(force=old_state != self.record['state'])
 
     def stop(self):
