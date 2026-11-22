@@ -1,3 +1,7 @@
+## 0.1.0a137.dev2 — Desktop trajectory preview
+
+Embed the saved polishing plot and measurements in the isolated report viewer, including completed runs with retrospective measurements.
+
 ## 0.1.0a137.dev1 — HybAs polishing trajectories
 
 Adds the HybAs 10.0.0a8 development source for stage-specific research measurements.

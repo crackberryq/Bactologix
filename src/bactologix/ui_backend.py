@@ -25,7 +25,7 @@ from .storage_guard import activity
 from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, storage_cleanup, compatibility, comparisons, sample_imports
 from . import setup_state, assessment, compute_memory
 from . import isolate_actions
-from . import desktop
+from . import desktop, trajectory_preview
 from . import reference_catalog
 from . import database_builder, followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
@@ -751,7 +751,9 @@ def dispatch(store, kind, p):
         if row is None:
             raise ValueError('Choose a report from this run.')
         artifact = results.download(store, doc['id'], 'report', row['id'])
-        return {'report': {**row, 'run_id': doc['id'], 'base64': artifact['base64']}, 'keep_modal': True}
+        run = store.get('runs', doc['id']) or {}
+        content = trajectory_preview.preview(artifact['base64'], row['path'], run.get('output'))
+        return {'report': {**row, 'run_id': doc['id'], 'base64': content}, 'keep_modal': True}
     if kind == 'download_result':
         return {'download': results.download(store, p.get('id'), p.get('format'), p.get('report_id')), 'keep_modal': True}
     if kind == 'inspect_methods':
@@ -934,7 +936,9 @@ def dispatch(store, kind, p):
             return {"message": "Requested your local browser." if opened else "No browser handler is available. Open the displayed local path with its companion files.", "keep_modal": True}
         if source.stat().st_size > 50 * 1024 * 1024:
             raise ValueError("This report exceeds the 50 MB viewer limit. Open the original: " + str(source))
-        return {"report": report | {"base64": base64.b64encode(source.read_bytes()).decode("ascii")}, "keep_modal": True}
+        content = base64.b64encode(source.read_bytes()).decode("ascii")
+        run = store.get("runs", report.get("run")) or {}
+        return {"report": report | {"base64": trajectory_preview.preview(content, source, run.get("output"))}, "keep_modal": True}
     raise ValueError("Unknown workspace action")
 
 
