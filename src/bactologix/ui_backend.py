@@ -19,7 +19,7 @@ from .engine import doctor, enqueue, enqueue_workflows, launch_worker
 from .local import browse_folders, discover_environments, discover_installations, inspect_installation, local_path
 from .runs import (absolute_path, clone_runs, command, create_run,
                    parse_config, register_sample, remove_sample, archive_runs, reports, template,
-                   dry_run_current, run_status, check_run_files)
+                   dry_run_current, run_status, check_run_files, basis_annotation_problem)
 from .store import identifier, display_read, transient_lock
 from .storage_guard import activity
 from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, storage_cleanup, compatibility, comparisons, sample_imports
@@ -191,8 +191,9 @@ def snapshot(store, *, cached=False):
             "can_micp_handoff": run["tool"] == "hybas" and status == "completed",
             "can_followup": bool(followup_sources), "followup_sources": followup_sources,
             "followup_transition": run.get('followup_transition'),
-            "review_enabled": cfg.get("kraken_review_before_filtering", False), "strategy": cfg.get("polish_mode", "—"), "can_handoff": run["tool"] == "hybas" and status == "completed" and all(
-                Path(run["output"], "annotation", run["sample"]["id"] + ext).is_file() for ext in (".fna", ".faa", ".gff"))})
+            "review_enabled": cfg.get("kraken_review_before_filtering", False), "strategy": cfg.get("polish_mode", "—"),
+            "can_handoff": run["tool"] == "hybas" and status == "completed" and
+                basis_annotation_problem(run['output'], run['sample']['id']) is None})
     configs = {t: run_config.defaults(store, t) for t in PIPELINES}
     catalogs = {}
     for tool in PIPELINES:
@@ -351,12 +352,13 @@ def dispatch(store, kind, p):
         return {'download': workstation.artifact(store, p.get('id'), 'download'), 'keep_modal': True}
     if kind == 'preview_report_refresh':
         from . import report_refresh
-        return {'refresh_plan': report_refresh.inspect(store, p.get('id')), 'keep_modal': True}
+        return {'refresh_plan': report_refresh.inspect(store, p.get('id'), target=p.get('target', 'standard')), 'keep_modal': True}
     if kind == 'regenerate_report':
         from . import report_refresh
-        plan = report_refresh.request(store, p.get('id'), p.get('evidence_sha256'), p.get('renderer_sha256'))
+        plan = report_refresh.request(store, p.get('id'), p.get('evidence_sha256'), p.get('renderer_sha256'),
+                                      p.get('target', 'standard'), p.get('inputs_sha256'))
         jid = enqueue(store, 'report_refresh', plan)
-        return {'message': 'Report-only refresh queued: ' + jid, 'navigate': 'jobs'}
+        return {'message': 'Report regeneration queued: ' + jid, 'navigate': 'jobs'}
     if kind == "refresh":
         return {}
     if kind == 'detect_hardware':
@@ -938,7 +940,8 @@ def dispatch(store, kind, p):
             raise ValueError("This report exceeds the 50 MB viewer limit. Open the original: " + str(source))
         content = base64.b64encode(source.read_bytes()).decode("ascii")
         run = store.get("runs", report.get("run")) or {}
-        return {"report": report | {"base64": trajectory_preview.preview(content, source, run.get("output"))}, "keep_modal": True}
+        edition = store.home / 'report-refreshes' / report['producing_job'] / 'edition' if report.get('refresh') and report.get('producing_job') else None
+        return {"report": report | {"base64": trajectory_preview.preview(content, source, run.get("output"), edition)}, "keep_modal": True}
     raise ValueError("Unknown workspace action")
 
 

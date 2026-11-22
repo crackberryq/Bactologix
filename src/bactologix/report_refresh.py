@@ -15,7 +15,7 @@ def digest(path):
     return raw, hashlib.sha256(raw).hexdigest()
 
 
-def renderer_identity(source, tool):
+def renderer_identity(source, tool, target='standard'):
     root = Path(source) / {'micpscope': 'src/micpscope', 'basis': 'basis', 'hybas': 'workflow/lib'}[tool]
     entry = 'hybas_report.py' if tool == 'hybas' else 'report.py'
     if tool == 'basis' and not (root / 'report.py').is_file():
@@ -25,16 +25,24 @@ def renderer_identity(source, tool):
     hashes = {}
     for path in sorted(root.rglob('*.py')):
         hashes[str(path.relative_to(root))] = digest(path)[1]
+    if target != 'standard':
+        scripts = Path(source) / 'workflow/scripts'
+        for path in sorted(scripts.glob('*.py')):
+            hashes['scripts/' + path.name] = digest(path)[1]
     return hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
 
 
-def inspect(store, rid, own_job=None):
+def inspect(store, rid, own_job=None, target='standard'):
     run = store.get('runs', rid)
     if not run:
         raise ValueError('Choose an existing run.')
     plan = {'run_id': rid, 'available': False, 'mode': 'unavailable', 'reasons': [], 'notes': [],
             'analysis_version': 'Not recorded',
             'analysis_commit': None, 'selected_run_commit': run.get('commit'), 'tool': run['tool']}
+    from . import hybas_refresh
+    if target != 'standard' and (run['tool'] != 'hybas' or target not in hybas_refresh.LABELS):
+        raise ValueError('Choose a supported report for this run.')
+    plan['target'] = target
     executions = [j for j in store.jobs() if j['kind'] == 'workflow' and j['payload'].get('run_id') == rid
                   and j['payload'].get('action') in {'run', 'continue'}]
     latest = executions[0] if executions else None
@@ -65,6 +73,8 @@ def inspect(store, rid, own_job=None):
     relative = 'micpscope/results.json' if tool == 'micpscope' else ('safety/deepsafe-report/evidence.json' if run.get('run_type') == 'followup' else 'safety/evidence.json')
     if tool == 'hybas':
         relative = 'reports/hybas/results.json' if (Path(run['output']) / 'reports/hybas/results.json').is_file() else 'metadata/run_summary.json'
+    if target != 'standard' and (Path(run['output']) / 'metadata/run_summary.json').is_file():
+        relative = 'metadata/run_summary.json'
     evidence = Path(run['output']) / relative
     plan['evidence'] = str(evidence)
     try:
@@ -115,18 +125,22 @@ def inspect(store, rid, own_job=None):
         if plan['analysis_status'] != 'succeeded':
             plan['notes'].append('Latest computational execution: ' + plan['analysis_status'] + '. Diagnostic rendering does not mark the analysis successful.')
         preflight(store, tool, plan['renderer_commit'], item['source'])
-        plan.update(evidence_sha256=sha, renderer_sha256=renderer_identity(item['source'], tool), available=True, mode='report-only')
+        plan['mode'] = 'report-only'
+        if target != 'standard':
+            hybas_refresh.configure(store, run, item, plan)
+        plan.update(evidence_sha256=sha, renderer_sha256=renderer_identity(item['source'], tool, target), available=True)
     except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
         plan['reasons'].append('Saved-data refresh unavailable: ' + str(exc))
-    plan['notes'].append('No new database search, threshold change, prediction or native analysis will run. Reporting summaries may be recalculated from saved evidence.')
+    if plan['mode'] == 'report-only':
+        plan['notes'].append('No new database search, threshold change, prediction or native analysis will run. Reporting summaries may be recalculated from saved evidence.')
     return plan
 
 
-def request(store, rid, evidence_sha256, renderer_sha256):
-    plan = inspect(store, rid)
+def request(store, rid, evidence_sha256, renderer_sha256, target='standard', inputs_sha256=None):
+    plan = inspect(store, rid, target=target)
     if not plan['available']:
         raise ValueError(' '.join(plan['reasons']))
-    if plan['evidence_sha256'] != evidence_sha256 or plan['renderer_sha256'] != renderer_sha256:
+    if plan['evidence_sha256'] != evidence_sha256 or plan['renderer_sha256'] != renderer_sha256 or plan.get('inputs_sha256') != inputs_sha256:
         raise ValueError('Saved data or renderer changed. Review the refresh preview again.')
     return plan
 
@@ -134,9 +148,11 @@ def request(store, rid, evidence_sha256, renderer_sha256):
 def execute(ctx):
     from .engine import find_conda
     plan = ctx.job['payload']
-    current = inspect(ctx.store, plan['run_id'], ctx.job['id'])
+    target = plan.get('target', 'standard')
+    current = inspect(ctx.store, plan['run_id'], ctx.job['id'], target)
     keys = ('evidence_sha256', 'renderer_sha256', 'renderer_commit', 'installation', 'source', 'controller',
-            'analysis_status', 'analysis_job_id', 'evidence_identity', 'native_identity', 'assessment')
+            'analysis_status', 'analysis_job_id', 'evidence_identity', 'native_identity', 'assessment', 'mode',
+            'inputs_sha256', 'validation_env', 'validation', 'trajectory')
     if not current['available'] or any(current.get(k) != plan.get(k) for k in keys):
         raise ValueError('Evidence or renderer changed since preview. Review and request a new report refresh.')
     run = ctx.store.get('runs', plan['run_id'])
@@ -149,27 +165,37 @@ def execute(ctx):
     snapshot.write_bytes(raw)
     plan_file = folder / 'refresh-plan.json'
     plan_file.write_text(json.dumps(plan, indent=2))
-    ctx.write('Report-only refresh. Original evidence, analyses and report remain unchanged.')
-    script = Path(__file__).parent / 'data' / 'render_saved_report.py'
-    ctx.command([find_conda(ctx.store), 'run', '--no-capture-output', '-p', plan['controller'], 'python', '-B', str(script),
-                 str(snapshot), str(plan_file), str(folder / 'edition')], cwd=folder)
-    if digest(plan['evidence'])[1] != sha or renderer_identity(plan['source'], plan['tool']) != plan['renderer_sha256']:
+    edition = folder / 'edition'
+    def runner(prefix):
+        return [find_conda(ctx.store), 'run', '--no-capture-output', '-p', prefix, 'python', '-B']
+    if target == 'standard':
+        script = Path(__file__).parent / 'data' / 'render_saved_report.py'
+        ctx.command([*runner(plan['controller']), str(script), str(snapshot), str(plan_file), str(edition)], cwd=folder)
+        pages = {target: edition / 'report.html'}
+    else:
+        from . import hybas_refresh
+        ctx.write('Creating ' + plan['target_label'] + ' · ' + plan['mode'])
+        pages = hybas_refresh.render(ctx, run, plan, edition, runner)
+    if digest(plan['evidence'])[1] != sha or renderer_identity(plan['source'], plan['tool'], target) != plan['renderer_sha256']:
         raise ValueError('Source data or renderer changed while rendering. Output retained for diagnostics, not registered as a completed edition.')
-    final = inspect(ctx.store, plan['run_id'], ctx.job['id'])
+    final = inspect(ctx.store, plan['run_id'], ctx.job['id'], target)
     if not final['available'] or any(final.get(k) != plan.get(k) for k in keys):
         raise ValueError('Evidence or execution state changed while rendering. Review and request a new report refresh.')
-    output = folder / 'edition' / 'report.html'
+    output = pages[target]
     if not output.is_file() or not output.stat().st_size:
         raise ValueError('Renderer did not produce a report.')
     ctx.check_cancel()
-    record = {**plan, 'id': ctx.job['id'], 'created_at': now(), 'report_only': True, 'source_unchanged': True,
+    record = {**plan, 'id': ctx.job['id'], 'created_at': now(), 'report_only': plan['mode'] == 'report-only', 'source_unchanged': True,
               'report_sha256': digest(output)[1], 'path': str(output)}
     (folder / 'provenance.json').write_text(json.dumps(record, indent=2) + '\n')
     ctx.store.put('report_refreshes', ctx.job['id'], record)
-    ctx.store.put('reports', ctx.job['id'], {'id': ctx.job['id'], 'name': 'Refreshed report · ' + str(plan['renderer_version']),
-                  'path': str(output), 'sample': run['sample']['id'], 'run': run['id'], 'run_status': 'Report-only',
-                  'analysis_status': plan['analysis_status'], 'analysis_job_id': plan['analysis_job_id'],
-                  'render_status': 'completed', 'assessment': plan['assessment'], 'evidence_identity': plan['evidence_identity'],
-                  'refresh': True, 'analysis_version': plan['analysis_version'], 'renderer_version': plan['renderer_version'],
-                  'producing_job': ctx.job['id']})
+    for key, path in pages.items():
+        edition_id = ctx.job['id'] if key == target else ctx.job['id'] + '-' + key
+        label = 'Refreshed report' if key == 'standard' else hybas_refresh.LABELS[key]
+        ctx.store.put('reports', edition_id, {'id': edition_id, 'name': label + ' · ' + str(plan['renderer_version']),
+                      'path': str(path), 'sample': run['sample']['id'], 'run': run['id'], 'run_status': 'Report edition',
+                      'analysis_status': plan['analysis_status'], 'analysis_job_id': plan['analysis_job_id'],
+                      'render_status': 'completed', 'assessment': plan['assessment'], 'evidence_identity': plan['evidence_identity'],
+                      'refresh': True, 'report_target': key, 'analysis_version': plan['analysis_version'],
+                      'renderer_version': plan['renderer_version'], 'producing_job': ctx.job['id']})
     ctx.write('New report edition saved: ' + str(output))

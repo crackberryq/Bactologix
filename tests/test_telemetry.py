@@ -47,6 +47,38 @@ def test_system_memory_preserves_high_swap_and_zero_capacity(tmp_path, monkeypat
     assert store.get('job_telemetry', jid)['system_memory']['swap_total_bytes'] == 0
 
 
+def test_kraken_output_activity_uses_actual_file_growth(tmp_path, monkeypatch):
+    output = tmp_path / 'nanopore.kraken2.txt'
+    output.write_bytes(b'x\n' * 1024 ** 2)
+    fd = tmp_path / 'proc/7/fd'
+    fd.mkdir(parents=True)
+    (fd / '1').symlink_to(output)
+    store = Store(tmp_path / 'workspace')
+    _, recorder = record_job(store)
+    monkeypatch.setattr(t, 'Path', lambda value: tmp_path / 'proc' if value == '/proc' else Path(value))
+    process = SimpleNamespace(pid=7, create_time=lambda: 1, name=lambda: 'classify')
+    kraken = t.KrakenProgress()
+    recorder.proc = process
+    recorder.sampler = SimpleNamespace(
+        partial=False, sample=lambda: {**point(), 'rss_mb': 5, 'processes': 1,
+                                       'tool_progress': kraken.sample([process])})
+    stamps = iter(['2026-11-20T12:00:00Z', '2026-11-20T12:00:02Z', '2026-11-20T12:00:04Z'])
+    monkeypatch.setattr(t, 'now', lambda: next(stamps))
+    monkeypatch.setattr(t, 'system_memory_sample', lambda: None)
+    recorder.tick(force=True)
+    first = recorder.record['monitor_cycle']
+    recorder.tick(force=True)
+    second = recorder.record['monitor_cycle']
+    assert first['output_bytes'] == second['output_bytes'] == 2 * 1024 ** 2
+    assert first['reads_observed'] < second['reads_observed']
+    assert second['last_progress_at'] == first['last_progress_at']
+    with output.open('ab') as handle:
+        handle.write(b'x\n')
+    recorder.tick(force=True)
+    assert recorder.record['monitor_cycle']['output_bytes'] == second['output_bytes'] + 2
+    assert recorder.record['monitor_cycle']['last_progress_at'] != second['last_progress_at']
+
+
 def test_log_progress_handles_parallel_steps_and_checkpoint_replanning():
     p = t.Progress()
     for line in ['localrule alpha:', '    input: retained', '    jobid: 3', '',

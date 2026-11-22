@@ -302,11 +302,15 @@ def test_resource_dialog_fits_viewport_and_separates_swap_from_disk(progress_pag
     page.evaluate('''() => {
       const gib = 1024 ** 3, sampled = new Date().toISOString();
       progressJob.disk_safety = {state:'normal', checked_at:sampled, volumes:[
-        {label:'Workspace and logs', path:'/home/test/workspace', available_bytes:140*gib},
+        {label:'Workspace and logs', path:'/home/test/workspace/'+'long-directory-name/'.repeat(80), available_bytes:140*gib},
+        {label:'Outputs and databases', path:'/mnt/d/outputs', available_bytes:24*gib},
         {label:'Windows swap drive', path:'E:/WSL-Swap', available_bytes:32*gib}
       ]};
       const summary = {...progressJob.telemetry, system:'Linux', architecture:'x86_64',
         pipeline:'hybas', config_sha256:'c'.repeat(64), job_status:'running',
+        monitor_cycle:{id:31, sampled_at:sampled, resource_sampled_at:sampled,
+          heartbeats:[Date.now()/1000], phase:'Processing Nanopore reads', reads_observed:8500, output_bytes:42*1024**2,
+          phase_since:sampled, last_progress_at:sampled, active_s:200, paused_s:53},
         system_memory:{ram_used_bytes:40*gib, ram_total_bytes:50*gib, swap_used_bytes:90*gib,
           swap_total_bytes:100*gib, sampled_at:sampled}};
       const points = [{start_s:0, end_s:2, observed:1, unavailable:0, cpu_s:2,
@@ -326,16 +330,28 @@ def test_resource_dialog_fits_viewport_and_separates_swap_from_disk(progress_pag
     charts = dialog.locator('.usage-chart')
     expect(charts.get_by_role('img')).to_have_count(4)
     footer = dialog.locator('.modal-foot')
-    for width, height, chart_rows in [(1536, 864, 1), (1366, 768, 1), (390, 844, 4), (320, 568, 4)]:
+    expect(dialog.get_by_role('region', name='Monitoring cycle')).to_contain_text('8,500 read results observed')
+    expect(dialog.get_by_role('region', name='Monitoring cycle')).to_contain_text('Kraken2 output · 42 MiB')
+    for width, height, chart_rows in [(1536, 864, 1), (1366, 768, 1), (1280, 720, 1), (390, 844, 4), (320, 568, 4)]:
         page.set_viewport_size({'width': width, 'height': height})
         assert charts.evaluate_all('nodes => new Set(nodes.map(n => n.offsetTop)).size') == chart_rows
         assert dialog.locator('.modal-body').evaluate('n => n.scrollWidth <= n.clientWidth + 1')
+        if width >= 1280:
+            assert dialog.locator('.modal-body').evaluate('n => n.scrollHeight <= n.clientHeight + 1')
+        destination = os.environ.get('BACTOLOGIX_UI_PREVIEWS')
+        if destination and width == 1366:
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(Path(destination) / 'resource-monitor-desktop.png'))
         expect(dialog.locator('.modal-head')).to_be_in_viewport(ratio=1)
         for name in ('Close', 'Refresh', 'CSV', 'JSON', 'Download record (ZIP)'):
             expect(footer.get_by_role('button', name=name, exact=True)).to_be_in_viewport(ratio=1)
 
-    provenance = dialog.locator('summary').filter(has_text='Measurement scope & provenance')
-    provenance.click()
+    details = dialog.get_by_role('button', name='Measurement details')
+    details.click()
+    expect(dialog.get_by_role('heading', name='Measurement scope & provenance')).to_be_visible()
+    expect(dialog.get_by_text('Monitored drive paths')).to_be_visible()
+    page.evaluate('progressRerender()')
+    expect(details).to_have_attribute('aria-pressed', 'true')
     expect(dialog.get_by_text('Configuration SHA-256:', exact=False)).to_contain_text('c' * 64)
     assert dialog.locator('.modal-body').evaluate('n => n.scrollWidth <= n.clientWidth + 1')
     footer.get_by_role('button', name='Close', exact=True).click()

@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a137.dev2 — Experimental development
+# Bactologix 0.1.0a138.dev1 — Experimental development
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
 

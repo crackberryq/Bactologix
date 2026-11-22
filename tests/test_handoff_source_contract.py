@@ -65,7 +65,7 @@ def test_development_registry_copies_match():
 
 
 def test_preferred_handoff_source_has_complete_reviewed_contract(preferred):
-    assert preferred['tag'] == 'v10.0.0a9'
+    assert preferred['tag'] == 'v10.0.0a11'
     assert preferred['database_downloads'] == 1
     assert preferred['adapter_interface'] == 2, 'Older apps must not approve a source requiring browser and model-review controls'
     assert release_contract.reason('hybas', preferred) is None

@@ -1,5 +1,8 @@
 """Resolve owned trajectory assets for the isolated desktop report frame."""
 import base64
+import html
+import os
+from urllib.parse import unquote, urlsplit
 import re
 from pathlib import Path
 
@@ -13,7 +16,31 @@ def small_asset(root, name, limit):
     return data if len(data) <= limit else None
 
 
-def preview(encoded, source, output):
+def linked_assets(page, source, roots):
+    """Embed small, linked report tables within the owning run or report edition."""
+    from .results import read_file
+    budget = 8 * 1024 * 1024
+    owned = [p for p in roots if p.resolve() == p]
+    def replace(match):
+        nonlocal budget
+        href = urlsplit(html.unescape(match.group(2)))
+        if href.scheme or href.netloc or not href.path or href.path.startswith('/'):
+            return match.group()
+        path = Path(os.path.abspath(source.parent / unquote(href.path)))
+        if path.suffix not in ('.tsv', '.json') or not any(path.is_relative_to(root) for root in owned):
+            return match.group()
+        try:
+            data = read_file(path, min(budget, 4 * 1024 * 1024))
+        except (ValueError, OSError):
+            return match.group()
+        budget -= len(data)
+        content = base64.b64encode(data).decode('ascii')
+        mime = 'application/json' if path.suffix == '.json' else 'text/tab-separated-values'
+        return f'download="{html.escape(path.name, quote=True)}" href="data:{mime};base64,{content}"'
+    return re.sub(r"""\bhref=(["'])([^"']*)\1""", replace, page, flags=re.I)
+
+
+def preview(encoded, source, output, edition=None):
     if not output:
         return encoded
     reports = Path(output).resolve() / "reports"
@@ -21,13 +48,20 @@ def preview(encoded, source, output):
     research = reports / "hybas_research/hybas_report.html"
     index = root / "index.html"
     source = Path(source).resolve()
+    page = base64.b64decode(encoded).decode("utf-8", errors="replace")
+    directories = ("hybas_research", "polishing_trajectory", "polishing_validation")
+    roots = [reports / name for name in directories]
+    if edition:
+        roots.extend(Path(edition) / name for name in directories)
+    if source.parent in roots and "data-hybas-report=" in page:
+        rendered = linked_assets(page, source, roots)
+        return base64.b64encode(rendered.encode()).decode("ascii")
     if reports.resolve() != reports or root.resolve() != root or source not in (index, research):
         return encoded
     svg = small_asset(root, "trajectory.svg", 2 * 1024 * 1024)
     if not svg:
         return encoded
     figure = "data:image/svg+xml;base64," + base64.b64encode(svg).decode("ascii")
-    page = base64.b64decode(encoded).decode("utf-8")
     if source == research:
         page = page.replace('src="../polishing_trajectory/trajectory.svg"', f'src="{figure}"')
         page = page.replace('href="../polishing_trajectory/index.html"', 'href="#trajectory-evidence"')

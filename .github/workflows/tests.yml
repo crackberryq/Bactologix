@@ -84,7 +84,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: crackberryq/Bactomics_HybAs
-          ref: f47fbae507244f2c0473d0610942d4fcf34f850b
+          ref: a7db21be069ed69aed1bc826928fef6d35c4e01a
           path: upstream-hybas-v2
       - run: python -m pip install . pytest 'snakemake==9.27.1'
       - name: Validate frozen manifest native DAGs
@@ -173,7 +173,7 @@ jobs:
         include:
           - tool: hybas
             repo: crackberryq/Bactomics_HybAs
-            commit: f47fbae507244f2c0473d0610942d4fcf34f850b
+            commit: a7db21be069ed69aed1bc826928fef6d35c4e01a
           - tool: basis
             repo: crackberryq/Bactomics_BaSIS
             commit: 98908fd64d078df1af8e254b2f4490a13095d95b

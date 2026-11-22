@@ -116,6 +116,8 @@ class Context:
         self.setup_control = (job['kind'] in {'install', 'connect', 'bootstrap', 'environments',
                                               'database_download', 'database_redownload', 'database_build'} or
                               (job['kind'] == 'check' and (job['payload'].get('setup') or job['payload'].get('repair'))))
+        if job['kind'] == 'report_refresh' and job['payload'].get('mode') == 'measure-validation':
+            self.setup_control = True
         self.workflow_control = job['kind'] == 'workflow'
         self.control_deadlines = {}
         self.control_owner = None

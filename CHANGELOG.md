@@ -1,3 +1,11 @@
+## 0.1.0a138.dev1 — Resource monitor and research reports
+
+The resource monitor fits progress, observed Kraken2 output growth, memory, swap, free space and trend charts into the desktop overview. Open Measurement details for timestamps, paths and provenance.
+
+Use **Regenerate report** from the run results, Reports list or report viewer to save a new report edition. For HybAs, regenerating the research report also rebuilds its trajectory and validation pages from saved measurements when available. If validation is missing, choose **Polishing validation** first and review the measurements it needs. Original outputs remain available.
+
+The Dev catalog recommends HybAs 10.0.0a11 and recognizes its polishing-validation environment during setup. Creating a BaSIS draft checks that the required annotation files contain data.
+
 ## 0.1.0a137.dev2 — Desktop trajectory preview
 
 Embed the saved polishing plot and measurements in the isolated report viewer, including completed runs with retrospective measurements.

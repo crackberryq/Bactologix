@@ -29,7 +29,7 @@ from . import environment_health
 RECIPES = {
     "micpscope": {"properties": "Protein properties and evidence report", "database-builder": "Database Builder (DIAMOND)", "reference-search": "Reference protein search (DIAMOND)"},
     "hybas": {"library_assembly": "Library-aware SPAdes assembly", "library_preprocess": "Illumina and Nextera preparation", "pacbio_assembly": "PacBio Flye assembly", "assembly": "Assembly and read preparation", "qc": "QC, Kraken2 and BUSCO",
-              "polishing": "Racon and Polypolish", "medaka": "Medaka", "annotation": "Prokka",
+              "polishing": "Racon and Polypolish", "polishing_validation": "Polishing validation and read support", "medaka": "Medaka", "annotation": "Prokka",
               "multiqc": "MultiQC reports",
               "controller": "Lightweight workflow Python"},
     "basis": {"core-amr": "AMRFinderPlus", "rgi": "CARD / RGI", "diamond": "VFDB and BacMet",

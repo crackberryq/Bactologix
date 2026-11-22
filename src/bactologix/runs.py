@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import yaml
 from .catalog import DATA, PIPELINES, supported
@@ -359,6 +360,23 @@ def run_status(run, jobs, checked):
     return "completed" if run.get("completed") else "checked" if checked else "draft"
 
 
+_BASIS_REQUIRED_ANNOTATIONS = ('.fna', '.faa', '.gff')
+
+
+def basis_annotation_problem(directory, sample_id):
+    for extension in _BASIS_REQUIRED_ANNOTATIONS:
+        path = Path(directory, 'annotation', sample_id + extension)
+        try:
+            info = path.stat()
+        except FileNotFoundError:
+            return f'Missing annotation input: {path}'
+        except OSError as exc:
+            return f'Cannot inspect annotation input {path}: {exc.strerror}'
+        if not stat.S_ISREG(info.st_mode) or not info.st_size:
+            return f'BaSIS requires a nonempty annotation file: {path}. Check the HybAs annotation step.'
+    return None
+
+
 def stage_inputs(sample, tool, destination):
     if sample.get("input_manifest"):
         if tool != "hybas":
@@ -397,14 +415,15 @@ def stage_inputs(sample, tool, destination):
             (output / (sid + suffix)).symlink_to(source.resolve())
             inputs.append(source)
     else:
+        issue = basis_annotation_problem(original, sid)
+        if issue:
+            raise ValueError(issue)
         output = destination / "annotation"
         output.mkdir()
-        for extension in ("fna", "faa", "gff", "gbk"):
-            source = original / "annotation" / (sid + "." + extension)
-            if not source.is_file():
-                if extension == "gbk":
-                    continue
-                raise ValueError("Missing annotation input: " + str(source))
+        for extension in (*_BASIS_REQUIRED_ANNOTATIONS, '.gbk'):
+            source = original / 'annotation' / (sid + extension)
+            if extension == '.gbk' and not source.is_file():
+                continue
             (output / source.name).symlink_to(source.resolve())
             inputs.append(source)
         inputs.extend(p for p in (original / "metadata").glob("*") if p.is_file())
@@ -869,6 +888,7 @@ def report_candidates(store, run):
         entries.append(("AWARE outputs", "reports/aware/report.html"))
         entries.append(("HybAs research report", "reports/hybas_research/hybas_report.html"))
         entries.append(("Polishing trajectory", "reports/polishing_trajectory/index.html"))
+        entries.append(("Polishing validation", "reports/polishing_validation/index.html"))
     return entries
 
 

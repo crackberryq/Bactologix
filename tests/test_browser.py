@@ -838,8 +838,7 @@ def test_sample_picker_configuration_and_report(tmp_path, worker_lease):
             expect(page.frame_locator('.html-report-frame').get_by_role('heading', name='Browser software fixture')).to_be_visible()
             page.get_by_role('button', name='Close dialog', exact=True).click()
             assert page.url.endswith('/results')
-            expand_details(page.locator('.report-tools'))
-            page.get_by_role('button', name='Regenerate report', exact=True).click()
+            page.locator('.results-report-list').get_by_role('button', name='Regenerate report', exact=True).first.click()
             expect(page.get_by_role('heading', name='Regenerate report', exact=True)).to_be_visible()
             expect(page.get_by_role('button', name='Create refreshed report', exact=True)).to_be_disabled()
             expect(page.get_by_text('Refresh unavailable', exact=True)).to_be_visible()
@@ -3204,4 +3203,62 @@ def test_beta_navigation_purpose_and_empty_inputs(tmp_path):
         expect(page.get_by_role('button', name='Continue to settings', exact=True)).to_be_disabled()
         assert not store.jobs() and not store.all('runs') and not store.all('samples')
         assert not errors, errors
+        browser.close()
+
+
+@pytest.mark.parametrize('edition', [False, True], ids=['original', 'regenerated'])
+def test_hybas_report_links_stay_with_the_current_run_and_edition(tmp_path, edition):
+    from playwright.sync_api import sync_playwright, expect
+
+    store = Store(tmp_path / 'workspace')
+    research = ("<html data-hybas-report='research'><body><nav style='position:fixed;top:0'>"
+                "<a href='#polishing'>Polishing summary</a></nav><div style='height:120vh'></div>"
+                "<section id='polishing'><h2>Polishing summary</h2>"
+                "<a href='../polishing_trajectory/index.html'>Explore trajectory</a>"
+                "<a href='../polishing_validation/index.html'>Review validation</a></section></body></html>")
+    records = [
+        ('native-research', 'HybAs research report', 'run-1', None, 'research'),
+        ('native-trajectory', 'Polishing trajectory', 'run-1', None, 'trajectory'),
+        ('edition-research', 'Research edition', 'run-1', 'job-edition', 'research'),
+        ('edition-trajectory', 'Trajectory edition', 'run-1', 'job-edition', 'trajectory'),
+        ('other-run', 'Polishing validation', 'run-2', None, 'validation'),
+        ('other-edition', 'Validation edition', 'run-1', 'unrelated-edition', 'validation'),
+    ]
+    for rid, name, run, job, target in records:
+        path = tmp_path / (rid + '.html')
+        path.write_text(research if target == 'research' else f"<html data-hybas-report='{target}'><h1>{rid}</h1></html>")
+        store.put('reports', rid, dict(id=rid, name=name, run=run, path=str(path), sample='fixture',
+                                      refresh=bool(job), producing_job=job, report_target=target))
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, executable_path=os.environ.get('BACTOLOGIX_BROWSER_EXECUTABLE'))
+        page = browser.new_page(viewport={'width': 1366, 'height': 768})
+        render_component(page, store)
+        page.get_by_role('link', name='Results & reports', exact=True).click()
+        prefix = 'edition-' if edition else 'native-'
+        original_id = prefix + 'research'
+        page.locator(f'[data-action="open-report"][data-id="{original_id}"]').click()
+
+        def reply(kind, report_id):
+            page.wait_for_function('''([kind, id])=>{
+              const req=window.acceptanceEvents.at(-1)?.value;
+              return req?.kind===kind && req.payload.id===id;
+            }''', arg=[kind, report_id])
+            req = page.evaluate('window.acceptanceEvents.at(-1).value')
+            assert req['payload']['id'] == report_id
+            response = dispatch(store, kind, req['payload'])
+            page.evaluate('r=>window.acceptanceRender(r)', {'id': req['id'], 'ok': True, **response})
+
+        reply('open_report', original_id)
+        frame = page.frame_locator('.html-report-frame')
+        frame.get_by_role('link', name='Polishing summary', exact=True).click()
+        expect(frame.get_by_role('heading', name='Polishing summary')).to_be_in_viewport()
+        frame.get_by_role('link', name='Review validation · Open report folder').click()
+        page.wait_for_function("window.acceptanceEvents.at(-1).value.kind==='open_report_folder'")
+        folder = page.evaluate('window.acceptanceEvents.at(-1).value')
+        assert folder['payload']['id'] == original_id and not folder['payload'].get('run_id')
+        assert 'path' not in folder['payload']
+        page.evaluate('id=>window.acceptanceRender({id,ok:true,keep_modal:true})', folder['id'])
+        frame.get_by_role('link', name='Explore trajectory', exact=True).click()
+        reply('open_report', prefix + 'trajectory')
+        expect(frame.get_by_role('heading', name=prefix + 'trajectory')).to_be_visible()
         browser.close()

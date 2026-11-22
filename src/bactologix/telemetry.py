@@ -142,7 +142,7 @@ class KrakenProgress:
                     if b'Loading database information...' in message:
                         phase = ('Waiting for first read results' if b'Loading database information... done.' in message
                                  else 'Loading Kraken database')
-                return {'phase': phase, 'reads_observed': self.reads}
+                return {'phase': phase, 'reads_observed': self.reads, 'output_bytes': stat.st_size}
             except (AttributeError, OSError, psutil.Error):
                 continue
         return None
@@ -412,7 +412,8 @@ class Recorder:
         previous = self.record.get('monitor_cycle') or {}
         stamp = self.record['updated_at']
         changed = phase != previous.get('phase')
-        advanced = changed or progress.get('reads_observed') != previous.get('reads_observed')
+        # The bounded line counter can catch up after the classifier stops writing.
+        advanced = changed or progress.get('output_bytes') != previous.get('output_bytes')
         paused = disk.get('paused_total_s', 0)
         if disk.get('pause_start_mono') is not None:
             paused += max(0, current - disk['pause_start_mono'])

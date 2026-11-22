@@ -710,31 +710,52 @@ td{padding:18px 20px;line-height:1.55}
 .async-checks{display:grid;gap:10px;margin-bottom:18px}.async-check{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px 18px;border:1px solid var(--border);border-radius:10px;background:#edf7f4}.async-check>div{min-width:0;flex:1}.async-check-progress{display:block;height:4px;max-width:360px;margin-top:9px;overflow:hidden;border-radius:4px;background:#cce9e0}.async-check-progress:after{content:"";display:block;width:35%;height:100%;background:var(--teal);animation:async-check-slide 1.5s ease-in-out infinite}@keyframes async-check-slide{from{transform:translateX(-110%)}to{transform:translateX(390%)}}@media(prefers-reduced-motion:reduce){.async-check-progress:after{animation:none;width:100%;opacity:.65}}
 .swap-recommendation{margin:18px 0;padding:18px;border:1px solid var(--border);border-radius:10px;background:#f4f9f7;min-width:0;overflow-wrap:anywhere}.swap-recommendation>.button-row{justify-content:space-between}.swap-recommendation ul{margin:12px 0;padding-left:22px}.swap-recommendation li{margin:7px 0;line-height:1.5}.swap-recommendation .review-settings{margin:14px 0}.swap-recommendation [data-swap-stale]:not([hidden]){color:#875b14;font-weight:600}@media(max-width:600px){.swap-recommendation{padding:14px}.swap-recommendation>.button-row{align-items:flex-start;flex-direction:column}.swap-recommendation .review-settings>div{min-width:0}}
 
-/* Let the charts use the viewport and keep the dialog actions in reach. */
+/* Keep the live overview and its actions in one laptop viewport. Detailed
+   timestamps and identifiers have their own persistent view. */
 .modal[data-modal-kind="usage"] { width: min(1480px, 100%); max-width: 100%; }
-[data-modal-kind="usage"] .modal-body { min-height: 0; }
-[data-modal-kind="usage"] .modal-head, [data-modal-kind="usage"] .modal-foot { flex-shrink: 0; }
+[data-modal-kind="usage"] .modal-body { min-height: 0; padding: 14px 20px; }
+[data-modal-kind="usage"] .modal-head, [data-modal-kind="usage"] .modal-foot { flex-shrink: 0; padding: 12px 20px; }
 [data-modal-kind="usage"] .modal-foot .button-row { flex-wrap: wrap; }
-.usage-detail { gap: 14px; }
-.usage-detail > *, .usage-capacity > section { min-width: 0; }
-.usage-charts { grid-template-columns: repeat(auto-fit, minmax(min(100%, 255px), 1fr)); }
-.usage-chart svg { max-height: 180px; }
-.usage-chart svg text { font-size: 15px; }
+.usage-detail { gap: 10px; font-variant-numeric: tabular-nums; }
+.usage-detail > *, .usage-status > *, .usage-capacity > section { min-width: 0; }
+.usage-toolbar, .usage-toolbar > div, .usage-pulse { display: flex; align-items: center; }
+.usage-toolbar { justify-content: space-between; gap: 8px; }
+.usage-toolbar > div { border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
+.usage-toolbar button { font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--ink); padding: 5px 10px; background: transparent; border: 0; border-radius: 5px; }
+.usage-toolbar button[aria-pressed="true"] { background: var(--teal-light); color: var(--teal); }
+.usage-status { display: flex; flex-wrap: wrap; gap: 10px; }
+.usage-status > section, .usage-capacity > section, .usage-diagnostics { background: var(--paper); padding: 12px 15px; border: 1px solid var(--border); border-radius: 10px; }
+.usage-status > section { flex: 2 1 440px; }
+.usage-status > .usage-phase { border-left: 3px solid var(--teal); flex: 1 1 240px; display: flex; flex-direction: column; gap: 4px; }
+.usage-phase > strong { font-size: 14px; overflow-wrap: anywhere; }
+.usage-phase > span, .usage-pulse, .usage-status small, .usage-capacity-grid span { font-size: 12px; color: var(--muted); }
+.usage-pulse { gap: 6px; flex-wrap: wrap; margin-top: auto; }
+.usage-pulse svg { max-width: 110px; color: var(--teal); }
+.usage-status h3, .usage-capacity h3 { margin: 0 0 5px; font-size: 13px; }
+.usage-status .job-progress { margin: 0; border: 0; padding: 0; gap: 4px; }
+.usage-status .usage-step, .usage-detail > .usage-warning { margin: 0; }
+.usage-status .task-progress { max-width: none; }
+.usage-status .usage-warning { color: var(--amber); }
+.usage-charts { grid-template-columns: repeat(auto-fit, minmax(min(100%, 235px), 1fr)); gap: 10px; }
+.usage-chart { padding: 9px 12px; }
+.usage-chart h3 { margin: 0; }
+.usage-chart svg { max-height: 120px; margin-top: 4px; }
+.usage-chart svg text { font-size: 17px; }
 .usage-facts { grid-template-columns: repeat(auto-fit, minmax(min(100%, 175px), 1fr)); }
-.usage-capacity { display: flex; flex-wrap: wrap; gap: 12px; }
-.usage-capacity > section {
- flex: 1 1 260px;
- padding: 10px 14px;
- border: 1px solid var(--border);
- border-radius: 10px;
-}
-.usage-capacity > section[aria-label="Free disk space"] { flex-grow: 2; flex-basis: 380px; }
-.usage-capacity h3 { margin: 0 0 8px; font-size: 13px; }
-.usage-capacity-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 135px), 1fr)); gap: 8px 12px; }
-.usage-capacity-grid span, .usage-capacity-grid strong, .usage-capacity small { display: block; overflow-wrap: anywhere; }
-.usage-capacity-grid span, .usage-capacity small { font-size: 12px; color: var(--muted); }
-.usage-capacity section > small { margin-top: 6px; }
+.usage-capacity { display: flex; flex-wrap: wrap; gap: 10px; }
+.usage-capacity > section { flex: 1 1 260px; padding-block: 8px; }
+.usage-capacity > section[aria-label="Free disk space"] { flex: 2 1 380px; }
+.usage-capacity h3 { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.usage-capacity h3 small { font-size: 11px; font-weight: normal; color: var(--muted); }
+.usage-capacity-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 125px), 1fr)); gap: 6px 10px; }
+.usage-capacity-grid span, .usage-capacity-grid strong { display: block; overflow-wrap: anywhere; }
+.usage-diagnostics { overflow-wrap: anywhere; }
+.usage-diagnostics h3 { margin: 16px 0 8px; font-size: 14px; }
+.usage-diagnostics h3:first-child { margin-top: 0; }
 @media (max-width: 620px) {
- [data-modal-kind="usage"] .modal-head, [data-modal-kind="usage"] .modal-foot { padding: 10px 12px; }
+ [data-modal-kind="usage"] .modal-head, [data-modal-kind="usage"] .modal-foot, [data-modal-kind="usage"] .modal-body { padding: 10px 12px; }
  [data-modal-kind="usage"] .modal-foot .btn { padding: 6px 9px; }
+ .usage-charts { grid-template-columns: 1fr; }
+ .usage-toolbar { flex-wrap: wrap; }
+ .usage-pulse { margin: 0; }
 }
