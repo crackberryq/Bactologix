@@ -38,7 +38,7 @@ def test_capacity_drop_during_ownership_write_keeps_exec_gate_closed(fixture, mo
     store, jid, marker, command, capacity = fixture
     ctx = engine.Context(store, store.claim())
     original_put = store.put_process
-    floor = 10 * disk_pause.GIB
+    floor = 5 * disk_pause.GIB
 
     def put(jid, record):
         original_put(jid, record)

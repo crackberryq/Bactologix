@@ -13,12 +13,29 @@ try {
     $utf8 = New-Object Text.UTF8Encoding($false)
     $path = Join-Path $Directory 'windows-storage.json'
     $temporary = $path + '.' + $PID + '.writing'
+    $discovery = $null
+    $discoveryAge = [Diagnostics.Stopwatch]::StartNew()
     while (-not $owner.HasExited) {
         $cycle = [Diagnostics.Stopwatch]::StartNew()
         $started = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
         try {
-            $sample = Get-WindowsStorageCapacity @{operation='discover'; distribution=$Distribution}
+            if ($null -eq $discovery -or $discoveryAge.Elapsed.TotalSeconds -ge 10) {
+                $sample = Get-WindowsStorageCapacity @{operation='discover'; distribution=$Distribution}
+                $discovery = $null
+                if (-not $sample.errors.Count -and $sample.volumes.Count) {
+                    $discovery = $sample
+                    $discoveryAge.Restart()
+                }
+            } else {
+                $sample = Get-WindowsStorageCapacity @{operation='sample'; targets=$discovery.volumes}
+                $sample.swap_required = $discovery.swap_required
+                if ($sample.errors.Count -or (@($sample.volumes.id) -join '|') -ne (@($discovery.volumes.id) -join '|')) {
+                    $discovery = $null
+                    $sample.errors = @($sample.errors) + 'Rediscovering Windows storage after a volume change or sampling error.'
+                }
+            }
         } catch {
+            $discovery = $null
             $sample = @{volumes=@(); errors=@($_.Exception.Message); swap_required=$null}
         }
         $sample.schema = 1

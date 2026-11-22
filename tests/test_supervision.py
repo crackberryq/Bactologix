@@ -163,7 +163,7 @@ def test_low_disk_stops_after_transient_control_read(fixture, monkeypatch):
     thread, outcome = background(ctx, command)
     try:
         wait_for(lambda: (supervision.snapshot(store, jid) or {}).get('state') == 'degraded')
-        capacity['free'] = 9 * disk_pause.GIB
+        capacity['free'] = 4 * disk_pause.GIB
         thread.join(8)
         assert not thread.is_alive() and isinstance(outcome[0], Cancelled)
         assert 'Workspace storage stop' in str(outcome[0])
@@ -318,7 +318,7 @@ def test_workflow_survives_writer_contention_and_still_enforces_disk_limits(fixt
             before = marker.stat().st_mtime_ns
             wait_for(lambda: marker.stat().st_mtime_ns > before)
             if low_space:
-                capacity['free'] = 9 * disk_pause.GIB
+                capacity['free'] = 4 * disk_pause.GIB
                 # Even a blocked SQLite writer cannot keep the native process running after a
                 # fresh critical measurement. The final database reconciliation can wait.
                 wait_for(lambda: not supervision.remaining(process['identities']))

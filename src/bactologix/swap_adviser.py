@@ -69,14 +69,11 @@ def _storage(store, run):
             errors.append('A required storage volume did not return valid free space.')
         elif free <= PAUSE_BYTES:
             errors.append(f"{volume.get('label', 'Required storage')} has {free / 1024 ** 3:.1f} GiB free. "
-                          'Workspace runs stop at or below 10 GiB free.')
-        elif free < WARNING_BYTES:
-            warnings.append(f"{volume.get('label', 'Required storage')} has less than 20 GiB free. "
-                            'The workspace stops runs if measured free space falls to 10 GiB or less.')
+                          'Workspace runs stop at or below 5 GiB free.')
     return {**observed, 'errors': list(dict.fromkeys(errors)), 'warnings': warnings,
             'thresholds': {'pause_bytes': PAUSE_BYTES, 'resume_bytes': RESUME_BYTES,
                            'warning_bytes': WARNING_BYTES},
-            'notice': ('A storage stop can be cleared after every monitored drive has at least 15 GiB free. '
+            'notice': ('A storage stop can be cleared after every monitored drive has more than 5 GiB free. '
                        'The swap allowance is a memory budget. '
                        'Free space is not a prediction of total output or swap-file growth.')}
 
@@ -207,7 +204,7 @@ def recommend(store, tool, memory_mb, *, run_id=None, config=None, kraken_path=N
             result['warnings'].append(
                 f'At least {extra:,} MB more free swap capacity is needed before this allowance can be used. '
                 f'If increasing an OS swap file, its chosen storage volume needs at least {extra + WARNING_BYTES // MIB:,} MB free '
-                'for that increase plus the 20 GiB warning headroom, with further space for results. '
+                'for that increase plus the 5 GiB reserve, with further space for results. '
                 'Container limits or other memory use may still prevent the allowance; recalculate after any change.')
     result['problems'] = list(dict.fromkeys(problems))
     if problems:
