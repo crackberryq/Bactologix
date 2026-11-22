@@ -328,6 +328,13 @@
             "scope": "amrfinder-review"
           }
         }
+      },
+      "98908fd64d078df1af8e254b2f4490a13095d95b": {
+        "deep": {
+          "aware": {
+            "scope": "amrfinder-review"
+          }
+        }
       }
     }
   },

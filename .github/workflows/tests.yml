@@ -176,7 +176,7 @@ jobs:
             commit: b13075706781873483fe418a9f41fb7935e56e88
           - tool: basis
             repo: crackberryq/Bactomics_BaSIS
-            commit: 7c293d36a633a726424d544c6ffc39824537ebe4
+            commit: 98908fd64d078df1af8e254b2f4490a13095d95b
           - tool: micpscope
             repo: crackberryq/Bactomics_GeneScope
             commit: 28bf38c44eb07fe8e4865f67d59ef6b4028f51dc
