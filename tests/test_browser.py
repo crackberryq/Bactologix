@@ -3209,6 +3209,7 @@ def test_beta_navigation_purpose_and_empty_inputs(tmp_path):
 @pytest.mark.parametrize('edition', [False, True], ids=['original', 'regenerated'])
 def test_hybas_report_links_stay_with_the_current_run_and_edition(tmp_path, edition):
     from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import dispatch
 
     store = Store(tmp_path / 'workspace')
     research = ("<html data-hybas-report='research'><body><nav style='position:fixed;top:0'>"
