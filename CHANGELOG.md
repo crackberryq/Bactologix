@@ -1,3 +1,7 @@
+## 0.1.0a137.dev1 — HybAs polishing trajectories
+
+Adds the HybAs 10.0.0a8 development source for stage-specific research measurements.
+
 ## 0.1.0a136.dev1 — Uniform storage reserve
 
 - Every monitored volume uses a 5 GiB stop floor. Fresh readings above 5 GiB permit recovery and qualify for the existing bounded active-command stale-reading retry. No early capacity warning above the floor.

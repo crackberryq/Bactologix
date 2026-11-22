@@ -868,6 +868,7 @@ def report_candidates(store, run):
     if run["tool"] == "hybas" and run.get("run_type") != "followup":
         entries.append(("AWARE outputs", "reports/aware/report.html"))
         entries.append(("HybAs research report", "reports/hybas_research/hybas_report.html"))
+        entries.append(("Polishing trajectory", "reports/polishing_trajectory/index.html"))
     return entries
 
 
