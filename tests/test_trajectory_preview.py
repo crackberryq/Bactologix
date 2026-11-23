@@ -56,3 +56,43 @@ def test_original_research_preview_keeps_native_polishing_navigation(tmp_path):
     source.write_text(page)
     blob = base64.b64encode(page.encode()).decode()
     assert preview(blob, source, tmp_path) == blob
+
+
+def test_edition_embeds_only_registered_same_run_measurement_tables(tmp_path):
+    from bactologix.store import Store
+    from bactologix.trajectory_preview import measured_tables
+    store = Store(tmp_path / 'workspace')
+    editions = store.home / 'report-refreshes'
+    edition = editions / 'job-render' / 'edition'
+    tables = editions / 'job-measure' / 'edition' / 'polishing_validation'
+    tables.mkdir(parents=True)
+    index = edition / 'polishing_validation/index.html'
+    index.parent.mkdir(parents=True)
+    report = dict(report_target='validation', producing_job='job-render', path=str(index), run='sample-a')
+    current = dict(id='job-render', run_id='sample-a', validation=str(tables), validation_source='observed')
+    origin = dict(id='job-measure', run_id='sample-a', validation_source='observed',
+                  mode='measure-validation', path=str(tables/'index.html'))
+    store.put('report_refreshes', current['id'], current)
+    store.put('report_refreshes', origin['id'], origin)
+    (tables/'windows.tsv').write_text('window\n')
+    (tables/'extra.json').write_text('private')
+    (tables/'site_support.tsv').symlink_to(tables/'extra.json')
+    import os
+    rel = os.path.relpath(tables, index.parent)
+    page = ('<html data-hybas-report="validation"><body>' +
+            ''.join(f'<a href="{rel}/{name}">File</a>' for name in ('windows.tsv','extra.json','site_support.tsv')) +
+            '</body></html>')
+    index.write_text(page)
+    blob = base64.b64encode(page.encode()).decode()
+    def view():
+        access = measured_tables(store, report, edition)
+        return base64.b64decode(preview(blob, index, tmp_path/'run', edition, access)).decode()
+    assert view().count('download=') == 1 and 'download="windows.tsv"' in view()
+    assert index.read_text() == page
+    for field, wrong in [('run_id', 'sample-b'), ('validation_source', 'older'), ('path', str(index)),
+                         ('id', 'job-unrelated'), ('mode', 'report-only')]:
+        store.put('report_refreshes', 'job-measure', {**origin, field: wrong})
+        assert 'download=' not in view()
+    store.put('report_refreshes', 'job-measure', origin)
+    report['path'] = str(tables / 'index.html')
+    assert not measured_tables(store, report, edition)

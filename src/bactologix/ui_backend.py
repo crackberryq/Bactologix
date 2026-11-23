@@ -941,7 +941,9 @@ def dispatch(store, kind, p):
         content = base64.b64encode(source.read_bytes()).decode("ascii")
         run = store.get("runs", report.get("run")) or {}
         edition = store.home / 'report-refreshes' / report['producing_job'] / 'edition' if report.get('refresh') and report.get('producing_job') else None
-        return {"report": report | {"base64": trajectory_preview.preview(content, source, run.get("output"), edition)}, "keep_modal": True}
+        measured = trajectory_preview.measured_tables(store, report, edition)
+        rendered = trajectory_preview.preview(content, source, run.get("output"), edition, measured)
+        return {"report": report | {"base64": rendered}, "keep_modal": True}
     raise ValueError("Unknown workspace action")
 
 

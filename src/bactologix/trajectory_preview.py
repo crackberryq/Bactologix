@@ -16,7 +16,29 @@ def small_asset(root, name, limit):
     return data if len(data) <= limit else None
 
 
-def linked_assets(page, source, roots):
+def measured_tables(store, report, edition):
+    """Allow only saved tables named by this edition's recorded validation input."""
+    from .hybas_refresh import VALIDATION_FILES
+    if not edition or report.get('report_target') != 'validation':
+        return set()
+    current = store.get('report_refreshes', report['producing_job']) or {}
+    if (current.get('run_id') != report.get('run') or not current.get('validation')
+            or Path(report['path']) != edition / 'polishing_validation/index.html'):
+        return set()
+    tables = Path(current['validation'])
+    if len(tables.parents) < 3 or tables.parts[-2:] != ('edition', 'polishing_validation'):
+        return set()
+    job = tables.parents[1].name
+    expected = store.home / 'report-refreshes' / job / 'edition/polishing_validation'
+    origin = store.get('report_refreshes', job) or {}
+    if (tables != expected or origin.get('id') != job or origin.get('run_id') != current['run_id']
+            or origin.get('mode') != 'measure-validation' or origin.get('path') != str(expected / 'index.html')
+            or not current.get('validation_source') or current['validation_source'] != origin.get('validation_source')):
+        return set()
+    return {expected / name for name in VALIDATION_FILES}
+
+
+def linked_assets(page, source, roots, measured):
     """Embed small, linked report tables within the owning run or report edition."""
     from .results import read_file
     budget = 8 * 1024 * 1024
@@ -27,7 +49,7 @@ def linked_assets(page, source, roots):
         if href.scheme or href.netloc or not href.path or href.path.startswith('/'):
             return match.group()
         path = Path(os.path.abspath(source.parent / unquote(href.path)))
-        if path.suffix not in ('.tsv', '.json') or not any(path.is_relative_to(root) for root in owned):
+        if path.suffix not in ('.tsv', '.json') or not (path in measured or any(path.is_relative_to(root) for root in owned)):
             return match.group()
         try:
             data = read_file(path, min(budget, 4 * 1024 * 1024))
@@ -40,7 +62,7 @@ def linked_assets(page, source, roots):
     return re.sub(r"""\bhref=(["'])([^"']*)\1""", replace, page, flags=re.I)
 
 
-def preview(encoded, source, output, edition=None):
+def preview(encoded, source, output, edition=None, measured=frozenset()):
     if not output:
         return encoded
     reports = Path(output).resolve() / "reports"
@@ -54,7 +76,7 @@ def preview(encoded, source, output, edition=None):
     if edition:
         roots.extend(Path(edition) / name for name in directories)
     if source.parent in roots and "data-hybas-report=" in page:
-        rendered = linked_assets(page, source, roots)
+        rendered = linked_assets(page, source, roots, measured)
         return base64.b64encode(rendered.encode()).decode("ascii")
     if reports.resolve() != reports or root.resolve() != root or source not in (index, research):
         return encoded

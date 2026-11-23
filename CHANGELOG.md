@@ -1,3 +1,9 @@
+## 0.1.0a138.dev3 — Research report evidence downloads
+
+When a research report uses measurements from an earlier report edition, its validation page can open the six original measurement tables from the same run alongside the newly rendered tables. The edition verifies the source of each downloadable table.
+
+This Dev update includes the compact monitor, in-app report regeneration, HybAs 10.0.0a12 and the BaSIS handoff checks.
+
 ## 0.1.0a138.dev2 — HybAs polishing reports
 
 The recommended HybAs 10.0.0a12 build combines the polishing density atlas and saved-report regeneration with a visible Experimental label on AWARE reports. This build includes the compact resource monitor and BaSIS annotation handoff checks from dev1.
