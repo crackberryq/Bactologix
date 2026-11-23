@@ -182,9 +182,9 @@ def test_hybas_saved_report_and_legacy_summary(fixture, legacy):
     real=os.environ.get('BACTOLOGIX_HYBAS_REPORT_SOURCE')
     if not real:
         pytest.skip('HybAs report source supplied by integration CI')
-    package=source/'workflow/lib';package.mkdir(parents=True)
-    for name in ('hybas_report.py','hybas_report_assets.py'):
-        shutil.copyfile(Path(real)/'workflow/lib'/name,package/name)
+    # Exercise the same installed renderer module tree used by the desktop.
+    shutil.copytree(Path(real) / 'workflow/lib', source / 'workflow/lib',
+                    ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     run['tool']='hybas';store.put('runs',run['id'],run)
     install=store.get('installs','renderer');install['tool']='hybas';store.put('installs','renderer',install)
     store.put('settings','active-hybas','renderer')
