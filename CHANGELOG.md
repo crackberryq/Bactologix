@@ -1,3 +1,7 @@
+## 0.1.0a138.dev2 — HybAs polishing reports
+
+The recommended HybAs 10.0.0a12 build combines the polishing density atlas and saved-report regeneration with a visible Experimental label on AWARE reports. This build includes the compact resource monitor and BaSIS annotation handoff checks from dev1.
+
 ## 0.1.0a138.dev1 — Resource monitor and research reports
 
 The resource monitor fits progress, observed Kraken2 output growth, memory, swap, free space and trend charts into the desktop overview. Open Measurement details for timestamps, paths and provenance.
