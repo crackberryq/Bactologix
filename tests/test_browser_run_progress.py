@@ -309,14 +309,14 @@ def test_resource_dialog_fits_viewport_and_separates_swap_from_disk(progress_pag
       const summary = {...progressJob.telemetry, system:'Linux', architecture:'x86_64',
         pipeline:'hybas', config_sha256:'c'.repeat(64), job_status:'running',
         monitor_cycle:{id:31, sampled_at:sampled, resource_sampled_at:sampled,
-          heartbeats:[Date.now()/1000], phase:'Processing Nanopore reads', reads_observed:8500, output_bytes:42*1024**2,
+          heartbeats:[Date.now()/1000-13*3600], phase:'Processing Nanopore reads', reads_observed:8500, output_bytes:42*1024**2,
           phase_since:sampled, last_progress_at:sampled, active_s:200, paused_s:53},
         system_memory:{ram_used_bytes:40*gib, ram_total_bytes:50*gib, swap_used_bytes:90*gib,
           swap_total_bytes:100*gib, sampled_at:sampled}};
       const points = [{start_s:0, end_s:2, observed:1, unavailable:0, cpu_s:2,
         rss_peak_mb:2048, observed_network_s:2, observed_tx_s:2, rx_bytes:1024, tx_bytes:512}];
       acceptanceRender({id:'resource-layout-fixture', ok:true, keep_modal:true,
-        usage:{id:progressJob.id, summary, points}});
+        usage:{id:progressJob.id, summary, points, launcher_pulse:{observed_at:Date.now()/1000-1,expires_at:Date.now()/1000+29}}});
     }''')
     dialog = page.get_by_role('dialog', name='Resource use & progress')
     memory = dialog.get_by_role('region', name='System memory')
@@ -332,6 +332,8 @@ def test_resource_dialog_fits_viewport_and_separates_swap_from_disk(progress_pag
     footer = dialog.locator('.modal-foot')
     expect(dialog.get_by_role('region', name='Monitoring cycle')).to_contain_text('8,500 read results observed')
     expect(dialog.get_by_role('region', name='Monitoring cycle')).to_contain_text('Kraken2 output · 42 MiB')
+    expect(dialog.get_by_role('region', name='Monitoring cycle')).to_contain_text('Windows launcher pulse')
+    expect(dialog.get_by_role('region', name='Monitoring cycle')).not_to_contain_text('13h')
     for width, height, chart_rows in [(1536, 864, 1), (1366, 768, 1), (1280, 720, 1), (390, 844, 4), (320, 568, 4)]:
         page.set_viewport_size({'width': width, 'height': height})
         assert charts.evaluate_all('nodes => new Set(nodes.map(n => n.offsetTop)).size') == chart_rows
@@ -346,6 +348,11 @@ def test_resource_dialog_fits_viewport_and_separates_swap_from_disk(progress_pag
         for name in ('Close', 'Refresh', 'CSV', 'JSON', 'Download record (ZIP)'):
             expect(footer.get_by_role('button', name=name, exact=True)).to_be_in_viewport(ratio=1)
 
+    # An open monitor must age a delayed response locally while the next fetch is pending.
+    page.evaluate("progressState.usage.launcher_pulse.expires_at = Date.now()/1000 + .25")
+    page.clock.fast_forward(1001)
+    expect(dialog.get_by_role('region', name='Monitoring cycle')).to_contain_text('Last pulse recorded with job')
+    expect(dialog.get_by_role('region', name='Monitoring cycle')).to_contain_text('13h')
     details = dialog.get_by_role('button', name='Measurement details')
     details.click()
     expect(dialog.get_by_role('heading', name='Measurement scope & provenance')).to_be_visible()

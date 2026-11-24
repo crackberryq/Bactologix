@@ -140,6 +140,27 @@ def _owner_record(path, owner):
     return record
 
 
+def displayed_launcher_pulse(store, job_id):
+    """Read the running job's owner observation in one nonblocking local snapshot."""
+    try:
+        with store.connect(timeout=0) as db:
+            row = db.execute(
+                "SELECT s.body FROM jobs j JOIN items o ON o.kind='job_owners' AND o.id=j.id "
+                "JOIN items s ON s.kind='desktop_sessions' AND s.id=json_extract(o.body,'$') "
+                "WHERE j.id=? AND j.status='running' AND j.cancel=0", (job_id,)
+            ).fetchone()
+        session = json.loads(row[0]) if row else None
+        if not isinstance(session, dict) or session.get('phase') != 'ready' or session.get('cancelled'):
+            return None
+        stamp = session.get('launcher_heartbeat')
+        if _timestamp(stamp) and 0 <= time.time() - stamp < LEASE_SECONDS:
+            return {'observed_at': stamp, 'expires_at': stamp + LEASE_SECONDS}
+    except (sqlite3.Error, OSError, ValueError, TypeError):
+        # Optional display data must never delay or change supervision.
+        return None
+    return None
+
+
 def _pulse_covers(pulse, recorded):
     # The observer either sampled the continuous lease or re-established
     # the same owner independently after an interruption to local polling.
@@ -344,7 +365,8 @@ class Session:
                         reason = reason or expired
                     cancelled = terminal or selected in {'stopping', 'stopped'}
                     value = dict(previous, phase=selected, last_seen=time.time(), reason=reason,
-                                 cancelled=cancelled, supervisor=self.supervisor)
+                                 cancelled=cancelled, supervisor=self.supervisor,
+                                 launcher_heartbeat=self.heartbeat_wall)
                     db.execute("INSERT INTO items VALUES ('desktop_sessions',?,?) ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body",
                                (self.key, json.dumps(value)))
                     if cancelled:

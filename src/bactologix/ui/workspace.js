@@ -345,6 +345,12 @@ function refreshProgress(){
  // Only the small indicators change when a connection stops delivering snapshots.
  for(const node of $$('[data-run-progress]')){const r=runBy(node.dataset.runProgress),j=latestRunJob(r);if(r&&j&&node.dataset.progressState!==runProgressStatus(j))node.outerHTML=runProgress(r,node.dataset.compact==='true');}
  for(const node of $$('[data-job-progress]')){const j=node.closest('.usage-detail')&&U.usage?.id===node.dataset.jobProgress?usageJob(U.usage):S.jobs.find(j=>j.id===node.dataset.jobProgress);if(j&&node.dataset.live!==String(progressFresh(j))){node.outerHTML=jobTelemetry(j);}}
+ for(const node of $$('[data-monitor-pulse]')){
+  const usage=U.usage;
+  if(usage?.summary.job_status==='running'){
+   node.innerHTML=monitorPulse(usage.summary,usage.launcher_pulse,Date.now());
+  }
+ }
  for(const node of $$('[data-disk-safety]')){
   const j=S.jobs.find(row=>row.id===node.dataset.diskSafety);
   if(j&&node.dataset.connectionFresh!==String(diskConnectionFresh()))node.outerHTML=diskSafetyPanel(j);
@@ -787,21 +793,30 @@ function monitorAge(stamp,reference){
  const seconds=(reference-Date.parse(stamp))/1000;
  return Number.isFinite(seconds)?usageDuration(Math.max(0,seconds))+' ago':'Unavailable';
 }
-function monitorCycle(t){
- const c=t.monitor_cycle;
- if(!c)return '';
- const reference=t.job_status==='running'?Date.now():Date.parse(c.sampled_at);
- const beats=(c.heartbeats||[]).filter(Number.isFinite),end=reference/1000;
+function monitorPulse(t,launcherPulse,reference){
+ const beats=(t.monitor_cycle?.heartbeats||[]).filter(Number.isFinite),end=reference/1000;
  const peaks=beats.filter(stamp=>stamp<=end&&stamp>end-60).map(stamp=>{
   const x=(60+stamp-end)*4;
   return `<path d="M ${x-2} 15 l 1 -3 1 3 1 -10 1 10"/>`;
  }).join('');
- const pulse=beats.length?`<div class="usage-pulse"><span>Last desktop pulse · ${e(monitorAge(new Date(beats.at(-1)*1000).toISOString(),reference))}</span><svg width="240" height="20" viewBox="0 0 240 20" aria-label="Observed desktop pulses over 60 seconds" role="img" fill="none" stroke="currentColor">${peaks}</svg></div>`:'';
- return `<section class="usage-phase" aria-label="Monitoring cycle"><h3>Observed activity</h3><strong>${e(c.phase||'Awaiting task')}</strong>
+ const currentPulse=t.job_status==='running'&&Number.isFinite(launcherPulse?.observed_at)
+  &&reference>=launcherPulse.observed_at*1000&&reference<launcherPulse.expires_at*1000;
+ const pulseAt=currentPulse?launcherPulse.observed_at:beats.at(-1);
+ const pulseLabel=currentPulse?'Windows launcher pulse':'Last pulse recorded with job';
+ const chart=peaks?`<svg width="240" height="20" viewBox="0 0 240 20" aria-label="Pulses recorded with this job over 60 seconds" role="img" fill="none" stroke="currentColor">${peaks}</svg>`:'';
+ return Number.isFinite(pulseAt)?`<span>${pulseLabel} · ${e(monitorAge(new Date(pulseAt*1000).toISOString(),reference))}</span>${chart}`:'';
+}
+function monitorCycle(t,launcherPulse){
+ const c=t.monitor_cycle;
+ const reference=t.job_status==='running'?Date.now():Date.parse(c?.sampled_at);
+ const content=monitorPulse(t,launcherPulse,reference);
+ if(!c&&!content)return '';
+ const pulse=`<div class="usage-pulse" data-monitor-pulse>${content}</div>`;
+ return `<section class="usage-phase" aria-label="Monitoring cycle"><h3>Observed activity</h3>${c?`<strong>${e(c.phase||'Awaiting task')}</strong>
   ${Number.isFinite(c.reads_observed)?`<span>${e(usageNumber(c.reads_observed,0))} read results observed</span>`:''}
   ${Number.isFinite(c.output_bytes)?`<span>Kraken2 output · ${e(storageBytes(c.output_bytes))}</span>`:''}
   <span>Last progress · ${e(monitorAge(c.last_progress_at,reference))}</span>
-  <span>Active ${e(usageDuration(c.active_s))} · Storage paused ${e(usageDuration(c.paused_s))}</span>${pulse}</section>`;
+  <span>Active ${e(usageDuration(c.active_s))} · Storage paused ${e(usageDuration(c.paused_s))}</span>`:''}${pulse}</section>`;
 }
 function usageCapacity(t,disk){
  const memory=t.system_memory,volumes=disk?.volumes||[];
@@ -844,7 +859,7 @@ function usageDetail(data){
  if(details)return `<div class="usage-detail">${controls}${usageDiagnostics(data,disk)}</div>`;
  const networkHistory=data.points.some(p=>p.observed_network_s>0||p.observed_tx_s>0)
   ?usageChart(data.points,'rx_bytes','Download rate','')+usageChart(data.points,'tx_bytes','Upload rate',''):'';
- return `<div class="usage-detail">${controls}<div class="usage-status"><section aria-label="Job progress"><h3>Job progress</h3>${jobTelemetry(j)}</section>${monitorCycle(t)}</div>
+ return `<div class="usage-detail">${controls}<div class="usage-status"><section aria-label="Job progress"><h3>Job progress</h3>${jobTelemetry(j)}</section>${monitorCycle(t,data.launcher_pulse)}</div>
   ${t.partial_process_tree||t.progress?.log_gap?`<p class="usage-warning">${[t.partial_process_tree?'CPU and RAM cover only the observed processes.':'',t.progress?.log_gap?'Some log output was skipped. Task counts and steps may be incomplete.':''].filter(Boolean).join(' ')}</p>`:''}
   ${usageCapacity(t,disk)}<div class="usage-charts">${usageChart(data.points,'cpu','CPU use (%)','%')}${usageChart(data.points,'ram','Sampled RAM (MiB)','MiB')}${networkHistory}</div></div>`;
 }

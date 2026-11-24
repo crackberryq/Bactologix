@@ -148,9 +148,13 @@ class Context:
         disk = self.disk_guard.record if self.disk_guard else {}
         beat = None
         if self.verified_desktop:
-            from .desktop import _lease_records
-            proof, pulse = _lease_records(self.store, self.verified_desktop[0])
-            beat = pulse.get('heartbeat') or proof.get('heartbeat')
+            from .desktop import _lease_records, _timestamp
+            owner, session = self.verified_desktop
+            proof, pulse = _lease_records(self.store, owner)
+            if not (proof.get('stopping') or pulse.get('stopping')):
+                observed = (session.get('launcher_heartbeat'), pulse.get('heartbeat'), proof.get('heartbeat'))
+                now = time.time()
+                beat = max((stamp for stamp in observed if _timestamp(stamp) and stamp <= now), default=None)
         return disk, beat
 
     def observation_warning(self):

@@ -395,9 +395,9 @@ def test_recorded_evidence_cannot_follow_changed_reviewed_decision(fixture):
 @pytest.mark.parametrize('matched', [True, False])
 def test_integrated_basis_companion_is_bound_to_the_saved_screening_snapshot(fixture, matched):
     import os
-    source = os.environ.get('BACTOLOGIX_BASIS_SOURCE')
-    if not source or 'matching_screening_snapshot' not in (Path(source)/'workflow/vendor/basis/report_review.py').read_text():
-        pytest.skip('Matching BaSIS renderer supplied by integration CI')
+    source = os.environ.get('BACTOLOGIX_BASIS_REPORT_SOURCE')
+    if not source:
+        pytest.skip('BaSIS report renderer supplied by integration CI')
     store, run, _, _ = fixture
     run['tool'] = 'basis'
     store.put('runs',run['id'],run)

@@ -908,7 +908,10 @@ def dispatch(store, kind, p):
         store.cancel(p["id"])
         return {"message": "Stop requested. The job log will be retained."}
     if kind == "job_metrics":
-        return {"usage": telemetry.inspect(store, p.get("id")), "keep_modal": True}
+        usage = telemetry.inspect(store, p.get("id"))
+        if usage['summary']['job_status'] == 'running':
+            usage['launcher_pulse'] = desktop.displayed_launcher_pulse(store, usage['id'])
+        return {"usage": usage, "keep_modal": True}
     if kind == "support_preview":
         return {"support": support.preview(store, p.get("job_id"), p.get("include_log", False)), "keep_modal": True}
     if kind == "download_support":
