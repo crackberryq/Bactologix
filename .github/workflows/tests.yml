@@ -161,6 +161,8 @@ jobs:
       - name: Native Windows storage capacity and WSL configuration parsing
         shell: powershell
         run: python tests/check_windows_disk_capacity.py
+      - name: Print an HTML report with native Windows Edge and PowerShell
+        run: python tests/test_print_reports.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

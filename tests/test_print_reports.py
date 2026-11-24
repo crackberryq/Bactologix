@@ -1,6 +1,8 @@
 import csv
 import importlib.util
 import io
+import os
+import shutil
 from pathlib import Path
 import tempfile
 import unittest
@@ -48,6 +50,32 @@ class ReportPrintingTests(unittest.TestCase):
             self.assertIn(b'<details><summary>Evidence files', view)
             unexpected = b'<table id="finding-table"><tbody><tr><td>no group</td></tr></tbody></table>'
             self.assertEqual(export.compact_screening(unexpected), (unexpected, 0))
+
+    @unittest.skipUnless(os.name == "nt", "Requires the native Windows Edge browser")
+    def test_windows_edge_prints_a_complete_report_from_the_local_server(self):
+        roots = (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles"))
+        candidates = [Path(root) / "Microsoft/Edge/Application/msedge.exe" for root in roots if root]
+        edge = next((path for path in candidates if path.is_file()), None)
+        self.assertIsNotNone(edge, "Microsoft Edge is required on the Windows desktop runner")
+        powershell = shutil.which("powershell.exe")
+        self.assertIsNotNone(powershell)
+        with tempfile.TemporaryDirectory(prefix="Bactologix PDF check ") as tmp:
+            root = Path(tmp)
+            run = "run-windows-print"
+            report = root / "runs" / run / "outputs" / "sample" / "report.html"
+            report.parent.mkdir(parents=True)
+            report.write_text("<html><title>Report</title><h1>Polishing trajectory</h1>"
+                              '<svg width="100" height="20"><circle cx="10" cy="10" r="5"/></svg></html>')
+            # Windows runs both ends of the same loopback request. Its paths are already native.
+            with patch.object(export, "win_path", side_effect=str), patch.object(export, "POWERSHELL", powershell):
+                status = export.run_export(root / "runs", root, [run], None, [edge], 90)
+            self.assertEqual(status, 0)
+            with zipfile.ZipFile(next(root.glob("Bactologix-PDF-*.zip"))) as archive:
+                rows = export.old_inventory(archive)
+                self.assertEqual([row["Status"] for row in rows], ["OK"])
+                pdf = archive.read(rows[0]["PDF in ZIP"])
+                self.assertTrue(pdf.startswith(b"%PDF-"))
+                self.assertIn(b"%%EOF", pdf[-1024:])
 
     def test_retry_reuses_valid_pdf_and_reprints_missing_pdf(self):
         pdf = b"%PDF-1.4\n" + b" " * 250 + b"%%EOF"
