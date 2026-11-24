@@ -34,6 +34,7 @@ HYBAS_PROFILES = {
     'f47fbae507244f2c0473d0610942d4fcf34f850b': 'hybas10',
     'a7db21be069ed69aed1bc826928fef6d35c4e01a': 'hybas10',
     '321cbc4dde6de0d2249a48cbcba2c5b1041909a3': 'hybas10',
+    '92bf128b99f89913a7ccb33d9d9c90df9ec80af3': 'hybas10',
 }
 
 

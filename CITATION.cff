@@ -3,8 +3,8 @@ message: "Please cite Bactologix and the pipelines, tools and databases used."
 type: software
 license: MIT
 title: Bactologix
-version: 0.1.0a138.dev3
-date-released: 2026-11-20
+version: 0.1.0a139.dev1
+date-released: 2026-11-24
 repository-code: "https://github.com/crackberryq/Bactologix"
 authors:
   - family-names: Goldstein

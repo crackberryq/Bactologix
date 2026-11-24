@@ -26,7 +26,7 @@ from . import databases, updates, hardware, methods, telemetry, support, worksta
 from . import setup_state, assessment, compute_memory
 from . import isolate_actions
 from . import desktop, trajectory_preview
-from . import reference_catalog
+from . import reference_catalog, basis_catalog_builder
 from . import database_builder, followup, maintenance, database_runs, run_config, run_revisions, default_config, installations, readiness
 
 _SNAPSHOTS = {}
@@ -225,6 +225,7 @@ def snapshot(store, *, cached=False):
             "databases": {t: databases.panel(store, t) for t in PIPELINES},
             "reference_databases": reference_catalog.choices(store),
             "environments": {i["id"]: maintenance.environment_panel(store, i, jobs) for i in store.all("installs")},
+            "basis_catalog_builder": basis_catalog_builder.panel(store),
             "database_builder": {"available": database_builder.available(store), "starter": database_builder.starter(store), "builds": store.all("database_builds")},
             "database_downloads": [{**d, "job_status": next((j["status"] for j in jobs if j["id"] == d.get("job")), d.get("status"))}
                                    for d in store.all("database_downloads")],
@@ -455,6 +456,14 @@ def dispatch(store, kind, p):
         return {'uninstall_plan': installations.uninstall_plan(store, p.get('id')), 'keep_modal': True}
     if kind == 'uninstall_version':
         return {'message': installations.uninstall(store, p.get('id'), p.get('signature')), 'navigate': 'install'}
+    if kind == 'basis_catalog_doi':
+        return {'download': basis_catalog_builder.citation_draft(store, p.get('doi')), 'keep_modal': True}
+    if kind == 'basis_catalog_template':
+        return {'download': basis_catalog_builder.template(store), 'keep_modal': True}
+    if kind == 'basis_catalog_job':
+        payload = basis_catalog_builder.request(store, p.get('action'), p.get('spec'), p.get('id'))
+        jid = enqueue(store, 'basis_catalog', payload)
+        return {'message': 'BaSIS catalog ' + payload['action'] + ' queued. View progress in Jobs.', 'job': jid}
     if kind == "validate_reference_spec":
         spec, assets = database_builder.validate(store, p.get("spec"))
         return {"message": f"Input structure checked: {len(spec['proteins'])} protein records, {len(assets)} local files. Full sequence checks run in Database Builder."}
@@ -816,7 +825,7 @@ def dispatch(store, kind, p):
         raise ValueError("Independent polishing clones have been replaced. Open a completed run and choose Create variant to reuse results.")
     if kind == "create_followup":
         followup.create_followup(store, p.get("id"), p["text"], p.get("reviewed") is True,
-                                 p.get('source_id', 'screening'), p.get('scope'))
+                                 p.get('source_id', 'screening'), p.get('scope'), p.get('catalog_id'))
         return {"message": "Created a reviewed follow-up draft. Check its native dry-run before execution.", "navigate": "runs"}
     if kind in {"update_run_draft", "revise_run"}:
         in_place = kind == "update_run_draft"

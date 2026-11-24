@@ -13,7 +13,7 @@ import threading
 import time
 import uuid
 
-ACTIONS = frozenset({'scan_databases', 'check_database', 'edit_run_settings',
+ACTIONS = frozenset({'basis_catalog_doi', 'scan_databases', 'check_database', 'edit_run_settings',
                      'factory_reset_preview', 'database_redownload_preview', 'recommend_swap',
                      'inspect_storage', 'inspect_storage_cleanup', 'scan_storage', 'preview_storage_cleanup'})
 MAX_ACTIVE_PER_WORKSPACE = 2

@@ -133,7 +133,7 @@ def screening_sources(output):
 
 
 @mutation
-def create_followup(store, parent_id, text, reviewed=False, source_id='screening', scope=None):
+def create_followup(store, parent_id, text, reviewed=False, source_id='screening', scope=None, catalog_id=None):
     parent = store.get("runs", parent_id)
     if not parent or not available(parent, store):
         raise ValueError("Choose a screening run using the BaSIS AWARE follow-up adapter")
@@ -186,13 +186,17 @@ def create_followup(store, parent_id, text, reviewed=False, source_id='screening
     receipts = cfg.get("resource_receipts", [])
     if not isinstance(receipts, list) or any(not isinstance(p, str) for p in receipts):
         raise ValueError("resource_receipts must be a list of absolute file paths")
+    catalog_sources = []
+    if catalog_id:
+        from .basis_catalog_builder import select_registry
+        catalog_sources = select_registry(store, catalog_id, cfg['deep'])
     cfg = bind_paths(cfg, "basis", store, {})
     cfg.pop("resources", None)
     cfg["resource_receipts"] = [str(absolute_path(p)) for p in receipts]
     if any(not Path(p).is_file() for p in cfg["resource_receipts"]):
         raise ValueError("A selected resource receipt is missing")
     cfg.update(isolate=parent["output"], threads=parent["cores"], memory_mb=parent["memory_mb"])
-    sources = screening_sources(parent["output"])
+    sources = screening_sources(parent["output"]) + catalog_sources
     sources.extend({"path": p, "sha256": hashlib.sha256(Path(p).read_bytes()).hexdigest()} for p in cfg["resource_receipts"])
     rid = identifier("run")
     folder = store.home / "runs" / rid
@@ -226,6 +230,8 @@ def create_followup(store, parent_id, text, reviewed=False, source_id='screening
                       'scope': effective_aware.get('scope', 'all-supported'),
                       'aware_enabled': effective_aware.get('enabled', False),
                       'selection': source_id, 'release_contract': contract}
+        if catalog_id:
+            transition['reference_catalog'] = {'build': catalog_id, 'sources': catalog_sources}
         encoded = json.dumps(transition, indent=2) + '\n'
         (folder / 'followup-transition.json').write_text(encoded)
         run['followup_transition'] = transition

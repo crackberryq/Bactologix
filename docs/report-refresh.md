@@ -29,3 +29,15 @@ It does not apply a new reference database or analysis threshold, predict featur
 generate trees, install environments, or run a Snakemake workflow. Missing source
 artifacts can leave panels unavailable. The report shows its saved evidence scope;
 refreshing does not make an incomplete analysis complete.
+
+For a full BaSIS run, use **Regenerate report** on the safety report to link
+the saved DeepSafe review outcomes. The edition includes a follow-up page when
+the sample, configuration, and screening source hashes match. A different
+follow-up that owns the output has its own regeneration button. To refresh
+only the DeepSafe page, use the button next to **Follow-up report**.
+
+With a HybAs renderer that supports the edit-density link, regenerating
+**Polishing trajectory** also renders the validation page from retained
+measurements when available. The link opens the edit-density section for
+the same edition. **HybAs research report** regenerates the research page
+and its available trajectory and validation companions together.

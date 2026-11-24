@@ -3215,7 +3215,7 @@ def test_hybas_report_links_stay_with_the_current_run_and_edition(tmp_path, edit
     research = ("<html data-hybas-report='research'><body><nav style='position:fixed;top:0'>"
                 "<a href='#polishing'>Polishing summary</a></nav><div style='height:120vh'></div>"
                 "<section id='polishing'><h2>Polishing summary</h2>"
-                "<a href='../polishing_trajectory/index.html'>Explore trajectory</a>"
+                "<a href='../polishing_trajectory/index.html#stages'>Explore trajectory</a>"
                 "<a href='../polishing_validation/index.html'>Review validation</a></section></body></html>")
     records = [
         ('native-research', 'HybAs research report', 'run-1', None, 'research'),
@@ -3227,7 +3227,7 @@ def test_hybas_report_links_stay_with_the_current_run_and_edition(tmp_path, edit
     ]
     for rid, name, run, job, target in records:
         path = tmp_path / (rid + '.html')
-        path.write_text(research if target == 'research' else f"<html data-hybas-report='{target}'><h1>{rid}</h1></html>")
+        path.write_text(research if target == 'research' else f"<html data-hybas-report='{target}'><h1>{rid}</h1><div style='height:150vh'></div><h2 id='stages'>Stage table</h2></html>")
         store.put('reports', rid, dict(id=rid, name=name, run=run, path=str(path), sample='fixture',
                                       refresh=bool(job), producing_job=job, report_target=target))
     with sync_playwright() as p:
@@ -3261,5 +3261,5 @@ def test_hybas_report_links_stay_with_the_current_run_and_edition(tmp_path, edit
         page.evaluate('id=>window.acceptanceRender({id,ok:true,keep_modal:true})', folder['id'])
         frame.get_by_role('link', name='Explore trajectory', exact=True).click()
         reply('open_report', prefix + 'trajectory')
-        expect(frame.get_by_role('heading', name=prefix + 'trajectory')).to_be_visible()
+        expect(frame.get_by_role('heading', name='Stage table')).to_be_in_viewport()
         browser.close()

@@ -100,7 +100,7 @@ def configure(store, run, install, plan):
     if target == 'research' and not saved:
         plan['notes'].append('Validation measurements are unavailable. Use Regenerate report next to Polishing validation to measure them, then regenerate this research report to include them.')
     paths = retained + list(trajectory.glob('*.tsv')) + list(trajectory.glob('*.json')) + [trajectory / 'trajectory.svg']
-    if target in ('validation', 'research') and saved:
+    if saved:
         paths.extend(validation.glob('*.tsv'))
         paths.extend(validation.glob('*.json'))
     if target == 'research':
@@ -127,14 +127,18 @@ def render(ctx, run, plan, edition, runner):
             raise ValueError('The renderer did not produce ' + str(path))
         pages[name] = path
 
-    if target in ('research', 'trajectory') and plan['trajectory']:
-        command('trajectory', 'polishing_trajectory.py', ['--render-from', plan['trajectory'], '--out',
-                                                         edition / 'polishing_trajectory'])
-    if target in ('research', 'validation') and (plan['validation'] or plan['mode'] == 'measure-validation'):
+    wants_atlas = (target == 'trajectory' and plan['validation']
+                   and b'--validation-dir' in (scripts / 'polishing_trajectory.py').read_bytes())
+    if (target in ('research', 'validation') or wants_atlas) and (plan['validation'] or plan['mode'] == 'measure-validation'):
         args = ['--isolate-dir', iso, '--out', edition / 'polishing_validation']
         if plan['validation']:
             args += ['--render-only', '--tables', plan['validation']]
         command('validation', 'polishing_validation.py', args, plan.get('validation_env'))
+    if target in ('research', 'trajectory') and plan['trajectory']:
+        args = ['--render-from', plan['trajectory'], '--out', edition / 'polishing_trajectory']
+        if 'validation' in pages and b'--validation-dir' in (scripts / 'polishing_trajectory.py').read_bytes():
+            args += ['--validation-dir', pages['validation'].parent]
+        command('trajectory', 'polishing_trajectory.py', args)
     if target == 'research':
         args = ['--base-dir', iso.parent, '--isolate', iso.name, '--outdir', edition / 'hybas_research',
                 '--audit-from', iso / 'reports/hybas_research',

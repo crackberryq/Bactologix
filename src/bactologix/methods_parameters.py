@@ -27,6 +27,7 @@ HYBAS_DEV = frozenset({
     'f47fbae507244f2c0473d0610942d4fcf34f850b',
     'a7db21be069ed69aed1bc826928fef6d35c4e01a',
     '321cbc4dde6de0d2249a48cbcba2c5b1041909a3',
+    '92bf128b99f89913a7ccb33d9d9c90df9ec80af3',
 })
 GENESCOPE = frozenset({
     'af9502c3040258a69b1efc662a6f11b95e46b729',
@@ -42,6 +43,7 @@ BASIS = frozenset({
     '749e178cc8c1f74b1997e11eca0a624822f92aee',
     '7c293d36a633a726424d544c6ffc39824537ebe4',
     '98908fd64d078df1af8e254b2f4490a13095d95b',
+    '86c533e048e4019be73b47ab6ee97e90cf779528',
 })
 CONFIG = 'effective saved/source-matched configuration'
 FIXED = 'reviewed workflow argument'

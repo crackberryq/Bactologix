@@ -390,3 +390,48 @@ def test_recorded_evidence_cannot_follow_changed_reviewed_decision(fixture):
     run['identification']={'decision_sha256':'new-decision'};store.put('runs',run['id'],run)
     plan=r.inspect(store,run['id'])
     assert not plan['available'] and 'different run, source or configuration' in plan['reasons'][0]
+
+
+@pytest.mark.parametrize('matched', [True, False])
+def test_integrated_basis_companion_is_bound_to_the_saved_screening_snapshot(fixture, matched):
+    import os
+    source = os.environ.get('BACTOLOGIX_BASIS_SOURCE')
+    if not source or 'matching_screening_snapshot' not in (Path(source)/'workflow/vendor/basis/report_review.py').read_text():
+        pytest.skip('Matching BaSIS renderer supplied by integration CI')
+    store, run, _, _ = fixture
+    run['tool'] = 'basis'
+    store.put('runs',run['id'],run)
+    install = dict(store.get('installs','renderer'), tool='basis', source=source)
+    store.put('installs','renderer',install)
+    store.put('settings','active-basis','renderer')
+    safety = Path(run['output'])/'safety'
+    deep = safety/'deepsafe-report'
+    deep.mkdir(parents=True)
+    def snapshot(view, config_sha):
+        header = dict(version='original', report_view=view,
+                      report_inputs={'sample': {'sha256':'a'*64}, 'config': {'sha256':config_sha}},
+                      options={'deep':view=='deep'}, evidence_sources=[{'module':'qc', 'sha256':'b'*64}])
+        if view == 'deep':
+            header['evidence_sources'].append({'module':'deepsafe', 'sha256':'d'*64})
+        return dict(schema_version='basis-report-1', run=header, samples=[],records=[],deep_records=[])
+    (safety/'evidence.json').write_text(json.dumps(snapshot('screening','c'*64)))
+    (deep/'evidence.json').write_text(json.dumps(snapshot('deep',('c' if matched else 'e')*64)))
+    plan = r.inspect(store,run['id'])
+    assert plan['available'] and plan['inputs_sha256'] == r.digest(deep/'evidence.json')[1]
+    r.execute(context(store,plan,'paired'))
+    record=store.get('report_refreshes','paired')
+    assert record['followup_linked'] is matched
+    companion=store.get('reports','paired-deep')
+    assert bool(companion) is matched
+    if matched:
+        assert Path(companion['path']).is_file()
+        assert Path(companion['path']).parent.parent == Path(record['path']).parent
+        hashes=json.loads((Path(companion['path']).parent/'report-navigation.json').read_text())
+        assert hashes['report_sha256'] == r.digest(companion['path'])[1]
+    deep_plan = r.inspect(store,run['id'],target='deep')
+    assert deep_plan['available'] and deep_plan['evidence'] == str(deep/'evidence.json')
+    r.execute(context(store,deep_plan,'only-deep'))
+    assert store.get('reports','only-deep')['report_target'] == 'deep'
+    store.put('followup_output_owner',run['id'],'child')
+    assert 'companion_evidence' not in r.inspect(store,run['id'])
+    assert not r.inspect(store,run['id'],target='deep')['available']

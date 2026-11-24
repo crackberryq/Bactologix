@@ -98,7 +98,7 @@ def enqueue_workflows(store, payloads):
 def enqueue(store, kind, payload):
     if kind == "workflow":
         return enqueue_workflows(store, [payload])[0]
-    if kind not in {"install", "connect", "bootstrap", "check", "smoke", "workstation", "app_update", "environments", "database_download", "database_redownload", "database_build", "report_refresh", "storage_cleanup", "factory_reset", "isolate_export"}:
+    if kind not in {"install", "connect", "bootstrap", "check", "smoke", "workstation", "app_update", "environments", "database_download", "database_redownload", "database_build", "basis_catalog", "report_refresh", "storage_cleanup", "factory_reset", "isolate_export"}:
         raise ValueError("Unknown operation")
     _check_queue_platform(store)
     jid = store.submit(kind, payload)
@@ -114,7 +114,7 @@ class Context:
         self.cancel_reason = None
         self.verified_desktop = None
         self.setup_control = (job['kind'] in {'install', 'connect', 'bootstrap', 'environments',
-                                              'database_download', 'database_redownload', 'database_build'} or
+                                              'database_download', 'database_redownload', 'database_build', 'basis_catalog'} or
                               (job['kind'] == 'check' and (job['payload'].get('setup') or job['payload'].get('repair'))))
         if job['kind'] == 'report_refresh' and job['payload'].get('mode') == 'measure-validation':
             self.setup_control = True
@@ -905,6 +905,9 @@ def execute(ctx):
     elif kind == "workflow":
         from .runs import execute_workflow
         execute_workflow(ctx)
+    elif kind == "basis_catalog":
+        from .basis_catalog_builder import execute as execute_catalog
+        execute_catalog(ctx)
     elif kind == "database_build":
         from .database_builder import execute as build_database
         build_database(ctx)
