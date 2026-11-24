@@ -1,4 +1,8 @@
-# Bactologix 0.1.0a138.dev3 — Experimental development
+# Bactologix 0.1.0a139.dev1 — Experimental development
+
+For the November 24 Dev update, select **Regenerate report** on a completed HybAs or BaSIS run. Bactologix saves a new report edition using the selected renderer. See [report regeneration](docs/report-refresh.md).
+
+Open **Pipelines & databases → Databases & models → BaSIS** to prepare a researcher-curated reference catalog. Download the template, review the local files and use **Check** before **Build**. DOI lookup creates a pending citation draft. A catalog with an approved placement registry can be selected for a new follow-up.
 
 [HybAs manifest inputs](docs/hybas-manifests.md)
 

@@ -34,7 +34,9 @@ def paths(run):
     if run['tool'] == 'hybas':
         return ['reports/hybas/results.json', 'metadata/run_summary.json']
     if run['tool'] == 'basis':
-        return ['safety/deepsafe-report/evidence.json' if run.get('run_type') == 'followup' else 'safety/evidence.json']
+        if run.get('run_type') == 'followup':
+            return ['safety/deepsafe-report/evidence.json']
+        return ['safety/evidence.json', 'safety/deepsafe-report/evidence.json']
     return []
 
 

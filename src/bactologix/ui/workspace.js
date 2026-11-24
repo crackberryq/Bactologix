@@ -12,7 +12,7 @@ const $=s=>root.querySelector(s), $$=s=>[...root.querySelectorAll(s)];
 const U=root._workspaceState ||= {view:'overview',modal:null,drafts:{},selected:[],tool:'hybas',filter:'',handled:null,pending:null,fields:{}};
 const S=data.workspace;
 U.asyncTasks ||= {};
-const asyncActions=new Set(['scan_databases','check_database','edit_run_settings','factory_reset_preview','database_redownload_preview','recommend_swap','inspect_storage','inspect_storage_cleanup','scan_storage','preview_storage_cleanup']);
+const asyncActions=new Set(['basis_catalog_doi','scan_databases','check_database','edit_run_settings','factory_reset_preview','database_redownload_preview','recommend_swap','inspect_storage','inspect_storage_cleanup','scan_storage','preview_storage_cleanup']);
 const storageActions=new Set(['inspect_storage','inspect_storage_cleanup','scan_storage','preview_storage_cleanup']);
 U.storageLoads ||= {};
 const wizardKey='bactologix:run-editor:v1:'+S.workspace;
@@ -117,6 +117,7 @@ function asyncContext(){return JSON.stringify([U.asyncEpoch||0,U.view,U.runId,U.
 function asyncCurrent(task){
  if(task.cancelled||task.context!==asyncContext())return false;
  const p=task.payload;
+ if(task.kind==='basis_catalog_doi')return p.doi===val('basis-catalog-doi','');
  if(task.kind==='scan_databases')return (p.root||'')===val('dbscan-'+p.tool,'');
  if(task.kind==='check_database')return p.path===val(dbPath(p.tool,p.id),S.databases[p.tool]?.rows.find(r=>r.id===p.id)?.path||'');
  if(task.kind==='recommend_swap')return swapRequestCurrent(task.origin?.swap);
@@ -127,7 +128,7 @@ function asyncCurrent(task){
 function asyncProgress(){
  const rows=Object.entries(U.asyncTasks).filter(([,task])=>asyncCurrent(task));
  if(!rows.length)return '';
- const labels={scan_databases:'Scanning database folders',check_database:'Checking database location',edit_run_settings:'Opening saved run settings',factory_reset_preview:'Reviewing workspace reset',database_redownload_preview:'Reviewing database download',recommend_swap:'Reviewing RAM and swap',inspect_storage:'Loading registered storage locations',inspect_storage_cleanup:'Checking cleanup candidates',scan_storage:'Measuring registered storage',preview_storage_cleanup:'Reviewing selected cleanup paths'};
+ const labels={basis_catalog_doi:'Looking up Crossref citation',scan_databases:'Scanning database folders',check_database:'Checking database location',edit_run_settings:'Opening saved run settings',factory_reset_preview:'Reviewing workspace reset',database_redownload_preview:'Reviewing database download',recommend_swap:'Reviewing RAM and swap',inspect_storage:'Loading registered storage locations',inspect_storage_cleanup:'Checking cleanup candidates',scan_storage:'Measuring registered storage',preview_storage_cleanup:'Reviewing selected cleanup paths'};
  return `<section class="async-checks" aria-label="Background checks">${rows.map(([id,task])=>`<div class="async-check" role="status"><div><strong>${e(labels[task.kind]||'Checking saved information')}</strong><span class="secondary-line">${task.progress?e(task.progress.stage)+' · '+e(Number(task.progress.entries||0).toLocaleString())+' entries checked · '+e(task.progress.elapsed_seconds)+'s elapsed':'You can continue using the workspace.'}</span>${task.progress?.path?`<span class="secondary-line path-cell">${e(task.progress.path)}</span>`:''}<span class="async-check-progress" aria-hidden="true"></span></div>${btn('cancel-ui-task','Cancel check',false,id)}</div>`).join('')}</section>`;
 }
 function request(kind,payload={},background=false,swap=null){
@@ -344,6 +345,12 @@ function refreshProgress(){
  // Only the small indicators change when a connection stops delivering snapshots.
  for(const node of $$('[data-run-progress]')){const r=runBy(node.dataset.runProgress),j=latestRunJob(r);if(r&&j&&node.dataset.progressState!==runProgressStatus(j))node.outerHTML=runProgress(r,node.dataset.compact==='true');}
  for(const node of $$('[data-job-progress]')){const j=node.closest('.usage-detail')&&U.usage?.id===node.dataset.jobProgress?usageJob(U.usage):S.jobs.find(j=>j.id===node.dataset.jobProgress);if(j&&node.dataset.live!==String(progressFresh(j))){node.outerHTML=jobTelemetry(j);}}
+ for(const node of $$('[data-monitor-pulse]')){
+  const usage=U.usage;
+  if(usage?.summary.job_status==='running'){
+   node.innerHTML=monitorPulse(usage.summary,usage.launcher_pulse,Date.now());
+  }
+ }
  for(const node of $$('[data-disk-safety]')){
   const j=S.jobs.find(row=>row.id===node.dataset.diskSafety);
   if(j&&node.dataset.connectionFresh!==String(diskConnectionFresh()))node.outerHTML=diskSafetyPanel(j);
@@ -652,9 +659,9 @@ function outputFilesPanel(id){
  return `<div class="output-browser">${select('output-snapshot','Output location',choices,d.snapshot)}${notice('Files and preserved history',e(d.notice))}${current?`<p class="inline-info">Snapshot record: ${e(current.state)} · run ${e(current.run_id)}. ${e(current.reason)}</p>`:''}${d.unavailable?notice('Folder unavailable',e(d.unavailable)+' Retained snapshots may still be available above.',true):''}${d.partial?notice('Partial directory listing','The listing reached its entry or time limit. Open the folder to see its full contents.',true):''}${d.snapshots_partial?notice('Partial snapshot list','Some histories could not be inspected or the listing reached its limit. Choose Run files & tool history to inspect its output-history directory.',true):''}<div class="output-browser-toolbar"><div class="button-row">${btn('browse-output-folder','Location root',false,'','folder',!d.relative||!!d.unavailable)}${btn('browse-output-folder','Up one folder',false,up,'arrow',!d.relative||!!d.unavailable)}${btn('open-output-folder','Open folder',false,'','external',!!d.unavailable)}</div><p class="path-cell">${e(d.path)}</p></div><div class="output-browser-table"><table><thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Size</th></tr></thead><tbody>${d.rows.map(x=>`<tr><td>${x.kind==='folder'?btn('browse-output-folder',x.name,false,x.relative,'folder'):`<span>${e(x.name)}</span>`}</td><td>${e(({folder:'Folder',file:'File',link:'Link · not followed',special:'Special file',unavailable:'Unavailable'})[x.kind]||x.kind)}</td><td>${e(resultBytes(x.bytes))}</td></tr>`).join('')||'<tr><td colspan="3">No entries available in this directory.</td></tr>'}</tbody></table></div><div class="output-browser-pagination"><span>${d.observed_entries.toLocaleString()} observed entries · Page ${d.page+1} of ${d.pages}</span><div class="button-row">${btn('output-page','Previous',false,String(d.page-1),'',d.page===0)}${btn('output-page','Next',false,String(d.page+1),'',d.page+1>=d.pages)}</div></div><details class="guided-details"><summary>Preserved output snapshots · ${archives.length}${d.snapshots_partial?' listed':''}</summary><p class="inline-info">Snapshots retain files present before an attempt. They do not establish which attempt or tool produced those files.</p>${archives.length?archives.map(x=>`<article class="output-snapshot"><strong>${e(x.attempt)}</strong><p>${e(x.created_at)} · ${e(x.state)}${x.available?'':' · Output copy unavailable'}</p><p class="path-cell">${e(x.path)}</p></article>`).join(''):'<p>No preserved snapshots are recorded yet.</p>'}</details></div>`;
 }
 function regenerateButton(report,runId){
- const target=report.report_target||({'HybAs research report':'research','Polishing trajectory':'trajectory','Polishing validation':'validation','HybAs AWARE report':'standard','Safety report':'standard','Follow-up report':'standard','GeneScope report':'standard'})[report.name]||(report.refresh?'standard':'');
+ const target=report.report_target||({'HybAs research report':'research','Polishing trajectory':'trajectory','Polishing validation':'validation','HybAs AWARE report':'standard','Safety report':'standard','Follow-up report':'deep','GeneScope report':'standard'})[report.name]||(report.refresh?'standard':'');
  const run=runBy(runId);
- if(!target||!run||run.tool==='hybas'&&report.name==='Safety report'||report.name==='Follow-up report'&&run.run_type!=='followup')return '';
+ if(!target||!run||run.tool==='hybas'&&report.name==='Safety report')return '';
  return btn('preview-report-refresh','Regenerate report',false,runId+'|'+target,'clock');
 }
 function runResults(r){
@@ -786,21 +793,30 @@ function monitorAge(stamp,reference){
  const seconds=(reference-Date.parse(stamp))/1000;
  return Number.isFinite(seconds)?usageDuration(Math.max(0,seconds))+' ago':'Unavailable';
 }
-function monitorCycle(t){
- const c=t.monitor_cycle;
- if(!c)return '';
- const reference=t.job_status==='running'?Date.now():Date.parse(c.sampled_at);
- const beats=(c.heartbeats||[]).filter(Number.isFinite),end=reference/1000;
+function monitorPulse(t,launcherPulse,reference){
+ const beats=(t.monitor_cycle?.heartbeats||[]).filter(Number.isFinite),end=reference/1000;
  const peaks=beats.filter(stamp=>stamp<=end&&stamp>end-60).map(stamp=>{
   const x=(60+stamp-end)*4;
   return `<path d="M ${x-2} 15 l 1 -3 1 3 1 -10 1 10"/>`;
  }).join('');
- const pulse=beats.length?`<div class="usage-pulse"><span>Last desktop pulse · ${e(monitorAge(new Date(beats.at(-1)*1000).toISOString(),reference))}</span><svg width="240" height="20" viewBox="0 0 240 20" aria-label="Observed desktop pulses over 60 seconds" role="img" fill="none" stroke="currentColor">${peaks}</svg></div>`:'';
- return `<section class="usage-phase" aria-label="Monitoring cycle"><h3>Observed activity</h3><strong>${e(c.phase||'Awaiting task')}</strong>
+ const currentPulse=t.job_status==='running'&&Number.isFinite(launcherPulse?.observed_at)
+  &&reference>=launcherPulse.observed_at*1000&&reference<launcherPulse.expires_at*1000;
+ const pulseAt=currentPulse?launcherPulse.observed_at:beats.at(-1);
+ const pulseLabel=currentPulse?'Windows launcher pulse':'Last pulse recorded with job';
+ const chart=peaks?`<svg width="240" height="20" viewBox="0 0 240 20" aria-label="Pulses recorded with this job over 60 seconds" role="img" fill="none" stroke="currentColor">${peaks}</svg>`:'';
+ return Number.isFinite(pulseAt)?`<span>${pulseLabel} · ${e(monitorAge(new Date(pulseAt*1000).toISOString(),reference))}</span>${chart}`:'';
+}
+function monitorCycle(t,launcherPulse){
+ const c=t.monitor_cycle;
+ const reference=t.job_status==='running'?Date.now():Date.parse(c?.sampled_at);
+ const content=monitorPulse(t,launcherPulse,reference);
+ if(!c&&!content)return '';
+ const pulse=`<div class="usage-pulse" data-monitor-pulse>${content}</div>`;
+ return `<section class="usage-phase" aria-label="Monitoring cycle"><h3>Observed activity</h3>${c?`<strong>${e(c.phase||'Awaiting task')}</strong>
   ${Number.isFinite(c.reads_observed)?`<span>${e(usageNumber(c.reads_observed,0))} read results observed</span>`:''}
   ${Number.isFinite(c.output_bytes)?`<span>Kraken2 output · ${e(storageBytes(c.output_bytes))}</span>`:''}
   <span>Last progress · ${e(monitorAge(c.last_progress_at,reference))}</span>
-  <span>Active ${e(usageDuration(c.active_s))} · Storage paused ${e(usageDuration(c.paused_s))}</span>${pulse}</section>`;
+  <span>Active ${e(usageDuration(c.active_s))} · Storage paused ${e(usageDuration(c.paused_s))}</span>`:''}${pulse}</section>`;
 }
 function usageCapacity(t,disk){
  const memory=t.system_memory,volumes=disk?.volumes||[];
@@ -843,12 +859,12 @@ function usageDetail(data){
  if(details)return `<div class="usage-detail">${controls}${usageDiagnostics(data,disk)}</div>`;
  const networkHistory=data.points.some(p=>p.observed_network_s>0||p.observed_tx_s>0)
   ?usageChart(data.points,'rx_bytes','Download rate','')+usageChart(data.points,'tx_bytes','Upload rate',''):'';
- return `<div class="usage-detail">${controls}<div class="usage-status"><section aria-label="Job progress"><h3>Job progress</h3>${jobTelemetry(j)}</section>${monitorCycle(t)}</div>
+ return `<div class="usage-detail">${controls}<div class="usage-status"><section aria-label="Job progress"><h3>Job progress</h3>${jobTelemetry(j)}</section>${monitorCycle(t,data.launcher_pulse)}</div>
   ${t.partial_process_tree||t.progress?.log_gap?`<p class="usage-warning">${[t.partial_process_tree?'CPU and RAM cover only the observed processes.':'',t.progress?.log_gap?'Some log output was skipped. Task counts and steps may be incomplete.':''].filter(Boolean).join(' ')}</p>`:''}
   ${usageCapacity(t,disk)}<div class="usage-charts">${usageChart(data.points,'cpu','CPU use (%)','%')}${usageChart(data.points,'ram','Sampled RAM (MiB)','MiB')}${networkHistory}</div></div>`;
 }
 
-function jobLabel(j){return j.kind==='factory_reset'?'Workspace reset':j.kind==='database_redownload'?'Database replacement · '+j.payload.tool+' · '+j.payload.resource:j.kind==='isolate_export'?'Export isolate · '+(j.payload.sample_id||'Copy & verify'):j.kind==='storage_cleanup'?'Storage cleanup':j.kind==='report_refresh'?'Regenerate report · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='database_build'?'Database Builder · '+j.payload.name+' · '+j.payload.version:j.kind==='workflow_unlock'?'Unlock workflow · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='workstation'?'Workstation check':j.kind==='environments'?'Environments · '+j.payload.tool+' · '+j.payload.action:j.kind==='database_download'?'Database · '+j.payload.tool+' · '+j.payload.resource:j.kind==='workflow'?({'dry-run':'Validate run',prepare:'Install environments',run:'Run / resume',continue:'Continue after identification','check-environments':'Check run environments'}[j.payload.action]||j.payload.action)+' · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='install'?S.pipelines[j.payload.tool]?.name+' · '+j.payload.version.ref:j.kind==='app_update'?(j.payload.update_all?'Update Bactologix & all pipelines':'Bactologix → v'+j.payload.release.version):j.kind;}
+function jobLabel(j){if(j.kind==='basis_catalog')return 'BaSIS reference catalog · '+j.payload.action;return j.kind==='factory_reset'?'Workspace reset':j.kind==='database_redownload'?'Database replacement · '+j.payload.tool+' · '+j.payload.resource:j.kind==='isolate_export'?'Export isolate · '+(j.payload.sample_id||'Copy & verify'):j.kind==='storage_cleanup'?'Storage cleanup':j.kind==='report_refresh'?'Regenerate report · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='database_build'?'Database Builder · '+j.payload.name+' · '+j.payload.version:j.kind==='workflow_unlock'?'Unlock workflow · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='workstation'?'Workstation check':j.kind==='environments'?'Environments · '+j.payload.tool+' · '+j.payload.action:j.kind==='database_download'?'Database · '+j.payload.tool+' · '+j.payload.resource:j.kind==='workflow'?({'dry-run':'Validate run',prepare:'Install environments',run:'Run / resume',continue:'Continue after identification','check-environments':'Check run environments'}[j.payload.action]||j.payload.action)+' · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='install'?S.pipelines[j.payload.tool]?.name+' · '+j.payload.version.ref:j.kind==='app_update'?(j.payload.update_all?'Update Bactologix & all pipelines':'Bactologix → v'+j.payload.release.version):j.kind;}
 
 function storageStopPanel(stop){
  const detail=stop.reason||'A monitored drive reached the critical free-space threshold.';
@@ -1370,6 +1386,24 @@ function referenceBuilder(){
  if(starter&&(!Object.hasOwn(U.drafts,'reference-spec')||U.drafts['reference-spec']===referenceTemplate||U.drafts['reference-spec']===U.referenceDefaultText)){setDraft('reference-spec',starter.text);U.referenceDefaultText=starter.text;}
  return `<section class="card"><div class="card-head"><h2>Database Builder</h2>${badge('Snakemake')}</div><div class="card-body"><p>Build a versioned reference database from your YAML or JSON specification. Local FASTA paths refer to this Linux/WSL computer. Input files are copied into the build record.</p>${!b.available?notice('Update GeneScope','Install a release containing Database Builder and finish runner setup.'):''}${starter?`<p><strong>Bundled starter: ${e(starter.name)} ${e(starter.version)}</strong> · ${starter.proteins} protein references · ${starter.literature_records} literature entries</p><p class="path-cell">${e(starter.path)}</p><p>Ready to build. Published regulatory observations are included as evidence; mapped regulatory sequences: ${starter.regulatory}.</p>`:notice('Starter unavailable','Update GeneScope to load the bundled literature starter, or supply your own specification.')}<details id="reference-editor"><summary>Edit or replace reference specification</summary><div class="field"><label for="reference-upload">Load reference specification</label><input id="reference-upload" type="file" accept=".yaml,.yml,.json"></div>${area('reference-spec','Reference specification',starter?.text||referenceTemplate,'rows="16" spellcheck="false"')}${starter?btn('restore-reference-starter','Restore bundled starter'):''}</details>${field('reference-cores','CPU threads',2,'number','min="1"')}${field('reference-memory','Memory (MB)',2048,'number','min="512"')}<div class="button-row">${btn('validate-reference-spec','Validate inputs')}${btn('build-reference','Build database',true,'','play',!b.available)}</div><p>Build checks validate files and identities, not biological claims. Completed packages are registered below. GeneScope uses the selected application package for reference searches and report interpretation.</p><details><summary>Input format</summary><p>Schema 2.0 requires application.id, name, version and description. The name labels the database; id and version name its package. Each local protein needs id, path, record, evidence, references and license. UniProt records instead require accession, taxon_id, sequence_version, sequence_sha256 and curation_status: approved. Regulatory records additionally require accession_version, feature_type, start, end, strand and sequence_sha256; intervals are 1-based inclusive. The checksum is for the transcription-oriented extracted sequence. Use absolute local paths.</p></details></div></section><section class="card"><div class="card-head"><h2>Built databases</h2></div><div class="card-body"><p>Selected application: ${e(row?.application?row.application.name+' · '+row.application.version:'None')}</p><p>${e(row?.application?.description||'')}</p><p class="path-cell">${e(row?.path||'')}</p>${b.builds.map(x=>`<article><strong>${e(x.name)} · ${e(x.version)}</strong>${badge(x.status)}${x.description?`<p>${e(x.description)}</p>`:''}${x.error?`<p class="error">${e(x.error)}</p>`:''}${x.result_path?`<p class="path-cell">${e(x.result_path)}</p>${btn('select-built-reference','Select for future drafts',false,x.id)}`:''}${x.job?btn('job-log','View build log',false,x.job):''}</article>`).join('')||'<p>No databases built yet.</p>'}</div></section>`;
 }
+function basisCatalogBuilder(){
+ const builder=S.basis_catalog_builder;
+ if(!builder)return '';
+ const disabled=!builder.available;
+ const recent=builder.results.filter(row=>row.action==='build');
+ const latest=(S.jobs||[]).find(job=>job.kind==='basis_catalog');
+ const receipt=latest&&builder.results.find(row=>row.job===latest.id);
+ const counts=row=>e(row.approved)+' approved · '+e(row.pending)+' pending · '+e(row.excluded)+' excluded';
+ return `<section class="card"><div class="card-head"><h2>Researcher-curated reference catalog</h2></div><div class="card-body">
+ <p>Describe local reference files in a JSON manifest with their sources, licenses and review decisions. A build copies the approved files into a versioned package.</p>
+ ${disabled?notice('Builder unavailable','Activate a BaSIS Dev release with the reference catalog builder.') : ''}
+ ${field('basis-catalog-spec','Reference catalog JSON path','','text','placeholder="/home/jimi/references/catalog.json"')}
+ <div class="button-row">${btn('basis-catalog-template','Download JSON template',false,'','download',disabled)}${btn('basis-catalog-run','Check manifest',false,'check','check',disabled)}${btn('basis-catalog-run','Build catalog',true,'build','play',disabled)}</div>
+ <details><summary>Draft a reference from a DOI</summary><p>Look up one citation in Crossref and download a pending JSON manifest for review.</p>${field('basis-catalog-doi','DOI or doi.org link')}${btn('basis-catalog-doi','Look up citation',false,'','download',disabled)}</details>
+ ${latest?`<p>Latest ${e(latest.payload.action)} · ${statusBadge(latest.status)} ${btn('job-log','View log',false,latest.id,'file')}</p>`:''}
+ ${receipt?`<p>${e(receipt.name)} ${e(receipt.version)} · ${counts(receipt)}</p>`:''}
+ ${recent.length?`<details><summary>Built catalogs · ${recent.length}</summary>${recent.map(row=>`<article><strong>${e(row.name)} · ${e(row.version)}</strong><p>${counts(row)}</p><p class="path-cell">${e(row.output)}</p>${row.placement_registry?`<p>Placement registry for a future draft</p><p class="path-cell">${e(row.placement_registry)}</p>`:'<p>Reference archive.</p>'}<div class="button-row">${btn('basis-catalog-verify','Verify package',false,row.job,'check',disabled)}${btn('job-log','Build log',false,row.job,'file')}</div></article>`).join('')}</details>`:''}</div></section>`;
+}
 function resources(embedded=false){const t=U.resourceTool||'hybas',p=S.databases[t],state=dbState(t),scan=state.scan;
 const databaseTabs=embedded?'':`<div class="tabs">${Object.keys(S.pipelines).map(x=>`<button class="tab ${x===t?'active':''}" data-action="database-tool" data-id="${x}">${e(S.pipelines[x].name)}</button>`).join('')}</div>`;
 if(t==='micpscope')return databaseTabs+referenceBuilder();
@@ -1377,6 +1411,7 @@ if(!p.rows.length)return (embedded?'':heading('DATABASES & MODELS','Your databas
 const dirty=p.rows.filter(r=>!r.managed&&(state.resets[r.id]||val(dbPath(t,r.id),r.path)!==r.path));
 return (embedded?'':heading('DATABASES & MODELS','Your databases, connected.','Choose installed resources for each pipeline. Save selected locations for future runs. Existing drafts keep their own paths until you create a revision.',btn('save-databases','Save for future runs',true,t,'check',!dirty.length)+btn('use-databases-for-runs','Update saved drafts',false,t,'resources',!!dirty.length||!visibleRuns().some(r=>r.tool===t&&!r.busy&&r.run_type!=='followup'))))+
 `${embedded?'':`<div class="tabs">${Object.keys(S.pipelines).map(x=>`<button class="tab ${x===t?'active':''}" data-action="database-tool" data-id="${x}">${e(S.pipelines[x].name)}</button>`).join('')}</div>`}
+${t==='basis'?basisCatalogBuilder():''}
 <section class="card database-scan"><div class="card-head"><div><h2>Find installed databases</h2><p>Scan known locations and common folders, or include a folder on another disk.</p></div>${btn('scan-databases','Auto scan',true,t,'resources')}</div><div class="card-body"><div class="folder-address">${field('dbscan-'+t,'Additional scan folder (optional)','','text','placeholder="/home/jimi/databases or D:\\databases"')}${btn('browse-folder','Browse',false,'dbscan-'+t,'folder')}</div><p class="inline-info">A valid saved location is preferred. Otherwise the scan suggests a recognized installation; review its release and scope before saving.</p>
 ${scan?`<details class="database-scan-details"><summary>${Object.values(scan.candidates).reduce((n,a)=>n+a.length,0)} candidates found · ${scan.visited} folders checked${scan.limited?' · scan limits reached':''}</summary><p>${e(scan.scope)}</p>${scan.limits.length?`<p>Reached: ${e(scan.limits.join(', '))}. Scan a more specific folder to continue.</p>`:''}${scan.inaccessible?`<p>${scan.inaccessible} inaccessible folders skipped.</p>`:''}<p class="path-cell">${scan.roots.map(e).join('<br>')}</p></details>`:''}</div></section>
 ${!S.download_options[t].available?notice('Database preparation unavailable',e(S.download_options[t].reason||'Open pipeline setup and check the active installation.')):''}${S.download_options[t].checked_at?`<p class="secondary-line">Preparation capability checked ${e(S.download_options[t].checked_at)}. Starting preparation rechecks the installed source.</p>`:''}${scan?.invalid.length?`<details class="card database-rejected"><summary>${scan.invalid.length} locations need attention</summary>${scan.invalid.map(x=>`<div><strong>${e(p.rows.find(r=>r.id===x.id)?.name||x.id)}</strong><p class="path-cell">${e(x.path)}</p><p class="error">${e(x.message)}</p></div>`).join('')}</details>`:''}
@@ -1744,11 +1779,13 @@ if(m.kind==='versions'){wide=true;const t=m.id,c=S.catalogs[t],{releases:release
 if(m.kind==='followup'){
  wide=true;title='Review saved screening for follow-up';desc=m.id;
  const choices=runBy(m.id)?.followup_sources||[],selected=val('followup-source-'+m.id,choices[0]?.id||'screening'),chosen=choices.find(x=>x.id===selected),scopes=chosen?.scopes||[];
+ const packages=S.basis_catalog_builder?.results.filter(row=>row.action==='build'&&row.placement_registry)||[];
  const scopeDefault=scopes.includes('amrfinder-review')?'amrfinder-review':'';
  body=notice('Separate follow-up','Review the screening report and settings first. Existing outputs are preserved before later attempts. Use All tool outputs to browse live files and preserved copies.',true)+btn('view-results','Open screening results',false,m.id)+
  select('followup-source-'+m.id,'Workflow version for this follow-up',choices.map(x=>[x.id,x.label+' · '+x.commit.slice(0,12)]),selected)+
  select('followup-scope-'+m.id,'AWARE scope',[['','Inherit saved screening policy'],...scopes.map(x=>[x,x==='amrfinder-review'?'AMRFinder reported review cues':'All supported sources (broader)'])],scopeDefault)+
  `<p>AMRFinder review uses reported ambiguous findings. It does not recover unreported alignments. Presets control review selection; they do not change AMRFinder reporting thresholds.</p>`+
+ (packages.length?select('followup-catalog-'+m.id,'Reviewed placement registry for this draft',[['','Use follow-up configuration'],...packages.map(row=>[row.job,row.name+' '+row.version+' · '+row.catalog_sha256.slice(0,12)])], '')+'<p>A selected catalog uses locally available placement references. Enable family placement in the reviewed configuration to request it.</p>':'')+
  area('followup-yaml-'+m.id,'Reviewed follow-up configuration','deep:\n  enabled: false\n  maximum_candidates: 5\nresource_receipts: []\n','rows="12" spellcheck="false"')+
  `<label class="check-field"><input type="checkbox" id="followup-reviewed" ${val('followup-reviewed',false)?'checked':''}><span>I reviewed the screening report, selected workflow version, scope and configuration.</span></label><p>Set enabled to true to request follow-up. Five is a per-isolate candidate ceiling; deferred findings remain for review. Resource paths must be absolute and already prepared. Validate the new draft before execution.</p>`;
  foot=btn('create-followup','Create follow-up draft',true,m.id);
@@ -1779,7 +1816,7 @@ if(m.kind==='app-window-help'){title='Open Bactologix as an app';desc='A dedicat
 if(m.kind==='credits'){title='Citations & credits';desc='Powered by GenoMix Human Link';body=`<div class="author-card"><span class="brand-mark">__BRAND_SVG__</span><div><h3>Your workflow, connected.</h3><p>HybAs AWARE, BaSIS AWARE and GeneScope (MICP Scope) in one workspace.</p></div></div><p class="credits-copy">Created by <strong>Jimi Goldstein</strong> · Human Link<br><a href="https://orcid.org/0000-0002-7829-0090" target="_blank" rel="noopener noreferrer">ORCID 0000-0002-7829-0090 ↗</a></p><pre class="code-block">${e(S.citations['CITATION.txt'])}</pre><div class="button-row">${['ris','bib','cff','txt'].map(x=>btn('citation','Download '+x.toUpperCase(),false,'CITATION.'+x,'download')).join('')}</div><p class="credits-copy">Cite the pipelines, individual tools and databases used in your analysis as well as Bactologix.</p><div class="button-row">${btn('citation','HybAs AWARE citation',false,'CITATION.HybAs.cff')}${btn('citation','BaSIS AWARE citation',false,'CITATION.BaSIS.cff')}${btn('citation','GeneScope / MICP Scope citation',false,'CITATION.GeneScope.cff')}</div><p class="credits-copy">Pipeline downloads are general software citations. For a publication, record the exact pipeline version and commit used in your run.</p><p class="credits-copy"><a href="https://github.com/crackberryq/Bactologix" target="_blank" rel="noopener noreferrer">Bactologix on GitHub ↗</a> · MIT license · v${e(S.version)}</p>`;}
 $('#modal-root').innerHTML=`<div class="modal-shade"><section class="modal ${wide?'':'narrow'} ${m.kind==='report'?'report-modal':m.kind==='cleanup-preview'?'cleanup-drawer':['new-run','edit-run'].includes(m.kind)?'run-draft-modal':m.kind==='run'?'saved-run-modal':['isolate','isolate-export-receipt'].includes(m.kind)?'isolate-modal':m.kind==='isolate-folders'?'isolate-folder-modal':m.kind==='notifications'?'notification-modal':''}" data-modal-kind="${e(m.kind)}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-head"><div><h2 id="modal-title">${e(title)}</h2><p>${e(desc)}</p></div><button class="icon-btn" data-action="close" aria-label="Close dialog">${icon('close')}</button></div><div class="modal-body">${body}<div id="action-error" class="error" role="alert">${e(U.error||'')}</div></div><div class="modal-foot"><small>${['new-run','edit-run'].includes(m.kind)?'Draft not saved yet':m.kind==='run'?'Saved run':m.kind==='download-database'?'Starts only when you confirm':m.kind==='apply-databases'?'Creates a new draft · original kept':m.kind==='isolate'?'Original inputs and results stay in place':'Local workspace'}</small><div class="button-row">${btn('close','Close')}${foot}</div></div></section></div>`;
 $('.app-shell').setAttribute('inert','');
-if(m.kind==='report'&&U.report?.id===m.id){const f=document.createElement('iframe');f.title=U.report.name;f.setAttribute('sandbox','allow-scripts allow-downloads allow-modals');f.referrerPolicy='no-referrer';f.className='html-report-frame';f.srcdoc=reportDocument(U.report.base64,reportCompanions(U.report));$('#report-frame-container').append(f);}
+if(m.kind==='report'&&U.report?.id===m.id){const f=document.createElement('iframe');f.title=U.report.name;f.setAttribute('sandbox','allow-scripts allow-downloads allow-modals');f.referrerPolicy='no-referrer';f.className='html-report-frame';f.srcdoc=reportDocument(U.report.base64,reportCompanions(U.report),m.reportAnchor);$('#report-frame-container').append(f);}
 if(m.kind==='support')syncSupport();
 if(m.kind==='import')syncSampleImport();
 if(m.kind==='versions')filterVersions();
@@ -1828,7 +1865,7 @@ if(t.id==='identification-mode'){renderModal();return;}
 if(t.id==='identification-candidate'&&t.value){setDraft('identification-taxid',t.value);const box=$('#identification-taxid');if(box)box.value=t.value;syncIdentification();return;}
 if(t.id==='identification-taxid'){syncIdentification();return;}
 if(t.id?.startsWith('followup-source-')){const id=U.modal.id;delete U.drafts['followup-scope-'+id];setDraft('followup-reviewed',false);renderModal();}
-if(t.id?.startsWith('followup-scope-')){setDraft('followup-reviewed',false);renderModal();}
+if(t.id?.startsWith('followup-scope-')||t.id?.startsWith('followup-catalog-')){setDraft('followup-reviewed',false);renderModal();}
 if(['support-job','support-log','support-reviewed'].includes(t.id)){if(t.id!=='support-reviewed'){setDraft('support-reviewed',false);if(!val('support-job',''))setDraft('support-log',false);}renderModal();}
 if(t.id==='compute-default-tool'){render();return;}
 if(t.id==='defaults-auto-swap-hybas'||t.id==='run-auto-swap-hybas'){
@@ -2089,6 +2126,10 @@ else if(action==='browse-env-cache'){U.modal.advanced=true;browse('environment-c
 else if(action==='save-env-cache')request('set_environment_cache',{id,path:v('environment-cache-'+id)});
 else if(['check-environments','install-environments','repair-environments'].includes(action))request('manage_environments',{id,action:action.split('-')[0],selected:$$('[data-environment]:checked').map(x=>x.dataset.environment)});
 else if(action==='download-database')modal('download-database',id);
+else if(action==='basis-catalog-doi')request('basis_catalog_doi',{tool:'basis',doi:v('basis-catalog-doi')});
+else if(action==='basis-catalog-template')request('basis_catalog_template',{});
+else if(action==='basis-catalog-run')request('basis_catalog_job',{action:id,spec:v('basis-catalog-spec')});
+else if(action==='basis-catalog-verify')request('basis_catalog_job',{action:'verify',id});
 else if(action==='restore-reference-starter'){const s=S.database_builder?.starter;if(s){setDraft('reference-spec',s.text);U.referenceDefaultText=s.text;render();const editor=$('#reference-editor');if(editor)editor.open=true;}}
 else if(action==='validate-reference-spec')request('validate_reference_spec',{spec:v('reference-spec')});
 else if(action==='build-reference')request('build_reference_database',{spec:v('reference-spec'),cores:Number(v('reference-cores')),memory_mb:Number(v('reference-memory'))});
@@ -2134,8 +2175,8 @@ else if(action==='recalculate-run-swap')editSavedRun(id,false,true);
 else if(action==='save-current-draft'||action==='save-run-revision')request(action==='save-current-draft'?'update_run_draft':'revise_run',{id:U.revision.id,variant:!!U.revision.variant,signature:U.revision.signature,config:runConfigPayload(),cores:Number(v('revision-cores')),memory_mb:Number(v('revision-memory')),swap_mb:draftSwap('revision',U.revision.swap_mb||0)});
 else if(action==='micp-handoff')request('micp_handoff',{id});
 else if(action==='handoff')request('handoff',{id});
-else if(action==='followup'){delete U.drafts['followup-reviewed'];delete U.drafts['followup-source-'+id];delete U.drafts['followup-scope-'+id];modal('followup',id);}
-else if(action==='create-followup')request('create_followup',{id,text:v('followup-yaml-'+id),reviewed:$('#followup-reviewed').checked,source_id:v('followup-source-'+id),scope:v('followup-scope-'+id)||null});
+else if(action==='followup'){delete U.drafts['followup-reviewed'];delete U.drafts['followup-source-'+id];delete U.drafts['followup-scope-'+id];delete U.drafts['followup-catalog-'+id];modal('followup',id);}
+else if(action==='create-followup')request('create_followup',{id,text:v('followup-yaml-'+id),reviewed:$('#followup-reviewed').checked,source_id:v('followup-source-'+id),scope:v('followup-scope-'+id)||null,catalog_id:v('followup-catalog-'+id)||null});
 else if(action==='download-frozen'&&U.detail?.id===id)download(id+'.yaml',U.detail.config,'text/yaml');
 else if(action==='start-workstation')request('check_workstation',{installation:val('workstation-runner','')||null});
 else if(action==='workstation-detail'){U.workstationCheck=null;modal('workstation',id);request('inspect_workstation',{id});}
@@ -2329,7 +2370,7 @@ if(response.discovery)U.discovery=response.discovery;if(response.local_envs)U.lo
 function reportCompanions(report){
  const run=report.run_id||report.run;
  if(!run)return {};
- const keys={research:'HybAs research report',trajectory:'Polishing trajectory',validation:'Polishing validation'};
+ const keys={research:'HybAs research report',trajectory:'Polishing trajectory',validation:'Polishing validation',deep:'Follow-up report',standard:'Safety report'};
  const result={};
  for(const [key,name] of Object.entries(keys)){
   const sibling=S.reports.find(row=>row.run===run&&(report.refresh
@@ -2346,7 +2387,8 @@ const reportFolderMessage=event=>{
  if(event.data?.kind==='bactologix-companion-report'){
   const key=event.data.target,companions=reportCompanions(r);
   if(!Object.hasOwn(companions,key))return;
-  const id=companions[key];U.report=null;modal('report',id);request('open_report',{id});
+  const id=companions[key],anchor=event.data.anchor;
+  U.report=null;modal('report',id,{reportAnchor:typeof anchor==='string'&&/^[a-z0-9_-]{1,192}$/i.test(anchor)?anchor:''});request('open_report',{id});
  }
 };
 window.addEventListener('online',refreshProgress);window.addEventListener('offline',refreshProgress);
@@ -2399,29 +2441,44 @@ return dispose;
 }
 // srcdoc inherits the host's base URL. Fragment navigation must stay inside
 // the saved report, without granting it access to the workspace origin.
-function reportDocument(base64,companions={}){
+function reportDocument(base64,companions={},anchor=""){
  const doc=new DOMParser().parseFromString(new TextDecoder().decode(Uint8Array.from(atob(base64),c=>c.charCodeAt(0))),'text/html');
  const hybas=doc.documentElement.hasAttribute('data-hybas-report');
+ const basis=doc.title.startsWith('BaSIS ·');
  for(const link of doc.querySelectorAll('a[href]')){
   const href=link.getAttribute('href');
   const runFiles=['metadata/files.html','./metadata/files.html'].includes(href)&&link.textContent.trim()==='Run files';
-  if(!runFiles&&(!hybas||!href||href.startsWith('#')||/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(href)))continue;
+  if(!href||href.startsWith('#')||/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(href))continue;
   const path=href.split(/[?#]/,1)[0];
-  const key=path.match(/(?:^|\/)polishing_(trajectory|validation)\/index\.html$/)?.[1]||
+  let key=null;
+  if(hybas)key=path.match(/(?:^|\/)polishing_(trajectory|validation)\/index\.html$/)?.[1]||
    (/(?:^|\/)hybas_research\/hybas_report\.html$/.test(path)?'research':null);
+  if(basis)key=({'deepsafe-report/report.html':'deep','../report.html':'standard'})[path]||null;
+  if(!runFiles&&!hybas&&!key)continue;
   link.setAttribute('href','#');
-  if(key&&Object.hasOwn(companions,key)){link.setAttribute('data-bactologix-companion',key);continue;}
+  if(key&&Object.hasOwn(companions,key)){
+   link.setAttribute('data-bactologix-companion',key);
+   link.setAttribute('data-bactologix-anchor',href.split('#')[1]||'');
+   continue;
+  }
   link.textContent=runFiles?'Open report folder':link.textContent.trim()+' · Open report folder';
   link.setAttribute('data-bactologix-folder','true');
  }
  const script=doc.createElement('script');
- script.textContent='('+function(){
+ script.textContent='('+function(anchor){
+  if(anchor)window.addEventListener('load',function(){
+   const target=document.getElementById(anchor);
+   if(!target)return;
+   if(anchor.startsWith('candidate-'))document.dispatchEvent(new CustomEvent('basis:open-candidate',{detail:{anchor}}));
+   for(let node=target;node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;
+   target.scrollIntoView({block:'start'});
+  },{once:true});
   document.addEventListener('click',function(event){
    const link=event.target.closest?.('a[href]'),href=link?.getAttribute('href');
    if(link?.hasAttribute('data-bactologix-folder')){event.preventDefault();event.stopImmediatePropagation();parent.postMessage({kind:'bactologix-open-report-folder'},'*');return;}
    if(link?.hasAttribute('data-bactologix-companion')){
     event.preventDefault();event.stopImmediatePropagation();
-    parent.postMessage({kind:'bactologix-companion-report',target:link.getAttribute('data-bactologix-companion')},'*');return;
+    parent.postMessage({kind:'bactologix-companion-report',target:link.getAttribute('data-bactologix-companion'),anchor:link.getAttribute('data-bactologix-anchor')},'*');return;
    }
    if(!href?.startsWith('#'))return;
    event.preventDefault();
@@ -2434,7 +2491,7 @@ function reportDocument(base64,companions={}){
     target.scrollIntoView({block:'start'});
    },0);
   },true);
- }.toString()+')();';
+ }.toString()+')('+JSON.stringify(/^[a-z0-9_-]{1,192}$/i.test(anchor)?anchor:'')+');';
  doc.head.prepend(script);
  return '<!doctype html>'+doc.documentElement.outerHTML;
 }

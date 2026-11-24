@@ -1,3 +1,11 @@
+## 0.1.0a139.dev1 — Report regeneration and curated references
+
+Refresh a completed run to review the HybAs polishing trajectory and the BaSIS follow-up outcomes from retained evidence. Open **Databases & models → BaSIS** to check, build or verify a researcher-curated catalog. The optional DOI lookup prepares a citation for review. In a new follow-up, researchers can select a catalog containing an approved local placement registry.
+
+Resource Monitor shows the most recent Windows heartbeat observed for the running job’s own launcher. When a current observation is unavailable, it labels the last pulse recorded with the job.
+
+The PDF export helper can retry missing reports from an earlier export and preserve completed PDFs.
+
 ## 0.1.0a138.dev3 — Research report evidence downloads
 
 When a research report uses measurements from an earlier report edition, its validation page can open the six original measurement tables from the same run alongside the newly rendered tables. The edition verifies the source of each downloadable table.
