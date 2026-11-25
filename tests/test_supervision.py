@@ -164,9 +164,11 @@ def test_low_disk_stops_after_transient_control_read(fixture, monkeypatch):
     try:
         wait_for(lambda: (supervision.snapshot(store, jid) or {}).get('state') == 'degraded')
         capacity['free'] = 4 * disk_pause.GIB
+        wait_for(lambda: ctx.disk_guard.record['state'] == 'paused')
+        assert thread.is_alive() and ctx.disk_guard.record['reason'] == 'low_space'
+        store.cancel(jid)
         thread.join(8)
         assert not thread.is_alive() and isinstance(outcome[0], Cancelled)
-        assert 'Workspace storage stop' in str(outcome[0])
         record = supervision.snapshot(store, jid, 'process')
         assert record['cleanup_confirmed'] and not supervision.remaining(record['identities'])
     finally:
@@ -321,10 +323,13 @@ def test_workflow_survives_writer_contention_and_still_enforces_disk_limits(fixt
                 capacity['free'] = 4 * disk_pause.GIB
                 # Even a blocked SQLite writer cannot keep the native process running after a
                 # fresh critical measurement. The final database reconciliation can wait.
-                wait_for(lambda: not supervision.remaining(process['identities']))
+                wait_for(lambda: ctx.disk_guard.record['state'] == 'paused')
+                assert psutil.Process(process['identities'][0]['pid']).status() == psutil.STATUS_STOPPED
             else:
                 assert thread.is_alive()
-        if not low_space:
+        if low_space:
+            store.cancel(jid)
+        else:
             wait_for(lambda: supervision.snapshot(store, jid)['state'] == 'recovered')
             finish.touch()
         thread.join(5)
@@ -470,6 +475,8 @@ def test_setup_interrupts_and_pauses_queue_on_persistent_control_loss(fixture, m
 
 
 def test_setup_recovers_locked_process_registration_and_completion(tmp_path, monkeypatch):
+    monkeypatch.setattr(disk_pause.CapacityProbe, '_reading',
+                        staticmethod(lambda path: (path.stat().st_dev, 40 * disk_pause.GIB, 100 * disk_pause.GIB)))
     store = Store(tmp_path / 'workspace')
     jid = store.submit('environments', {})
     ctx = Context(store, store.claim())

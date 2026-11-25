@@ -47,11 +47,14 @@ def test_same_command_waits_through_long_control_outage(fixture, monkeypatch, ki
                 stamp = marker.stat().st_mtime_ns
                 if after == 'low-space':
                     capacity['free'] = 4 * disk_pause.GIB
-                    wait_for(lambda: not supervision.remaining([identity]))
+                    wait_for(lambda: ctx.disk_guard.record['state'] == 'paused')
+                    assert native.status() == psutil.STATUS_STOPPED
                 if after == 'stop':
                     locker.execute('UPDATE jobs SET cancel=1 WHERE id=?', (jid,))
                 time.sleep(.3)
                 assert marker.stat().st_mtime_ns == stamp
+            if after == 'low-space':
+                store.cancel(jid)
             if after in {'stop', 'low-space'}:
                 thread.join(6)
                 assert len(outcome) == 1 and isinstance(outcome[0], engine.Cancelled)

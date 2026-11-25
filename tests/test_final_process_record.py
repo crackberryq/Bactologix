@@ -38,7 +38,7 @@ def test_capacity_drop_during_ownership_write_keeps_exec_gate_closed(fixture, mo
     store, jid, marker, command, capacity = fixture
     ctx = engine.Context(store, store.claim())
     original_put = store.put_process
-    floor = 5 * disk_pause.GIB
+    floor = 5 * disk_pause.GIB - 1
 
     def put(jid, record):
         original_put(jid, record)
@@ -59,9 +59,8 @@ def test_capacity_drop_during_ownership_write_keeps_exec_gate_closed(fixture, mo
     monkeypatch.setattr(ctx, 'observe', observe)
     thread, outcome = background(ctx, command)
     try:
-        thread.join(8)
-        assert not thread.is_alive() and len(outcome) == 1
-        assert isinstance(outcome[0], engine.Cancelled) and 'Workspace storage stop' in str(outcome[0])
+        wait_for(lambda: ctx.disk_guard.record['state'] == 'paused')
+        assert thread.is_alive() and not outcome
         assert not started and not marker.exists()
     finally:
         store.cancel(jid)
