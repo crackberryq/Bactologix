@@ -5,7 +5,7 @@ import json
 import threading
 import time
 import uuid
-from .disk_capacity import CapacityProbe, SAMPLE_MAX_AGE_SECONDS
+from .disk_capacity import CapacityProbe as MonitoringProbe, ProtectedCapacityProbe as CapacityProbe, SAMPLE_MAX_AGE_SECONDS
 from .disk_process import OwnedTree, OwnerWatch, ProcessOwner, STORAGE_SUSPEND_SECONDS, SuspensionError
 from . import storage_events
 from .store import CONTROL_TIMEOUT, now
@@ -66,7 +66,7 @@ def request_resume(store, jid, expected_generation):
             if state.get('state') != 'paused' or state.get('generation') != expected_generation:
                 raise ValueError('The pause changed. Refresh the run before resuming.')
             if not state.get('can_resume') or not _fresh(state.get('checked_at')):
-                raise ValueError('Resume requires a fresh check with more than 5 GiB free on every monitored drive.')
+                raise ValueError('Resume requires a fresh check with more than 5 GiB free on every protected filesystem.')
             previous = db.execute("SELECT body FROM items WHERE kind='disk_safety_requests' AND id=?", (jid,)).fetchone()
             if previous and json.loads(previous[0]).get('generation') == expected_generation:
                 storage_events.append(store, jid, 'resume_duplicate', expected_generation, request_id=click)
@@ -83,17 +83,35 @@ class Samples:
     def __init__(self, store, run, *, initial_env=None):
         self.store, self.run = store, run
         self.lock, self.wake, self.done = threading.Lock(), threading.Event(), threading.Event()
-        # Seed channel-selected temporary paths before the sampling thread can
-        # publish its first result. Initial worker checkpoints precede commands.
-        self.pending = [(None, dict(initial_env))] if initial_env is not None else []
         self.epoch, self.result = 0, None
         self.started = time.monotonic()
         self.thread = threading.Thread(target=self._loop, daemon=True, name='disk-capacity')
+        self.advisory = []
+        self.advisory_command = (None, initial_env)
         self.thread.start()
+        threading.Thread(target=self._observe_other_volumes, daemon=True, name='storage-display').start()
+
+    def _observe_other_volumes(self):
+        # A stalled external mount must never delay the critical sampler.
+        probe = None
+        while not self.done.is_set():
+            try:
+                cwd, env = self.advisory_command
+                if probe is None:
+                    probe = MonitoringProbe(self.store, self.run, cwd=cwd, extra_env=env)
+                else:
+                    probe.include_command(cwd=cwd, extra_env=env)
+                rows = probe.sample()['volumes']
+                with self.lock:
+                    self.advisory = rows
+            except (OSError, ValueError, RuntimeError):
+                with self.lock:
+                    self.advisory = []
+            self.done.wait(5)
 
     def include_command(self, cwd, extra_env):
         with self.lock:
-            self.pending.append((cwd, dict(extra_env or {})))
+            self.advisory_command = (cwd, dict(extra_env or {}))
             self.epoch += 1
             self.result = None
             self.started = time.monotonic()
@@ -103,20 +121,15 @@ class Samples:
         probe = None
         while not self.done.is_set():
             with self.lock:
-                pending, self.pending = self.pending, []
                 epoch = self.epoch
             sample_started = time.monotonic()
             try:
                 if probe is None:
                     probe = CapacityProbe(self.store, self.run)
-                for cwd, extra_env in pending:
-                    probe.include_command(cwd=cwd, extra_env=extra_env)
+                # Root and the backing volume are independent of the command directory.
                 value = probe.sample()
             except Exception as exc:
                 value = {'volumes': [], 'errors': ['Storage monitoring failed: ' + str(exc)], 'checked_at': now()}
-                with self.lock:
-                    # Retry requested paths after failed discovery/registration.
-                    self.pending = pending + self.pending
             completed = time.monotonic()
             value['probe_ms'] = round((completed - sample_started) * 1000, 1)
             host_time = value.get('windows_sampled_at')
@@ -140,6 +153,9 @@ class Samples:
             return {'volumes': [], 'errors': ['Required storage checks did not finish within 5 seconds.'], 'checked_at': None}, 0
         value, completed, sample_started = result
         value = dict(value)
+        protected_ids = {row.get('id') for row in value.get('volumes', [])}
+        with self.lock:
+            value['advisory_volumes'] = [row for row in self.advisory if row['id'] not in protected_ids]
         if time.monotonic() - completed > STALE_SECONDS:
             value['stale'] = True
             value['stale_only'] = not value.get('errors')
@@ -266,6 +282,7 @@ class Guard(ProcessOwner):
             raise Cancelled(reason)
         ready = _resume_capacity(value)
         old_state = self.record['state']
+        self.record['advisory_volumes'] = value.get('advisory_volumes', [])
         self.record.update(probe_ms=value.get('probe_ms'), volumes=volumes, errors=errors, checked_at=value.get('checked_at'))
         workflow_run = self.job['kind'] == 'workflow' and self.job['payload'].get('action') in {'run', 'continue'}
         if not workflow_run and errors:

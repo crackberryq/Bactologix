@@ -28,6 +28,7 @@ if ($payload.operation -eq 'discover') {
   if (-not $base -or -not [IO.Directory]::Exists($base)) { throw 'Current distribution storage directory is unavailable.' }
   $targets += @{ path=$base; label=('Windows storage for ' + $payload.distribution); role='wsl_backing' }
  } catch { $errors += ('Cannot identify WSL backing storage: ' + $_.Exception.Message) }
+ if (-not $payload.backing_only) {
  try {
   $swap = $null; $swapFile = $null; $section = ''
   $config = Join-Path $env:USERPROFILE '.wslconfig'
@@ -54,6 +55,7 @@ if ($payload.operation -eq 'discover') {
    $targets += @{ path=$swapFile; label='Configured Windows swap storage'; role='wsl_swap' }
   }
  } catch { $errors += ('Cannot identify WSL swap storage: ' + $_.Exception.Message) }
+ }
 } elseif ($payload.operation -eq 'sample') { $targets = @($payload.targets) }
 else { throw 'Unknown capacity probe operation.' }
 $volumes = @()

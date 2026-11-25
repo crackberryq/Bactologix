@@ -144,7 +144,7 @@ class _DesktopReadingGap(ValueError):
         self.targets = targets
 
 
-def _desktop_observation(directory, distribution):
+def _desktop_observation(directory, distribution, *, backing_only=False):
     """Read one complete, current observation from this Windows desktop session."""
     root = Path(directory)
     if not root.is_absolute() or not re.fullmatch(r'[0-9a-f]{32}', root.name):
@@ -165,6 +165,14 @@ def _desktop_observation(directory, distribution):
     sampled, received = response.get('time'), time.time()
     if type(sampled) not in (int, float) or not math.isfinite(sampled) or sampled > received + 2:
         raise ValueError('Windows desktop storage reading is stale or has an invalid timestamp.')
+    if backing_only:
+        backing = [r for r in response['volumes'] if r['role'] == 'wsl_backing']
+        if len(backing) != 1:
+            raise ValueError('Windows backing storage reading is missing or ambiguous.')
+        response['volumes'] = backing
+        response['swap_required'] = False
+        # A partial legacy desktop snapshot cannot identify the source of all
+        # errors. Recheck the backing volume independently through interop.
     for row in response['volumes']:
         if (row.get('kind') != 'windows_host' or not row['id'].startswith('windows:')
                 or any(not ntpath.splitdrive(row[key])[0] or not ntpath.isabs(row[key]) for key in ('path', 'probe_path'))):
@@ -209,6 +217,8 @@ class CapacityProbe:
     ancestor is an error rather than silently switching to another filesystem.
     """
 
+    backing_only = False
+
     def __init__(self, store, run, *, cwd=None, extra_env=None):
         self.store, self.run = store, run or {}
         self.paths = {}
@@ -221,6 +231,9 @@ class CapacityProbe:
         self.desktop_bindings = []
         self.desktop_binding_expires = 0.0
         self.is_wsl, self.distribution = _wsl_context()
+        if self.backing_only:
+            self._add('/', 'Linux root filesystem')
+            return
         self._add(store.home, 'Workspace and logs')
         folder = self.run.get('folder')
         if folder:
@@ -313,7 +326,7 @@ class CapacityProbe:
     def _interop_volumes(self, mounts):
         rows, errors = [], []
         if self.host_targets is None:
-            discovery = _windows_query({'operation': 'discover', 'distribution': self.distribution}, mounts)
+            discovery = _windows_query({'operation': 'discover', 'distribution': self.distribution, **({'backing_only': True} if self.backing_only else {})}, mounts)
             errors.extend(discovery['errors'])
             has_backing = any(row.get('role') == 'wsl_backing' for row in discovery['volumes'])
             if not has_backing:
@@ -401,7 +414,7 @@ class CapacityProbe:
         directory = os.environ.get(STORAGE_SESSION_DIR)
         if directory:
             try:
-                desktop = _desktop_observation(directory, self.distribution)
+                desktop = _desktop_observation(directory, self.distribution, backing_only=self.backing_only)
                 sampled = desktop['time']
                 desktop_errors = desktop['errors']
                 mounted_read_started = time.time()
@@ -484,6 +497,7 @@ class CapacityProbe:
                     raise OSError('The workflow storage filesystem changed after monitoring started.')
                 self.anchors[value] = (anchor, device)
                 rows.append({'id': 'linux:' + str(device), 'kind': 'linux', 'label': label,
+                             'role': 'linux_root' if self.backing_only else 'data',
                              'path': str(anchor), 'sampled_at': now(), 'available_bytes': available, 'total_bytes': total})
             except (OSError, ValueError, RuntimeError) as exc:
                 errors.append(label + ': ' + str(exc))
@@ -515,3 +529,9 @@ class CapacityProbe:
             result['windows_sampled_at'] = host_time
             result['checked_at'] = datetime.fromtimestamp(host_time, timezone.utc).isoformat()
         return result
+
+
+class ProtectedCapacityProbe(CapacityProbe):
+    """Guard Linux root and the registered WSL distribution's backing volume."""
+
+    backing_only = True

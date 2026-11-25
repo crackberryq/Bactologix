@@ -8,7 +8,7 @@ from pathlib import Path
 import tempfile
 import uuid
 
-from .disk_capacity import CapacityProbe
+from .disk_capacity import ProtectedCapacityProbe as CapacityProbe
 from .disk_pause import GIB, stop_limit, _fresh, _resume_capacity
 from .store import now
 
@@ -69,28 +69,14 @@ def trip(store, job, value, critical):
 
 
 def _check(store, state):
-    required = state['required_volumes']
-    linux_paths = {path: row.get('label', 'Monitored drive') for row in required if row.get('kind') == 'linux'
-                   for path in row.get('paths') or [row['path']]}
-    # All original temporary mounts are included explicitly. Use an already
-    # required directory for this short probe's own default temporary path.
-    probe = CapacityProbe(store, {}, extra_env={'TMPDIR': str(store.home)})
-    probe.include_paths(linux_paths)
+    probe = CapacityProbe(store, {})
     value = probe.sample()
-    observed = {row['id']: set(row.get('paths') or [row['path']]) for row in value['volumes']}
-    missing = []
-    for row in required:
-        paths = set(row.get('paths') or [row['path']])
-        found = observed.get(row['id'], set())
-        for path in paths - found:
-            # A reviewed cleanup may remove the run folder. Its nearest live
-            # parent must still belong to the original measured filesystem.
-            anchor = probe.anchors.get(path) if row.get('kind') == 'linux' else None
-            if not anchor or 'linux:' + str(anchor[1]) != row['id'] or str(anchor[0]) not in found:
-                missing.append(row.get('label', row['id']))
-                break
-    if missing:
-        value['errors'] = list(value.get('errors') or []) + ['Missing original storage location: ' + ', '.join(missing)]
+    # Historical latches included swap and output mounts. Recheck the
+    # installation's protected roles; do not require a retired external mount.
+    for old in state['required_volumes']:
+        if {'linux_root', 'wsl_backing'}.intersection(old.get('roles', [])) and not any(
+                r['id'] == old['id'] for r in value['volumes']):
+            value['errors'].append('Missing original storage location: ' + old['label'])
     return value
 
 
@@ -111,7 +97,7 @@ def release(store, expected_id):
                          checked_at=value.get('checked_at'))
             _save(store, state)
             raise ValueError('The queue remains blocked. A fresh storage check must confirm more than '
-                             '5 GiB free on every monitored drive. ' + ' '.join(state['errors']))
+                             '5 GiB free on every protected filesystem. ' + ' '.join(state['errors']))
         with store.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             # Each operation uses one workspace worker; orphaned work also holds

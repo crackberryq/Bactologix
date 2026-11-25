@@ -1,3 +1,7 @@
+## 0.1.0a140.dev1 — Role-based storage protection
+
+Only Linux root and its WSL backing volume control the storage guard. Dedicated swap, temporary and output mounts are monitored independently.
+
 ## 0.1.0a139.dev1 — Report regeneration and curated references
 
 Refresh a completed run to review the HybAs polishing trajectory and the BaSIS follow-up outcomes from retained evidence. Open **Databases & models → BaSIS** to check, build or verify a researcher-curated catalog. The optional DOI lookup prepares a citation for review. In a new follow-up, researchers can select a catalog containing an approved local placement registry.

@@ -14,7 +14,7 @@ import yaml
 
 from . import compute_memory, hardware, preflight
 from .catalog import PIPELINES
-from .disk_capacity import CapacityProbe
+from .disk_capacity import ProtectedCapacityProbe as CapacityProbe
 from .disk_pause import PAUSE_BYTES, RESUME_BYTES, WARNING_BYTES
 from .local import local_path
 from .release_contract import approval
@@ -73,7 +73,7 @@ def _storage(store, run):
     return {**observed, 'errors': list(dict.fromkeys(errors)), 'warnings': warnings,
             'thresholds': {'pause_bytes': PAUSE_BYTES, 'resume_bytes': RESUME_BYTES,
                            'warning_bytes': WARNING_BYTES},
-            'notice': ('A storage stop can be cleared after every monitored drive has more than 5 GiB free. '
+            'notice': ('A storage stop can be cleared after every protected filesystem has more than 5 GiB free. '
                        'The swap allowance is a memory budget. '
                        'Free space is not a prediction of total output or swap-file growth.')}
 

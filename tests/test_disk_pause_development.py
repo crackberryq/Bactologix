@@ -84,7 +84,7 @@ def test_initial_dev_checkpoint_ignores_unused_low_ambient_tmp(dev, tmp_path, mo
         assert not thread.is_alive(), 'Dev checked unused ambient TMPDIR before its first command'
         assert errors == []
         assert ambient not in checked
-        assert dev.home / 'tmp' in checked
+        assert Path('/') in checked
         assert disk_pause.snapshot(dev, jid)['state'] == 'monitoring'
     finally:
         if thread.is_alive():
@@ -137,18 +137,19 @@ def test_running_job_rechecks_verified_drives_during_desktop_gap(dev, desktop_st
         size = progress.stat().st_size
         wait_for(lambda: progress.stat().st_size > size)
 
-        free[swap] = 15 * gib
-        wait_for(lambda: any(v['available_bytes'] == free[swap] for v in state().get('volumes', [])))
+        free[swap] = 2 * gib
+        wait_for(lambda: any(v['available_bytes'] == free[swap] for v in state().get('advisory_volumes', [])))
         assert state()['state'] == 'monitoring'
         size = progress.stat().st_size
         wait_for(lambda: progress.stat().st_size > size)
 
-        mounts.pop()  # The verified swap volume disappears while the process is writing.
+        mounts.pop()  # Losing dedicated swap must not pause a live process.
+        size = progress.stat().st_size
+        wait_for(lambda: progress.stat().st_size > size)
+        assert state()['state'] == 'monitoring'
+        mounts.clear()  # Losing the distribution backing is still critical.
         wait_for(lambda: state().get('state') == 'paused')
-        second = state()
-        assert second['reason'] == 'monitor_unavailable' and not second['can_resume']
-        with pytest.raises(ValueError, match='fresh check'):
-            disk_pause.request_resume(dev, jid, second['generation'])
+        assert not state()['can_resume']
     finally:
         dev.cancel(jid)
         thread.join(5)

@@ -20,12 +20,13 @@ def test_workspace_disk_stop_and_explicit_recovery(tmp_path, monkeypatch):
     store = Store(tmp_path / 'workspace')
     waiting = store.submit('smoke', {})
     unlock = store.submit('workflow_unlock', {'run_id': 'saved'})
-    rows = [volume('workspace', store.home, 20), volume('swap', tmp_path, 5)]
+    rows = [dict(volume('workspace', store.home, 20), roles=['linux_root']),
+            dict(volume('backing', tmp_path, 5), roles=['wsl_backing'])]
     initial = dict(checked_at=now(), volumes=rows, errors=[])
     with store.connect() as writer:
         writer.execute('BEGIN IMMEDIATE')
         message = disk_stop.trip(store, {'id': 'active'}, initial, [rows[1]])
-        assert 'swap' in message and disk_stop.stop_reason(store) == message
+        assert 'backing' in message and disk_stop.stop_reason(store) == message
 
     latch = disk_stop.snapshot(Store(store.home))
     assert latch['blocked'] and latch['job_id'] == 'active'
@@ -44,8 +45,6 @@ def test_workspace_disk_stop_and_explicit_recovery(tmp_path, monkeypatch):
         def __init__(self, store, run, **kwargs):
             pass
 
-        def include_paths(self, paths):
-            assert paths == {str(store.home): 'workspace', str(tmp_path): 'swap'}
 
         def sample(self):
             return deepcopy(current)
@@ -62,13 +61,13 @@ def test_workspace_disk_stop_and_explicit_recovery(tmp_path, monkeypatch):
         disk_stop.release(store, latch['id'])
     assert disk_stop.snapshot(store)['volumes'][1]['available_bytes'] == 5 * GIB
     current['volumes'].pop()
-    with pytest.raises(ValueError, match='Missing original storage location: swap'):
+    with pytest.raises(ValueError, match='Missing original storage location: backing'):
         disk_stop.release(store, latch['id'])
     assert len(disk_stop.snapshot(store)['required_volumes']) == 2
     current['volumes'].append(volume('replacement', tmp_path, 16))
-    with pytest.raises(ValueError, match='Missing original storage location: swap'):
+    with pytest.raises(ValueError, match='Missing original storage location: backing'):
         disk_stop.release(store, latch['id'])
-    current['volumes'][1] = volume('swap', tmp_path, 15)
+    current['volumes'][1] = volume('backing', tmp_path, 15)
     current['checked_at'] = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
     with pytest.raises(ValueError, match='fresh storage check'):
         disk_stop.release(store, latch['id'])
