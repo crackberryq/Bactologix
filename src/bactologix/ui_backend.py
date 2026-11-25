@@ -56,6 +56,8 @@ def display_snapshot(store, *, cached=False):
             state['workspace_busy'] = True
             state['queue']['storage_stop'] = disk_stop.snapshot(store)
             return state
+        if desktop.workspace_reconnecting(store):
+            return dict(state, workspace_busy=True, desktop_reconnecting=True)
         if not state['app_update']['active_job'] and not state['app_update']['restart_required']:
             try:
                 update_checks.tick(store)
@@ -973,6 +975,8 @@ def handle_request(store, request, session):
         kind, payload = request.get('kind'), request.get('payload', {})
         if not isinstance(payload, dict):
             raise ValueError('Invalid action payload')
+        if kind not in {'refresh', 'cancel_job', 'close_desktop'} and desktop.workspace_reconnecting(store):
+            raise ValueError('Reconnecting to workspace. Try again when desktop control returns.')
         owner = session.setdefault('ui-task-owner', uuid.uuid4().hex)
         if kind in async_tasks.ACTIONS:
             value = {'async_task': async_tasks.submit(store, owner, request['id'], kind, payload), 'keep_modal': True}

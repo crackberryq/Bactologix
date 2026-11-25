@@ -116,6 +116,12 @@ def _lease_path(store, owner):
     return store.home / 'logs' / ('desktop-' + owner + '.lease.json')
 
 
+def workspace_reconnecting(store):
+    owner = os.environ.get(ENV, '')
+    return bool(re.fullmatch(r'[a-f0-9]{32}', owner)
+                and _lease_path(store, owner).with_suffix('.reconnecting').is_file())
+
+
 def recorded_session_stop(session):
     if not session or not (session.get('cancelled') is True or session.get('phase') in {'stopping', 'stopped'}):
         return None
@@ -638,11 +644,26 @@ class Session:
 
     def poll(self, url, ready):
         """Keep the Windows session alive across brief control-database contention."""
-        deadline = time.monotonic() + LEASE_SECONDS
+        started = time.monotonic()
+        deadline = started + LEASE_SECONDS
         closing = False
+        reconnecting = False
+        marker = self.proof_path.with_suffix('.reconnecting')
         while True:
             try:
-                return self.tick(url, ready)
+                if reconnecting and not self.pending_stop_reason:
+                    request = read(self.root / 'request.json')
+                    if (isinstance(request, dict) and request.get('session') == self.key
+                            and request.get('action') in {'close', 'confirm_close'}):
+                        self.stop()
+                    elif not self.observe_heartbeat() and not self.pending_stop_reason:
+                        time.sleep(.3)
+                        continue
+                stopped = self.tick(url, ready)
+                if reconnecting:
+                    marker.unlink(missing_ok=True)
+                    print(f'Desktop control available again after {time.monotonic() - started:.1f}s.', flush=True)
+                return stopped
             except (sqlite3.Error, MonitoringInterrupted) as exc:
                 # Retain the launcher only while we can independently observe
                 # the matching Windows owner or the initial retry window lasts.
@@ -657,7 +678,20 @@ class Session:
                     closing = True
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 and not ongoing:
-                    raise
+                    if closing or self.phase != 'ready':
+                        raise
+                    if not reconnecting:
+                        reconnecting = True
+                        age = (f'{time.time() - self.heartbeat_wall:.1f}s'
+                               if self.heartbeat_wall is not None else 'unknown')
+                        reason = (f'Workspace database locked for {time.monotonic() - started:.1f}s. '
+                                  f'Current desktop ownership unconfirmed. Last accepted pulse age: {age}.')
+                        print('Reconnecting to workspace. ' + reason, flush=True)
+                        marker.touch()
+                        self.write_status({'session': self.key, 'phase': 'reconnecting', 'url': url,
+                                           'jobs': None, 'desktop_connected': False, 'reason': reason})
+                    time.sleep(.3)
+                    continue
                 time.sleep(.3 if ongoing else min(.3, remaining))
 
     def finish(self, url):

@@ -128,6 +128,7 @@ def test_desktop_poll_survives_an_exhausted_heartbeat_and_reads_pending_close(se
 ])
 def test_desktop_poll_retries_only_transient_control_read_failures_within_lease(session, monkeypatch, error, should_retry):
     _, item = session
+    item.phase = "starting"  # Startup still has a bounded retry window.
     attempts = []
 
     def interrupted(url, ready):
@@ -445,3 +446,31 @@ def test_last_window_close_reaches_owned_worker_while_database_is_busy(session):
         assert not item.record_contended_lease()
         assert 'Window closed' in desktop.session_stop_reason(saved, store=store, owner=item.key, check_host=False)
     assert item.tick('', True)
+
+
+@pytest.mark.parametrize("closing", [False, True])
+def test_ready_desktop_reconnects_after_stale_pulse_and_real_lock(session, monkeypatch, closing):
+    store, item = session
+    monkeypatch.setattr(desktop, 'LEASE_SECONDS', 2)
+    monkeypatch.setenv(desktop.ENV, item.key)
+    item.tick('', True)
+    outcome = []
+    with store.connect() as writer:
+        writer.execute('BEGIN IMMEDIATE')
+        thread = threading.Thread(target=lambda: outcome.append(item.poll('', True)), daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 6
+        while not desktop.workspace_reconnecting(store) and time.monotonic() < deadline:
+            time.sleep(.05)
+        assert desktop.workspace_reconnecting(store)
+        writer.rollback()
+    thread.join(.4)
+    assert thread.is_alive()
+    if closing:
+        request(item, 'confirm_close')
+    else:
+        desktop.atomic(item.root / 'heartbeat.json', {'session': item.key, 'time': time.time()})
+    thread.join(4)
+    assert outcome == [closing]
+    assert not desktop.workspace_reconnecting(store)
+    assert store.get('desktop_sessions', item.key)['phase'] == ('stopping' if closing else 'ready')

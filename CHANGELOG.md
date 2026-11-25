@@ -1,3 +1,7 @@
+## 0.1.0a141.dev1 — Desktop reconnection
+
+An established desktop session stays open during prolonged SQLite contention and a delayed launcher heartbeat. Other storage appears alongside protected storage in the resource monitor.
+
 ## 0.1.0a140.dev1 — Role-based storage protection
 
 Only Linux root and its WSL backing volume control the storage guard. Dedicated swap, temporary and output mounts are monitored independently.
