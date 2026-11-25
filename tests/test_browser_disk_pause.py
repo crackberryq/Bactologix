@@ -34,7 +34,7 @@ def test_pause_visible_static_and_survives_polling(progress_page):
     expect(bar).to_contain_text('Paused — low disk space')
     expect(bar.locator('.is-moving')).to_have_count(0)
     assert bar.locator('.run-progress-track span').evaluate('n=>getComputedStyle(n).animationName') == 'none'
-    for text in ('Windows D:', '/mnt/d', '8 GiB', 'Pause at or below 10 GiB', 'at least 15 GiB',
+    for text in ('Windows D:', '/mnt/d', '8 GiB', 'Pause below 10 GiB', 'at least 15 GiB',
                  'still hold memory', 'Stop run before Bactologix export or cleanup'):
         expect(panel).to_contain_text(text)
     expect(controls.get_by_role('button', name='Resume run', exact=True)).to_be_disabled()
@@ -193,3 +193,11 @@ def test_workspace_disk_stop_blocks_queue_and_requires_deliberate_recovery(progr
     expect(page.get_by_role('button', name='Resume queue', exact=True)).to_be_enabled()
     expect(page.locator('.job-card .pill').filter(has_text='Stopped · low disk space')).to_be_visible()
     assert page.evaluate("acceptanceEvents.filter(x=>x.value.kind==='queue_control').length") == 0
+
+
+def test_unavailable_storage_is_advisory(progress_page):
+    from playwright.sync_api import expect
+    page = progress_page
+    pause(page, state='unavailable', pause_kind=None, reason='monitor_unavailable')
+    expect(page.locator('#main')).to_contain_text('Check remaining space on Ubuntu manually')
+    expect(page.get_by_role('region', name='Run controls').get_by_role('button', name='Resume run')).to_have_count(0)

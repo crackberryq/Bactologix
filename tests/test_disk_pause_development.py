@@ -148,7 +148,7 @@ def test_running_job_rechecks_verified_drives_during_desktop_gap(dev, desktop_st
         wait_for(lambda: progress.stat().st_size > size)
         assert state()['state'] == 'monitoring'
         mounts.clear()  # Losing the distribution backing is still critical.
-        wait_for(lambda: state().get('state') == 'paused')
+        wait_for(lambda: state().get('state') == 'unavailable')
         assert not state()['can_resume']
     finally:
         dev.cancel(jid)

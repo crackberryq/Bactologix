@@ -56,7 +56,7 @@ class SyntheticCapacity:
     def sample(self):
         errors = ['Storage probe unavailable'] if (directory / 'probe-unavailable').exists() else []
         return {'volumes': [{'id': 'fixture', 'label': 'Software fixture disk',
-                    'path': str(directory), 'available_bytes': 40 * 1024**3,
+                    'path': str(directory), 'available_bytes': (4 if errors else 40) * 1024**3,
                     'total_bytes': 100 * 1024**3, 'kind': 'linux'}],
                 'errors': errors, 'checked_at': now()}
 

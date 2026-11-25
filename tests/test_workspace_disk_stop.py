@@ -95,7 +95,7 @@ def test_deleted_run_folder_can_recover_on_original_filesystem(tmp_path, monkeyp
 
 @pytest.mark.parametrize(('roles', 'free', 'stop', 'can_resume'), [
     (['wsl_swap'], int(9.98 * GIB), 5 * GIB, True),
-    (['wsl_swap'], 5 * GIB, 5 * GIB, False),
+    (['wsl_swap'], 5 * GIB, 5 * GIB, True),
     (['wsl_swap'], 5 * GIB + 1, 5 * GIB, True),
     (['wsl_swap', 'wsl_backing'], int(9.98 * GIB), 5 * GIB, True),
     ([], int(9.98 * GIB), 5 * GIB, True),
@@ -104,4 +104,4 @@ def test_swap_volume_limits(roles, free, stop, can_resume):
     from bactologix.disk_pause import _resume_capacity, stop_limit
     row = {'kind': 'windows_host', 'roles': roles, 'available_bytes': free}
     assert stop_limit(row) == stop
-    assert _resume_capacity({'volumes': [row]}) is can_resume
+    assert _resume_capacity({'volumes': [row], 'checked_at': now()}) is can_resume

@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a141.dev1 — Experimental development
+# Bactologix 0.1.0a142.dev1 — Experimental development
 
 For the November 24 Dev update, select **Regenerate report** on a completed HybAs or BaSIS run. Bactologix saves a new report edition using the selected renderer. See [report regeneration](docs/report-refresh.md).
 
@@ -220,9 +220,7 @@ not redacted; review it before sharing.
 
 ### Storage management
 
-The workspace warns below 20 GiB of measured free disk space. At or below 5 GiB on dedicated swap volumes or 10 GiB on data volumes it stops active work. Once swap-only drives have more than 5 GiB and data drives have at least 15 GiB free, recheck storage in **Jobs &
-progress** and choose which saved work to resume. WSL monitoring covers the
-Linux filesystem and Windows drives holding the distribution and swap.
+A running workflow pauses when a fresh reading shows less than 5 GiB free on the Linux root filesystem or the Windows volume holding its WSL distribution. Missing or stale readings show manual-check advice while the workflow continues. Dedicated swap and other volumes are monitored for information.
 **Resource use** shows sampled system RAM and swap separately from free disk
 space. See [low-disk protection](docs/low-disk-protection.md).
 

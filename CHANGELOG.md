@@ -1,3 +1,7 @@
+## 0.1.0a142.dev1 — Storage alerts during workflows
+
+Missing and stale storage readings show manual-check advice. Running workflows pause only on a fresh protected Ubuntu reading strictly below 5 GiB.
+
 ## 0.1.0a141.dev1 — Desktop reconnection
 
 An established desktop session stays open during prolonged SQLite contention and a delayed launcher heartbeat. Other storage appears alongside protected storage in the resource monitor.

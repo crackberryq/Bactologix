@@ -92,7 +92,7 @@ def release(store, expected_id):
         if not state or not expected_id or state.get('id') != expected_id:
             raise ValueError('The storage stop changed. Refresh Jobs & progress before continuing.')
         value = _check(store, state)
-        if not _resume_capacity(value) or not _fresh(value.get('checked_at')):
+        if not _resume_capacity(value) or any(v['available_bytes'] <= stop_limit(v) for v in value['volumes']):
             state.update(volumes=value.get('volumes') or [], errors=value.get('errors') or [],
                          checked_at=value.get('checked_at'))
             _save(store, state)

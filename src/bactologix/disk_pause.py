@@ -13,7 +13,6 @@ from .store import CONTROL_TIMEOUT, now
 GIB = 1024 ** 3
 PAUSE_BYTES, RESUME_BYTES, WARNING_BYTES = (5 * GIB,) * 3
 POLL_SECONDS, STALE_SECONDS = 1.0, SAMPLE_MAX_AGE_SECONDS
-ACTIVE_RECHECK_MAX_AGE_SECONDS = 15.0
 THRESHOLDS = {'pause_bytes': PAUSE_BYTES, 'resume_bytes': RESUME_BYTES, 'warning_bytes': WARNING_BYTES}
 
 def stop_limit(volume):
@@ -22,8 +21,8 @@ def stop_limit(volume):
 
 def _resume_capacity(value):
     volumes = value.get('volumes') or []
-    return bool(volumes) and not value.get('errors') and all(
-        type(volume.get('available_bytes')) is int and volume['available_bytes'] > RESUME_BYTES
+    return bool(volumes) and not value.get('errors') and not value.get('stale') and _fresh(value.get('checked_at')) and all(
+        type(volume.get('available_bytes')) is int and volume['available_bytes'] >= RESUME_BYTES
         for volume in volumes)
 
 def _fresh(checked_at):
@@ -32,6 +31,15 @@ def _fresh(checked_at):
         return -2 <= age <= STALE_SECONDS
     except (ValueError, TypeError):
         return False
+
+def _low_readings(value):
+    # The protected probe returns only Linux root and the WSL backing volume.
+    # Their timestamps can differ when Windows supplied a cached observation.
+    return [v for v in value.get('volumes', [])
+            if type(v.get('available_bytes')) is int and 0 <= v['available_bytes'] < stop_limit(v)
+            and (_fresh(v['sampled_at']) if 'sampled_at' in v else
+                 not value.get('stale') and _fresh(value.get('checked_at')))]
+
 
 def snapshot(store, jid):
     record = store.get('disk_safety', jid)
@@ -66,7 +74,7 @@ def request_resume(store, jid, expected_generation):
             if state.get('state') != 'paused' or state.get('generation') != expected_generation:
                 raise ValueError('The pause changed. Refresh the run before resuming.')
             if not state.get('can_resume') or not _fresh(state.get('checked_at')):
-                raise ValueError('Resume requires a fresh check with more than 5 GiB free on every protected filesystem.')
+                raise ValueError('Resume requires a fresh check with at least 5 GiB free on every protected filesystem.')
             previous = db.execute("SELECT body FROM items WHERE kind='disk_safety_requests' AND id=?", (jid,)).fetchone()
             if previous and json.loads(previous[0]).get('generation') == expected_generation:
                 storage_events.append(store, jid, 'resume_duplicate', expected_generation, request_id=click)
@@ -176,7 +184,6 @@ class Guard(ProcessOwner):
         self.last_publish, self.resume_nonce, self.resume_after = 0, None, None
         self.publish_pending = False
         self.control_suspended = False
-        self.recheck_until = None
         run = store.get('runs', job['payload'].get('run_id'), {})
         self.samples = Samples(store, run, initial_env=initial_env)
         self.record = {'id': job['id'], 'run_id': job['payload'].get('run_id'),
@@ -245,12 +252,7 @@ class Guard(ProcessOwner):
             # user-requested resume still requires a fresh reading above the reserve.
             return True
         sample = self.samples.current()
-        if sample is None or sample[1] <= after:
-            return False
-        value = sample[0]
-        volumes = value.get('volumes') or []
-        return bool(volumes) and not value.get('errors') and all(
-            type(v.get('available_bytes')) is int and v['available_bytes'] > stop_limit(v) for v in volumes)
+        return not (sample and _low_readings(sample[0]))
 
     def attach(self, proc):
         self.tree = OwnedTree(proc.pid)
@@ -269,8 +271,9 @@ class Guard(ProcessOwner):
         valid = bool(volumes) and all(isinstance(v.get('available_bytes'), int) and not isinstance(v['available_bytes'], bool) and v['available_bytes'] >= 0 for v in volumes)
         if not valid:
             errors.append('Required storage capacities are unavailable or invalid.')
-        critical = [v for v in volumes if type(v.get('available_bytes')) is int and 0 <= v['available_bytes'] <= stop_limit(v)]
-        if critical and not value.get('stale') and _fresh(value.get('checked_at')):
+        workflow_run = self.job['kind'] == 'workflow' and self.job['payload'].get('action') in {'run', 'continue'}
+        critical = _low_readings(value)
+        if critical and not workflow_run:
             from . import disk_stop
             from .engine import Cancelled
             self.record.update(state='stopping', reason='workspace_disk_stop', pause_trigger='workspace_disk_stop',
@@ -284,34 +287,16 @@ class Guard(ProcessOwner):
         old_state = self.record['state']
         self.record['advisory_volumes'] = value.get('advisory_volumes', [])
         self.record.update(probe_ms=value.get('probe_ms'), volumes=volumes, errors=errors, checked_at=value.get('checked_at'))
-        workflow_run = self.job['kind'] == 'workflow' and self.job['payload'].get('action') in {'run', 'continue'}
-        if not workflow_run and errors:
-            # Setup operations use measured capacity for the workspace stop.
-            # A workflow-only user-resumable pause cannot be serviced by setup.
+        if not critical and old_state != 'paused' and (errors or not _fresh(value.get('checked_at'))):
+            if old_state != 'unavailable':
+                self.write('Storage monitoring unavailable. Check Ubuntu free space manually and pause if needed.')
             self.record.update(state='unavailable', reason='monitor_unavailable', can_resume=False)
             self.publish(force=old_state != 'unavailable')
             return True
-        if (command_running and self.tree is not None and not self.control_suspended
-                and old_state in {'monitoring', 'warning', 'rechecking'} and value.get('stale_only')
-                and valid and all(v['available_bytes'] > stop_limit(v) for v in volumes)):
-            # Use the original measurement time. Even a stream of newer but
-            # already-stale snapshots cannot restart the current retry window.
-            deadline = sample_started + ACTIVE_RECHECK_MAX_AGE_SECONDS
-            if self.recheck_until is not None:
-                deadline = min(deadline, self.recheck_until)
-            if time.monotonic() < deadline:
-                self.recheck_until = deadline
-                if old_state != 'rechecking':
-                    self.samples.wake.set()
-                    self.write('Storage reading delayed. Rechecking capacity while the current command runs.')
-                self.record.update(state='rechecking', can_resume=False)
-                self.publish(force=old_state != 'rechecking')
-                return False  # A pending recheck never grants launch or resume.
-        self.recheck_until = None
-        if old_state == 'paused' or errors:
+        if old_state == 'paused' or critical:
             if old_state != 'paused':
-                details = list(errors)
-                trigger = 'stale' if value.get('stale_only') else 'monitor_unavailable'
+                details = [f"{v.get('label', 'Ubuntu storage')}: {v['available_bytes']:,} bytes free (below 5 GiB)." for v in critical]
+                trigger = 'low_space'
                 self.log_storage_event('pause_requested', self.record['generation'] + 1,
                                       reason=trigger, details=details, checked_at=value.get('checked_at'),
                                       volumes=volumes)
@@ -333,12 +318,10 @@ class Guard(ProcessOwner):
                 self.record['pause_start_mono'] = time.monotonic()
                 self.record.update(state='paused', generation=self.record['generation'] + 1,
                     paused_at=now(), pause_kind='processes_suspended' if self.tree else 'before_launch',
-                    reason='monitor_unavailable')
+                    reason='low_space')
                 self.log_storage_event('pause_confirmed', self.record['generation'],
                                       reason=trigger, kind=self.record['pause_kind'])
                 self.write('Storage safety paused this run.')
-            if errors:
-                self.record['reason'] = 'monitor_unavailable'
             self.record['can_resume'] = ready
             request = self._control('disk-resume-read', self.store.get, 'disk_safety_requests', self.job['id'], {})
             if request and request.get('generation') == self.record['generation']:
@@ -368,8 +351,8 @@ class Guard(ProcessOwner):
                         self.write('Resume was not applied: fresh storage checks did not meet the recovery requirements for each drive.')
             saved = self.publish(force=old_state != self.record['state'])
             return saved and self.record['state'] != 'paused'
-        self.record.update(state='monitoring', can_resume=False)
-        if old_state == 'rechecking':
+        self.record.update(state='monitoring', reason=None, can_resume=False)
+        if old_state == 'unavailable':
             self.write('Fresh storage readings received. The current command continued without a pause.')
         return self.publish(force=old_state != self.record['state'])
 
