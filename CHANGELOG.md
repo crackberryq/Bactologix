@@ -1,3 +1,7 @@
+## 0.1.0a145.dev1 — Reviewed results delivery
+
+Completed runs can copy final results and Methods to a local synced isolate folder on request. The workspace retains all original outputs.
+
 ## 0.1.0a144.dev1 — Pipeline-specific report listing
 
 The Safety report appears only on BaSIS runs. Existing HybAs runs use the corrected listing when reopened.

@@ -37,31 +37,36 @@ def package(store, run):
     pending = {rel for _, rel in report_candidates(store, run) if (root / rel).is_file()}
     if not pending:
         raise ValueError('This run has no native HTML reports to email.')
+    buffer = BytesIO()
+    with ZipFile(buffer, 'w', ZIP_DEFLATED) as archive:
+        write_reports(archive, root, pending)
+    return buffer.getvalue()
+
+
+def write_reports(archive, root, pending, prefix=''):
     allowed = {'.html', '.htm', '.css', '.js', '.png', '.svg', '.jpg', '.jpeg', '.webp',
                '.woff', '.woff2', '.json', '.tsv', '.csv'}
-    buffer = BytesIO()
     visited = set()
     total = 0
-    with ZipFile(buffer, 'w', ZIP_DEFLATED) as archive:
-        while pending:
-            name = pending.pop()
-            if name in visited:
-                continue
-            visited.add(name)
-            raw = results.read_file(root / name, results.REPORT_LIMIT)
-            total += len(raw)
-            if total > 128 * 1024**2:
-                raise ValueError('The linked report bundle exceeds 128 MiB. Share the report folder separately.')
-            archive.writestr(name, raw)
-            if Path(name).suffix.lower() in {'.html', '.htm'}:
-                links = References()
-                links.feed(raw.decode('utf-8', errors='replace'))
-                for link in links.paths:
-                    rel = posixpath.normpath(posixpath.join(posixpath.dirname(name), link))
-                    if (not rel.startswith('../') and '\\' not in rel and Path(rel).suffix.lower() in allowed
-                            and (root / rel).is_file()):
-                        pending.add(rel)
-    return buffer.getvalue()
+    while pending:
+        name = pending.pop()
+        if name in visited:
+            continue
+        visited.add(name)
+        raw = results.read_file(root / name, results.REPORT_LIMIT)
+        total += len(raw)
+        if total > 128 * 1024**2:
+            raise ValueError('The linked report bundle exceeds 128 MiB. Share the report folder separately.')
+        archive.writestr(prefix + name, raw)
+        if Path(name).suffix.lower() in {'.html', '.htm'}:
+            links = References()
+            links.feed(raw.decode('utf-8', errors='replace'))
+            for link in links.paths:
+                rel = posixpath.normpath(posixpath.join(posixpath.dirname(name), link))
+                if (not rel.startswith('../') and '\\' not in rel and Path(rel).suffix.lower() in allowed
+                        and (root / rel).is_file()):
+                    pending.add(rel)
+
 
 
 def compose(store, run):

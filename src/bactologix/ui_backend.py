@@ -324,7 +324,7 @@ def dispatch(store, kind, p):
     isolate_readonly = (isolate_actions.ACTIONS - {'preview_isolate_export', 'start_isolate_export'}) | {'inspect_output_files', 'open_output_folder'}
     # Workflow submission checks the current application in enqueue_workflows;
     # Store.submit checks for a competing update inside its write transaction.
-    if kind not in {"workflow", "refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "email_results", "open_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "inspect_storage_cleanup", "inspect_storage_cleanup_receipt", "download_storage", "inspect_compatibility", "download_compatibility", "compare_saved_runs", "download_comparison", "preview_samples", "refresh_app_releases", "cancel_job"} | isolate_readonly:
+    if kind not in {"workflow", "refresh", "job_log", "download_log", "job_metrics", "download_metrics", "support_preview", "download_support", "preview_result_delivery", "copy_run_results", "email_results", "open_support", "open_report", "open_original", "inspect_run", "inspect_methods", "download_methods", "inspect_results", "download_result", "open_result_report", "inspect_storage", "inspect_storage_cleanup", "inspect_storage_cleanup_receipt", "download_storage", "inspect_compatibility", "download_compatibility", "compare_saved_runs", "download_comparison", "preview_samples", "refresh_app_releases", "cancel_job"} | isolate_readonly:
         updates.assert_current(store)
         if updates.status(store)["active_job"]:
             raise ValueError("Bactologix is updating. Wait for the result and restart the application.")
@@ -778,6 +778,14 @@ def dispatch(store, kind, p):
                  'selection': ' Copy the selected preview manually and paste it into the conversation.'}
         return {'message': 'Opened Bactologix Support in your browser.' + hints.get(p.get('handoff'), ''),
                 'keep_modal': True}
+    if kind in {'preview_result_delivery', 'copy_run_results'}:
+        from . import result_delivery
+        run = _item(store, 'runs', p.get('id'))
+        if kind == 'preview_result_delivery':
+            return {'result_delivery': result_delivery.preview(store, run), 'keep_modal': True}
+        path = result_delivery.deliver(store, run, p.get('folder'))
+        return {'message': 'Verified results ZIP saved locally: ' + path,
+                'delivery_path': path, 'keep_modal': True}
     if kind == 'email_results':
         from . import email_results
         return email_results.compose(store, _item(store, 'runs', p.get('id')))

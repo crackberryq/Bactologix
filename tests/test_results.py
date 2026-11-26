@@ -256,3 +256,33 @@ def test_hybas_results_exclude_basis_safety_report(workspace, run):
         names = {row['name'] for row in rows}
         assert 'Safety report' not in names
         assert {'MultiQC', 'HybAs research report'} <= names
+
+
+def test_manual_delivery_is_repeatable_and_preserves_local_results(workspace, run):
+    from zipfile import ZipFile
+    from bactologix import result_delivery
+    with pytest.raises(ValueError, match='completed'):
+        result_delivery.preview(workspace, run)
+    run['completed'] = now()
+    workspace.put('runs', run['id'], run)
+    page = report(run, '<img src="chart.svg">')
+    (page.parent / 'chart.svg').write_text('<svg/>')
+    fasta = Path(run['output'], 'work/final/assembly.final.fasta')
+    fasta.parent.mkdir(parents=True)
+    fasta.write_bytes(b'>fixture\nA\n')
+    plan = dispatch(workspace, 'preview_result_delivery', {'id': run['id']})['result_delivery']
+    target = Path(plan['folder'], 'Bactologix Results')
+    assert not target.exists()
+    payload = {'id': run['id'], 'folder': plan['folder']}
+    first = Path(dispatch(workspace, 'copy_run_results', payload)['delivery_path'])
+    second = Path(dispatch(workspace, 'copy_run_results', payload)['delivery_path'])
+    assert first != second and first.parent == second.parent == target
+    with ZipFile(first) as archive:
+        assert archive.testzip() is None
+        assert set(archive.namelist()) == {'Methods.txt', 'reports/multiqc/multiqc_report.html',
+                                          'reports/multiqc/chart.svg', 'work/final/assembly.final.fasta'}
+        assert archive.read('work/final/assembly.final.fasta') == fasta.read_bytes()
+    assert first.is_file() and second.is_file() and page.is_file()
+    assert not list(target.glob('*.partial'))
+    run['sample']['input_manifest'] = {'sample_id': 'fixture'}
+    assert result_delivery.preview(workspace, run)['folder'] == ''
