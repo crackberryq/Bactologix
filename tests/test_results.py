@@ -226,3 +226,21 @@ def test_branded_hybas_report_is_primary_when_available(workspace, run):
     rows=results.inspect(workspace,run['id'])['reports']
     assert rows[0]['path']==str(path) and rows[0]['state']=='available'
     assert any(row['path'].endswith('multiqc_report.html') for row in rows)
+
+
+def test_results_message_contains_methods_and_portable_report(workspace, run, monkeypatch):
+    from email import policy
+    from email.parser import BytesParser
+    from io import BytesIO
+    from zipfile import ZipFile
+    from bactologix import email_results
+    monkeypatch.setattr(email_results.shutil, 'which', lambda _: None)
+    file = report(run, '<img src="chart.svg"><a href="../../../../private.tsv">private</a>')
+    (file.parent / 'chart.svg').write_text('<svg/>')
+    result = dispatch(workspace, 'email_results', {'id': run['id']})
+    message = BytesParser(policy=policy.default).parsebytes(base64.b64decode(result['download']['base64']))
+    assert message['Subject'] == f"{run['label']} — {run['sample']['id']}"
+    assert message['X-Unsent'] == '1' and message['To'] is None
+    assert 'Methods' in message.get_body().get_content()
+    with ZipFile(BytesIO(next(message.iter_attachments()).get_payload(decode=True))) as archive:
+        assert set(archive.namelist()) == {'reports/multiqc/chart.svg', 'reports/multiqc/multiqc_report.html'}

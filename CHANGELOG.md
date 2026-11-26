@@ -1,3 +1,7 @@
+## 0.1.0a143.dev1 — Report viewing and sharing
+
+MultiQC plots render inside the sandboxed viewer. Results can open an Outlook draft with the native reports and recorded Methods. Sidebar support actions open ChatGPT in the browser and allow a reviewed log handoff.
+
 ## 0.1.0a142.dev1 — Storage alerts during workflows
 
 Missing and stale storage readings show manual-check advice. Running workflows pause only on a fresh protected Ubuntu reading strictly below 5 GiB.
