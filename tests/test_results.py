@@ -286,3 +286,22 @@ def test_manual_delivery_is_repeatable_and_preserves_local_results(workspace, ru
     assert not list(target.glob('*.partial'))
     run['sample']['input_manifest'] = {'sample_id': 'fixture'}
     assert result_delivery.preview(workspace, run)['folder'] == ''
+
+
+def test_auto_delivery_uses_saved_folder_and_separate_outcome(workspace, installation, sample):
+    from bactologix import result_delivery
+    dest = sample['path']
+    run = create_run(workspace, 'hybas', sample, '{}', delivery_folder=dest)
+    assert json.loads(Path(run['folder'], 'bactologix-run.json').read_text())['delivery_folder'] == dest
+    run['completed'] = now()
+    workspace.put('runs', run['id'], run)
+    ctx = SimpleNamespace(store=workspace, job={'id': 'execution'}, write=lambda _: None)
+    result_delivery.after_success(ctx, run['id'])
+    assert workspace.get('result_deliveries', run['id'])['state'] == 'failed'
+    assert workspace.get('runs', run['id'])['completed']
+    fasta = Path(run['output'], 'work/final/assembly.final.fasta')
+    fasta.parent.mkdir(parents=True)
+    fasta.write_text('>fixture\nA\n')
+    result_delivery.after_success(ctx, run['id'])
+    receipt = results.inspect(workspace, run['id'])['delivery_receipt']
+    assert receipt['state'] == 'saved' and Path(receipt['path']).is_file()

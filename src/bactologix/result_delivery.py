@@ -48,10 +48,10 @@ def preview(store, run):
     files = sorted(native) + final + ['Methods.txt']
     for base, paths in editions.items():
         files.extend('editions/' + base.name + '/' + p for p in sorted(paths))
-    return {'id': run['id'], 'folder': default, 'files': files}
+    return {'id': run['id'], 'folder': run.get('delivery_folder') or default, 'files': files}
 
 
-def deliver(store, run, folder):
+def destination(store, folder):
     if not folder:
         raise ValueError('Choose the local synced isolate folder.')
     if re.match(r'^[A-Za-z]:[\\/]', folder):
@@ -64,6 +64,11 @@ def deliver(store, run, folder):
     parent = absolute_path(folder)
     if not parent.is_dir() or parent.is_relative_to(store.home.resolve()):
         raise ValueError('Choose an existing isolate folder outside the Bactologix workspace.')
+    return parent
+
+
+def deliver(store, run, folder):
+    parent = destination(store, folder)
     root, native, editions, final = inventory(store, run)
     target = parent / 'Bactologix Results'
     target.mkdir(exist_ok=True)
@@ -92,3 +97,16 @@ def deliver(store, run, folder):
     finally:
         partial.unlink(missing_ok=True)
     return str(target / filename)
+
+def after_success(ctx, run_id):
+    """Delivery failures are reported independently of workflow completion."""
+    run = ctx.store.get('runs', run_id)
+    try:
+        path = deliver(ctx.store, run, run['delivery_folder'])
+        receipt = {'state': 'saved', 'path': path}
+        ctx.write('Verified results ZIP saved locally: ' + path)
+    except Exception as exc:
+        receipt = {'state': 'failed', 'reason': str(exc)}
+        ctx.write('Analysis completed. Results copy failed: ' + str(exc) +
+                  '. Retry from Results when the isolate folder is available.')
+    ctx.store.put('result_deliveries', run_id, {**receipt, 'job_id': ctx.job['id']})

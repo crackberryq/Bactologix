@@ -82,6 +82,12 @@ def work(store, desktop_owner=None):
                     if ctx.disk_guard is not None:
                         ctx.disk_guard.finish(status)
                     ctx.observe("finish", status)
+                    if status == 'succeeded' and getattr(ctx, 'completed_delivery_run', None):
+                        from .result_delivery import after_success
+                        try:
+                            after_success(ctx, ctx.completed_delivery_run)
+                        except Exception as exc:
+                            ctx.write('Delivery status unavailable: ' + str(exc))
                 finally:
                     ctx.log.close()
             if status in {'interrupted', 'running'}:

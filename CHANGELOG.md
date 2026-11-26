@@ -1,3 +1,7 @@
+## 0.1.0a146.dev1 — Optional unattended delivery
+
+Run setup can save a verified results copy per isolate after successful completion. The sidebar credits Jimi Goldstein.
+
 ## 0.1.0a145.dev1 — Reviewed results delivery
 
 Completed runs can copy final results and Methods to a local synced isolate folder on request. The workspace retains all original outputs.

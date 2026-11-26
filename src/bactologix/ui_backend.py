@@ -692,10 +692,17 @@ def dispatch(store, kind, p):
         if auto_swap or 'swap_mb' in p:
             text = compute_memory.with_swap(text, 0 if auto_swap else p['swap_mb'])
         compute_memory.policy({'memory_mb': memory}, parse_config(text))
+        destinations = {}
+        if p.get('auto_delivery') is True:
+            from .result_delivery import destination
+            choices = p.get('delivery_folders') or {}
+            for sample in samples:
+                destinations[sample['id']] = str(destination(store, choices.get(sample['id'])))
         made = []
         for sample in samples:
             try:
-                made.append(create_run(store, tool, sample, text, cores, memory, **({'auto_swap': True} if auto_swap else {})))
+                made.append(create_run(store, tool, sample, text, cores, memory, **({'auto_swap': True} if auto_swap else {}),
+                                       **({'delivery_folder': destinations[sample['id']]} if destinations else {})))
             except Exception as exc:
                 raise ValueError(f"Created {len(made)} draft(s). {sample['id']}: {exc}") from exc
         response = {"message": f"Created {len(made)} independent drafts with this run configuration.", "navigate": "runs"}
