@@ -244,3 +244,15 @@ def test_results_message_contains_methods_and_portable_report(workspace, run, mo
     assert 'Methods' in message.get_body().get_content()
     with ZipFile(BytesIO(next(message.iter_attachments()).get_payload(decode=True))) as archive:
         assert set(archive.namelist()) == {'reports/multiqc/chart.svg', 'reports/multiqc/multiqc_report.html'}
+
+
+def test_hybas_results_exclude_basis_safety_report(workspace, run):
+    path = Path(run['output'], 'safety/report.html')
+    for exists in (False, True):
+        if exists:
+            path.parent.mkdir(exist_ok=True)
+            path.write_text('<html>unrelated report</html>')
+        rows = dispatch(workspace, 'inspect_results', {'id': run['id']})['results']['reports']
+        names = {row['name'] for row in rows}
+        assert 'Safety report' not in names
+        assert {'MultiQC', 'HybAs research report'} <= names

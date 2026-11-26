@@ -1,3 +1,7 @@
+## 0.1.0a144.dev1 — Pipeline-specific report listing
+
+The Safety report appears only on BaSIS runs. Existing HybAs runs use the corrected listing when reopened.
+
 ## 0.1.0a143.dev1 — Report viewing and sharing
 
 MultiQC plots render inside the sandboxed viewer. Results can open an Outlook draft with the native reports and recorded Methods. Sidebar support actions open ChatGPT in the browser and allow a reviewed log handoff.

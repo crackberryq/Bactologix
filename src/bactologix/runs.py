@@ -877,7 +877,9 @@ def report_candidates(store, run):
         owned = store.get("followup_output_owner", run["parent"]) == run["id"]
         entries = [("Follow-up report", "safety/deepsafe-report/report.html")] if owned else []
     else:
-        entries = [("MultiQC", "reports/multiqc/multiqc_report.html"), ("Safety report", "safety/report.html")]
+        entries = [("MultiQC", "reports/multiqc/multiqc_report.html")]
+        if run["tool"] == "basis":
+            entries.append(("Safety report", "safety/report.html"))
         if run["tool"] == "hybas" and parse_config(run["config"]).get("kraken_review_before_filtering"):
             entries.insert(0, ("Identification review", "reports/identification/report.html"))
         if run["tool"] == "hybas" and (Path(run["output"]) / "reports/hybas/report.html").is_file():
