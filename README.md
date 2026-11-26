@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a146.dev1 — Experimental development
+# Bactologix 0.1.0a147.dev1 — Experimental development
 
 For the November 24 Dev update, select **Regenerate report** on a completed HybAs or BaSIS run. Bactologix saves a new report edition using the selected renderer. See [report regeneration](docs/report-refresh.md).
 

@@ -128,8 +128,12 @@ def freeze(store, rid):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
+def reviewed_release(run):
+    return run.get('commit') in COMMITS.get(run.get('tool'), ())
+
+
 def eligible(store, parent):
-    if parent['commit'] not in COMMITS.get(parent['tool'], set()):
+    if not reviewed_release(parent):
         raise ValueError('This pipeline release has no reviewed result-reuse contract. Keep this run; use a new draft for independent execution.')
     jobs = [j for j in store.jobs() if j['kind'] == 'workflow'
             and j['payload'].get('run_id') == parent['id'] and j['payload'].get('action') in {'run', 'continue'}]

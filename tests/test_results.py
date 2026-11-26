@@ -305,3 +305,20 @@ def test_auto_delivery_uses_saved_folder_and_separate_outcome(workspace, install
     result_delivery.after_success(ctx, run['id'])
     receipt = results.inspect(workspace, run['id'])['delivery_receipt']
     assert receipt['state'] == 'saved' and Path(receipt['path']).is_file()
+
+
+def test_comparison_picker_uses_parent_pipeline_commit(workspace, run, monkeypatch):
+    from bactologix import variants
+    from bactologix.ui_backend import snapshot
+    def picker():
+        return next(row for row in snapshot(workspace)['runs'] if row['id'] == run['id'])
+    monkeypatch.setitem(variants.COMMITS, run['tool'], set())
+    assert picker()['reuse_reviewed'] is False
+    with pytest.raises(ValueError, match='result-reuse contract'):
+        variants.eligible(workspace, run)
+    monkeypatch.setitem(variants.COMMITS, run['tool'], {run['commit']})
+    from bactologix.ui_backend import _SNAPSHOTS
+    _SNAPSHOTS.pop(workspace.home, None)
+    assert picker()['reuse_reviewed'] is True
+    with pytest.raises(ValueError, match='successfully completed'):
+        variants.eligible(workspace, run)

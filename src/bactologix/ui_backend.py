@@ -23,7 +23,7 @@ from .runs import (absolute_path, clone_runs, command, create_run,
 from .store import identifier, display_read, transient_lock
 from .storage_guard import activity
 from . import databases, updates, hardware, methods, telemetry, support, workstation, queue, results, storage, storage_cleanup, compatibility, comparisons, sample_imports
-from . import setup_state, assessment, compute_memory
+from . import setup_state, assessment, compute_memory, variants
 from . import isolate_actions
 from . import desktop, trajectory_preview
 from . import reference_catalog, basis_catalog_builder
@@ -185,6 +185,7 @@ def snapshot(store, *, cached=False):
         status = run_status(run, run_jobs, checked)
         followup_sources = followup.source_options(store, run) if status == "completed" else []
         runs.append({k: run.get(k) for k in ("id", "tool", "sample", "label", "parent", "created", "output", "commit", "dry_run_ok", "cores", "memory_mb", "reuse", "run_type", "variant", "identification", "experimental")} | {
+            "reuse_reviewed": variants.reviewed_release(run),
             "previous_draft_jobs": run.get("previous_draft_jobs", []),
             "draft_generation": run.get("draft_generation", 0),
             "swap_mb": compute_memory.allowance(cfg),
