@@ -1,3 +1,7 @@
+## 0.1.0a148.dev1 — Consistent action alignment
+
+Report rows and repeated workspace controls align their actions to the left, including when secondary actions are unavailable.
+
 ## 0.1.0a147.dev1 — Variant availability in Comparisons
 
 Completed runs show whether their specific pipeline release supports checkpoint reuse. Other releases offer a new independent draft from the saved settings.

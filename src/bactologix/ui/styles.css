@@ -759,3 +759,32 @@ td{padding:18px 20px;line-height:1.55}
  .usage-toolbar { flex-wrap: wrap; }
  .usage-pulse { margin: 0; }
 }
+
+/* Repeated records share an action column even when the available actions vary. */
+.results-report-list article,
+.run-reports article,
+.result-attempt,
+.notification-item {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  align-items: start;
+}
+.results-report-list article > div:first-child { min-width: 0; }
+.results-report-list .button-row,
+.run-reports .button-row,
+.result-attempt .button-row,
+.notification-item .button-row,
+.job-card > .button-row,
+.run-job > .button-row,
+.table-actions {
+  justify-content: flex-start;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.run-job > .button-row { grid-column: 1 / -1; }
+@media (max-width: 900px) {
+  .results-report-list article,
+  .run-reports article,
+  .result-attempt,
+  .notification-item { grid-template-columns: minmax(0, 1fr); }
+}
