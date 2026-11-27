@@ -220,7 +220,7 @@ def snapshot(store, *, cached=False):
             "app_update": app_update, "hardware": hardware_panel, "workstation_checks": workstation.history(store),
             "resource_defaults": hardware_panel["defaults"],
             "active": {t: store.get("settings", "active-" + t) for t in PIPELINES},
-            "catalogs": catalogs, "samples": store.all("samples"), "runs": runs,
+            "sequences": [{k: v for k, v in plan.items() if k != "settings"} for plan in store.all("sequences")], "catalogs": catalogs, "samples": store.all("samples"), "runs": runs,
             "workflow_locks": workflow_unlock.review_list(store, saved_runs, jobs, archived),
             "isolate_exports": isolate_actions.export_history(store),
             "jobs": jobs, "queue": queue_state, "reports": report_rows, "configs": configs,
@@ -675,6 +675,21 @@ def dispatch(store, kind, p):
             raise ValueError("Choose a run configuration view.")
         return {"run_config": run_config.editor(tool, text), "run_config_view": view, "keep_modal": True,
                 "message": "Run settings checked. The native dry-run is still required." if p.get("validate") else ""}
+    if kind == 'copy_sequence_results':
+        from .result_delivery import deliver_runs
+        plan = _item(store, 'sequences', p.get('id'))
+        row = next((r for r in plan['rows'] if r['runs'][0] == p.get('source')), None)
+        if not row or row['state'] != 'done':
+            raise ValueError('Choose a completed isolate sequence.')
+        path = deliver_runs(store, [_item(store, 'runs', rid) for rid in row['runs']], p.get('folder'), plan['id'])
+        return {'message': 'Verified sequence ZIP saved locally: ' + path}
+    if kind in {'save_sequence', 'control_sequence'}:
+        from . import sequences
+        if kind == 'save_sequence':
+            sequences.save(store, p.get('ids'), p.get('steps'), p.get('pilot') is True, configs=p.get('configs'), folders=p.get('folders'))
+        else:
+            sequences.control(store, p.get('id'), p.get('action'))
+        return {'navigate': 'runs', 'message': 'Sequence saved.' if kind == 'save_sequence' else 'Sequence updated.'}
     if kind == "create_runs":
         tool = _tool(p)
         defaults = hardware.run_defaults(store, tool)

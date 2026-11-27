@@ -572,7 +572,7 @@ def freeze_config(cfg, tool, folder, frozen_manifest, cores, memory_mb):
 
 
 @mutation
-def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, parent=None, label=None, installation=None, expected_inputs=None, register=True, *, auto_swap=False, delivery_folder=None):
+def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, parent=None, label=None, installation=None, expected_inputs=None, register=True, *, auto_swap=False, delivery_folder=None, sequence_step=None):
     spec = PIPELINES[tool]
     install_id = installation or store.get("settings", "active-" + tool)
     installed = store.get("installs", install_id)
@@ -644,6 +644,8 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
                "bactologix_version": __version__, "application_channel": store.channel,
                "experimental": tool == "hybas" and (Path(installed["source"]) / "app/aware-outputs.json").is_file(),
                "reuse": "input-files-only; workflow outputs are independent"}
+        if sequence_step:
+            run["sequence_step"] = sequence_step
         if delivery_folder:
             run["delivery_folder"] = delivery_folder
         if frozen_manifest:

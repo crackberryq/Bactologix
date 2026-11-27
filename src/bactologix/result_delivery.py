@@ -67,29 +67,39 @@ def destination(store, folder):
     return parent
 
 
-def deliver(store, run, folder):
-    parent = destination(store, folder)
+def write_final(archive, store, run, prefix):
     root, native, editions, final = inventory(store, run)
+    write_reports(archive, root, native, prefix)
+    for base, paths in editions.items():
+        write_reports(archive, base, paths, prefix + 'editions/' + base.name + '/')
+    for name in final:
+        with results._file(root / name) as source, archive.open(prefix + name, 'w', force_zip64=True) as out:
+            before = os.fstat(source.fileno())
+            shutil.copyfileobj(source, out, 1024 * 1024)
+            after = os.fstat(source.fileno())
+            if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+                raise ValueError('An output changed during copying. Review and retry.')
+    archive.writestr(prefix + 'Methods.txt', methods.render_text(methods.build(store, run)))
+
+
+def deliver(store, run, folder):
+    return deliver_runs(store, [run], folder)
+
+
+def deliver_runs(store, runs, folder, sequence=None):
+    parent = destination(store, folder)
+    run = runs[0]
     target = parent / 'Bactologix Results'
     target.mkdir(exist_ok=True)
     if target.is_symlink():
         raise ValueError('The results directory must be a real folder.')
-    filename = f"{run['sample']['id']}-{run['tool']}-{run['id']}-{uuid4().hex[:12]}.zip"
+    filename = f"{run['sample']['id']}-{sequence or run['tool']}-{run['id']}-{uuid4().hex[:12]}.zip"
     with NamedTemporaryFile(dir=target, suffix='.partial', delete=False) as temp:
         partial = Path(temp.name)
     try:
         with ZipFile(partial, 'w', ZIP_DEFLATED, allowZip64=True) as archive:
-            write_reports(archive, root, native)
-            for base, paths in editions.items():
-                write_reports(archive, base, paths, 'editions/' + base.name + '/')
-            for name in final:
-                with results._file(root / name) as source, archive.open(name, 'w', force_zip64=True) as out:
-                    before = os.fstat(source.fileno())
-                    shutil.copyfileobj(source, out, 1024 * 1024)
-                    after = os.fstat(source.fileno())
-                    if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
-                        raise ValueError('An output changed during copying. Review and retry.')
-            archive.writestr('Methods.txt', methods.render_text(methods.build(store, run)))
+            for run in runs:
+                write_final(archive, store, run, run['tool'] + '/' if sequence else '')
         with ZipFile(partial) as archive:
             if archive.testzip():
                 raise ValueError('ZIP verification failed. Retry the copy.')

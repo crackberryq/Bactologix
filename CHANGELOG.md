@@ -1,3 +1,7 @@
+## 0.1.0a149.dev1 — Pipeline sequences
+
+Runs can sequence saved HybAs drafts or assemblies with BaSIS and GeneScope. Pilot review holds remaining isolates until release. Combined results can be copied per isolate.
+
 ## 0.1.0a148.dev1 — Consistent action alignment
 
 Report rows and repeated workspace controls align their actions to the left, including when secondary actions are unavailable.

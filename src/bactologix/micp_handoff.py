@@ -33,13 +33,13 @@ def database_identity(path, expected=None):
     return identity
 
 
-def create(store, source_id):
+def create(store, source_id, *, settings=None, sequence_step=None):
     from .runs import create_run, template, parse_config, run_status, dry_run_current, check_run_files
     source = store.get('runs', source_id)
     if not source or source['tool'] != 'hybas' or run_status(source, store.jobs(), dry_run_current(store, source)) != 'completed':
         raise ValueError('Choose a completed HybAs AWARE run')
     check_run_files(source)
-    text = store.get('configs', 'micpscope', template('micpscope'))
+    text = settings['config'] if settings else store.get('configs', 'micpscope', template('micpscope'))
     if not parse_config(text).get('reference_database'):
         raise ValueError('Select a completed reference database in GeneScope resources before creating this draft')
     output, sid = Path(source['output']), source['sample']['id']
@@ -53,4 +53,4 @@ def create(store, source_id):
     sample = dict(source['sample'], path=source['output'], micp_handoff=handoff)
     # Cross-pipeline provenance is separate from same-pipeline result inheritance.
     return create_run(store, 'micpscope', sample, text, source['cores'], source['memory_mb'],
-                      label=source['label'] + ' · GeneScope')
+                      label=source['label'] + ' · GeneScope', installation=settings['installation'] if settings else None, sequence_step=sequence_step)

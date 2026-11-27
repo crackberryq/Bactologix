@@ -36,6 +36,9 @@ def work(store, desktop_owner=None):
                 return
             job = store.claim()
             if not job:
+                from . import sequences
+                if sequences.tick(store):
+                    continue
                 if not processed:
                     return
                 idle += 1
