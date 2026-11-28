@@ -1,4 +1,6 @@
 """Release-specific runner provisioning using software-only fixtures."""
+import hashlib
+import io
 from pathlib import Path
 import sys
 import types
@@ -9,6 +11,44 @@ from bactologix import engine
 from bactologix.controllers import controller_check_code, controller_requirements
 from bactologix.store import Store
 from bactologix.ui_backend import installation_status
+
+
+@pytest.mark.parametrize('cancelled', [False, True])
+def test_bootstrap_download_observes_response_bytes_and_preserves_cancellation(tmp_path, monkeypatch, cancelled):
+    store = Store(tmp_path)
+    job = store.submit('bootstrap', {})
+    ctx = engine.Context(store, store.job(job))
+    installer = b'test installer'
+    checksum = hashlib.sha256(installer).hexdigest().encode()
+    name = 'Miniforge3-test-Linux-x86_64.sh'
+    assets = [{'name': n, 'browser_download_url': 'https://example.org/' + n} for n in (name, name + '.sha256')]
+    monkeypatch.setattr(engine, 'find_conda', lambda _: None)
+    monkeypatch.setattr(engine.platform, 'machine', lambda: 'x86_64')
+    monkeypatch.setattr(engine, 'api', lambda _: {'tag_name': 'test', 'assets': assets})
+    monkeypatch.setattr(engine, 'urlopen', lambda request, timeout: io.BytesIO(
+        checksum if request.full_url.endswith('.sha256') else installer))
+    checks = 0
+    def check_cancel():
+        nonlocal checks
+        checks += 1
+        if cancelled and checks == 2:  # Stop after the first installer chunk was read.
+            raise engine.Cancelled('Stopped by user')
+    monkeypatch.setattr(ctx, 'check_cancel', check_cancel)
+    commands = []
+    monkeypatch.setattr(ctx, 'command', commands.append)
+    try:
+        if cancelled:
+            with pytest.raises(engine.Cancelled):
+                engine.bootstrap(ctx)
+        else:
+            engine.bootstrap(ctx)
+    finally:
+        ctx.log.close()
+    assert bool(commands) == (not cancelled)
+    usage = store.get('job_telemetry', job)
+    assert usage['observed_rx_bytes'] == len(checksum) + len(installer)
+    assert usage['observed_tx_bytes'] is None
+    assert usage['latest'] is None
 
 
 @pytest.mark.parametrize('dependency', ['snakemake=9.27.1', 'snakemake-minimal=9.27.1',

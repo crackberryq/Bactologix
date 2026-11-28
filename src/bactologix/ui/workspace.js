@@ -4,15 +4,20 @@ const {parentElement, data, setTriggerValue} = component;
 const root = parentElement.querySelector(".bacto-root");
 root._dispose?.();
 const icons={home:'M3 10 12 3l9 7M5 9v12h14V9M9 21v-7h6v7',samples:'M5 3h14v18H5zM9 8h6M9 12h6M9 16h4',install:'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5',resources:'M4 6c0-4 16-4 16 0s-16 4-16 0m0 0v12c0 4 16 4 16 0V6M4 12c0 4 16 4 16 0',config:'M4 7h16M4 17h16M8 4v6m8 4v6',jobs:'M8 5h12v16H4V5h4m0-2h8v4H8zM8 12h8m-8 4h5',compare:'M5 20V10m7 10V4m7 16v-7M3 21h18',plus:'M12 5v14M5 12h14',arrow:'M5 12h14m-5-5 5 5-5 5',clone:'M8 8h12v12H8zM4 16H3V3h13v1',check:'m5 12 4 4 10-10',clock:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m0 4v5l3 2',close:'m6 6 12 12M6 18 18 6',external:'M14 3h7v7m0-7-11 11M10 5H4v15h15v-6',play:'m8 4 12 8-12 8z',stop:'M6 6h12v12H6z',info:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m0 7v6m0-9v.01',chevron:'m9 5 7 7-7 7',folder:'M3 7h7l2-3h9v16H3z',gear:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2',file:'M5 3h9l5 5v13H5zM14 3v6h5M9 13h6m-6 4h6',cpu:'M7 7h10v10H7zM9 2v3m6-3v3M9 19v3m6-3v3M2 9h3m-3 6h3m14-6h3m-3 6h3',branch:'M6 3v14a4 4 0 0 0 4 4m-4-9h8a4 4 0 0 0 4-4V3',trash:'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7',download:'M12 3v12m-4-4 4 4 4-4M4 18v3h16v-3'};
+icons.bell='M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4';
 const icon=n=>`<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${icons[n]||icons.file}"/></svg>`;
 
 const e=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $=s=>root.querySelector(s), $$=s=>[...root.querySelectorAll(s)];
 const U=root._workspaceState ||= {view:'overview',modal:null,drafts:{},selected:[],tool:'hybas',filter:'',handled:null,pending:null,fields:{}};
 const S=data.workspace;
+U.asyncTasks ||= {};
+const asyncActions=new Set(['basis_catalog_doi','scan_databases','check_database','edit_run_settings','factory_reset_preview','database_redownload_preview','recommend_swap','inspect_storage','inspect_storage_cleanup','scan_storage','preview_storage_cleanup']);
+const storageActions=new Set(['inspect_storage','inspect_storage_cleanup','scan_storage','preview_storage_cleanup']);
+U.storageLoads ||= {};
 const wizardKey='bactologix:run-editor:v1:'+S.workspace;
 const wizardKind=()=>U.view==='draft'?U.wizard?.kind:null;
-const wizardKeys=['wizard','runConfigs','revision','revisionConfig','runConfigTab','runSettingTab','runConfigGroup','runBudgets','runBudgetTool','budgetDefaults'];
+const wizardKeys=['wizard','runConfigs','revision','revisionConfig','runConfigTab','runSettingTab','runConfigGroup','runBudgets','runBudgetTool','budgetDefaults','runComputeOpen'];
 function persistWizard(){
  if(!U.wizard)return;
  try{
@@ -22,7 +27,10 @@ function persistWizard(){
  }catch{U.wizardStorageError=true;}
  const status=$('#wizard-save-status');if(status)status.textContent=wizardSaveStatus();
 }
-function wizardSaveStatus(){return U.wizardStorageError?'Browser recovery unavailable — keep this page open.':'Edits saved in this browser tab. No run created yet.';}
+function editingCurrentDraft(){
+ return U.wizard?.kind==='edit-run'&&U.revision?.can_edit_draft===true&&!U.revision.variant;
+}
+function wizardSaveStatus(){return U.wizardStorageError?'Browser recovery unavailable — keep this page open.':'Unsaved edits are kept in this browser tab.';}
 function restoreWizard(){
  if(U.wizardLoaded)return;U.wizardLoaded=true;
  try{const text=sessionStorage.getItem(wizardKey);if(!text)return;const record=JSON.parse(text),saved=record.saved;
@@ -33,29 +41,43 @@ function restoreWizard(){
 function clearWizard(){
  $('.run-wizard')?.remove();
  U.wizard=null;U.wizardRecovered=false;U.revision=null;U.revisionConfig=null;U.runConfigs={};
+ U.setupAdvice=null;U.setupAdviceContext=null;U.setupAdviceRequest=null;U.setupAdviceInvalidated=false;
  for(const key of Object.keys(U.drafts))if(/^(run-|revision-)/.test(key))delete U.drafts[key];
  try{sessionStorage.removeItem(wizardKey);}catch{/* No stored recovery data is available. */}
 }
 function openWizard(){U.view='draft';U.modal=null;U.error='';writeRoute();render();$('#main').focus({preventScroll:true});$('.workspace-shell').scrollIntoView({block:'start'});}
 function unfinishedPipeline(){const tool=U.wizard?.kind==='edit-run'?(U.revision||runBy(U.wizard.id))?.tool:val('run-tool','hybas');return S.pipelines[tool]?.name||'pipeline';}
-function wizardBanner(){return U.wizard&&U.view!=='draft'?`<section class="draft-recovery" aria-label="Unfinished draft"><div><strong>Unfinished ${e(unfinishedPipeline())} ${U.wizard.kind==='edit-run'?'revision':'draft'}</strong><p>${e(wizardSaveStatus())}</p></div><div class="button-row">${btn('resume-wizard','Resume editing',true)}${btn('discard-wizard','Discard edits')}</div></section>`:'';}
-function editSavedRun(id,variant=false){
+function wizardBanner(){return U.wizard&&U.view!=='draft'?`<section class="draft-recovery" aria-label="Unfinished draft"><div><strong>Unfinished ${e(unfinishedPipeline())} ${U.wizard.kind==='edit-run'&&!editingCurrentDraft()?'revision':'draft'}</strong><p>${e(wizardSaveStatus())}</p></div><div class="button-row">${btn('resume-wizard','Resume editing',true)}${btn('discard-wizard','Discard edits')}</div></section>`:'';}
+function calculateSavedDraftSwap(id){
+ if(wizardKind()!=='edit-run'||!editingCurrentDraft()||U.revision.id!==id||U.revision.tool!=='hybas'||!U.revisionConfig)return;
+ if(U.runConfigTab==='review')U.runConfigTab='settings';
+ U.runComputeOpen=true;
+ const section=$('.run-wizard .compute-summary');if(section)section.open=true;
+ calculateSwap('revision','hybas');
+ $('.run-wizard .swap-recommendation')?.scrollIntoView({block:'center'});
+}
+function editSavedRun(id,variant=false,recalculateSwap=false){
  if(U.wizard){
-  if(U.wizard.kind==='edit-run'&&U.wizard.id===id&&!!U.wizard.variant===variant){openWizard();return;}
-  draftInputs();persistWizard();modal('editor-conflict',id,{variant});return;
+  if(U.wizard.kind==='edit-run'&&U.wizard.id===id&&!!U.wizard.variant===variant){openWizard();if(recalculateSwap)calculateSavedDraftSwap(id);return;}
+  draftInputs();persistWizard();modal('editor-conflict',id,{variant,recalculateSwap});return;
  }
- request('edit_run_settings',{id,...(variant?{variant:true}:{})});
+ request('edit_run_settings',{id,...(variant?{variant:true}:{}),...(recalculateSwap?{recalculate_swap:true}:{})});
 }
 function beforeUnload(event){draftInputs();persistWizard();if(U.wizardStorageError&&U.wizard){event.preventDefault();event.returnValue='';}}
 restoreWizard();
-let pollTimer, toastTimer;
-const navs=[['overview','Overview','home'],['samples','Samples','samples'],['runs','Runs','play'],['jobs','Jobs & progress','jobs'],['reports','Results & reports','file'],['comparisons','Comparisons','compare'],['install','Install & update','install'],['resources','Databases & models','resources'],['configure','Configuration','config'],['storage','Storage','folder']];
+let pollTimer, toastTimer, progressTimer;
+const snapshotReceivedAt=performance.now();
+const navs=[['overview','Home','home'],['samples','Samples','samples'],['runs','Runs','play'],['sequences','Pipeline sequences','branch'],['reports','Results & reports','file'],['comparisons','Comparisons','compare'],['install','Pipelines & databases','resources'],['storage','Storage','folder'],['configure','Settings','config']];
 const btn=(action,label,primary=false,id='',ico='',disabled=false)=>`<button type="button" class="btn${primary?' primary':''}" data-action="${action}" data-id="${e(id)}" ${disabled?'disabled':''}>${ico?icon(ico):''}${e(label)}</button>`;
 const quiet=(action,label,id='')=>`<button type="button" class="quiet" data-action="${action}" data-id="${e(id)}">${e(label)} ${icon('arrow')}</button>`;
 const badge=(label,color='')=>`<span class="pill ${color}">${e(label)}</span>`;
 const experimentalNotice=r=>r?.experimental?'<p class="inline-info">HybAs 10 — Experimental: input modes, polishing paths and AWARE+ await analytical validation.</p>':'';
-const statusBadge=s=>badge(s==='awaiting_review'?'Awaiting researcher review':s==='aware_complete'?'AWARE complete':s,['completed','succeeded','checked','ready'].includes(s)?'green':['running','queued'].includes(s)?'blue':['failed','interrupted'].includes(s)?'red':s==='awaiting_review'?'amber':'');
-const jobStatus=j=>j.status==='queued'&&j.held?badge('Held','amber'):j.status==='queued'&&S.queue?.paused?badge('Queued · paused','amber'):statusBadge(j.status);
+const statusBadge=s=>badge(({aware_complete:'AWARE complete',awaiting_review:'Awaiting researcher review',completed:'Run finished',succeeded:'Finished',checked:'Setup checked',ready:'Ready',running:'Running',queued:'Queued',failed:'Failed',interrupted:'Interrupted',draft:'Draft'})[s]||s,['completed','succeeded','checked','ready'].includes(s)?'green':['running','queued'].includes(s)?'blue':['failed','interrupted'].includes(s)?'red':s==='awaiting_review'?'amber':'');
+const assessmentBadge=a=>{a||={label:'Coverage not recorded',state:'unknown',reasons:['No usable saved assessment coverage.']};return `<span class="secondary-line assessment-coverage">${badge(a.label,a.state==='incomplete'?'amber':a.state==='recorded'?'blue':'')}<span class="secondary-line">${e(a.reasons?.[0]||'Review the native assessment evidence.')}</span></span>`;};
+const assessmentDetails=a=>a?`<details class="help-details assessment-details"><summary>Assessment coverage: ${e(a.label)}</summary><p>${e(a.origin)}</p><ul>${(a.reasons||[]).map(x=>`<li>${e(x)}</li>`).join('')}</ul><p>${e(a.interpretation)}</p></details>`:'';
+function workspaceDiskStop(){return S.queue?.storage_stop?.blocked?S.queue.storage_stop:null;}
+function storageStoppedJob(j){return j?.disk_safety?.reason==='workspace_disk_stop'||j?.error?.startsWith('Workspace storage stop.');}
+const jobStatus=j=>stopUnconfirmed(j)?badge(monitorTitle(j),'amber'):storageStoppedJob(j)?badge(j.status==='running'?'Stopping · low disk space':'Stopped · low disk space','amber'):j.status==='running'&&j.cancel?badge('Stopping','amber'):monitorIssue(j)?badge(monitorTitle(j),'amber'):diskPaused(j)?diskPauseBadge(j):j.status==='queued'&&j.held?badge('Held','amber'):j.status==='queued'&&S.queue?.paused?badge('Queued · paused','amber'):statusBadge(j.status);
 const heading=(eyebrow,title,desc,actions='')=>`<div class="page-heading"><div><div class="eyebrow">${eyebrow}</div><h1>${title}</h1><p class="subtitle">${desc}</p></div><div class="button-row">${actions}</div></div>`;
 const empty=(title,desc,action='')=>`<div class="empty">${icon('folder')}<h3>${title}</h3><p>${desc}</p>${action}</div>`;
 const notice=(title,text,amber=false)=>`<div class="notice${amber?' amber':''}">${icon('info')}<div><strong>${title}</strong><p>${text}</p></div></div>`;
@@ -73,6 +95,15 @@ function syncNavigation(){
 function closeNavigation(focus=true){U.navOpen=false;syncNavigation();if(focus)$('#nav-toggle').focus();}
 const activeInstall=t=>S.installs.find(i=>i.id===S.active[t]);
 const runBy=id=>S.runs.find(r=>r.id===id);
+function sameDraft(document,run){
+ return !!document&&!!run&&document.id===run.id&&(document.draft_generation??0)===(run.draft_generation??0);
+}
+function discardStaleDraftViews(){
+ for(const key of ['detail','results','methods','outputFiles']){
+  const cached=U[key];
+  if(cached&&!sameDraft(cached,runBy(cached.id)))U[key]=null;
+ }
+}
 const visibleRuns=()=>S.runs.filter(r=>!r.archived);
 U.selected=U.selected.filter(id=>visibleRuns().some(r=>r.id===id));
 const val=(id,fallback='')=>U.drafts[id]??fallback;
@@ -82,10 +113,70 @@ const select=(id,label,options,selected='')=>`<div class="field"><label for="${i
 function renderToast(){const t=$('#toast'),saved=U.toast;clearTimeout(toastTimer);if(!saved||saved.until<=Date.now()){t.classList.remove('show');U.toast=null;return;}t.textContent=saved.message;t.classList.add('show');t.classList.toggle('toast-error',saved.error);toastTimer=setTimeout(()=>{t.classList.remove('show');U.toast=null;},saved.until-Date.now());}
 function toast(message,error=false){U.toast={message,error,until:Date.now()+6500};renderToast();}
 function download(name,content,type='text/plain'){const url=URL.createObjectURL(new Blob([content],{type}));const a=document.createElement('a');a.href=url;a.download=name;root.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);}
-function request(kind,payload={},background=false){if(U.pending){if(!background&&U.background){U.queuedRequest={kind,payload:structuredClone(payload)};renderBusy();}return;}U.background=background;U.requestOrigin={kind,view:U.view,runId:U.runId};U.pending=Array.from(crypto.getRandomValues(new Uint32Array(4)),x=>x.toString(16)).join('-');setTriggerValue('action',{id:U.pending,kind,payload});renderBusy();}
-function renderBusy(){const locked=!!U.queuedRequest||!!U.pending&&!U.background;root.classList.toggle('is-busy',locked);const status=$('#connection-status');if(status)status.textContent=U.pending?'Working…':'Workspace synced';for(const el of $$('input,textarea,select,button[data-action]:not([data-action="close"])')){if(locked&&!el.disabled){el.disabled=true;el.dataset.pendingDisabled='true';}else if(!locked&&el.dataset.pendingDisabled){el.disabled=false;delete el.dataset.pendingDisabled;}}}
-function routeHash(){return U.view==='install'&&U.setupTab==='compatibility'?'#install/compatibility':U.view==='draft'?'#drafts/'+(U.wizard?.kind==='edit-run'?'revise/'+encodeURIComponent(U.wizard.id):'new'):U.view==='run'?'#runs/'+encodeURIComponent(U.runId)+'/'+(U.runDetailTab||'overview'):U.view==='comparisons'?'#comparisons/'+(U.comparisonTab||'review'):'#'+U.view;}
-function writeRoute(replace=false){const hash=routeHash();U.routeApplied=hash;if(window.location.hash!==hash)window.history[replace?'replaceState':'pushState'](null,'',hash);}
+function asyncContext(){return JSON.stringify([U.asyncEpoch||0,U.view,U.runId,U.resourceTool,U.setupTool,U.setupTab,U.setupStep,U.runDetailTab,U.runConfigTab,U.modal?.kind,U.modal?.id,U.wizard?.id]);}
+function asyncCurrent(task){
+ if(task.cancelled||task.context!==asyncContext())return false;
+ const p=task.payload;
+ if(task.kind==='basis_catalog_doi')return p.doi===val('basis-catalog-doi','');
+ if(task.kind==='scan_databases')return (p.root||'')===val('dbscan-'+p.tool,'');
+ if(task.kind==='check_database')return p.path===val(dbPath(p.tool,p.id),S.databases[p.tool]?.rows.find(r=>r.id===p.id)?.path||'');
+ if(task.kind==='recommend_swap')return swapRequestCurrent(task.origin?.swap);
+ if(task.kind==='scan_storage')return !!p.include_external===!!val('storage-external',false);
+ if(task.kind==='factory_reset_preview')return !!p.delete_databases===!!val('reset-databases',false);
+ return true;
+}
+function asyncProgress(){
+ const rows=Object.entries(U.asyncTasks).filter(([,task])=>asyncCurrent(task));
+ if(!rows.length)return '';
+ const labels={basis_catalog_doi:'Looking up Crossref citation',scan_databases:'Scanning database folders',check_database:'Checking database location',edit_run_settings:'Opening saved run settings',factory_reset_preview:'Reviewing workspace reset',database_redownload_preview:'Reviewing database download',recommend_swap:'Reviewing RAM and swap',inspect_storage:'Loading registered storage locations',inspect_storage_cleanup:'Checking cleanup candidates',scan_storage:'Measuring registered storage',preview_storage_cleanup:'Reviewing selected cleanup paths'};
+ return `<section class="async-checks" aria-label="Background checks">${rows.map(([id,task])=>`<div class="async-check" role="status"><div><strong>${e(labels[task.kind]||'Checking saved information')}</strong><span class="secondary-line">${task.progress?e(task.progress.stage)+' · '+e(Number(task.progress.entries||0).toLocaleString())+' entries checked · '+e(task.progress.elapsed_seconds)+'s elapsed':'You can continue using the workspace.'}</span>${task.progress?.path?`<span class="secondary-line path-cell">${e(task.progress.path)}</span>`:''}<span class="async-check-progress" aria-hidden="true"></span></div>${btn('cancel-ui-task','Cancel check',false,id)}</div>`).join('')}</section>`;
+}
+function request(kind,payload={},background=false,swap=null){
+ if(S.workspace_busy&&!['refresh','cancel_job','close_desktop'].includes(kind)){
+  if(!background)toast('Workspace is reconnecting. Try the action again when it is synced.',true);
+  schedulePoll();return;
+ }
+ if(kind==='recommend_swap'&&!swapRequestCurrent(swap))return;
+ const observation=asyncActions.has(kind);
+ if(observation&&Object.values(U.asyncTasks).some(task=>task.kind===kind&&asyncCurrent(task)&&JSON.stringify(task.payload)===JSON.stringify(payload)))return;
+ if(U.pending){if(!background&&U.background){U.queuedRequest={kind,payload:structuredClone(payload),swap,context:asyncContext()};renderBusy();}return;}
+ if(['poll_ui_task','cancel_ui_task'].includes(kind))U.pendingTaskToken=payload.token;
+ U.background=background||observation;U.requestOrigin={kind,view:U.view,runId:U.runId,...(swap?{swap}:{})};
+ if(kind==='inspect_run'&&runBy(payload.id))U.requestOrigin.checkRevision=runCheckRevision(runBy(payload.id));
+ if(kind==='inspect_methods'||kind==='inspect_output_files')U.requestOrigin.draftGeneration=runBy(payload.id)?.draft_generation??0;
+ U.pending=Array.from(crypto.getRandomValues(new Uint32Array(4)),x=>x.toString(16)).join('-');
+ if(observation){
+  for(const task of Object.values(U.asyncTasks))if(task.kind===kind)task.cancelled=true;
+  U.asyncTasks[U.pending]={requestId:U.pending,kind,payload:structuredClone(payload),origin:structuredClone(U.requestOrigin),context:asyncContext()};
+  if(storageActions.has(kind))U.storageLoads[kind]={id:U.pending,state:'running',message:''};
+ }
+ setTriggerValue('action',{id:U.pending,kind,payload});renderBusy();
+ if(observation){const panel=$('#async-checks-slot');if(panel)panel.innerHTML=asyncProgress();}
+}
+function renderBusy(){
+ const locked=!!U.queuedRequest&&!asyncActions.has(U.queuedRequest.kind)||!!U.pending&&!U.background;
+ root.classList.toggle('is-busy',locked);
+ const status=$('#connection-status');
+ if(status)status.textContent=S.workspace_busy?'Reconnecting to workspace':locked?'Working…':'Workspace synced';
+ const progress=$('#draft-create-status');
+ if(progress){
+  const waiting=U.queuedRequest?.kind==='create_runs';
+  const saving=!!U.pending&&U.requestOrigin?.kind==='create_runs';
+  progress.hidden=!waiting&&!saving;
+  $('#wizard-save-status').parentElement.hidden=!progress.hidden;
+  if(!progress.hidden){
+   const drafts=progress.dataset.count==='1'?'draft':'drafts';
+   progress.querySelector('strong').textContent=waiting?'Waiting to create '+drafts+'…':'Creating '+drafts+'…';
+   progress.querySelector('p').textContent=waiting?'Waiting for the current workspace check to finish.':'Saving the workflow and recording input file checksums. Large inputs can take time to read.';
+  }
+ }
+ for(const el of $$('input,textarea,select,button[data-action]:not([data-action="close"])')){
+  if(locked&&!el.disabled){el.disabled=true;el.dataset.pendingDisabled='true';}
+  else if(!locked&&el.dataset.pendingDisabled){el.disabled=false;delete el.dataset.pendingDisabled;}
+ }
+}
+function routeHash(){if(U.view==='sequences'&&U.sequenceOpen)return '#sequences/'+(U.sequenceEditor.id?'edit/'+encodeURIComponent(U.sequenceEditor.id):'new');return U.view==='install'&&U.setupTab==='compatibility'?'#install/compatibility':U.view==='draft'?'#drafts/'+(U.wizard?.kind==='edit-run'?'revise/'+encodeURIComponent(U.wizard.id):'new'):U.view==='run'?'#runs/'+encodeURIComponent(U.runId)+'/'+(U.runDetailTab||'overview'):U.view==='comparisons'?'#comparisons/'+(U.comparisonTab||'review'):'#'+U.view;}
+function writeRoute(replace=false){const hash=routeHash();if(U.routeApplied!==hash)U.asyncEpoch=(U.asyncEpoch||0)+1;U.routeApplied=hash;if(window.location.hash!==hash)window.history[replace?'replaceState':'pushState'](null,'',hash);}
 function readRoute(){
  const hash=window.location.hash;if(hash===U.routeApplied)return false;
  let parts;try{parts=hash.replace(/^#/,'').split('/').map(decodeURIComponent);}catch{parts=['overview'];}
@@ -93,23 +184,31 @@ function readRoute(){
  if(key==='drafts'){U.view='draft';}
  else if(key==='runs'&&parts[1]){U.view='run';U.runId=parts[1];U.detail=null;U.results=null;U.runDetailTab=['overview','kraken','assembly','quality','databases','advanced','modules','aware','deep','resources','activity','results','methods'].includes(parts[2])?parts[2]:'overview';}
  else if(['compare','experiments','comparisons'].includes(key)){U.view='comparisons';U.comparisonTab=key==='experiments'||parts[1]==='create'?'create':'review';}
+ else if(key==='sequences'){
+  U.view='sequences';U.sequenceOpen=false;
+  const id=parts[1]==='edit'?parts[2]:'',plan=id?sequenceSelectedPlan(id):null;
+  if(parts[1]==='new'||plan&&['draft','held','review','attention'].includes(plan.state)){
+   if(!U.sequenceEditor||U.sequenceEditor.id!==id)U.sequenceEditor=sequenceEditor(plan);
+   U.sequenceOpen=true;
+  }
+ }
  else if(key==='install'){U.view='install';U.setupTab=parts[1]==='compatibility'?'compatibility':'guide';}
- else if(navs.some(n=>n[0]===key))U.view=key;
+ else if(navs.some(n=>n[0]===key)||['jobs','resources'].includes(key))U.view=key;
  else return false;
- U.routeApplied=hash;U.error='';return true;
+ U.asyncEpoch=(U.asyncEpoch||0)+1;U.routeApplied=hash;U.error='';return true;
 }
 function routeChanged(){draftInputs();if(readRoute()){if(!['new-run','edit-run'].includes(U.modal?.kind))U.modal=null;render();$('#main').focus({preventScroll:true});}}
-function navigate(view){U.navOpen=false;draftInputs();U.view=view;U.modal=null;U.error='';if(['compare','experiments'].includes(view)){U.view='comparisons';U.comparisonTab=view==='experiments'?'create':'review';}writeRoute();render();$('#main').focus({preventScroll:true});$('.workspace-shell').scrollIntoView({block:'start'});}
-function openRun(id,tab='overview',replace=false){draftInputs();U.view='run';U.runId=id;U.runDetailTab=tab;U.results=null;U.modal=null;U.error='';U.detail=null;writeRoute(replace);render();$('#main').focus({preventScroll:true});$('.workspace-shell').scrollIntoView({block:'start'});}
+function navigate(view){if(view==='sequences')U.sequenceOpen=false;U.asyncEpoch=(U.asyncEpoch||0)+1;U.navOpen=false;draftInputs();U.view=view;U.modal=null;U.error='';if(['compare','experiments'].includes(view)){U.view='comparisons';U.comparisonTab=view==='experiments'?'create':'review';}writeRoute();render();$('#main').focus({preventScroll:true});$('.workspace-shell').scrollIntoView({block:'start'});}
+function openRun(id,tab='overview',replace=false){U.asyncEpoch=(U.asyncEpoch||0)+1;draftInputs();U.view='run';U.runId=id;U.runDetailTab=tab;U.results=null;U.modal=null;U.error='';U.detail=null;writeRoute(replace);render();$('#main').focus({preventScroll:true});$('.workspace-shell').scrollIntoView({block:'start'});}
 
-let modalReturnFocus=null;
-function modal(kind,id='',options={}){if(!U.modal){const opener=parentElement.activeElement;modalReturnFocus=opener?.closest('.workspace-tools')?{tools:true}:opener?.closest('.sidebar')&&window.matchMedia('(max-width:900px)').matches?{navigation:true}:{action:opener?.dataset.action,id:opener?.dataset.id};}closeNavigation(false);U.modal={kind,id,...options};renderModal();$('.modal input,.modal select,.modal button')?.focus();}
-function closeModal(){if(U.modal?.kind==='support')clearSupport();if(U.modal?.kind==='folders'&&U.browserReturn){U.modal=U.browserReturn;U.browserReturn=null;U.error='';renderModal();return;}U.modal=null;U.browserReturn=null;$('#modal-root').innerHTML='';$('.app-shell').removeAttribute('inert');render();const back=modalReturnFocus;modalReturnFocus=null;const target=back?.tools?$('.workspace-tools summary'):back?.navigation?$('#nav-toggle'):back?.action?$$('[data-action]').find(n=>n.dataset.action===back.action&&n.dataset.id===back.id&&!n.disabled&&n.getClientRects().length):null;(target?.getClientRects().length&&!target.disabled?target:$('#main')).focus({preventScroll:true});}
+let modalReturnFocus=U.modalReturnFocus||null;
+function modal(kind,id='',options={}){U.asyncEpoch=(U.asyncEpoch||0)+1;U.toast=null;renderToast();if(!U.modal){const opener=parentElement.activeElement;modalReturnFocus=opener?.closest('.workspace-tools')?{tools:true}:opener?.closest('.sidebar')&&window.matchMedia('(max-width:900px)').matches?{navigation:true}:{action:opener?.dataset.action,id:opener?.dataset.id};U.modalReturnFocus=modalReturnFocus;}closeNavigation(false);U.modal={kind,id,...options};renderModal();$('.modal input,.modal select,.modal button')?.focus();}
+function closeModal(){U.asyncEpoch=(U.asyncEpoch||0)+1;if(U.modal?.kind==='support')clearSupport();if(U.modal?.kind==='folders'&&U.browserReturn){U.modal=U.browserReturn;U.browserReturn=null;U.error='';renderModal();return;}U.modal=null;U.browserReturn=null;$('#modal-root').innerHTML='';$('.app-shell').removeAttribute('inert');render();const back=modalReturnFocus;modalReturnFocus=null;U.modalReturnFocus=null;const target=back?.tools?$('.workspace-tools summary'):back?.navigation?$('#nav-toggle'):back?.action?$$('[data-action]').find(n=>n.dataset.action===back.action&&n.dataset.id===back.id&&!n.disabled&&n.getClientRects().length):null;(target?.getClientRects().length&&!target.disabled?target:$('#main')).focus({preventScroll:true});}
 function setDraft(id,value){U.drafts[id]=value;const el=$('#'+id);if(el)el.value=value;}
 function pipelineVersionChoices(tool){
  const rows=S.catalogs[tool].versions,stable=val('release-channel','prerelease')==='stable';
  const releases=rows.filter(r=>r.kind==='release'&&(!stable||!r.prerelease)).sort((a,b)=>(b.publishedAt||'').localeCompare(a.publishedAt||''));
- const recommended=releases.find(r=>r.supported)||(!stable&&rows.find(r=>r.kind==='pinned'&&r.preferred&&r.supported))||null;
+ const recommended=releases.find(r=>r.supported)||(!stable&&rows.find(r=>['development','pinned'].includes(r.kind)&&r.preferred&&r.supported))||null;
  const ordered=[...(recommended?[recommended]:[]),...releases.filter(r=>r.id!==recommended?.id),...rows.filter(r=>r.kind!=='release'&&r.id!==recommended?.id)];
  return {releases,recommended,ordered};
 }
@@ -119,36 +218,495 @@ function defaultPipelineVersion(tool){
  return (recommended&&visible(recommended)?recommended:ordered.find(r=>r.supported&&visible(r)))?.id||'';
 }
 function browse(target,path='',nearest=false){U.browserReturn=U.modal?{...U.modal}:null;U.browser=null;U.drafts['folder-query']='';U.drafts['folder-hidden']=false;modal('folders',target);request('browse_folders',{path,nearest});}
-function draftInputs(){U.recoveryOpen ||= {};for(const el of $$('.recovery-panel'))U.recoveryOpen[el.dataset.recoveryJob]=el.open;for(const el of $$('input[id],textarea[id],select[id]')){if(el.type==='file')continue;U.drafts[el.id]=el.type==='checkbox'?el.checked:el.value;}if(wizardKind()==='new-run'&&U.runBudgetTool&&$('#run-cores')){U.runBudgets||={};U.runBudgets[U.runBudgetTool]={cores:val('run-cores'),memory_mb:val('run-memory')};}}
-function draftBudget(tool){U.runBudgets||={};U.budgetDefaults||={};const defaults=S.resource_defaults?.[tool]||{cores:4,memory_mb:16000},stamp=JSON.stringify(defaults);if(U.budgetDefaults[tool]!==stamp){delete U.runBudgets[tool];U.budgetDefaults[tool]=stamp;}return U.runBudgets[tool]||defaults;}
+function draftInputs(){for(const el of $$('[data-sequence-details]'))(U.sequenceDetails||={})[el.dataset.sequenceDetails]=el.open;if($('.notification-preferences'))U.notificationPreferencesOpen=$('.notification-preferences').open;const compute=$('.run-wizard .compute-summary');if(compute)U.runComputeOpen=compute.open;if($('[data-cleanup-history]'))U.cleanupHistoryOpen=$('[data-cleanup-history]').open;if($('[data-storage-details]'))U.storageDetailsOpen=$('[data-storage-details]').open;U.recoveryOpen ||= {};for(const el of $$('.recovery-panel'))U.recoveryOpen[el.dataset.recoveryJob]=el.open;for(const el of $$('input[id],textarea[id],select[id]')){if(el.type==='file')continue;U.drafts[el.id]=el.type==='checkbox'?el.checked:el.value;}if(wizardKind()==='new-run'&&U.runBudgetTool&&$('#run-cores')){U.runBudgets||={};U.runBudgets[U.runBudgetTool]={cores:val('run-cores'),memory_mb:val('run-memory'),swap_mb:draftSwap('run')};}}
+function draftBudget(tool){U.runBudgets||={};return U.runBudgets[tool]||={...(S.resource_defaults?.[tool]||{cores:4,memory_mb:16000,swap_mb:0})};}
+function draftSwap(prefix,fallback=0){return val(prefix+'-swap-enabled',Number(fallback)>0)?Number(val(prefix+'-swap',fallback)):0;}
+function swapDraftError(prefix){if(autoSwapSelected(prefix,val('run-tool','hybas')))return '';const enabled=val(prefix+'-swap-enabled',false),swap=draftSwap(prefix),memory=Number(val(prefix+'-memory',0));return enabled&&(!Number.isInteger(swap)||swap<1||!Number.isFinite(memory)||swap+memory>2000000)?'Enter a positive whole-number swap allowance. RAM plus swap must not exceed 2,000,000 MB.':'';}
+function setSwapDraft(prefix,amount=0){setDraft(prefix+'-swap-enabled',Number(amount)>0);const toggle=$('#'+prefix+'-swap-enabled');if(toggle)toggle.checked=Number(amount)>0;setDraft(prefix+'-swap',amount);}
+function computeTotal(memory,swap){const total=Number(memory)+Number(swap);return Number.isFinite(total)&&total>=0?total.toLocaleString()+' MB':'Check the memory values';}
+function syncComputeBudget(prefix){
+ const memory=val(prefix+'-memory',0),swap=draftSwap(prefix),cores=val(prefix+'-cores',0),summary=$('[data-compute-summary="'+prefix+'"]'),total=$('[data-scheduling-total="'+prefix+'"]');
+ if(summary)summary.textContent=cores+' CPU threads · '+memory+' MB RAM'+(autoSwapSelected(prefix,val('run-tool','hybas'))?' · automatic swap':swap>0?' + '+swap+' MB swap':'')+' per run';
+ if(total)total.textContent=computeTotal(memory,swap);
+}
 function krakenLabel(r){return r.tool==='hybas'?({off:'Off',manual:'Manual',auto:'Auto',aware:'AWARE'}[r.kraken_mode]||r.kraken_mode||'Pipeline default'):'—';}
-function readMode(mode){return ({hybrid:'Hybrid',illumina_only:'Illumina only',ont_only:'ONT only'}[mode]||String(mode).replaceAll('_',' '));}
+function readMode(mode){if(typeof mode!=='string'||!mode.trim())return 'Not recorded';return ({hybrid:'Hybrid',illumina_only:'Illumina only',ont_only:'ONT only'}[mode]||mode.replaceAll('_',' '));}
+function workflowProgress(j,forRun=false){
+ const t=j.telemetry,p=t?.progress;
+ if(j.status==='queued'||j.kind!=='workflow'||!['run','continue'].includes(j.payload?.action)||t?.id!==j.id||t.action!==j.payload.action)return null;
+ if((forRun||t.run_id!=null)&&t.run_id!==j.payload.run_id)return null;
+ return p?.source==='workflow log'?p:null;
+}
+function taskCounts(p){
+ return p&&Number.isInteger(p.completed)&&Number.isInteger(p.total)&&p.total>0&&p.completed>=0&&p.completed<=p.total?p:null;
+}
+function taskNames(j,p,live,paused){
+ const recorded=p?.active_tasks??p?.active_rules;
+ if(!Array.isArray(recorded))return '';
+ const names=recorded.filter(name=>typeof name==='string'&&name.trim()).slice(0,12);
+ if(!names.length)return '';
+ const plural=names.length>1||p.active_count>1;
+ const label=paused?(plural?'Tasks at pause':'Task at pause'):live&&!j.cancel&&!p.log_gap?(plural?'Current tasks':'Current task'):(plural?'Last reported tasks':'Last reported task');
+ const count=p.active_count>names.length?` · ${e(p.active_count)} tasks at last update`:'';
+ return `<p class="usage-step"><span>${label}</span> <strong>${names.map(e).join(', ')}</strong>${count}</p>`;
+}
+function progressFresh(j){
+ if(S.workspace_busy||j.status!=='running'||monitorIssue(j)||!navigator.onLine||performance.now()-snapshotReceivedAt>15000)return false;
+ const t=j.telemetry;if(!t)return true;
+ // The server checks collector timestamps; browser and server clocks can differ.
+ return t.live===true;
+}
+function stopUnconfirmed(j){return j?.status==='running'&&j?.monitoring?.state==='interrupted'&&j.monitoring.cleanup_confirmed!==true;}
+function monitorIssue(j){return ['degraded','interrupted','unavailable'].includes(j?.monitoring?.state);}
+function monitorTitle(j){return j?.monitoring?.state==='degraded'?(j.monitoring.control_hold===true?'Paused · workspace database busy':'Monitoring retrying'):j?.monitoring?.state==='unavailable'?'Monitoring record unavailable':'Monitoring interrupted';}
+function monitoringPanel(j,showHistory=false){
+ const m=j?.monitoring;
+ if(m?.state==='recovered'){
+  if(!showHistory)return '';
+  const timestamp=Date.parse(m.updated_at);
+  const when=Number.isFinite(timestamp)?' · '+new Date(timestamp).toLocaleString():'';
+  return `<p class="secondary-line monitoring-history">Workspace connection restored${e(when)}. Bactologix could read the job controls again.</p>`;
+ }
+ if(!monitorIssue(j))return '';
+ let detail;
+ if(m.state==='degraded'){
+  detail=m.control_hold===true?'Bactologix suspended the task while it waits for workspace access. It will recheck the job controls before continuing.':'Bactologix is retrying access to the workspace database. Task and usage readings may be delayed.';
+ }else if(m.state==='unavailable'){
+  detail='Bactologix could not read the monitoring record for this attempt. Refresh Jobs & progress for its latest status.';
+ }else if(m.cleanup_confirmed===true){
+  detail=j.disk_safety?.reason==='pause_failed'?'Bactologix could not confirm the storage pause. Its recorded processes have exited.':'Bactologix interrupted this attempt after losing access to job controls. Its recorded processes have exited. Review the job log for the last completed task.';
+ }else if(j.status==='running'){
+  detail='A stop was requested. Process exit has not been confirmed. Bactologix will check the recorded processes before allowing a retry.';
+ }else{
+  detail='Bactologix could not verify that its processes exited. Review this attempt in Jobs & progress.';
+ }
+ return `<section class="card padded monitoring-notice" aria-label="Run monitoring"><h3>${e(monitorTitle(j))}</h3><p>${e(detail)}</p>${m.detail?`<p>${e(m.detail)}</p>`:''}<small>Recorded ${e(m.updated_at||'time unavailable')}.</small></section>`;
+}
+function diskSafety(j){return j?.status==='running'?(j.disk_safety||S.jobs.find(row=>row.id===j.id)?.disk_safety):null;}
+function diskPaused(j){return diskSafety(j)?.state==='paused';}
+function storageActivity(){const waiting=S.jobs.filter(j=>diskPaused(j)&&diskSafety(j).pause_kind==='before_launch').length,paused=S.jobs.filter(j=>diskPaused(j)&&diskSafety(j).pause_kind!=='before_launch').length;return {waiting,paused,label:(paused?paused+' storage-paused · ':'')+(waiting?waiting+' waiting for storage · ':'')};}
+function diskPauseTitle(j){
+ const d=diskSafety(j);
+ if(d?.resume_requested)return 'Paused — resume requested';
+ if(diskCanResume(j))return 'Paused — ready to resume';
+ if(d?.can_resume)return 'Paused — waiting for a fresh check';
+ if(d?.pause_kind==='before_launch')return d.errors?.length?'Waiting for storage check':'Waiting for storage';
+ return d?.reason==='monitor_unavailable'?'Paused — storage check unavailable':'Paused — low disk space';
+}
+function diskPauseBadge(j){return `<span class="pill amber" data-disk-pause-badge="${e(j.id)}">${e(diskPauseTitle(j))}</span>`;}
+function runStatusBadge(r){const j=latestRunJob(r);return storageStoppedJob(j)||monitorIssue(j)||diskPaused(j)||j?.status==='running'&&j.cancel?jobStatus(j):statusBadge(r.status);}
+function diskConnectionFresh(){return !S.workspace_busy&&navigator.onLine&&performance.now()-snapshotReceivedAt<5000;}
+function diskCanResume(j){const d=diskSafety(j);return !workspaceDiskStop()&&diskPaused(j)&&!monitorIssue(j)&&d.can_resume===true&&Number.isInteger(d.generation)&&!d.resume_requested&&!j.cancel&&diskConnectionFresh();}
+function diskResumeButton(j){const d=diskSafety(j);return diskPaused(j)?`<button type="button" class="btn primary" data-action="resume-disk-job" data-id="${e(j.id)}" data-generation="${e(d.generation)}" ${diskCanResume(j)?'':'disabled'}>${d.resume_requested?'Resume requested…':'Resume run'}</button>`:'';}
+function diskVolumeList(volumes){
+ if(!volumes?.length)return '';
+ return `<ul class="disk-safety-volumes">${volumes.map(v=>`<li><div><strong>${e(v.label||'Monitored storage')}</strong><span class="path-cell">${e(v.path||'Path unavailable')}</span></div><span>${Number.isFinite(v.available_bytes)?`<strong>${e(storageBytes(v.available_bytes))}</strong> free`:'Free space unavailable'}</span></li>`).join('')}</ul>`;
+}
+function diskSafetyPanel(j){
+ const d=diskSafety(j);if(workspaceDiskStop()||!d||!['paused','warning','rechecking','unavailable'].includes(d.state))return '';
+ if(d.state==='unavailable')return notice('Storage monitoring unavailable','Check remaining space on Ubuntu manually and pause the run if needed. Bactologix is retrying the check.',true);
+ if(d.state==='warning'){
+  const warningBytes=d.thresholds?.warning_bytes??5*1024**3;
+  const affected=(d.volumes||[]).filter(v=>Number.isFinite(v.available_bytes)&&v.available_bytes<warningBytes);
+  if(!affected.length)return '';
+  return `<div role="status" aria-label="Storage warning">${affected.map(v=>badge(`${v.label||'Monitored storage'} · ${v.path||''} · ${storageBytes(v.available_bytes)} free`,'amber')).join(' ')}</div>`;
+ }
+ const rechecking=d.state==='rechecking';
+ const paused=d.state==='paused',waiting=d.pause_kind==='before_launch',thresholds=d.thresholds||{};
+ const resumeBytes=thresholds.resume_bytes??5*1024**3;
+ const floor=storageBytes(thresholds.pause_bytes??5*1024**3),resume=storageBytes(resumeBytes),warning=storageBytes(thresholds.warning_bytes??5*1024**3);
+ const errors=d.errors||[],needsSpace=(d.volumes||[]).some(v=>Number.isFinite(v.available_bytes)&&v.available_bytes<resumeBytes);
+ const title=paused?diskPauseTitle(j):rechecking?(diskConnectionFresh()?'Rechecking storage':'Last reported storage recheck'):'Storage is running low';
+ const original=paused?(d.pause_details||[]).filter(detail=>!errors.includes(detail)):[];
+ const explanation=rechecking?(diskConnectionFresh()?'The current command can continue briefly while Bactologix retries the storage check. The amounts below are from the last reading.':'The last update showed a storage recheck. The amounts below are from that record.'):paused?(waiting?'The next command has not started.':'Tool processes are suspended. They still hold memory and other resources. All tool outputs are retained.'):`The run is still working. At ${floor} free or less on a protected filesystem, Bactologix stops all runs in this workspace.`;
+ let resumeMessage='Choose Resume run when every protected filesystem has enough free space.';
+ if(d.resume_requested)resumeMessage='Resume requested. The worker will check storage again before continuing.';
+ else if(diskCanResume(j))resumeMessage='Choose Resume run to continue after a fresh check.';
+ else if(d.can_resume)resumeMessage='Waiting for a current status before enabling Resume run.';
+ else if(errors.length)resumeMessage='Bactologix retries the storage check automatically. You can choose Resume run once all drives pass.';
+ return `<section class="disk-safety-panel" data-disk-safety="${e(j.id)}" data-connection-fresh="${diskConnectionFresh()}" aria-label="Storage protection"><div role="status" aria-live="polite"><h3>${e(title)}</h3><p>${e(explanation)}</p></div>${diskVolumeList([...(d.volumes||[]),...(d.advisory_volumes||[]).map(v=>({...v,label:(v.label||'Storage')+' · monitoring only'}))])}${!rechecking&&errors.length?`<p class="disk-safety-error">${errors.map(e).join(' · ')}</p>`:''}${original.length?`<p><strong>Reason for this pause</strong> · ${original.map(e).join(' · ')}</p>`:''}<p class="disk-safety-policy">${thresholds.warning_bytes>thresholds.pause_bytes?`Warning below ${e(warning)} · `:''}${paused&&d.reason==='low_space'?'Pause below':'All runs stop at or below'} ${e(floor)} · Resume requires ${d.reason==='low_space'?'at least':'more than'} ${e(resume)} free on every protected filesystem and a successful storage check.</p>${paused&&needsSpace?'<p>Free space outside this active run, or use Stop run before Bactologix export or cleanup. Never remove files from the active run.</p>':''}${paused?`<p class="disk-safety-resume">${e(resumeMessage)}</p>`:''}<small>${rechecking?'Last successful storage check':'Last storage check'}: ${e(d.checked_at||'Unavailable')}. <span class="disk-safety-connection">${diskConnectionFresh()?'':'Connection is stale; reconnect for current storage and resume controls.'}</span></small></section>`;
+}
+function runProgress(r,compact=false){
+ // Jobs are newest first. Never carry an earlier attempt's counts into a retry.
+ const j=latestRunJob(r);
+ if(!j||!['queued','running'].includes(j.status))return '';
+ const queued=j.status==='queued',paused=diskPaused(j),fresh=progressFresh(j),p=workflowProgress(j,true),counts=taskCounts(p);
+ const action=j.kind==='workflow_unlock'?'Unlocking workflow':({'dry-run':'Validating setup',prepare:'Preparing environments',run:'Run / resume',continue:'Continuing run','check-environments':'Checking environments'})[j.payload.action]||'Workflow';
+ const status=runProgressStatus(j);
+ const detail=queued?'Waiting to start':paused?(diskSafety(j).pause_kind==='before_launch'?'Next command has not started':counts?`${counts.completed} / ${counts.total} tasks at pause`:'Tool processes suspended'):counts?`${counts.completed} / ${counts.total} tasks in current plan`:'Task count not reported yet';
+ const label=`${r.label}: ${status}. ${action}. ${!queued&&!fresh?'Last reported: ':''}${detail}`;
+ const measured=counts?`<progress aria-label="${e(label)}" value="${counts.completed}" max="${counts.total}"></progress>`:`<div class="run-progress-track${!queued&&!paused&&fresh&&!j.cancel?' is-moving':''}" ${queued?'aria-hidden="true"':`role="progressbar" aria-label="${e(label)}"`}><span></span></div>`;
+ return `<div class="run-progress${compact?' run-progress-compact':''}${paused?' is-paused':''}${!queued&&!fresh?' is-stale':''}" data-run-progress="${e(r.id)}" data-compact="${compact}" data-progress-state="${e(status)}"><div class="run-progress-label"><strong>${e(status)}${compact?'':' · '+e(action)}</strong><span>${!queued&&!fresh?'Last reported · ':''}${e(detail)}</span></div>${measured}${!compact?taskNames(j,p,fresh,paused):''}${!compact&&counts?.dynamic_plan?'<small>Checkpoints can change the task total.</small>':''}</div>`;
+}
+function runCheckRevision(run){
+ // A new finished attempt can change native validation or environment evidence.
+ const attempt=S.jobs.find(j=>['workflow','workflow_unlock'].includes(j.kind)&&j.payload?.run_id===run.id&&!activeJob(j));
+ return JSON.stringify([run.draft_generation,run.commit,run.dry_run_ok,run.archived,run.identification,run.aware_state,attempt?.id,attempt?.status]);
+}
+function latestRunJob(r){return r?S.jobs.find(j=>['workflow','workflow_unlock'].includes(j.kind)&&j.payload?.run_id===r.id&&!r.previous_draft_jobs?.includes(j.id)):null;}
+function runControls(r){
+ const j=latestRunJob(r);if(!j||!['queued','running'].includes(j.status))return '';
+ const queued=j.status==='queued',execution=j.kind==='workflow'&&['run','continue'].includes(j.payload.action),locked=!!S.queue?.update_active;
+ const stop=stopUnconfirmed(j)?'Stop attempted · exit unconfirmed':j.cancel?'Stopping…':queued?'Cancel queued '+(execution?'run':'task'):'Stop '+(execution?'run':'task');
+ return `<section class="run-controls" aria-label="Run controls"><div class="button-row">${diskResumeButton(j)}${btn('cancel-job',stop,false,j.id,'stop',!!j.cancel||stopUnconfirmed(j))}${btn('job-log','View log',false,j.id,'file')}${queued?btn(j.held?'release-job':'hold-job',j.held?'Release hold':'Hold job',false,j.id,'',locked):''}${S.queue?btn(S.queue.paused?'resume-queue':'pause-queue',workspaceDiskStop()?'Queue blocked by storage':S.queue.paused?'Resume queue':S.jobs.some(j=>j.status==='running')?'Pause queue after current job':'Pause queue',false,'','',locked||!!workspaceDiskStop()):''}</div>${S.queue?`<p>Stopping keeps saved outputs and logs. ${workspaceDiskStop()?'Review the workspace storage stop in Jobs & progress.':diskPaused(j)?'The queue pause is separate from this storage pause and only affects waiting jobs.':'Pausing the queue lets the current job keep running; waiting jobs will not start.'}</p>`:''}</section>${diskSafetyPanel(j)}`;
+}
+function refreshProgress(){
+ // Only the small indicators change when a connection stops delivering snapshots.
+ for(const node of $$('[data-run-progress]')){const r=runBy(node.dataset.runProgress),j=latestRunJob(r);if(r&&j&&node.dataset.progressState!==runProgressStatus(j))node.outerHTML=runProgress(r,node.dataset.compact==='true');}
+ for(const node of $$('[data-job-progress]')){const j=node.closest('.usage-detail')&&U.usage?.id===node.dataset.jobProgress?usageJob(U.usage):S.jobs.find(j=>j.id===node.dataset.jobProgress);if(j&&node.dataset.live!==String(progressFresh(j))){node.outerHTML=jobTelemetry(j);}}
+ for(const node of $$('[data-monitor-pulse]')){
+  const usage=U.usage;
+  if(usage?.summary.job_status==='running'){
+   node.innerHTML=monitorPulse(usage.summary,usage.launcher_pulse,Date.now());
+  }
+ }
+ for(const node of $$('[data-disk-safety]')){
+  const j=S.jobs.find(row=>row.id===node.dataset.diskSafety);
+  if(j&&node.dataset.connectionFresh!==String(diskConnectionFresh()))node.outerHTML=diskSafetyPanel(j);
+ }
+ for(const node of $$('[data-disk-pause-badge]')){
+  const j=S.jobs.find(row=>row.id===node.dataset.diskPauseBadge);
+  if(j&&node.textContent!==diskPauseTitle(j))node.textContent=diskPauseTitle(j);
+ }
+ for(const node of $$('[data-action="resume-disk-job"]')){const j=S.jobs.find(j=>j.id===node.dataset.id);if(!diskCanResume(j)){node.disabled=true;delete node.dataset.pendingDisabled;}}
+}
+function backgroundPosition(){
+ const active=parentElement.activeElement||document.activeElement;
+ const key=node=>node?[node.tagName,node.id,node.dataset.action,node.dataset.id,node.dataset.nav,node.getAttribute('href'),node.getAttribute('aria-label'),node.tagName==='SUMMARY'?node.textContent:null].join('\u0000'):null;
+ const focusable='button,a,input,textarea,select,summary,[tabindex]';
+ const focused=root.contains(active)?{key:key(active),index:$$(focusable).filter(node=>key(node)===key(active)).indexOf(active),start:active.selectionStart,end:active.selectionEnd}:null;
+ const details=$$('#main details').map(node=>({key:key(node.querySelector('summary')),open:node.open}));
+ const scrollers=[];let node=root;
+ while(node){if(node.scrollHeight>node.clientHeight||node.scrollWidth>node.clientWidth)scrollers.push({node,top:node.scrollTop,left:node.scrollLeft});node=node.parentElement||node.getRootNode()?.host;}
+ const x=window.scrollX,y=window.scrollY;
+ return ()=>{
+  for(const saved of details){const summary=$$('#main details>summary').find(node=>key(node)===saved.key);if(summary)summary.parentElement.open=saved.open;}
+  if(focused){const target=$$(focusable).filter(node=>key(node)===focused.key)[focused.index];if(target&&!target.disabled){target.focus({preventScroll:true});if(focused.start!=null&&target.setSelectionRange)target.setSelectionRange(focused.start,focused.end);}}
+  for(const saved of scrollers){saved.node.scrollTop=saved.top;saved.node.scrollLeft=saved.left;}
+  window.scrollTo(x,y);
+ };
+}
 function runTable(runs,checks=false,archived=false,context='runs'){
  if(!runs.length)return empty(archived?'No archived runs.':'No runs in this list.',archived?'Archived runs retain their saved configuration and outputs.':'Change the filters or create a run draft.',!archived?btn('new-run','Create run drafts',true):'');
- return `<div class="table-wrap"><table><thead><tr>${checks?'<th>Select</th>':''}<th>Saved run</th><th>Kraken mode</th><th>Polishing</th><th>Status</th><th>Actions</th></tr></thead><tbody>${runs.map(r=>`<tr data-run-row="${e(r.id)}">${checks?`<td><input type="checkbox" data-select="${e(r.id)}" aria-label="Select ${e(r.label)}" ${U.selected.includes(r.id)?'checked':''}></td>`:''}<td><a class="sample-name" href="#runs/${encodeURIComponent(r.id)}/overview" data-action="run-detail" data-id="${e(r.id)}">${e(r.label)}</a><span class="secondary-line">${e(r.sample.id)} · ${e(S.pipelines[r.tool].name)}</span><span class="secondary-line run-identity">${e(r.id)}</span></td><td>${badge(krakenLabel(r),r.kraken_mode==='off'?'off':'')}</td><td>${e(r.strategy)}</td><td>${r.archived?badge('Archived'):statusBadge(r.status)}</td><td><div class="table-actions">${context==='parent'?btn('create-variant','Use as parent',false,r.id,'branch',r.busy):quiet('run-detail','Open run',r.id)}${r.identification?.state==='awaiting_review'?btn('review-identification','Review identification',true,r.id,'check',r.archived||r.busy):''}${context==='runs'?(r.archived?btn('restore-run','Restore',false,r.id,'arrow'):btn('archive-run','Archive',false,r.id,'trash',r.busy)):''}</div></td></tr>`).join('')}</tbody></table></div>`;
+ return `<div class="table-wrap"><table><thead><tr>${checks?'<th>Select</th>':''}<th>Saved run</th><th>Kraken mode</th><th>Polishing</th><th>Execution</th><th>Assessment coverage</th><th>Actions</th></tr></thead><tbody>${runs.map(r=>`<tr data-run-row="${e(r.id)}">${checks?`<td><input type="checkbox" data-select="${e(r.id)}" aria-label="Select ${e(r.label)}" ${U.selected.includes(r.id)?'checked':''}></td>`:''}<td><a class="sample-name" href="#runs/${encodeURIComponent(r.id)}/overview" data-action="run-detail" data-id="${e(r.id)}">${e(r.label)}</a><span class="secondary-line">${e(r.sample.id)} · ${e(S.pipelines[r.tool].name)}</span><span class="secondary-line run-identity">${e(r.id)}</span>${runProgress(r,true)}</td><td>${badge(krakenLabel(r),r.kraken_mode==='off'?'off':'')}</td><td>${e(r.strategy)}</td><td>${r.archived?badge('Archived'):runStatusBadge(r)}</td><td>${assessmentBadge(r.assessment)}</td><td><div class="table-actions">${context==='parent'?(r.reuse_reviewed?btn('create-variant','Use as parent',false,r.id,'branch',r.busy):'<small>Checkpoint reuse unavailable for '+e(S.pipelines[r.tool].name)+' '+e((r.commit||'unknown').slice(0,12))+'.</small>'+btn('edit-run-settings','New draft from settings',false,r.id,'config',r.busy)):quiet('run-detail','Open run',r.id)}${r.identification?.state==='awaiting_review'?btn('review-identification','Review identification',true,r.id,'check',r.archived||r.busy):''}${context==='runs'?(r.archived?btn('restore-run','Restore',false,r.id,'arrow'):btn('archive-run','Archive',false,r.id,'folder',r.busy)):''}</div></td></tr>`).join('')}</tbody></table></div>`;
 }
 
-function pipelineRows(){return Object.keys(S.pipelines).map(t=>{const i=activeInstall(t)||S.installs.find(x=>x.tool===t);return `<div class="pipeline-row"><div class="pipeline-logo ${t}">${t==='hybas'?'H':t==='basis'?'B':'M'}</div><div class="pipeline-info"><strong>${S.pipelines[t].name}</strong><small>${e(i?.version.ref||'Choose a version to get started')}</small></div>${badge(i?.setup_state||'Not installed',i?.ready?'green':'amber')}</div>`;}).join('');}
+function pipelineRows(){return Object.keys(S.pipelines).map(t=>{const i=activeInstall(t)||S.installs.find(x=>x.tool===t);return `<div class="pipeline-row"><div class="pipeline-logo ${t}">${t==='hybas'?'H':t==='basis'?'B':'G'}</div><div class="pipeline-info"><strong>${S.pipelines[t].name}</strong><small>${e(i?.version.ref||'Choose a version to get started')}</small></div>${badge(i?.setup_state||'Not installed',i?.ready?'green':'amber')}</div>`;}).join('');}
+function homeRunAction(r){
+ if(r.identification?.state==='awaiting_review')return btn('review-identification','Review identification',false,r.id,'check',r.busy);
+ if(['queued','running'].includes(r.status)||r.busy)return btn('home-run-activity','View progress',false,r.id,'clock');
+ if(['complete','continuation_ready'].includes(r.aware_state?.state))return btn('aware-outputs','Review AWARE outputs',false,r.id,'file');
+ if(['completed','failed','interrupted'].includes(r.status)||S.reports.some(x=>x.run===r.id))return btn('view-results',r.status==='completed'?'Review results':'Review run results',false,r.id,'file');
+ return btn('run-detail','Continue setup',false,r.id,'arrow');
+}
 function overview(){
- const active=S.jobs.filter(j=>['queued','running'].includes(j.status)),recent=visibleRuns().slice(0,5);
- const failures=['failed','interrupted'];
- const attention=visibleRuns().filter(r=>failures.includes(r.status)).map(r=>{
-  const jobs=S.jobs.filter(j=>j.payload.run_id===r.id),execution=jobs.find(j=>['run','continue'].includes(j.payload.action));
-  return execution&&failures.includes(execution.status)?execution:jobs.find(j=>failures.includes(j.status));
- }).filter(Boolean).sort((a,b)=>b.created.localeCompare(a.created)).slice(0,3);
- const next=!S.installs.some(i=>i.ready)?['Set up a pipeline','Choose a pipeline and prepare its runner.','go-install','Set up pipelines']:!S.samples.length?['Add your input folders','Register a sample folder to make it available for new drafts.','new-sample','Add sample']:!visibleRuns().length?['Create your first run','Choose samples, review settings and save a draft before launching.','new-run','Create run drafts']:null;
- return heading('WORKSPACE OVERVIEW','Pick up where you left off.','Your saved runs, active work and next steps.',S.samples.length?btn('new-run','Create run drafts',true,'','plus'):btn('new-sample','Add samples',true,'','plus'))+
- `<div class="stats-grid">${[['Samples',S.samples.length,'Registered input folders','samples'],['Runs',visibleRuns().length,'Current drafts and history','play'],['Active jobs',active.length,'Queued or running','jobs'],['Reports',S.reports.length,'Native outputs and added reports','file']].map(([label,value,note,ico])=>`<div class="stat"><div class="stat-label">${label}${icon(ico)}</div><div class="stat-value">${value}</div><div class="stat-foot">${note}</div></div>`).join('')}</div>
- ${next?`<section class="card next-step"><div><span class="eyebrow">NEXT STEP</span><h2>${next[0]}</h2><p>${next[1]}</p></div>${btn(next[2],next[3],true,'','arrow')}</section>`:''}
- <div class="overview-grid"><div><section class="card"><div class="card-head"><div><h2>${active.length?'Active work':'Job queue'}</h2><p>${active.length?'Jobs continue when this browser closes.':'No jobs are queued or running.'}</p></div>${quiet('go-jobs','All jobs')}</div>${active.slice(0,3).map(j=>`<div class="overview-job"><div><strong>${e(runBy(j.payload.run_id)?.label||j.kind.replaceAll('_',' '))}</strong><span class="secondary-line">${e(j.payload.action||j.kind)}</span></div>${jobStatus(j)}${btn('job-log','View log',false,j.id)}</div>`).join('')}</section>
- ${attention.length?`<section class="card attention-card"><div class="card-head"><div><h2>Needs attention</h2><p>Saved runs with failed or interrupted work.</p></div>${badge(attention.length+' runs')}</div>${attention.map(j=>`<div class="overview-attention"><strong>${e(j.guidance?.title||'Job needs attention')}</strong><p>${e(runBy(j.payload.run_id)?.label||j.kind.replaceAll('_',' '))}</p><div class="button-row">${runBy(j.payload.run_id)?btn('run-detail','Review run',false,j.payload.run_id):''}${quiet('job-log','View log',j.id)}</div></div>`).join('')}</section>`:''}</div>
- <section class="card overview-pipelines"><div class="card-head"><h2>Pipeline setup</h2>${quiet('go-install','Manage')}</div><div class="card-body">${pipelineRows()}<p class="settings-note">Runner setup is separate from each run’s tool and database checks.</p></div></section></div>
- <section class="card recent-runs"><div class="card-head"><div><h2>Recent runs</h2><p>Open a run to review settings, checks, activity and results.</p></div>${quiet('go-runs','All runs')}</div>${runTable(recent,false,false,'recent')}</section>`;
+ const active=S.jobs.filter(j=>['queued','running'].includes(j.status)),recent=visibleRuns().slice(0,8);
+ const attention=visibleRuns().filter(r=>r.identification?.state==='awaiting_review'||['failed','interrupted'].includes(r.status)||(r.status==='completed'&&r.assessment?.state==='incomplete'));
+ const owner=(S.workspace_label||'').replace(/[’']s workspace$/i,'').trim();
+ const next=!S.installs.some(i=>i.ready)?['Set up a pipeline','Choose a pipeline and prepare its runner.','go-install','Set up pipelines']:!S.samples.length?['Connect your input folders','Register a sample folder to make it available for new drafts.','new-sample','Add sample']:!visibleRuns().length?['Create your first run','Choose your goal, connect inputs and review a draft before launching.','new-run','New run']:null;
+ return heading('YOUR WORKSPACE',owner&&owner!=='Local workspace'?'Welcome back, '+e(owner)+'.':'Welcome to Bactologix.','Continue your work or start a new run.',btn('new-run','New run',true,'','plus'))+
+ `<div class="home-summary" aria-label="Workspace summary"><span>${S.samples.length} samples</span><span>${active.length} active jobs</span><span>${attention.length} runs need attention</span></div>
+ ${next?`<section class="card next-step"><div><span class="eyebrow">GET STARTED</span><h2>${next[0]}</h2><p>${next[1]}</p></div>${btn(next[2],next[3],true,'','arrow')}</section>`:''}
+ ${attention.length?`<section class="card attention-card"><div class="card-head"><h2>Needs your attention</h2>${attention.length>3?quiet('go-runs','All runs'):''}</div>${attention.slice(0,3).map(r=>`<div class="overview-attention"><div><strong>${e(r.sample.id)} · ${e(S.pipelines[r.tool].name)}</strong><p>${e(r.identification?.state==='awaiting_review'?'Identification is ready for your review.':['failed','interrupted'].includes(r.status)?'This run stopped before finishing. Review its activity and recovery steps.':r.assessment?.reasons?.[0]||'Some requested evidence needs review.')}</p></div>${r.identification?.state==='awaiting_review'?btn('review-identification','Review identification',true,r.id,'check',r.busy):btn('home-run-activity',['failed','interrupted'].includes(r.status)?'Review activity':'Review results',false,r.id)}</div>`).join('')}</section>`:''}
+ <section class="card home-runs"><div class="card-head"><div><h2>Recent runs</h2><p>Execution and evidence status are shown separately.</p></div>${quiet('go-runs','All runs')}</div>${recent.length?`<div class="table-wrap"><table><thead><tr><th>Sample / run</th><th>Pipeline</th><th>Execution</th><th>Evidence coverage</th><th>Next action</th></tr></thead><tbody>${recent.map(r=>`<tr data-home-run="${e(r.id)}"><td><a class="sample-name" href="#runs/${encodeURIComponent(r.id)}/overview" data-action="run-detail" data-id="${e(r.id)}">${e(r.sample.id)}</a><span class="secondary-line">${e(r.label)}</span></td><td>${e(S.pipelines[r.tool].name)}</td><td>${runStatusBadge(r)}</td><td>${r.status==='draft'?badge('Not started'):assessmentBadge(r.assessment)}</td><td>${homeRunAction(r)}</td></tr>`).join('')}</tbody></table></div>`:empty('No runs yet','Create a run to choose your goal and review the required inputs.')}</section>
+ <div class="home-utilities"><section class="card utility-card"><div>${icon('resources')}<h2>Pipeline setup</h2><p>${Object.keys(S.pipelines).filter(t=>activeInstall(t)?.ready).length} of ${Object.keys(S.pipelines).length} active runners prepared</p></div>${btn('go-install','Manage pipelines')}</section><section class="card utility-card"><div>${icon('folder')}<h2>Storage</h2><p>Measure usage and review old results, inputs and installations.</p></div>${btn('go-storage','Review storage')}</section></div>
+ ${active.length?`<details class="card home-active"><summary>Active jobs · ${active.length}</summary><div class="padded">${active.slice(0,3).map(j=>`<div class="overview-job"><div><strong>${e(runBy(j.payload.run_id)?.label||j.kind.replaceAll('_',' '))}</strong><span class="secondary-line">${e(j.payload.action||j.kind)}</span></div>${jobStatus(j)}${btn('job-log','View log',false,j.id)}</div>`).join('')}${quiet('go-jobs','All activity')}</div></details>`:''}`;
 }
 function samples(){
  const q=val('registered-sample-search').toLowerCase(),rows=S.samples.filter(s=>`${s.id} ${s.path}`.toLowerCase().includes(q));
- return heading('SAMPLES','Your input folders.','Register folders once, then use them in independent run drafts.',btn('manifest','Import HybAs manifest',false,'','file')+btn('aware-outputs','Import AWARE bundle',false,'','file')+btn('import','Import table',false,'','file')+btn('new-sample','Add sample',true,'','plus'))+
- `<section class="card registered-samples"><div class="card-head"><div><h2>Registered samples</h2><p>${S.samples.length} folder${S.samples.length===1?'':'s'} · Original files stay in their current location.</p></div><input class="search" id="registered-sample-search" aria-label="Search registered samples" placeholder="Find a sample or folder…" value="${e(val('registered-sample-search'))}"></div>${rows.length?`<div class="table-wrap"><table><thead><tr><th>Sample</th><th>Read mode</th><th>Input folder</th><th>Actions</th></tr></thead><tbody>${rows.map(s=>`<tr data-sample-row="${e(s.id)}"><td><strong>${e(s.id)}</strong><span class="secondary-line">${S.runs.filter(r=>r.sample.id===s.id&&!r.archived).length} current runs</span></td><td>${e(readMode(s.mode))}</td><td class="path-cell">${e(s.path)}</td><td><div class="table-actions">${btn('sample-draft','Create draft',false,s.id,'plus')}${quiet('sample-runs','View runs',s.id)}${btn('remove-sample','Remove sample',false,s.id,'trash')}</div></td></tr>`).join('')}</tbody></table></div>`:empty(S.samples.length?'No matching samples.':'Start with a sample folder.',S.samples.length?'Try a different sample ID or folder name.':'Use Add sample or import a CSV/TSV table.',S.samples.length?'':btn('new-sample','Add sample',true))}<div class="section-note">Removing a sample also archives its inactive runs. Input files and reports are kept; active jobs stay visible in Runs.</div></section>`;
+ return heading('SAMPLES','Your isolates.','Open analysis folders, review history, or start a new run.',btn('manifest','Import HybAs manifest',false,'','file')+btn('aware-outputs','Import AWARE bundle',false,'','file')+btn('import','Import table',false,'','file')+btn('new-sample','Add sample',true,'','plus'))+
+ `<section class="card registered-samples"><div class="card-head"><div><h2>Registered samples</h2><p>${S.samples.length} folder${S.samples.length===1?'':'s'} · Original files stay in their current location.</p></div><input class="search" id="registered-sample-search" aria-label="Search registered samples" placeholder="Find a sample or folder…" value="${e(val('registered-sample-search'))}"></div>${rows.length?`<div class="table-wrap"><table><thead><tr><th>Sample</th><th>Read mode</th><th>Isolate files</th><th>Actions</th></tr></thead><tbody>${rows.map(s=>`<tr data-sample-row="${e(s.id)}"><td><strong>${e(s.id)}</strong><span class="secondary-line">${S.runs.filter(r=>r.sample.id===s.id&&r.sample.path===s.path&&!r.archived).length} current runs</span></td><td>${e(readMode(s.mode))}</td><td><div class="sample-folder-action">${btn('open-isolate-folder','Open isolate folder',true,s.id,'folder')}</div><details class="sample-input-location"><summary>Original input location</summary><p class="path-cell">${e(s.path)}</p></details></td><td><div class="isolate-row-actions"><div class="table-actions">${btn('isolate-details','Analysis & history',false,s.id,'branch')}${btn('isolate-export','Export isolate',false,s.id,'download')}</div><div class="table-actions">${btn('sample-draft','Create draft',false,s.id,'plus')}${quiet('sample-runs','View runs',s.id)}${btn('remove-sample','Remove from sample list',false,s.id,'close')}</div></div></td></tr>`).join('')}</tbody></table></div>`:empty(S.samples.length?'No matching samples.':'Start with a sample folder.',S.samples.length?'Try a different sample ID or folder name.':'Use Add sample or import a CSV/TSV table.',S.samples.length?'':btn('new-sample','Add sample',true))}<div class="section-note">Open isolate folder opens saved analysis outputs. Analysis & history includes the original inputs. Export isolate gathers the linked files. Removing a sample also archives its inactive runs; files and reports stay on disk.</div></section>`+isolateExportHistory();
+}
+
+function isolateWarningList(items,title='Items needing review',open=true){
+ const rows=[...new Set((items||[]).map(x=>typeof x==='string'?x:x.message||x.path||JSON.stringify(x)))];
+ return rows.length?`<details class="isolate-warnings"${open?' open':''}><summary>${e(title)} · ${rows.length}</summary><ul>${rows.map(x=>`<li>${e(x)}</li>`).join('')}</ul></details>`:'';
+}
+function isolateExportBadge(r){
+ if(r.status==='completed'&&r.verification==='verified-local')return badge(r.scope_status==='partial'?'Verified copy · partial scope':'Verified local copy',r.scope_status==='partial'?'amber':'green');
+ return badge(({running:'Copying & verifying',queued:'Queued',failed:'Export incomplete',cancelled:'Export cancelled',interrupted:'Export interrupted'})[r.status]||r.status||'Not recorded',['failed','cancelled','interrupted'].includes(r.status)?'amber':'blue');
+}
+function isolateExportHistory(sampleId=null){
+ const rows=(S.isolate_exports||[]).filter(r=>!sampleId||r.sample_id===sampleId).slice(0,12);
+ if(!rows.length)return '';
+ return `<section class="card isolate-export-history" aria-label="Isolate exports"><div class="card-head"><div><h2>Isolate exports</h2><p>Receipts describe copied contents and verification. Original files remain in place.</p></div></div><div class="isolate-export-list">${rows.map(r=>`<article data-isolate-export="${e(r.id)}"><div><strong>${e(r.sample_id||'Isolate')}</strong> ${isolateExportBadge(r)}<p class="path-cell">${e(r.destination||'Destination not recorded')}</p><small>${r.copied_files??0} / ${r.total_files??0} files · ${storageBytes(r.copied_bytes??0)} copied${r.destination_kind==='sharepoint_sync'?' · Cloud upload not verified':''}</small></div>${btn('isolate-export-receipt','View export receipt',false,r.id,'file')}</article>`).join('')}</div></section>`;
+}
+function isolateRunStatus(r,d){
+ const saved=runBy(r.id);if(saved)return statusBadge(saved.status);
+ const jobs=(d.jobs||[]).filter(j=>j.payload?.run_id===r.id&&j.kind==='workflow'&&['run','continue'].includes(j.payload?.action)).sort((a,b)=>(b.finished||b.started||b.created||'').localeCompare(a.finished||a.started||a.created||''));
+ return jobs.length?statusBadge(jobs[0].status):badge('Execution not recorded');
+}
+function isolateFiles(d){
+ return `<div class="isolate-overview"><section class="isolate-source"><div><span class="eyebrow">ORIGINAL INPUT FOLDER</span><h3>${e(d.sample.id)}</h3><p class="path-cell">${e(d.sample.path)}</p></div>${btn('open-isolate-inputs','Open input folder',false,d.sample.id,'folder')}</section><div class="isolate-facts"><div><small>Linked analyses</small><strong>${d.runs?.length||0}</strong></div><div><small>Recorded jobs</small><strong>${d.jobs?.length||0}</strong></div><div><small>Registered locations</small><strong>${d.roots?.length||0}</strong></div></div><p class="inline-info">Analysis folders are linked by saved input identity and recorded handoffs. Archived runs and follow-ups are included when their relationship is recorded.</p>${isolateWarningList(d.missing,'Unavailable files or history')}${isolateWarningList(d.warnings,'Scope notes')}<h3>Analysis folders</h3><div class="isolate-runs">${(d.runs||[]).map(r=>`<article data-isolate-run="${e(r.id)}"><div class="isolate-run-heading"><div><strong>${e(S.pipelines[r.tool]?.name||r.tool)} · ${e(r.label||r.sample?.id||r.id)}</strong><small>${e(r.id)}${runBy(r.id)?.archived?' · Archived':''}</small></div>${isolateRunStatus(r,d)}</div><dl class="isolate-paths"><dt>Saved run</dt><dd>${e(r.folder)}</dd><dt>Pipeline outputs</dt><dd>${e(r.output||'Not recorded')}</dd></dl><div class="button-row">${btn('open-isolate-analysis','Open analysis folder',false,r.id,'folder')}${runBy(r.id)?btn('run-detail','Review run',false,r.id,'file'):''}</div></article>`).join('')||'<p class="inline-info">No linked analysis runs are recorded for this registered input folder.</p>'}</div><details class="isolate-locations"><summary>All included locations · ${(d.roots||[]).length}</summary>${(d.roots||[]).map(p=>`<p><strong>${e(p.label||p.kind||'Files')}</strong><br><span class="path-cell">${e(p.source)}</span><br><small>Package path: ${e(p.relative)}</small></p>`).join('')}</details></div>`;
+}
+function historyStatusColor(status){return ['completed','succeeded','executed'].includes(status)?'success':['failed','interrupted','cancelled','incomplete'].includes(status)?'failure':['running','queued'].includes(status)?'active':['skipped','planned','not_started','not_recorded','unknown'].includes(status)?'unknown':'neutral';}
+function isolateGraph(graph){
+ const all=graph.nodes||[],nodes=all.slice(0,180),ids=new Set(nodes.map(n=>n.id)),edges=(graph.edges||[]).filter(x=>ids.has(x.source)&&ids.has(x.target));
+ if(!nodes.length)return empty('No history recorded.','The graph will show only evidence available for this isolate.');
+ const levels=new Map(nodes.map(n=>[n.id,Number.isFinite(n.level)?Math.min(180,Math.max(0,Math.floor(n.level))):0]));
+ if(!nodes.some(n=>Number.isFinite(n.level))){for(let i=0;i<nodes.length;i++){let changed=false;for(const edge of edges){const v=Math.min(nodes.length,(levels.get(edge.source)||0)+1);if(v>(levels.get(edge.target)||0)){levels.set(edge.target,v);changed=true;}}if(!changed)break;}}
+ const groups=new Map();for(const n of nodes){const k=levels.get(n.id);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(n);}
+ const width=960,boxWidth=280,boxHeight=88,positions=new Map();let y=24;
+ for(const [,group] of [...groups].sort((a,b)=>a[0]-b[0])){const cols=Math.min(3,group.length);group.forEach((n,i)=>positions.set(n.id,{x:(width-(cols*boxWidth+(cols-1)*24))/2+(i%cols)*(boxWidth+24),y:y+Math.floor(i/cols)*120}));y+=Math.ceil(group.length/cols)*120+24;}
+ const lines=text=>{const words=String(text||'Step').split(/\s+/),rows=[''];for(const word of words){if((rows.at(-1)+' '+word).trim().length>32&&rows.at(-1))rows.push('');rows[rows.length-1]+=(rows.at(-1)?' ':'')+word;}return rows.slice(0,2).map((s,i)=>s.length>32?s.slice(0,31)+'…':i===1&&rows.length>2?s.slice(0,30)+'…':s);};
+ const visualRows=new Map([...new Set([...positions.values()].map(p=>p.y))].sort((a,b)=>a-b).map((top,index)=>[top,index]));
+ const paths=edges.map(edge=>{
+  const a=positions.get(edge.source),b=positions.get(edge.target),x1=a.x+boxWidth/2,y1=a.y+boxHeight,x2=b.x+boxWidth/2,y2=b.y;
+  const skipsRows=visualRows.get(b.y)-visualRows.get(a.y)>1,gutter=(x1+x2)/2<=width/2?8:width-8;
+  // Long lineage edges travel outside the cards; horizontal segments stay in row gaps.
+  const path=skipsRows?`M${x1} ${y1} V${y1+12} H${gutter} V${y2-12} H${x2} V${y2}`:`M${x1} ${y1} C${x1} ${(y1+y2)/2},${x2} ${(y1+y2)/2},${x2} ${y2}`;
+  return `<path d="${path}" marker-end="url(#isolate-history-arrow)"><title>${e(edge.relation||'Recorded dependency')}</title></path>`;
+ }).join('');
+ const boxes=nodes.map(n=>{const p=positions.get(n.id);return `<g class="history-node ${historyStatusColor(n.status)} ${U.isolateNode===n.id?'selected':''}" role="button" tabindex="0" aria-label="${e('Select step: '+n.label+' · '+(n.status||'not recorded'))}" aria-pressed="${U.isolateNode===n.id}" data-action="isolate-node" data-id="${e(n.id)}"><title>${e(n.label)}</title><rect x="${p.x}" y="${p.y}" width="${boxWidth}" height="${boxHeight}" rx="10"/>${lines(n.label).map((line,i)=>`<text x="${p.x+16}" y="${p.y+25+i*18}" class="history-node-label">${e(line)}</text>`).join('')}<text x="${p.x+16}" y="${p.y+72}" class="history-node-status">${e(String(n.status||'not recorded').replaceAll('_',' '))}</text></g>`;}).join('');
+ return `${all.length>nodes.length?notice('Graph preview limited',`Showing ${nodes.length} of ${all.length} recorded nodes. Download the full SVG, PDF or JSON for all nodes.`):''}<div class="isolate-graph-scroll" tabindex="0" aria-label="Scrollable sample history diagram"><svg class="isolate-graph" viewBox="0 0 ${width} ${y}" role="group" aria-label="Sample history diagram"><defs><marker id="isolate-history-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z"/></marker></defs><g class="history-edges">${paths}</g>${boxes}</svg></div>`;
+}
+function isolateHistory(d){
+ const g=d.history;if(!g)return '<p role="status">No history graph was returned. Refresh the isolate to inspect available records.</p>';
+ const node=(g.nodes||[]).find(n=>n.id===U.isolateNode)||(g.nodes||[])[0];if(node)U.isolateNode=node.id;
+ const details=node?.details||{},edges=(g.edges||[]).filter(x=>x.source===node?.id||x.target===node?.id),label=id=>(g.nodes||[]).find(n=>n.id===id)?.label||id;
+ return `<div class="isolate-history-view"><div class="isolate-history-intro"><div><h3>Recorded sample history</h3><p>Recorded lineage and execution evidence. Missing steps stay unknown; statuses do not establish scientific validity.</p>${g.coverage?badge(g.coverage.label||g.coverage.state,g.coverage.state==='complete'?'blue':'amber'):''}</div><div class="button-row">${[['svg','Download SVG'],['pdf','Download PDF'],['json','Download JSON'],['html','Offline HTML']].map(([id,label])=>`<button type="button" class="btn" data-action="download-isolate-history" data-id="${id}" aria-label="${label}">${icon('download')}<span class="history-download-label">${label}</span><span class="history-download-short" aria-hidden="true">${id.toUpperCase()}</span></button>`).join('')}</div></div>${isolateWarningList(g.missing,'Unavailable history',false)}${isolateWarningList([...(g.caption?[g.caption]:[]),...(g.limitations||[]),...(g.warnings||[])],'History limitations',false)}<div class="history-legend"><span>Executed / completed</span><span>Failed / interrupted</span><span>Planned / skipped / unknown</span></div>${isolateGraph(g)}${node?`<section class="history-node-detail" aria-label="Selected history step"><span class="eyebrow">SELECTED STEP</span><h3>${e(node.label)}</h3>${badge(String(node.status||'not recorded').replaceAll('_',' '),historyStatusColor(node.status)==='success'?'green':historyStatusColor(node.status)==='failure'?'amber':'blue')}<p>${e(node.evidence||'Execution evidence is not recorded.')}</p><dl><dt>Step identity</dt><dd>${e(node.id)}</dd>${node.started?`<dt>Started</dt><dd>${e(node.started)}</dd>`:''}${node.finished?`<dt>Finished</dt><dd>${e(node.finished)}</dd>`:''}${Object.entries(details).map(([k,v])=>`<dt>${e(k.replaceAll('_',' '))}</dt><dd>${e(v&&typeof v==='object'?JSON.stringify(v,null,2):v)}</dd>`).join('')}</dl>${edges.length?`<details><summary>Recorded connections · ${edges.length}</summary><ul>${edges.map(x=>`<li>${e(label(x.source))} → ${e(label(x.target))}${x.relation?' · '+e(x.relation):''}</li>`).join('')}</ul></details>`:''}${node.run_id&&runBy(node.run_id)?btn('run-detail','Open saved run',false,node.run_id,'file'):''}</section>`:''}</div>`;
+}
+function isolatePlanMatches(){const p=U.isolateExportPlan;return !U.isolatePlanInvalidated&&!!p&&p.sample_id===U.modal?.id&&U.isolatePlanRequest?.destination===val('isolate-export-destination').trim()&&U.isolatePlanRequest?.destination_kind===val('isolate-export-kind','folder');}
+function isolateCanExport(){const p=U.isolateExportPlan;return isolatePlanMatches()&&!!p.can_export&&!(p.blocked||[]).length;}
+function isolateExportForm(d){
+ const p=isolatePlanMatches()?U.isolateExportPlan:null,cloud=val('isolate-export-kind','folder')==='sharepoint_sync';
+ return `<div class="isolate-export-form"><h3>Copy this isolate and its linked analyses</h3><p>Choose a destination on this computer, a mounted USB drive or a synced SharePoint folder. A new package folder will be created there. Original files remain in place.</p><div class="form-grid">${select('isolate-export-kind','Destination type',[['folder','Local folder / USB / network drive'],['sharepoint_sync','SharePoint / OneDrive synced folder']],'folder')}<div class="folder-address field wide">${field('isolate-export-destination','Destination folder','','text','placeholder="/mnt/e/Isolates or C:\\Users\\…" autocomplete="off"')}${btn('browse-folder','Browse destination',false,'isolate-export-destination','folder')}</div></div>${cloud?notice('Local verification and cloud sync are separate','Bactologix verifies the copied files in this folder. It cannot confirm that OneDrive or SharePoint has uploaded them. The synced folder may temporarily use local disk space.',true):''}<div class="button-row">${btn('preview-isolate-export','Preview export',true,d.sample.id,'check',!val('isolate-export-destination').trim())}</div><p class="inline-info">The preview lists files, required space and unavailable history. Copying starts only after you review the preview and choose Copy & verify.</p><div id="isolate-export-preview">${p?`<section class="isolate-export-plan" aria-label="Reviewed isolate export"><div class="isolate-facts"><div><small>Files to copy</small><strong>${Number(p.file_count||0).toLocaleString()}</strong></div><div><small>File bytes</small><strong>${storageBytes(p.total_bytes||0)}</strong></div><div><small>Destination available</small><strong>${p.free_bytes==null?'Not recorded':storageBytes(p.free_bytes)}</strong></div></div><p><strong>New package folder</strong><br><span class="path-cell">${e(p.destination)}</span></p>${badge(p.scope_status==='partial'?'Partial scope · review unavailable items':'Reviewed export scope',p.scope_status==='partial'?'amber':'blue')}${isolateWarningList(p.blocked,'Export is blocked')}${isolateWarningList(p.missing,'Unavailable files or history')}${isolateWarningList(p.warnings,'Export notes')}<details class="isolate-file-preview"><summary>Reviewed file list · ${Math.min(p.files?.length||0,p.file_count||0)} of ${p.file_count||0} shown</summary><div class="table-wrap"><table><thead><tr><th>Source</th><th>Package path</th><th>Bytes</th></tr></thead><tbody>${(p.files||[]).map(f=>`<tr><td class="path-cell">${e(f.source)}${f.linked?' · linked input':''}</td><td class="path-cell">${e(f.relative)}</td><td>${storageBytes(f.bytes||0)}</td></tr>`).join('')}</tbody></table></div></details><p class="inline-info">Contents are copied directly to the destination and checked with SHA-256. A completion receipt is written only after verification. Missing historical results cannot be recreated by exporting.</p></section>`:U.isolateExportPlan?'<p class="inline-info">Destination changed. Preview the export again before copying.</p>':''}</div></div>`;
+}
+function syncIsolateExport(){if(U.modal?.kind!=='isolate')return;if(U.isolateExportPlan&&!isolatePlanMatches())U.isolatePlanInvalidated=true;const preview=$('[data-action="preview-isolate-export"]');if(preview)preview.disabled=!val('isolate-export-destination').trim()||!!U.pending;const copy=$('[data-action="start-isolate-export"]');if(copy)copy.disabled=!isolateCanExport()||!!U.pending;const panel=$('#isolate-export-preview');if(panel&&U.isolateExportPlan&&!isolatePlanMatches())panel.innerHTML='<p class="inline-info">Destination changed. Preview the export again before copying.</p>';}
+function isolateReceipt(r){
+ const verified=r.status==='completed'&&r.verification==='verified-local',partial=r.scope_status==='partial',running=['running','queued'].includes(r.status),percentage=r.total_bytes?Math.min(100,100*(r.copied_bytes||0)/r.total_bytes):0;
+ return `<div class="isolate-receipt">${isolateExportBadge(r)}<h3>${e(r.sample_id||'Isolate')}</h3><p class="path-cell">${e(r.destination||'Destination not recorded')}</p><div class="isolate-facts"><div><small>Files copied</small><strong>${r.copied_files??0} / ${r.total_files??0}</strong></div><div><small>Bytes copied</small><strong>${storageBytes(r.copied_bytes??0)}</strong></div><div><small>Verification</small><strong class="isolate-verification">${verified?'SHA-256 verified':running?'In progress':'Incomplete'}</strong></div></div>${running?`<progress value="${percentage}" max="100" aria-label="Export copy progress">${percentage.toFixed(0)}%</progress><p>Copying and verification are still in progress. Use Activity to stop this job if needed.</p>`:''}${notice(verified?(partial?'Copied files verified; historical scope is partial':'Local package verified'):'Keep the original files',verified?'The copied files passed destination verification. Original files have not been deleted. Review scope notes and any SharePoint sync status before considering local cleanup.':'This receipt does not establish a complete verified copy. Keep the source files; the partial destination is retained for inspection.',!verified||partial)}${r.destination_kind==='sharepoint_sync'?notice('Cloud upload is not verified','Verification covers the local destination only. Check the OneDrive / SharePoint sync status separately.',true):''}${r.error?notice('Export stopped',e(r.error),true):''}${isolateWarningList(r.missing,'Unavailable files or history')}${isolateWarningList(r.warnings,'Receipt notes')}<details><summary>Receipt details</summary><pre class="code-block">${e(JSON.stringify(r,null,2))}</pre></details><div class="button-row">${btn('refresh-isolate-export-receipt','Refresh receipt',false,r.id,'check')}${btn('go-jobs','View Activity',false,'','clock')}${r.id?btn('job-log','View export log',false,r.id,'file'):''}</div></div>`;
+}
+function sequenceName(tool){return S.pipelines[tool]?.name||tool;}
+function sequenceSourceRuns(steps,sample){
+ const statuses=steps.includes('hybas')?['draft','checked','completed']:['completed'];
+ return S.runs.filter(r=>!r.archived&&!r.busy&&r.run_type!=='followup'&&r.tool==='hybas'&&statuses.includes(r.status)&&(!sample||r.sample.id===sample));
+}
+function sequenceSample(sample){return S.samples.find(s=>s.id===sample);}
+function sequenceReuseRuns(editor,row,tool){
+ const source=runBy(row.source),native=sequenceSample(row.sample);
+ if(row.source&&source?.status!=='completed'||!row.source&&editor.steps.includes('hybas'))return [];
+ return S.runs.filter(r=>!r.archived&&r.status==='completed'&&r.tool===tool&&r.run_type!=='followup'&&r.sample.id===row.sample&&
+  (source?((r.sample.micp_handoff?.source_run||r.parent)===source.id):(native&&r.sample.path===native.path)));
+}
+function sequenceNativeAvailable(editor,sample){
+ const native=sequenceSample(sample);
+ return !!native&&(editor.steps.includes('hybas')||!native.input_manifest||
+  editor.steps.every(tool=>sequenceReuseRuns(editor,{sample,source:null},tool).length>0));
+}
+function sequenceRunLabel(run){return (run.label||run.sample.id)+' · '+run.id+' · '+run.status;}
+function sequenceEditor(plan=null){
+ const membership=!!plan&&plan.state!=='draft';
+ const rows=(plan?.rows||[]).map(r=>({
+  sample:r.sample,source:r.source||null,reuse:{...r.reuse},
+  folder:r.folder||'',editable:!membership||!!r.editable
+ }));
+ return {id:plan?.id||'',revision:plan?.revision??0,membership,page:membership?1:0,steps:[...(plan?.steps||[])],isolates:rows,
+  configs:{...S.configs,...plan?.configs},pilot:plan?!!plan.pilot:true,pilotSample:rows[0]?.sample||'',
+  deliver:rows.some(r=>r.folder),adding:'',isolatePage:0};
+}
+function sequenceSelectedPlan(id){return (S.sequences||[]).find(p=>p.id===id);}
+function beginSequence(id=''){
+ const plan=id?sequenceSelectedPlan(id):null;
+ if(id&&!plan)return;
+ U.sequenceEditor=sequenceEditor(plan);U.sequenceOpen=true;U.view='sequences';U.error='';writeRoute();render();
+ $('#main').focus({preventScroll:true});$('.workspace-shell').scrollIntoView({block:'start'});
+}
+function sequenceOption(value,label,selected){return '<option value="'+e(value)+'"'+(value===selected?' selected':'')+'>'+e(label)+'</option>';}
+function sequenceEligibleSamples(editor){
+ const ids=new Set([...S.samples.filter(s=>sequenceNativeAvailable(editor,s.id)).map(s=>s.id),...sequenceSourceRuns(editor.steps).map(r=>r.sample.id)]);
+ for(const row of editor.isolates)ids.delete(row.sample);
+ return [...ids].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+}
+function sequenceFolder(row){
+ const sample=sequenceSample(row.sample)||runBy(row.source)?.sample;
+ return sample&&!sample.input_manifest?sample.path||'':'';
+}
+function sequenceRowValid(editor,row){
+ if(!row.editable)return true;
+ if(row.source===undefined)return false;
+ if(row.source?!sequenceSourceRuns(editor.steps,row.sample).some(r=>r.id===row.source):!sequenceNativeAvailable(editor,row.sample))return false;
+ if(!row.source&&!editor.steps.includes('hybas')&&sequenceSample(row.sample)?.input_manifest&&editor.steps.some(t=>!row.reuse[t]))return false;
+ return Object.entries(row.reuse).every(([tool,id])=>!id||sequenceReuseRuns(editor,row,tool).some(r=>r.id===id));
+}
+function sequenceStepPanel(editor){
+ const descriptions={hybas:'Assemble and polish reads',basis:'Screen the assembly',micpscope:'Analyze annotated genomes'};
+ const available=['hybas','basis','micpscope'].filter(t=>S.pipelines[t]&&!editor.steps.includes(t));
+ return '<div class="card-head"><div><h2>Pipeline order</h2><p>Add the pipelines you want to run for each isolate.</p></div></div><div class="card-body">'+
+  (editor.steps.length?'<ol class="sequence-steps">'+editor.steps.map((tool,i)=>{
+   const fixed=tool==='hybas',up=fixed||i===0||editor.steps[i-1]==='hybas',down=fixed||i===editor.steps.length-1;
+   return '<li><span class="sequence-number">'+(i+1)+'</span><div class="sequence-step-title"><strong>'+e(sequenceName(tool))+'</strong><p>'+e(descriptions[tool])+'</p></div><div class="button-row">'+
+    (!up||!down?btn('sequence-step-up','Move up',false,tool,'',up)+btn('sequence-step-down','Move down',false,tool,'',down):'')+
+    btn('sequence-remove-step','Remove',false,tool)+'</div></li>';
+  }).join('')+'</ol>':'<p class="sequence-placeholder">Choose your first pipeline below.</p>')+
+  (available.length?'<div class="sequence-add"><div class="button-row">'+available.map(tool=>btn('sequence-add-step','Add '+sequenceName(tool),false,tool,'plus')).join('')+'</div></div>':'')+
+  (editor.steps.includes('hybas')&&editor.steps.length>1?'<p class="section-note">HybAs supplies the assembly to subsequent pipelines.</p>':'')+'</div>';
+}
+function sequenceIsolateInputs(editor,row){
+ if(!row.editable)return '<p class="secondary-line">Processing has started for this isolate.</p>';
+ const sources=sequenceSourceRuns(editor.steps,row.sample),registered=sequenceSample(row.sample),withAssembly=editor.steps.includes('hybas');
+ const native=sequenceNativeAvailable(editor,row.sample);
+ const options=native?[sequenceOption('',withAssembly?'Run HybAs from registered reads':'Use registered assembly and annotation folder',row.source===null?'':row.source)]:[];
+ if(row.source===undefined)options.unshift('<option value="choose" selected disabled>Choose a starting input</option>');
+ options.push(...sources.map(r=>sequenceOption(r.id,(r.status==='completed'?'Use completed HybAs output':'Continue HybAs draft')+' · '+sequenceRunLabel(r),row.source)));
+ if((row.source&&!sources.some(r=>r.id===row.source))||(row.source===null&&!native))options.unshift(sequenceOption(row.source||'','Input unavailable · choose another source',row.source||''));
+ const changes=editor.steps.filter(t=>t!=='hybas').map(tool=>{
+  const runs=sequenceReuseRuns(editor,row,tool),selected=row.reuse[tool]||'';
+  if(!runs.length&&!selected)return '';
+  const choices=[sequenceOption('','Run '+sequenceName(tool),selected),...runs.map(r=>sequenceOption(r.id,'Use completed output · '+sequenceRunLabel(r),selected))];
+  if(selected&&!runs.some(r=>r.id===selected))choices.push(sequenceOption(selected,'Output unavailable · choose another source',selected));
+  return '<label class="field"><span>'+e(sequenceName(tool))+' step</span><select data-seq-reuse="'+e(tool)+'" data-sample="'+e(row.sample)+'">'+choices.join('')+'</select></label>';
+ }).join('');
+ return '<div class="sequence-inputs"><label class="field"><span>Starting input</span><select data-seq-source data-sample="'+e(row.sample)+'">'+options.join('')+'</select>'+(row.source===null&&registered?'<small class="secondary-line path-cell">'+e(registered.path)+'</small>':'')+'</label>'+changes+'</div>';
+}
+function sequenceIsolatesPanel(editor){
+ const eligible=sequenceEligibleSamples(editor);
+ if(!eligible.includes(editor.adding))editor.adding=eligible[0]||'';
+ const remaining=500-editor.isolates.length,bulk=Math.min(eligible.length,remaining);
+ const add=eligible.length&&remaining>0?'<div class="sequence-add-isolate"><label class="field"><span>Available isolates</span><select data-seq-add-isolate>'+eligible.map(id=>sequenceOption(id,id,editor.adding)).join('')+'</select></label>'+'<div class="button-row">'+btn('sequence-add-isolate','Add isolate',false,'','plus')+(bulk>1?btn('sequence-add-all',bulk===eligible.length?'Add all '+bulk+' isolates':'Add first '+bulk+' isolates'):'')+'</div></div>':
+  !editor.isolates.length?notice('No isolates available','Connect an isolate folder in Samples or choose a workspace with a saved HybAs run.')+btn('new-sample','Connect input folder',false,'','folder'):'';
+ const size=10,total=editor.isolates.length;
+ editor.isolatePage=Math.min(editor.isolatePage,Math.max(0,Math.ceil(total/size)-1));
+ const start=editor.isolatePage*size,end=Math.min(total,start+size),visible=editor.isolates.slice(start,end);
+ const page=total>size?'<div class="sequence-pagination button-row">'+btn('sequence-isolate-prev','Previous isolates',false,'','',!start)+'<span>'+ (start+1)+'–'+end+' of '+total+'</span>'+btn('sequence-isolate-next','Next isolates',false,'','',end>=total)+'</div>':'';
+ const unresolved=total>size&&editor.isolates.find(row=>!sequenceRowValid(editor,row));
+ return '<div class="card-head"><div><h2>Isolates and inputs</h2><p>Choose the starting input for each isolate. Compatible completed outputs appear alongside the steps that can reuse them.</p></div></div><div class="card-body">'+add+
+  (unresolved?btn('sequence-check-input','Review input for '+unresolved.sample,false,unresolved.sample):'')+'<div class="sequence-isolates">'+visible.map(row=>'<article><div class="sequence-row-title"><h3>'+e(row.sample)+'</h3>'+(row.editable?btn('sequence-remove-isolate','Remove isolate',false,row.sample):badge('Started'))+'</div>'+sequenceIsolateInputs(editor,row)+'</article>').join('')+'</div>'+page+'</div>';
+}
+function sequenceRowSummary(editor,row){
+ const usesHybAs=editor.steps.includes('hybas');
+ const start=row.source?'HybAs '+row.source:usesHybAs?'Registered reads':'Registered pipeline inputs';
+ return '<li><strong>'+e(row.sample)+'</strong><div>Input · '+e(start)+'</div>'+editor.steps.map(tool=>{
+  const id=tool==='hybas'?row.source:row.reuse[tool],run=id&&runBy(id);
+  return '<div>'+e(sequenceName(tool))+' · '+(run?.status==='completed'?'Reuse '+e(id):run?'Continue '+e(id):'Run')+'</div>';
+ }).join('')+'</li>';
+}
+function sequenceReviewPanel(editor){
+ const editable=editor.isolates.filter(row=>row.editable);
+ const newSteps=editor.steps.filter(t=>editor.isolates.some(r=>t==='hybas'?!r.source:!r.reuse[t]));
+ return '<div class="card-head"><div><h2>Review sequence</h2><p>'+e(editor.steps.map(sequenceName).join(' → '))+'</p></div>'+badge(editor.isolates.length+' isolate'+(editor.isolates.length===1?'':'s'))+'</div><div class="card-body">'+
+  '<ul class="sequence-review-list">'+editor.isolates.map(r=>sequenceRowSummary(editor,r)).join('')+'</ul>'+
+  (!editor.membership&&editor.isolates.length>1?'<div class="sequence-option"><label class="check-field"><input data-seq-pilot type="checkbox" '+(editor.pilot?'checked':'')+'><span>Run one isolate first and hold the rest for review</span></label>'+
+   (editor.pilot?'<label class="field"><span>First isolate</span><select data-seq-first>'+editor.isolates.map(r=>sequenceOption(r.sample,r.sample,editor.pilotSample)).join('')+'</select></label>':'')+'</div>':'')+
+  (editable.length?'<div class="sequence-option"><label class="check-field"><input type="checkbox" data-seq-deliver '+(editor.deliver?'checked':'')+'><span>Copy combined results to isolate folders after completion</span></label>'+
+   (editor.deliver?editable.map(row=>'<label class="field"><span>'+e(row.sample)+' · delivery folder</span><input type="text" data-seq-folder data-sample="'+e(row.sample)+'" value="'+e(row.folder)+'"></label>').join(''):'')+'</div>':'')+
+  (!editor.membership&&newSteps.length?'<details class="help-details"><summary>Pipeline settings</summary>'+newSteps.map(t=>'<label class="field"><span>'+e(sequenceName(t))+' settings (YAML)</span><textarea rows="8" data-seq-config="'+e(t)+'">'+e(editor.configs[t])+'</textarea></label>').join('')+'</details>':'')+'</div>';
+}
+function sequenceCanSave(editor){
+ return editor.steps.length&&editor.isolates.length&&editor.isolates.every(row=>sequenceRowValid(editor,row)&&(!editor.deliver||!row.editable||row.folder.trim()));
+}
+function sequenceBuilder(editor){
+ const pages=editor.membership?['Isolates','Review']:['Pipelines','Isolates','Review'];
+ const body=[sequenceStepPanel,sequenceIsolatesPanel,sequenceReviewPanel][editor.page](editor);
+ return heading('PIPELINE SEQUENCES',editor.membership?'Edit sequence isolates':editor.id?'Edit sequence draft':'New pipeline sequence',
+  editor.membership?'Update the isolates still waiting to start.':'Set the order, choose inputs and review the sequence before saving.')+
+  '<div class="sequence-builder"><ol class="sequence-progress">'+pages.map((label,i)=>'<li '+(i+(editor.membership?1:0)===editor.page?'aria-current="step"':'')+'>'+label+'</li>').join('')+'</ol><section class="card">'+body+
+  '<div class="sequence-footer button-row">'+(editor.page===2?btn('save-sequence',editor.membership?'Save isolate changes':editor.id?'Save changes':'Save sequence draft',true,'','check',!sequenceCanSave(editor)):
+   btn('sequence-next',editor.page===0?'Next · Isolates':'Next · Review',true,'','arrow',!editor.steps.length||(editor.page===1&&(!editor.isolates.length||editor.isolates.some(row=>!sequenceRowValid(editor,row))))))+
+  (editor.page>(editor.membership?1:0)?btn('sequence-back','Back'):'')+btn('sequence-cancel','Cancel')+'</div></section></div>';
+}
+function sequenceCards(){
+ return (S.sequences||[]).map(p=>{
+  const action={draft:['start','Start sequence'],review:['release','Continue remaining isolates'],attention:['retry','Retry after review'],active:['hold','Hold after current job'],held:['resume','Resume sequence']}[p.state];
+  return '<section class="card sequence-card"><div class="card-head"><div><h2>'+e(p.steps.map(sequenceName).join(' → '))+'</h2><p>'+e(p.id)+' · '+p.rows.length+' isolate'+(p.rows.length===1?'':'s')+'</p></div>'+badge(({draft:'Draft',review:'Pilot ready for review',active:'Running',held:'Held',attention:'Needs attention',done:'Completed'})[p.state]||p.state,p.state==='done'?'green':'')+'</div><div class="card-body"><div class="button-row">'+
+   (action?btn('sequence-'+action[0],action[1],true,p.id):'')+
+   (p.state==='draft'?btn('edit-sequence','Edit draft',false,p.id):['review','held','attention'].includes(p.state)?btn('edit-sequence','Edit isolates',false,p.id):'')+
+   '</div><details class="help-details" data-sequence-details="'+e(p.id)+'" '+(U.sequenceDetails?.[p.id]?'open':'')+'><summary>Isolates and run outputs</summary>'+p.rows.map(r=>{
+    const source=r.source||(p.steps[0]==='hybas'?r.runs?.[0]:null),links=p.steps.map((t,i)=>{
+     const id=r.runs?.[i]||r.reuse?.[t]||(t==='hybas'?source:null);
+     return id?btn('run-detail',sequenceName(t),false,id):'';
+    }).join('');
+    return '<article><strong>'+e(r.sample)+'</strong> · '+e(r.state)+(r.message?'<p>'+e(r.message)+'</p>':'')+
+     '<div class="button-row">'+(source&&p.steps[0]!=='hybas'?btn('run-detail','HybAs input',false,source):'')+links+
+     (r.state==='done'?btn('sequence-copy','Copy combined results',false,p.id+'/'+encodeURIComponent(r.sample),'folder'):'')+'</div>'+(r.delivery?'<p>'+e(r.delivery)+'</p>':'')+'</article>';
+   }).join('')+'</details></div></section>';
+ }).join('');
+}
+function sequencesPage(){
+ if(U.sequenceOpen&&U.sequenceEditor)return sequenceBuilder(U.sequenceEditor);
+ const plans=S.sequences||[];
+ return heading('WORKSPACE','Pipeline sequences','Run an ordered set of pipelines across one or more isolates.',plans.length?btn('new-sequence','New sequence',true,'','plus'):'')+
+  (plans.length?sequenceCards():'<section class="card">'+empty('Create your first pipeline sequence','Choose pipelines, add isolates and continue from saved outputs.',btn('new-sequence','New sequence',true,'','plus'))+'</section>');
+}
+function sequenceMove(editor,tool,shift){
+ const from=editor.steps.indexOf(tool),to=from+shift;
+ if(from<0||to<0||to>=editor.steps.length||tool==='hybas'||editor.steps[to]==='hybas')return;
+ [editor.steps[from],editor.steps[to]]=[editor.steps[to],editor.steps[from]];
+}
+function sequenceChange(t){
+ const editor=U.sequenceOpen&&U.sequenceEditor;
+ if(!editor)return false;
+ const row=editor.isolates.find(r=>r.sample===t.dataset.sample);
+ if(t.hasAttribute('data-seq-source')&&row?.editable){row.source=t.value||null;row.reuse={};}
+ else if(t.dataset.seqReuse&&row?.editable){if(t.value)row.reuse[t.dataset.seqReuse]=t.value;else delete row.reuse[t.dataset.seqReuse];}
+ else if(t.hasAttribute('data-seq-pilot'))editor.pilot=t.checked;
+ else if(t.hasAttribute('data-seq-first')){editor.pilotSample=t.value;return true;}
+ else if(t.hasAttribute('data-seq-add-isolate')){editor.adding=t.value;return true;}
+ else if(t.hasAttribute('data-seq-deliver')){
+  editor.deliver=t.checked;
+  if(editor.deliver)for(const row of editor.isolates)if(row.editable&&!row.folder)row.folder=sequenceFolder(row);
+ }else return false;
+ render();return true;
+}
+function sequenceInput(t){
+ const editor=U.sequenceOpen&&U.sequenceEditor;
+ if(!editor)return;
+ if(t.dataset.seqConfig)editor.configs[t.dataset.seqConfig]=t.value;
+ if(t.hasAttribute('data-seq-folder')){
+  const row=editor.isolates.find(r=>r.sample===t.dataset.sample);
+  if(row?.editable)row.folder=t.value;
+  const save=$('[data-action="save-sequence"]');if(save)save.disabled=!sequenceCanSave(editor);
+ }
+}
+function sequenceAction(action,id){
+ const editor=U.sequenceEditor;
+ if(action==='new-sequence'||action==='edit-sequence'){beginSequence(id);return true;}
+ if(!U.sequenceOpen||!editor)return false;
+ if(action==='sequence-add-step'){
+  if(!S.pipelines[id]||editor.steps.includes(id))return true;
+  if(id==='hybas')editor.steps.unshift(id);else editor.steps.push(id);
+  for(const row of editor.isolates)for(const tool of Object.keys(row.reuse))if(!sequenceReuseRuns(editor,row,tool).some(r=>r.id===row.reuse[tool]))delete row.reuse[tool];
+ }else if(action==='sequence-step-up'||action==='sequence-step-down')sequenceMove(editor,id,action==='sequence-step-up'?-1:1);
+ else if(action==='sequence-remove-step'){
+  editor.steps=editor.steps.filter(t=>t!==id);
+  for(const row of editor.isolates){delete row.reuse[id];if(id==='hybas'&&row.source&&runBy(row.source)?.status!=='completed'){row.source=null;row.reuse={};}}
+ }else if(action==='sequence-isolate-prev'||action==='sequence-isolate-next'){
+  editor.isolatePage+=action==='sequence-isolate-next'?1:-1;
+ }else if(action==='sequence-check-input'){
+  editor.isolatePage=Math.floor(editor.isolates.findIndex(r=>r.sample===id)/10);
+ }else if(action==='sequence-add-all'||action==='sequence-add-isolate'){
+  const eligible=sequenceEligibleSamples(editor),samples=action==='sequence-add-all'?eligible:eligible.filter(sample=>sample===editor.adding);
+  for(const sample of samples.slice(0,500-editor.isolates.length)){
+
+   const sources=sequenceSourceRuns(editor.steps,sample),native=sequenceNativeAvailable(editor,sample);
+   let source;
+   if(editor.steps.includes('hybas')&&native)source=null;
+   else if(sources.length===1)source=sources[0].id;
+   else if(native&&!sources.length)source=null;
+   const row={sample,source,reuse:{},folder:'',editable:true};
+   if(editor.deliver)row.folder=sequenceFolder(row);
+   editor.isolates.push(row);if(!editor.pilotSample)editor.pilotSample=sample;
+  }
+  if(action==='sequence-add-isolate')editor.isolatePage=Math.max(0,Math.floor((editor.isolates.length-1)/10));
+ }else if(action==='sequence-remove-isolate'){
+  editor.isolates=editor.isolates.filter(r=>r.sample!==id||!r.editable);
+  if(!editor.isolates.some(r=>r.sample===editor.pilotSample))editor.pilotSample=editor.isolates[0]?.sample||'';
+ }else if(action==='sequence-next'||action==='sequence-back')editor.page+=action==='sequence-next'?1:-1;
+ else if(action==='sequence-cancel'){U.sequenceOpen=false;U.sequenceEditor=null;writeRoute();}
+ else if(action==='save-sequence'){
+  if(!sequenceCanSave(editor))return true;
+  const rows=[...editor.isolates];
+  if(editor.pilot&&!editor.membership)rows.sort((a,b)=>Number(b.sample===editor.pilotSample)-Number(a.sample===editor.pilotSample));
+  const isolates=rows.map(({sample,source,reuse})=>({sample,source,reuse}));
+  const folders=Object.fromEntries(rows.filter(r=>r.folder&&(r.editable?editor.deliver:true)).map(r=>[r.sample,r.folder.trim()]));
+  const payload={isolates,folders,...(editor.id?{id:editor.id,revision:editor.revision}:{})};
+  if(editor.membership)request('edit_sequence_isolates',payload);
+  else request('save_sequence',{...payload,steps:editor.steps,pilot:rows.length>1&&editor.pilot,configs:Object.fromEntries(editor.steps.map(t=>[t,editor.configs[t]]))});
+  return true;
+ }else return false;
+ render();
+ if(['sequence-next','sequence-back','sequence-cancel'].includes(action)){$('#main').focus({preventScroll:true});$('.workspace-shell').scrollIntoView({block:'start'});}
+ return true;
 }
 function runsPage(){
  const archived=U.runList==='archived',q=val('run-search').toLowerCase(),tool=val('run-filter-tool','all'),status=val('run-filter-status','all'),sample=U.runSampleFilter;
@@ -157,21 +715,24 @@ function runsPage(){
  return heading('RUNS','Drafts, activity and history.','Each run keeps its own configuration, input references and outputs.',btn('new-run','Create run drafts',true,'','plus'))+
  `<section class="card saved-runs"><div class="run-list-toolbar"><div class="tabs"><button type="button" class="tab ${!archived?'active':''}" data-action="run-list" data-id="current">Current runs <span>${visibleRuns().length}</span></button><button type="button" class="tab ${archived?'active':''}" data-action="run-list" data-id="archived">Archived <span>${S.runs.filter(r=>r.archived).length}</span></button></div>${btn('clear-run-filters','Reset filters')}</div><div class="run-filters"><div class="field"><label for="run-search">Find a run</label><input class="search" id="run-search" aria-label="Search runs" placeholder="Sample, name or run ID…" value="${e(val('run-search'))}"></div>${select('run-filter-tool','Pipeline',[['all','All pipelines'],...Object.keys(S.pipelines).map(t=>[t,S.pipelines[t].name])],'all')}${select('run-filter-status','Status',[['all','All statuses'],['draft','Draft'],['checked','Validated'],['queued','Queued'],['running','Running'],['failed','Failed'],['interrupted','Interrupted'],['cancelled','Cancelled'],['completed','Completed']],'all')}</div>
  ${sample?`<div class="filter-context">Runs for <strong>${e(sample)}</strong>${quiet('clear-sample-filter','Show all samples')}</div>`:''}
- ${!archived&&U.selected.length?`<div class="selection-bar"><strong>${U.selected.length} selected${hidden?' · '+hidden+' outside this filter':''}</strong><div class="button-row">${btn('compare-selected','Compare settings')}${btn('batch-dry-run','Validate run')}${btn('batch-prepare','Install environments')}${btn('batch-run','Run / resume',true)}${btn('archive-selected','Archive',false,'','trash')}${btn('clear-selection','Clear')}</div></div>`:''}${runTable(rows,!archived,archived)}<div class="section-note">${rows.length} shown. ${archived?'Restore a run to use it again. Saved configurations and outputs are retained.':'Archive hides inactive runs from this list. It keeps their files, settings and reports.'}</div></section>`;
+ ${!archived&&U.selected.length?`<div class="selection-bar"><strong>${U.selected.length} selected${hidden?' · '+hidden+' outside this filter':''}</strong><div class="button-row">${btn('compare-selected','Compare settings')}${btn('batch-dry-run','Validate run',false,'','',!!workspaceDiskStop())}${btn('batch-prepare','Install environments',false,'','',!!workspaceDiskStop())}${btn('batch-run','Run / resume',true,'','',!!workspaceDiskStop())}${btn('archive-selected','Archive',false,'','trash')}${btn('clear-selection','Clear')}</div></div>`:''}${runTable(rows,!archived,archived)}<div class="section-note">${rows.length} shown. ${archived?'Restore a run to use it again. Saved configurations and outputs are retained.':'Archive hides inactive runs from this list. It keeps their files, settings and reports.'}</div></section>`;
 }
 function comparisons(){
  const tab=U.comparisonTab||'review',rows=visibleRuns().filter(r=>U.selected.includes(r.id));
  let body;
  if(tab==='create')body=notice('Branch from existing results','Keep valid intermediate results, change selected settings, and run only the affected work. The parent stays unchanged. Reuse depends on the recorded pipeline version and available native checkpoints.')+`<section class="card"><div class="card-head"><div><h2>Choose a parent run</h2><p>Create alternate settings without changing the parent.</p></div></div>${(visibleRuns().some(r=>r.status==='completed'&&r.run_type!=='followup')?runTable(visibleRuns().filter(r=>r.status==='completed'&&r.run_type!=='followup'),false,false,'parent'):empty('No completed parent runs.','Finish a run before creating a result variant.'))}</section>`;
- else body=`<details class="card comparison-picker" ${!rows.length?'open':''}><summary>Choose runs · ${rows.length} selected</summary>${runTable(visibleRuns(),true,false,'comparison')}<div class="padded">${btn('clear-selection','Clear selection')}</div></details><div class="compare-grid">${rows.map(r=>`<section class="card run-compare">${badge(S.pipelines[r.tool].name,'blue')}<h3>${e(r.label)}</h3>${statusBadge(r.status)}<dl class="detail-list"><dt>Sample</dt><dd>${e(r.sample.id)}</dd><dt>Parent</dt><dd>${e(r.parent||'Original draft')}</dd>${r.tool==='hybas'?`<dt>Kraken mode</dt><dd>${e(krakenLabel(r))}</dd><dt>Polishing</dt><dd>${e(r.strategy)}</dd>`:''}<dt>Result inheritance</dt><dd>${r.variant?e(r.variant.checkpoints)+' checkpoint groups · '+e(r.variant.parent):'Independent draft'}</dd><dt>Resources</dt><dd>${r.cores} cores · ${r.memory_mb} MB</dd><dt>Source</dt><dd>${e(r.commit?.slice(0,12))}</dd></dl>${btn('run-detail','Open run',false,r.id)}${quiet('view-results','View results',r.id)}</section>`).join('')}</div>${savedComparison(rows)}${rows.length?notice('Compare native outputs','This view compares saved settings and provenance. Open the actual reports to evaluate results.'):empty('Choose runs to compare.','Select the saved runs above, or select them in Runs and choose Compare settings.')}`;
+ else body=`<details class="card comparison-picker" ${!rows.length?'open':''}><summary>Choose runs · ${rows.length} selected</summary>${runTable(visibleRuns(),true,false,'comparison')}<div class="padded">${btn('clear-selection','Clear selection')}</div></details><div class="compare-grid">${rows.map(r=>`<section class="card run-compare">${badge(S.pipelines[r.tool].name,'blue')}<h3>${e(r.label)}</h3>${runStatusBadge(r)}${assessmentBadge(r.assessment)}<dl class="detail-list"><dt>Sample</dt><dd>${e(r.sample.id)}</dd><dt>Parent</dt><dd>${e(r.parent||'Original draft')}</dd>${r.tool==='hybas'?`<dt>Kraken mode</dt><dd>${e(krakenLabel(r))}</dd><dt>Polishing</dt><dd>${e(r.strategy)}</dd>`:''}<dt>Result inheritance</dt><dd>${r.variant?e(r.variant.checkpoints)+' checkpoint groups · '+e(r.variant.parent):'Independent draft'}</dd><dt>Resources</dt><dd>${r.cores} cores · ${r.memory_mb} MB</dd><dt>Source</dt><dd>${e(r.commit?.slice(0,12))}</dd></dl>${btn('run-detail','Open run',false,r.id)}${quiet('view-results','View results',r.id)}</section>`).join('')}</div>${savedComparison(rows)}${rows.length?notice('Compare native outputs','This view compares saved settings and provenance. Open the actual reports to evaluate results.'):empty('Choose runs to compare.','Select the saved runs above, or select them in Runs and choose Compare settings.')}`;
  return heading('COMPARISONS','Review settings. Explore alternatives.','Compare saved runs or create independent variant drafts.')+`<div class="tabs comparison-tabs">${[['review','Compare saved runs'],['create','Create variants']].map(([id,label])=>`<button type="button" class="tab ${tab===id?'active':''}" data-action="comparison-tab" data-id="${id}" aria-pressed="${tab===id}">${label}</button>`).join('')}</div>`+body;
 }
 function comparisonIds(){const rows=visibleRuns().filter(r=>U.selected.includes(r.id)),base=val('comparison-reference');return [rows.find(r=>r.id===base)||rows[0],...rows.filter(r=>r.id!==(rows.find(r=>r.id===base)||rows[0])?.id)].filter(Boolean).map(r=>r.id);}
-function comparisonMatches(){return U.comparison&&JSON.stringify(U.comparison.runs.map(r=>r.id))===JSON.stringify(comparisonIds());}
+function comparisonMatches(){
+ const ids=comparisonIds(),docs=U.comparison?.runs;
+ return !!docs&&docs.length===ids.length&&docs.every((doc,i)=>sameDraft(doc,runBy(ids[i])));
+}
 function savedComparison(rows){
  if(!rows.length)return '';
  const valid=rows.length>=2&&rows.length<=4,match=comparisonMatches();
- return `<section class="card saved-comparison" aria-label="Full saved configuration comparison"><div class="card-head"><div><h2>Full saved configurations</h2><p>Choose 2–4 runs above. The reference is a comparison anchor, not a recommended configuration.</p></div>${btn('compare-configurations','Compare configurations',true,'','',!valid)}</div><div class="comparison-controls">${select('comparison-reference','Reference run',rows.map(r=>[r.id,r.label]),rows[0]?.id)}${U.comparison&&!match?notice('Selection changed','Compare configurations again to review these runs.'):''}</div>${match?`<div class="comparison-record"><p>Compared ${e(U.comparison.created_at)} · ${U.comparison.changed_rows} different rows out of ${U.comparison.rows.length}.</p>${helpDetails('Comparison scope and export contents',U.comparison.notice)}<details><summary>Configuration hashes</summary>${U.comparison.runs.map(r=>`<p><strong>${e(r.label)}</strong> · ${e(r.id)}<br>Exact saved YAML: <code>${e(r.config_sha256)}</code><br>Typed values: <code>${e(r.value_sha256)}</code></p>`).join('')}</details></div><div class="comparison-filters">${field('comparison-search','Search setting paths','','search')}${select('comparison-scope','Compare section',[['all','Configuration and provenance'],['configuration','Configuration values'],['provenance','Recorded provenance']])}<label class="check-field"><input type="checkbox" id="comparison-differences" ${val('comparison-differences',true)?'checked':''}> Differences only</label></div><div id="comparison-table" tabindex="-1">${comparisonTable()}</div><div class="padded">${btn('download-comparison','Refresh & download comparison',false,'','download')}<p class="settings-note">Downloads all rows, including unchanged and filtered rows. Refreshes this displayed comparison from saved records. Long cells are shortened on screen; the JSON contains their full YAML values. Paths list separate key segments, so literal dots stay distinct. Scroll the table horizontally on narrow screens.</p></div>`:'<div class="padded">Select 2–4 saved runs, then compare. No checks or workflows are started.</div>'}</section>`;
+ return `<section class="card saved-comparison" aria-label="Full saved configuration comparison"><div class="card-head"><div><h2>Full saved configurations</h2><p>Choose 2–4 runs above. The reference is a comparison anchor, not a recommended configuration.</p></div>${btn('compare-configurations','Compare configurations',true,'','',!valid)}</div><div class="comparison-controls">${select('comparison-reference','Reference run',rows.map(r=>[r.id,r.label]),rows[0]?.id)}${U.comparison&&!match?notice('Selection or saved settings changed','Compare configurations again to review the current settings.'):''}</div>${match?`<div class="comparison-record"><p>Compared ${e(U.comparison.created_at)} · ${U.comparison.changed_rows} different rows out of ${U.comparison.rows.length}.</p>${helpDetails('Comparison scope and export contents',U.comparison.notice)}<details><summary>Configuration hashes</summary>${U.comparison.runs.map(r=>`<p><strong>${e(r.label)}</strong> · ${e(r.id)}<br>Exact saved YAML: <code>${e(r.config_sha256)}</code><br>Typed values: <code>${e(r.value_sha256)}</code></p>`).join('')}</details></div><div class="comparison-filters">${field('comparison-search','Search setting paths','','search')}${select('comparison-scope','Compare section',[['all','Configuration and provenance'],['configuration','Configuration values'],['provenance','Recorded provenance']])}<label class="check-field"><input type="checkbox" id="comparison-differences" ${val('comparison-differences',true)?'checked':''}> Differences only</label></div><div id="comparison-table" tabindex="-1">${comparisonTable()}</div><div class="padded">${btn('download-comparison','Refresh & download comparison',false,'','download')}<p class="settings-note">Downloads all rows, including unchanged and filtered rows. Refreshes this displayed comparison from saved records. Long cells are shortened on screen; the JSON contains their full YAML values. Paths list separate key segments, so literal dots stay distinct. Scroll the table horizontally on narrow screens.</p></div>`:'<div class="padded">Select 2–4 saved runs, then compare. No checks or workflows are started.</div>'}</section>`;
 }
 function comparisonTable(){
  const d=U.comparison,q=val('comparison-search').toLowerCase().trim(),scope=val('comparison-scope','all'),only=val('comparison-differences',true);
@@ -182,13 +743,15 @@ function comparisonTable(){
 function refreshComparison(reset=false){if(!$('#comparison-table'))return;if(reset)U.comparisonPage=0;$('#comparison-table').innerHTML=comparisonTable();renderBusy();}
 function runPage(){
  const r=runBy(U.runId),d=U.detail?.id===U.runId?U.detail:null;
+ const report=r&&U.runDetailTab==='results'&&U.results?.id===r.id?U.results.reports.find(x=>x.state==='available'):null;
+ const reportActions=report?`<div class="result-primary-actions">${btn('open-result-report','Open '+report.name,true,report.id,'external')}${btn('result-report','Download report',false,report.id,'download')}</div>`:'';
  if(!r)return heading('RUNS','Run not found.','This run is not registered in the current workspace.',btn('go-runs','Back to runs',true));
- return `<div class="run-page-back">${quiet('go-runs','Back to runs')}</div>`+heading('SAVED RUN',e(r.label),e(r.sample.id)+' · '+e(S.pipelines[r.tool].name)+' · '+e(r.id),r.run_type==='followup'?'':btn('use-run-databases','Use saved databases',false,r.id,'resources',r.busy||r.archived)+btn('edit-run-settings','Edit settings',false,r.id,'config',r.busy||r.archived||!d))+
- `<section class="card run-workspace" aria-label="Saved run workspace">${d?renderSavedRun(r,d):U.error?empty('Run details could not be loaded.','Review the message above and try again.',btn('run-detail','Retry',true,r.id)):'<div class="padded" role="status">Loading saved run settings…</div>'}</section>`;
+ return `<div class="run-page-back">${quiet('go-runs','Back to runs')}</div>`+heading('SAVED RUN',e(r.label),e(r.sample.id)+' · '+e(S.pipelines[r.tool].name)+' · '+e(r.id),report?reportActions:r.run_type==='followup'?'':btn('use-run-databases','Use saved databases',false,r.id,'resources',r.busy||r.archived)+btn('edit-run-settings','Edit settings',false,r.id,'config',r.busy||r.archived||!d)+(d?.has_external_vfdb?btn('preview-vfdb-repair','Repair VFDB reference',false,r.id,'resources',r.busy||r.archived):''))+
+ runProgress(r)+runControls(r)+monitoringPanel(latestRunJob(r))+`${r.archived?`<section class="card padded archived-run-notice" aria-label="Archived run"><h2>This run is archived</h2><p>Restore it to the current run list to review recovery actions. Files, saved settings and workflow locks are retained.</p>${btn('restore-run','Restore run',true,r.id,'arrow')}</section>`:''}<section class="card run-workspace" aria-label="Saved run workspace">${d?renderSavedRun(r,d):U.error?empty('Run details could not be loaded.','Review the message above and try again.',btn('run-detail','Retry',true,r.id)):'<div class="padded" role="status">Loading saved run settings…</div>'}</section>`;
 }
 function runActivity(r){
  const jobs=S.jobs.filter(j=>j.payload.run_id===r.id);
- return `<div class="settings-intro"><div><h3>Run activity</h3><p>Validation, environment preparation and execution jobs for this saved run.</p></div></div>`+(jobs.length?`<div class="run-activity">${jobs.map(j=>`<article class="run-job"><div><strong>${e(({'dry-run':'Validate run',prepare:'Install environments',run:'Run / resume',continue:'Continue after identification','check-environments':'Check environments',unlock:'Unlock workflow'}[j.payload.action])||j.kind)}</strong><span class="secondary-line">${e(j.created)} · ${e(j.id)}</span>${guidancePanel(j)}</div>${jobStatus(j)}<div class="button-row">${btn('job-log','View log',false,j.id)}${usageButton(j)}${['queued','running'].includes(j.status)?btn('cancel-job','Stop',false,j.id,'stop'):''}</div>${jobTelemetry(j)}</article>`).join('')}</div>`:empty('No jobs for this run yet.','Open Overview to validate its configuration and check its environments.'));
+ return `<div class="settings-intro"><div><h3>Run activity</h3><p>Validation, environment preparation and execution jobs for this saved run.</p></div></div>`+(jobs.length?`<div class="run-activity">${jobs.map(j=>`<article class="run-job"><div><strong>${e(({'dry-run':'Validate run',prepare:'Install environments',run:'Run / resume',continue:'Continue after identification','check-environments':'Check environments',unlock:'Unlock workflow'}[j.payload.action])||j.kind)}</strong><span class="secondary-line">${e(j.created)} · ${e(j.id)}</span>${r.previous_draft_jobs?.includes(j.id)?badge('Earlier draft settings'):''}${guidancePanel(j)}${monitoringPanel(j,true)}</div>${jobStatus(j)}<div class="button-row">${btn('job-log','View log',false,j.id)}${j.kind==='isolate_export'?btn('isolate-export-receipt','View export receipt',false,j.id,'file'):''}${usageButton(j)}${diskResumeButton(j)}${['queued','running'].includes(j.status)?btn('cancel-job',stopUnconfirmed(j)?'Exit unconfirmed':'Stop',false,j.id,'stop',stopUnconfirmed(j)):''}</div>${jobTelemetry(j)}</article>`).join('')}</div>`:empty('No jobs for this run yet.','Open Overview to validate its configuration and check its environments.'));
 }
 const compatibilitySupport={recommended:'Recommended snapshot',earlier_supported:'Earlier supported snapshot',contract_supported:'Reviewed release contract',unreviewed:'Unreviewed commit',missing_commit:'Commit not recorded',unknown_pipeline:'Unknown pipeline'};
 const compatibilityBinding={recorded_match:'Recorded installation matches',missing_installation:'Installation not registered',source_mismatch:'Installation/source mismatch',setup_needed:'Runner setup needed'};
@@ -197,32 +760,157 @@ function supportBadge(state){return badge(compatibilitySupport[state]||state,['r
 function compatibilityPanel(){
  const d=U.compatibility;if(!d)return '<section class="card padded" role="status">Loading version records…</section>';
  const app=d.app;
- return `<section class="compatibility-overview" aria-label="Version compatibility overview"><div class="settings-intro"><div><h2>Versions and compatibility</h2><p>Local records read ${e(d.created_at)}. Branch names can move; supported commits are exact.</p></div><div class="button-row">${btn('refresh-compatibility','Refresh overview',false,'','clock')}${btn('download-compatibility','Download overview',false,'','download')}</div></div>${helpDetails('Recorded support · what this overview checks',d.notice)}<section class="card compatibility-app"><div class="card-head"><h3>Bactologix and this runtime</h3>${app.restart_required?badge('Restart required','amber'):badge(app.installed_version?'Loaded package version matches':'Installed version unavailable')}</div><div class="padded"><dl class="compatibility-facts"><dt>Running application</dt><dd>v${e(app.running_version)}</dd><dt>Installed package</dt><dd>${e(app.installed_version||'Package metadata unavailable')}</dd><dt>Application Python</dt><dd>${e(app.python_version)} · installed requirement ${e(app.python_requirement||'not recorded')} · ${app.python_matches===null?'not verified':app.python_matches?'matches':'does not match'}</dd><dt>Execution platform</dt><dd>${e(app.platform)} · ${app.managed_execution_platform?'Linux execution platform':'Managed execution requires Linux or WSL2'}</dd><dt>Application interpreter</dt><dd class="path-cell">${e(app.python_executable)}</dd></dl>${app.active_update?notice('Application update in progress','Version records may change while the update completes.',true):''}<div class="button-row">${btn('app-updates','Review application update',false,'','download')}${btn('recovery-setup','Review pipeline setup',false)}</div></div></section><div class="compatibility-pipelines">${d.pipelines.map(p=>`<section class="card"><div class="card-head"><div><h3>${e(p.name)}</h3><p>Active for new drafts: ${e(p.active_installation||'None')}${p.active_installation&&!p.active_registered?' · not registered for this pipeline':''}</p></div></div><div class="padded">${p.commits.map(c=>`<div class="compatibility-commit">${supportBadge(c.support)}<a href="${e(safeURL(c.url))}" target="_blank" rel="noopener noreferrer"><code>${e(c.commit)}</code></a></div>`).join('')}<p class="inline-info">${e(p.catalog_origin)} · fetched ${e(p.catalog_checked_at||'date not recorded')}. ${p.unreviewed_catalog_refs} catalogue refs point to unreviewed commits. These saved listings are not a live freshness check.</p>${btn('versions','Review available versions',false,p.tool)}</div></section>`).join('')}</div><section class="card"><div class="card-head"><div><h3>Registered installations and runners</h3><p>Requirements are recorded from setup; actual installed package versions are not probed here.</p></div></div><div class="compatibility-installations">${d.installations.length?d.installations.map(i=>`<article data-compat-installation="${e(i.id)}"><div><strong>${e(i.id)}</strong> ${i.active?badge('Active for new drafts','blue'):''} ${supportBadge(i.support)}<p>${e(i.ref||'Ref label not recorded')}</p><p class="path-cell">Commit: ${e(i.commit||'Not recorded')}</p><p>${i.setup_recorded?'Runner setup recorded':'Runner setup not recorded as ready'} · last successful setup/check record: ${e(i.checked_at||'Not recorded')}</p><p>Recorded requirements: Python ${e(i.requirements.python||'unknown')} · Snakemake ${e(i.requirements.snakemake||'unknown')}</p><p class="path-cell">Runner (${e(i.runner_origin)}): ${e(i.runner||'Not recorded')}</p><p class="path-cell">Source: ${e(i.source||'Not recorded')}</p>${i.latest_check?`<p>Latest explicit setup/check job: ${e(i.latest_check.id)} · ${statusBadge(i.latest_check.status)}</p>`:''}</div><div class="button-row">${btn('recovery-setup','Review setup',false)}${i.latest_check?btn('job-log','Check log',false,i.latest_check.id):''}</div></article>`).join(''):'<p class="padded">No installations registered.</p>'}</div></section><section class="card compatibility-saved-runs"><div class="card-head"><div><h3>Saved-run bindings</h3><p>Each run keeps its own installation. Changing the active version for new drafts does not migrate old runs.</p></div></div><div class="padded"><div class="form-grid">${field('compatibility-search','Find a saved run','','search')}${select('compatibility-pipeline','Pipeline',[['','All pipelines'],...d.pipelines.map(p=>[p.tool,p.name])])}</div><div class="compatibility-filters"><label><input type="checkbox" id="compatibility-review" ${val('compatibility-review',false)?'checked':''}> Needs review only</label><label><input type="checkbox" id="compatibility-archived" ${val('compatibility-archived',false)?'checked':''}> Include archived runs</label></div></div><div class="compatibility-run-list">${d.runs.map(r=>`<article data-compat-run="${e(r.id)}" data-compat-search="${e((r.label+' '+r.id+' '+r.commit+' '+r.installation).toLowerCase())}" data-compat-tool="${e(r.tool)}" data-compat-archived="${r.archived}" data-compat-review="${r.needs_review}"><div><strong>${e(r.label)}</strong> ${r.archived?badge('Archived'):''} ${supportBadge(r.support)}<p>${e(r.id)} · ${e(r.tool)} · ${r.uses_active_selection?'Uses active selection':'Separate from active selection for new drafts'}</p><p class="path-cell">Saved commit: ${e(r.commit||'Not recorded')} · Installation: ${e(r.installation||'Not recorded')}</p><p>${badge(compatibilityBinding[r.binding],r.binding==='recorded_match'?'blue':'amber')} ${badge(compatibilityValidation[r.validation],r.validation==='same_runner_path'?'':'amber')}</p><details><summary>Runner and execution records</summary><p class="path-cell">Runner at draft creation: ${e(r.recorded_runner||'Not recorded')}</p><p class="path-cell">Current registered runner: ${e(r.current_runner||'Not recorded')}</p><p class="path-cell">Validation runner: ${e(r.validated_runner||'Not recorded')} · ${e(r.validated_at||'date not recorded')}</p>${r.runner_changed_since_draft?'<p>The registered runner differs from the original draft runner.</p>':''}<p>Latest execution: ${r.latest_execution?e(r.latest_execution.id)+' · '+statusBadge(r.latest_execution.status):'Not recorded'}. Execution results are separate from version compatibility.</p></details></div><div class="button-row">${btn('run-detail','Review saved run',false,r.id)}${btn('view-results','Results & downloads',false,r.id)}</div></article>`).join('')}</div><p id="compatibility-no-matches" class="padded" hidden>No matching saved runs.</p></section></section>`;
+ return `<section class="compatibility-overview" aria-label="Version compatibility overview"><div class="settings-intro"><div><h2>Versions and compatibility</h2><p>Local records read ${e(d.created_at)}. Branch names can move; supported commits are exact.</p></div><div class="button-row">${btn('refresh-compatibility','Refresh overview',false,'','clock')}${btn('download-compatibility','Download overview',false,'','download')}</div></div>${helpDetails('Recorded support · what this overview checks',d.notice)}<section class="card compatibility-app"><div class="card-head"><h3>Bactologix and this runtime</h3>${app.restart_required?badge('Restart required','amber'):badge(app.installed_version?'Loaded package version matches':'Installed version unavailable')}</div><div class="padded"><dl class="compatibility-facts"><dt>Running application</dt><dd>v${e(app.running_version)}</dd><dt>Installed package</dt><dd>${e(app.installed_version||'Package metadata unavailable')}</dd><dt>Application Python</dt><dd>${e(app.python_version)} · installed requirement ${e(app.python_requirement||'not recorded')} · ${app.python_matches===null?'not verified':app.python_matches?'matches':'does not match'}</dd><dt>Execution platform</dt><dd>${e(app.platform)} · ${app.managed_execution_platform?'Linux execution platform':'Managed execution requires Linux or WSL2'}</dd><dt>Application interpreter</dt><dd class="path-cell">${e(app.python_executable)}</dd></dl>${app.active_update?notice('Application update in progress','Version records may change while the update completes.',true):''}<div class="button-row">${btn('app-updates','Review application update',false,'','download')}${btn('recovery-setup','Review pipeline setup',false)}</div></div></section><div class="compatibility-pipelines">${d.pipelines.map(p=>`<section class="card"><div class="card-head"><div><h3>${e(p.name)}</h3><p>Active for new drafts: ${e(p.active_installation||'None')}${p.active_installation&&!p.active_registered?' · not registered for this pipeline':''}</p></div></div><div class="padded">${p.commits.map(c=>`<div class="compatibility-commit">${supportBadge(c.support)}<a href="${e(safeURL(c.url))}" target="_blank" rel="noopener noreferrer"><code>${e(c.commit)}</code></a></div>`).join('')}<p class="inline-info">${e(p.catalog_origin)} · fetched ${e(p.catalog_checked_at||'date not recorded')}. ${p.unreviewed_catalog_refs} catalogue refs point to unreviewed commits. These saved listings are not a live freshness check.</p>${btn('versions','Review available versions',false,p.tool)}</div></section>`).join('')}</div><section class="card"><div class="card-head"><div><h3>Registered installations and runners</h3><p>Requirements are recorded from setup; actual installed package versions are not probed here.</p></div></div><div class="compatibility-installations">${d.installations.length?d.installations.map(i=>`<article data-compat-installation="${e(i.id)}"><div><strong>${e(i.id)}</strong> ${i.active?badge('Active for new drafts','blue'):''} ${supportBadge(i.support)}<p>${e(i.ref||'Ref label not recorded')}</p><p class="path-cell">Commit: ${e(i.commit||'Not recorded')}</p><p>${i.setup_recorded?'Runner setup recorded':'Runner setup not recorded as ready'} · last successful setup/check record: ${e(i.checked_at||'Not recorded')}</p><p>Recorded requirements: Python ${e(i.requirements.python||'unknown')} · Snakemake ${e(i.requirements.snakemake||'unknown')}</p><p class="path-cell">Runner (${e(i.runner_origin)}): ${e(i.runner||'Not recorded')}</p><p class="path-cell">Source: ${e(i.source||'Not recorded')}</p>${i.latest_check?`<p>Latest explicit setup/check job: ${e(i.latest_check.id)} · ${statusBadge(i.latest_check.status)}</p>`:''}</div><div class="button-row">${btn('recovery-setup','Review setup',false)}${i.latest_check?btn('job-log','Check log',false,i.latest_check.id):''}</div></article>`).join(''):'<p class="padded">No installations registered.</p>'}</div></section><section class="card compatibility-saved-runs"><div class="card-head"><div><h3>Saved-run bindings</h3><p>Each run keeps its own installation. Changing the active version for new drafts does not migrate old runs.</p></div></div><div class="padded"><div class="form-grid">${field('compatibility-search','Find a saved run','','search')}${select('compatibility-pipeline','Pipeline',[['','All pipelines'],...d.pipelines.map(p=>[p.tool,p.name])])}</div><div class="compatibility-filters"><label><input type="checkbox" id="compatibility-review" ${val('compatibility-review',false)?'checked':''}> Needs review only</label><label><input type="checkbox" id="compatibility-archived" ${val('compatibility-archived',false)?'checked':''}> Include archived runs</label></div></div><div class="compatibility-run-list">${d.runs.map(r=>`<article data-compat-run="${e(r.id)}" data-compat-search="${e((r.label+' '+r.id+' '+r.commit+' '+r.installation).toLowerCase())}" data-compat-tool="${e(r.tool)}" data-compat-archived="${r.archived}" data-compat-review="${r.needs_review}"><div><strong>${e(r.label)}</strong> ${r.archived?badge('Archived'):''} ${supportBadge(r.support)}<p>${e(r.id)} · ${e(r.tool)} · ${r.uses_active_selection?'Uses active selection':'Separate from active selection for new drafts'}</p><p class="path-cell">Saved commit: ${e(r.commit||'Not recorded')} · Installation: ${e(r.installation||'Not recorded')}</p><p>${badge(compatibilityBinding[r.binding],r.binding==='recorded_match'?'blue':'amber')} ${badge(compatibilityValidation[r.validation],r.validation==='same_runner_path'?'':'amber')}</p><details><summary>Runner and execution records</summary><p class="path-cell">Runner at draft creation: ${e(r.recorded_runner||'Not recorded')}</p><p class="path-cell">Current registered runner: ${e(r.current_runner||'Not recorded')}</p><p class="path-cell">Validation runner: ${e(r.validated_runner||'Not recorded')} · ${e(r.validated_at||'date not recorded')}</p>${r.runner_changed_since_draft?'<p>The registered runner differs from the original draft runner.</p>':''}<p>Latest execution: ${r.latest_execution?e(r.latest_execution.id)+' · '+jobStatus(r.latest_execution):'Not recorded'}. Execution results are separate from version compatibility.</p></details></div><div class="button-row">${btn('run-detail','Review saved run',false,r.id)}${btn('view-results','Results & downloads',false,r.id)}</div></article>`).join('')}</div><p id="compatibility-no-matches" class="padded" hidden>No matching saved runs.</p></section></section>`;
 }
 function filterCompatibility(){const q=val('compatibility-search','').toLowerCase().trim(),tool=val('compatibility-pipeline',''),archived=val('compatibility-archived',false),review=val('compatibility-review',false);let shown=0;for(const row of $$('[data-compat-run]')){row.hidden=!row.dataset.compatSearch.includes(q)||(tool&&row.dataset.compatTool!==tool)||(!archived&&row.dataset.compatArchived==='true')||(review&&row.dataset.compatReview!=='true');if(!row.hidden)shown++;}const empty=$('#compatibility-no-matches');if(empty)empty.hidden=shown>0;}
 
 const storageCategories={runs:'Runs & outputs',environments:'Environments & runners',databases:'Databases & models',backups:'Retained repair folders',sources:'Pipeline sources',logs:'Job logs',workspace:'Workspace remainder',shared:'Shared references'};
 function storageBytes(n){if(n==null)return 'Unavailable';const units=['B','KiB','MiB','GiB','TiB'];let i=0;while(n>=1024&&i<4){n/=1024;i++;}return n.toLocaleString(undefined,{maximumFractionDigits:i?2:0})+' '+units[i];}
+const cleanupGroups=[['runs','Run results'],['samples','Input files'],['pipelines','Pipelines & environments'],['remaining','Incomplete cleanup']];
+function cleanupGroup(c){return c.kind==='cleanup_remaining'?'remaining':c.kind==='run'?'runs':c.kind.startsWith('sample_')?'samples':'pipelines';}
+function cleanupKey(c){return c.kind+':'+c.id;}
+function cleanupCandidates(){return U.storageCleanup?.candidates||[];}
+function cleanupSelection(){const keys=new Set(U.cleanupSelected||[]);return cleanupCandidates().filter(c=>keys.has(cleanupKey(c)));}
+function cleanupSize(c){
+ if(c.kind==='sample_registration')return 0;
+ if(c.logical_bytes!=null)return c.logical_bytes;
+ if(U.cleanupMeasured?.[cleanupKey(c)]!=null)return U.cleanupMeasured[cleanupKey(c)];
+ const paths=[...new Set((c.paths||[]).map(p=>typeof p==='string'?p:p.path))],rows=U.storage?.last_scan?.locations||[];
+ // Scan rows partition nested locations: a run-folder row excludes its output rows.
+ // A known parent cannot estimate an unknown child prefix, so every root must match.
+ if(!paths.length||paths.some(path=>!rows.some(r=>r.path===path)))return null;
+ const measured=rows.filter(r=>paths.some(path=>r.path===path||r.path.startsWith(path.replace(/[\\/]+$/,'')+'/')||r.path.startsWith(path.replace(/[\\/]+$/,'')+'\\')));
+ return measured.every(r=>r.state==='measured'&&r.logical_bytes!=null)?measured.reduce((sum,r)=>sum+r.logical_bytes,0):null;
+}
+function cleanupCategory(){const category=val('cleanup-category','runs');return cleanupGroups.some(([key])=>key===category)?category:'runs';}
+function cleanupVisible(){
+ const category=cleanupCategory(),query=val('cleanup-search','').trim().toLowerCase(),order=val('cleanup-sort','size');
+ return cleanupCandidates().filter(c=>cleanupGroup(c)===category&&(!query||[c.label,c.description,c.id,...(c.paths||[]).map(p=>typeof p==='string'?p:p.path)].filter(Boolean).join(' ').toLowerCase().includes(query))).sort((a,b)=>{
+  const date=c=>{const time=Date.parse(c.created_at||'');return Number.isFinite(time)?time:null;};
+  if(order==='name')return a.label.localeCompare(b.label);
+  if(order==='oldest'||order==='newest'){const x=date(a),y=date(b);return (x==null&&y==null?0:x==null?1:y==null?-1:order==='oldest'?x-y:y-x)||a.label.localeCompare(b.label);}
+  return (cleanupSize(b)??-1)-(cleanupSize(a)??-1)||a.label.localeCompare(b.label);
+ });
+}
+function cleanupSelectable(){
+ const rows=cleanupVisible().filter(c=>c.kind!=='sample_registration'),keys=new Set(U.cleanupSelected||[]),selected=[];
+ for(const c of rows)if(!c.blocked?.length){selected.push(c);keys.add(cleanupKey(c));}
+ let changed=true;while(changed){changed=false;for(const c of rows){if(c.conditional_blocked&&!keys.has(cleanupKey(c))&&(c.depends_on||[]).every(d=>keys.has(cleanupKey(d)))){selected.push(c);keys.add(cleanupKey(c));changed=true;}}}
+ return selected;
+}
+function cleanupEstimate(){const selected=cleanupSelection(),known=selected.filter(c=>cleanupSize(c)!=null),bytes=known.reduce((sum,c)=>sum+cleanupSize(c),0);return selected.length===known.length?storageBytes(bytes):known.length?storageBytes(bytes)+' + unmeasured':'Not measured';}
+function cleanupStatus(status){return ({completed:'Completed',succeeded:'Completed',partial:'Partially completed',failed:'Failed',staging:'Preparing deletion',deleting:'Deleting',running:'Deleting',queued:'Queued',cancelled:'Cancelled'})[status]||status||'Recorded';}
+function cleanupReceipt(receipt){
+ const paths=receipt.paths||(receipt.operations||[]).map(x=>({path:x.original,status:({planned:'Retained at original path',staged:'Staged for deletion',deleted:'Deleted'})[x.state]||x.state})),failures=receipt.errors||[],targets=receipt.candidates||receipt.targets||[];
+ return `<p>${badge(cleanupStatus(receipt.status),receipt.status==='completed'?'green':['failed','partial'].includes(receipt.status)?'amber':'blue')} <span class="inline-info">${e(receipt.finished_at||receipt.created_at||'')}</span></p><p class="inline-info">Receipt ${e(receipt.id)}${receipt.job_id?' · Job '+e(receipt.job_id):''}</p>${receipt.error?notice('Cleanup needs attention',e(receipt.error),true):''}${failures.length?notice('Some files were retained',failures.map(x=>e(typeof x==='string'?x:x.error||x.path||JSON.stringify(x))).join('<br>'),true):''}<div class="cleanup-receipt-targets">${targets.map(x=>`<p><strong>${e(x.label||x.id||x)}</strong>${x.kind?' · '+e(x.kind.replaceAll('_',' ')):''}</p>`).join('')}</div>${paths.length?`<div class="cleanup-paths">${paths.map(x=>`<div><code>${e(typeof x==='string'?x:x.path)}</code>${typeof x==='object'?`<span>${e(x.status||'Reviewed')}${x.error?' · '+e(x.error):''}</span>`:''}</div>`).join('')}</div>`:''}${receipt.deleted_paths?.length?`<details><summary>Removed paths · ${receipt.deleted_paths.length}</summary>${receipt.deleted_paths.map(x=>`<p class="path-cell">${e(typeof x==='string'?x:x.path)}</p>`).join('')}</details>`:''}${receipt.retained_paths?.length?`<details open><summary>Retained paths · ${receipt.retained_paths.length}</summary>${receipt.retained_paths.map(x=>`<p class="path-cell">${e(typeof x==='string'?x:x.path)}${x.reason?' · '+e(x.reason):''}</p>`).join('')}</details>`:''}<p class="inline-info">${receipt.logical_bytes!=null?'Reviewed logical file bytes: '+storageBytes(receipt.logical_bytes)+'. ':''}This receipt records the cleanup outcome. Measure storage again to check current disk availability.</p>`;
+}
+function cleanupRestoreControls(c){return c.kind==='run'&&S.runs?.find(r=>r.id===c.id)?.archived?`<div class="cleanup-restore"><p><strong>This run is archived.</strong> Restore it to the current run list to review its workflow lock. Restoration keeps files and locks unchanged.</p>${btn('restore-run','Restore run',false,c.id,'arrow')}</div>`:'';}
+function cleanupCandidateRow(c,busy,selectedKeys){
+ const blocked=c.blocked||[],size=cleanupSize(c),registration=c.kind==='sample_registration',group=cleanupGroup(c);
+ return `<article class="cleanup-candidate" data-cleanup-key="${e(cleanupKey(c))}"><label class="cleanup-choice"><input type="checkbox" data-cleanup-select="${e(cleanupKey(c))}" aria-label="Select ${e(c.label)}${registration?' registration only':''}" ${selectedKeys.has(cleanupKey(c))?'checked':''} ${busy||blocked.length&&!c.conditional_blocked?'disabled':''}><span><strong>${e(c.label)}</strong><small>${registration?'Registration only · files stay on disk':c.kind==='sample_files'?'Delete known input files and registration':group==='runs'?'Delete saved run files and reports':group==='remaining'?'Review and retry remaining files':'Delete unused managed files'}</small></span></label><div class="cleanup-size"><strong>${size==null?'Not measured':storageBytes(size)}</strong><small>${registration?'Frees no data space':size==null?'Preview to measure':'Estimated file bytes'}</small></div><div class="cleanup-candidate-detail">${cleanupRestoreControls(c)}${c.created_at?`<p>Created ${e(c.created_at)}</p>`:''}${c.description?`<p>${e(c.description)}</p>`:''}${blocked.length?`<p class="cleanup-blocked">${icon('info')}<strong>${c.conditional_blocked?'Select its installation too':'Protected'}</strong> · ${blocked.map(e).join(' · ')}</p>`:''}<details><summary>Review ${c.paths?.length||0} path(s)${blocked.length?' and protection':''}</summary>${(c.paths||[]).map(path=>`<p class="path-cell">${e(typeof path==='string'?path:path.path)}</p>`).join('')}${blocked.length?btn('cleanup-review-protected','Review protection',false,cleanupKey(c),'',busy):''}</details></div></article>`;
+}
+function storageLoad(kind){return U.storageLoads?.[kind]||{};}
+function storageLoadMessage(kind){
+ const load=storageLoad(kind);
+ if(load.state==='failed')return `<p class="error" role="alert">${e(load.message||'This check did not finish. Retry when the location is available.')}</p>`;
+ if(load.state==='cancelled')return '<p class="inline-info">Stopped waiting for this check. You can retry when ready.</p>';
+ return '';
+}
+function settleStorageTask(task,status,message=''){
+ if(!storageActions.has(task.kind)||storageLoad(task.kind).id!==task.requestId)return;
+ U.storageLoads[task.kind]={id:task.requestId,state:status,message};
+}
+function storageCleanupPanel(){
+ const panel=U.storageCleanup;
+ if(!panel){
+  const load=storageLoad('inspect_storage_cleanup'),job=S.jobs.find(j=>j.id===U.cleanupJobId),busy=job&&['queued','running'].includes(job.status);
+  const label=load.state==='running'?'Loading cleanup candidates…':['failed','cancelled'].includes(load.state)?'Retry cleanup candidates':load.state==='ready'?'Refresh cleanup candidates':'Load cleanup candidates';
+  return `<section class="card padded" aria-label="Storage cleanup"><h2>Reclaim disk space</h2><p>Load cleanup candidates when you are ready to review individual files. This checks dependencies and does not delete anything.</p>${busy?`<p role="status">Cleanup is ${e(job.status)}. Keep Bactologix running until it finishes.</p>${btn('go-jobs','View activity',false,'','jobs')}`:job?'<p>Cleanup has finished. Refresh candidates to review its receipt and remaining files.</p>':''}${storageLoadMessage('inspect_storage_cleanup')}${btn('refresh-storage-cleanup',label,true,'','folder',load.state==='running'||!!busy)}</section>`;
+ }
+ const candidates=cleanupVisible(),selected=cleanupSelection(),selectedKeys=new Set(selected.map(cleanupKey)),category=cleanupCategory();
+ const files=candidates.filter(c=>c.kind!=='sample_registration'),registrations=candidates.filter(c=>c.kind==='sample_registration');
+ const jobId=typeof panel.active_job==='string'?panel.active_job:panel.active_job?.id;
+ const job=S.jobs.find(j=>j.id===jobId)||panel.active_job;
+ const busy=!!panel.active_job&&(!job?.status||['queued','running'].includes(job.status)),history=panel.history||[],selectable=cleanupSelectable(),hidden=selected.filter(c=>!candidates.some(x=>cleanupKey(x)===cleanupKey(c))).length;
+ return `<section class="card storage-cleanup" aria-label="Storage cleanup"><div class="card-head"><div><h2>Reclaim disk space</h2><p>Choose items, then review their full paths before permanent deletion.</p></div>${btn('refresh-storage-cleanup','Refresh cleanup list',false,'','clock',storageLoad('inspect_storage_cleanup').state==='running')}</div><div class="padded cleanup-intro">${storageLoadMessage('inspect_storage_cleanup')}${U.cleanupNeedsRefresh?'<p class="inline-info">A new measurement is available. Refresh cleanup list to update its saved size estimates.</p>':''}<p>Review your isolate export receipt or verify any transferred copies before cleanup. This cleanup action does not recheck the destination.</p><div class="storage-category-tabs" role="group" aria-label="Cleanup categories">${cleanupGroups.filter(([key])=>key!=='remaining'||cleanupCandidates().some(c=>cleanupGroup(c)===key)).map(([key,label])=>`<button type="button" class="storage-category-tab" data-action="cleanup-category" data-id="${key}" aria-pressed="${category===key}">${e(label)}</button>`).join('')}</div>${busy?`<div class="cleanup-progress" role="status"><div>${badge(cleanupStatus(job?.status||'queued'),'amber')}<strong>Storage cleanup is in progress</strong></div><p>${e(job?.progress?.message||job?.message||'Keep Bactologix running until cleanup finishes. Review the job for progress.')}</p><div class="button-row">${btn('go-jobs','View activity',false,'','jobs')}${job?.id?btn('job-log','View cleanup log',false,job.id):''}</div></div>`:''}<div class="storage-toolbar cleanup-toolbar">${field('cleanup-search','Find an item',val('cleanup-search',''),'search','placeholder="Search names or paths"')}${select('cleanup-sort','Sort items',[['size','Largest measured first'],['oldest','Oldest first'],['newest','Newest first'],['name','Name']],'size')}<div class="button-row">${btn('cleanup-select-visible','Select visible files ('+selectable.length+')',false,'','',busy||!selectable.length)}${btn('cleanup-clear','Clear selection',false,'','',!selected.length)}</div></div><p class="inline-info">${files.length} file item${files.length===1?'':'s'} shown. Estimates are not guaranteed freed space. Preview measures unmeasured items.</p></div><div class="cleanup-groups"><section class="cleanup-group" aria-label="${e(cleanupGroups.find(([key])=>key===category)?.[1]||'Cleanup items')}">${files.length?files.map(c=>cleanupCandidateRow(c,busy,selectedKeys)).join(''):'<p class="cleanup-empty">No file items match this category and search.</p>'}${category==='samples'&&registrations.length?`<details class="cleanup-registrations"><summary>Remove registrations only · keep files (${registrations.length})</summary><p class="inline-info">These actions remove samples from the workspace list. They keep the original files and free no data space.</p>${registrations.map(c=>cleanupCandidateRow(c,busy,selectedKeys)).join('')}</details>`:''}</section></div><div class="cleanup-selection"><div><strong id="cleanup-selection-count">${selected.length} item${selected.length===1?'':'s'} selected · ${cleanupEstimate()}</strong><small>${hidden?hidden+' selected item(s) are outside the current view. ':''}Preview does not delete files.</small></div>${btn('preview-cleanup','Preview selected cleanup',true,'','',!selected.length||busy)}</div>${panel.checked_workspaces?.length?`<details class="cleanup-dependencies padded"><summary>Dependency-check scope · ${panel.checked_workspaces.length} workspace(s)</summary><p class="inline-info">Active work and known dependencies are checked again before deletion. Unregistered files and undiscovered workspaces cannot be checked. Confirm that no other workspace needs these files.</p>${panel.checked_workspaces.map(path=>`<p class="path-cell">${e(path)}</p>`).join('')}</details>`:''}</section><section class="card cleanup-history" aria-label="Cleanup history"><details ${U.cleanupHistoryOpen?'open':''} data-cleanup-history><summary>Cleanup history · ${history.length} receipt${history.length===1?'':'s'}</summary><p class="padded inline-info">Receipts include failures and retained files. Removed files cannot be restored here.</p>${history.length?history.map(r=>`<article><div><strong>${e(cleanupStatus(r.status))}</strong><p>${e(r.finished_at||r.created_at||'')} · ${(r.targets||[]).length} selected item(s)</p>${r.error?`<p class="error">${e(r.error)}</p>`:''}</div>${btn('cleanup-receipt','View receipt',false,r.id,'file')}</article>`).join(''):'<p class="padded">No cleanup has been performed in this workspace.</p>'}</details></section>`;
+}
+function failedCleanupCounts(candidates){
+ const labels={run:'Runs',failed_database:'Database installs',installation:'Pipeline versions',failed_setup:'Pipeline setup attempts',controller:'Pipeline controllers',environment:'Tool environments'};
+ const counts=new Map();
+ for(const item of candidates){const label=labels[item.kind]||item.kind.replaceAll('_',' ');counts.set(label,(counts.get(label)||0)+1);}
+ return `<p class="inline-info">${Array.from(counts,([label,count])=>e(label)+' ('+count+')').join(' · ')}</p>`;
+}
+function failedCleanupSkipped(plan){
+ const skipped=plan.skipped||[];
+ if(!skipped.length)return '';
+ return `<details class="cleanup-dependencies"><summary>Kept items (${skipped.length})</summary>${skipped.map(item=>`<p><strong>${e(item.label||item.id)}</strong><br>${(item.blocked||[]).map(e).join('<br>')}</p>`).join('')}</details>`;
+}
+function cleanupCanExecute(){const p=U.cleanupPlan;return !!p?.id&&!!p.signature&&p.inventory_complete!==false&&!p.blocked?.length&&!!p.targets?.length&&val('cleanup-acknowledged',false)===true&&val('cleanup-confirmation','')===(p.confirmation||'DELETE')&&!U.pending&&!U.queuedRequest;}
+function syncCleanupConfirmation(){const button=$('[data-action="execute-cleanup"]');if(button)button.disabled=!cleanupCanExecute();}
+function previewCleanup(payload){
+ U.cleanupPlan=null;U.cleanupPreviewPayload=payload;
+ setDraft('cleanup-acknowledged',false);setDraft('cleanup-confirmation','');
+ modal('cleanup-preview',payload.scope||'');request('preview_storage_cleanup',payload);
+}
+function resetConfirmed(){const p=U.resetPlan;return !!p&&p.inventory_complete!==false&&!p.blocked?.length&&p.delete_databases===!!val('reset-databases',false)&&val('reset-confirmation')===p.confirmation&&val('reset-acknowledged',false)&&(!p.delete_databases||val('reset-database-confirmation')===p.database_confirmation);}
+function syncResetConfirmation(){const b=$('[data-action="execute-factory-reset"]');if(b)b.disabled=!resetConfirmed();}
+function resetPanel(){
+ const p=U.resetPlan;
+ let body=`<p class="path-cell">${e(S.workspace)}</p><p>This resets only this workspace. Other Bactologix workspaces and the application are retained.</p><label class="check-field"><input type="checkbox" id="reset-databases" ${val('reset-databases',false)?'checked':''}> Also review deletion of eligible Bactologix-managed databases</label><p>Off by default, including Kraken. Manually linked databases are protected even inside the workspace. The preview lists what is eligible and what will stay.</p>${btn('preview-factory-reset',p?'Refresh reset preview':'Preview reset',true,'','file')}`;
+ if(!p)return body+'<p>Large workspaces can take several minutes to review. Progress counts include files, links and directories.</p><p>Previewing does not delete files. A separate confirmation is required after the paths are reviewed.</p>';
+ body+=`<div class="review-stats"><div><span>${p.inventory_complete===false?'Files counted so far':'Files'}</span><strong>${e(p.file_count)}</strong></div><div><span>${p.inventory_complete===false?'Partial logical size':'Logical size'}</span><strong>${storageBytes(p.logical_bytes)}</strong></div><div><span>${p.inventory_complete===false?'Partial allocated blocks':'Allocated file blocks'}</span><strong>${storageBytes(p.allocated_bytes)}</strong></div></div><p>${e(p.notice)}</p>`;
+ if(p.inventory_complete===false)body+=notice('Review incomplete','These totals cover only fully scanned paths. No deletion can start until the entire review succeeds.',true);
+ if(p.blocked?.length)body+=notice('Reset is blocked',p.blocked.map(e).join('<br>'),true);
+ body+=`<h3>Paths eligible for permanent deletion</h3>${p.paths?.length?p.paths.map(x=>`<article class="padded"><p class="path-cell">${e(x.path)}</p><p>${e(x.files)} files · ${storageBytes(x.logical_bytes)}</p></article>`).join(''):'<p>No file paths are eligible. Only the reviewed workspace records would be removed.</p>'}<details><summary>Retained paths · ${(p.preserved||[]).length}</summary>${(p.preserved||[]).map(x=>`<p class="path-cell">${e(x.path)}</p><p>${(x.reasons||[]).map(e).join('; ')}</p>`).join('')}</details><p>Job history and deletion receipts remain. Shared or unverified caches may be retained. File deletion may not immediately shrink the WSL virtual disk on Windows.</p>${field('reset-confirmation','Type '+p.confirmation,'','text','autocomplete="off"')}${p.delete_databases?field('reset-database-confirmation','Separately type '+p.database_confirmation,'','text','autocomplete="off"'):''}<label class="check-field"><input type="checkbox" id="reset-acknowledged" ${val('reset-acknowledged',false)?'checked':''}> I reviewed these paths and accept permanent deletion. I have kept any copies I need.</label>`;
+ return body;
+}
+function redownloadPanel(){
+ const p=U.redownloadPlan;
+ if(!p)return '<p role="status">Reviewing the selected database and available preparation source…</p>';
+ return `<p>Current saved database:</p><p class="path-cell">${e(p.current?.path||'No saved location')}</p>${notice('Prepare a new snapshot',e(p.exact.reason),true)}<p>${e(p.notice)}</p><dl class="review-settings"><div><dt>Provider</dt><dd>${e(p.alternative.provider)}</dd></div><div><dt>Pipeline commit</dt><dd>${e(p.alternative.commit)}</dd></div></dl>${!p.alternative.available?notice('Preparation unavailable',e(p.alternative.reason),true):''}<p>The existing database stays in place. After preparation finishes, select the new location and save it for future runs.</p><p class="path-cell">New destination parent: ${e(p.parent)}</p><div class="form-grid">${field('redownload-cores','Threads',4,'number','min="1" max="1024"')}${field('redownload-memory','Memory budget (MB)',16000,'number','min="1" max="10000000"')}</div><label class="check-field"><input type="checkbox" id="redownload-reviewed" ${val('redownload-reviewed',false)?'checked':''}> Prepare a new snapshot from this provider; I understand it may differ from the existing database.</label>`;
+}
+
 function storagePage(){
  const d=U.storage,scan=d?.last_scan;
- const intro=heading('STORAGE','Know what uses your disk.','Measure registered locations without changing their contents.',btn('refresh-storage','Refresh locations',false,'','clock'));
- if(!d)return intro+'<section class="card padded" role="status">Loading registered locations…</section>';
+ const load=storageLoad('inspect_storage');
+ const intro=heading('WORKSPACE','Storage','Understand usage, then choose what to remove.',btn('refresh-storage',load.state==='running'?'Loading locations…':load.state==='failed'||load.state==='cancelled'?'Retry locations':'Refresh locations',false,'','clock',load.state==='running'));
+ if(!d)return intro+`<section class="card padded" aria-label="Registered storage locations">${load.state==='running'||!load.state?'<p role="status">Loading registered locations… You can continue using the workspace.</p>':storageLoadMessage('inspect_storage')}<p>For a full workspace reset, use Workspace tools → Reset workspace.</p></section>`+storageCleanupPanel();
  const category=val('storage-category',''),rows=(scan?.locations||d.locations).filter(r=>!category||r.category===category);
  const groups=Object.keys(storageCategories).map(key=>({key,rows:(scan?.locations||[]).filter(r=>r.category===key)}));
- return '<div class="storage-overview">'+intro+`<section class="card storage-controls" aria-label="Storage measurement"><div class="card-head"><div><h2>Measure storage</h2><p>Workspace locations are included. External registered locations are optional.</p></div>${btn('scan-storage','Measure storage',true,'','cpu',!!S.app_update.active_job||S.app_update.restart_required)}</div><div class="padded"><label class="storage-check"><input type="checkbox" id="storage-external" ${val('storage-external',false)?'checked':''}> Include registered external locations (${d.locations.filter(r=>r.external).length})</label><p class="inline-info">Traversal budget: ${d.limits.seconds} seconds, ${d.limits.entries.toLocaleString()} entries, ${d.limits.depth} directory levels. Slow filesystem calls may take longer. No automatic scans or cleanup.</p><details class="storage-scope"><summary>Review registered paths before scanning · ${d.locations.length}</summary>${d.locations.map(r=>`<p class="path-cell">${r.external?'External':'Workspace'} · ${e(r.path)}</p>`).join('')}</details>${d.omitted?notice('Some references were omitted',d.omitted+' invalid or excess location references could not be included.',true):''}</div></section>`+
- (scan?`<section class="card"><div class="card-head"><div><h2>Latest saved measurement</h2><p>${e(scan.created_at)} · ${scan.elapsed_s} seconds · ${scan.include_external?'Workspace + registered external locations':'Workspace locations only'}</p></div>${btn('download-storage','Download overview',false,'','download')}</div><div class="padded">${d.scope_changed?notice('Registered locations changed','This saved measurement uses the previous locations. Review the current paths and measure again.',true):''}${notice(scan.partial?'Partial measurement':'Measured within the stated scope',scan.partial?'Some locations or entries could not be measured. Displayed bytes are a lower bound; review limits and location states.':'Only encountered regular files are counted. These figures are not reclaimable-space estimates.',scan.partial)}<div class="storage-totals"><div><small>Logical file bytes</small><strong>${storageBytes(scan.logical_bytes)}</strong></div><div><small>Allocated file blocks${scan.allocation_known?'':' · partial'}</small><strong>${storageBytes(scan.allocated_bytes)}</strong></div><div><small>Directory entries inspected</small><strong>${scan.counters.entries.toLocaleString()}</strong></div></div><div class="storage-category-grid">${groups.filter(g=>g.rows.length).map(g=>`<div><strong>${e(storageCategories[g.key])}</strong><span>${storageBytes(g.rows.reduce((n,r)=>n+r.logical_bytes,0))}</span><small>${g.rows.length} locations · logical bytes</small></div>`).join('')}</div><p class="inline-info">Skipped links: ${scan.counters.links} · special files: ${scan.counters.special} · device crossings: ${scan.counters.mounts} · inaccessible entries: ${scan.counters.inaccessible} · depth limits: ${scan.counters.depth} · already counted file entries: ${scan.counters.hardlinks}. ${scan.limits_reached.length?'Limits reached: '+e(scan.limits_reached.join(', '))+'.':''}</p>${scan.active_jobs_at_start.length?notice('Work was active during measurement','Running jobs may change files while they are counted. Measure again after work finishes.',true):''}<details><summary>Accounting and ownership limits</summary><p>${e(scan.notice)}</p></details></div></section><section class="card"><div class="card-head"><div><h2>Filesystem capacity</h2><p>Available to the current user at scan time. Each device is shown once.</p></div></div><div class="storage-devices padded">${scan.devices.map(x=>`<div><strong>${storageBytes(x.available_bytes)} available / ${storageBytes(x.total_bytes)}</strong><p class="path-cell">Device ${e(x.device)} · ${e(x.path)}</p></div>`).join('')||'<p>No capacity reading available.</p>'}</div></section>`:notice('No measurement saved yet','Review the registered paths, then choose Measure storage. Opening this page does not traverse directories.'))+
- `<section class="card storage-locations" aria-label="Storage locations"><div class="card-head"><div><h2>Locations and references</h2><p>Nested locations are counted separately; parent rows exclude files already counted. References do not prove exclusive ownership.</p></div>${select('storage-category','Category',[['','All categories'],...Object.entries(storageCategories)])}</div><div class="storage-location-list">${rows.map(r=>`<article data-storage-location="${e(r.id)}"><div><strong>${e(storageCategories[r.category])}</strong> ${badge(r.external?'External location':'Inside workspace',r.external?'amber':'blue')}<p class="path-cell">${e(r.path)}</p><p>${r.state?badge(({measured:'Measured',partial:'Partial',not_selected:'External · not selected',not_scanned:'Not reached',missing:'Missing',unavailable:'Unavailable or linked',refused:'Scope refused'})[r.state]||r.state,r.state==='measured'?'':'amber'):'Not measured'} ${r.state&&['measured','partial'].includes(r.state)?storageBytes(r.logical_bytes)+' logical · '+storageBytes(r.allocated_bytes)+' allocated':''}</p><details><summary>${r.references.length} reference(s)</summary>${r.references.map(ref=>`<div class="storage-reference"><span>${e(ref.label)}</span>${ref.view==='run'&&runBy(ref.run_id)?btn('view-results','Open run results',false,ref.run_id):ref.view?btn('storage-review','Review '+({install:'installations',resources:'databases',configure:'configuration'}[ref.view]||ref.view),false,ref.view):''}</div>`).join('')}</details></div></article>`).join('')||'<p class="padded">No locations in this category.</p>'}</div></section></div>`;
+ const capacity=`<section class="card storage-capacity" aria-label="Filesystem capacity"><div class="card-head"><div><h2>Storage capacity</h2><p>${scan?'Last measured '+e(scan.created_at):'No measurement saved yet'}</p></div>${btn('scan-storage','Measure storage',true,'','cpu',storageLoad('scan_storage').state==='running'||!!S.app_update.active_job||S.app_update.restart_required)}</div><div class="padded">${scan?.devices?.length?scan.devices.map(x=>{const unavailable=x.total_bytes>0?Math.max(0,Math.min(100,100*(1-x.available_bytes/x.total_bytes))):0;return `<div class="storage-capacity-device"><div class="storage-capacity-metrics"><div><small>Total capacity</small><strong>${storageBytes(x.total_bytes)}</strong></div><div><small>Available to you</small><strong>${storageBytes(x.available_bytes)}</strong></div></div><div class="storage-usage-bar" role="img" aria-label="${e(storageBytes(x.available_bytes)+' available of '+storageBytes(x.total_bytes))}"><span style="width:${unavailable.toFixed(2)}%"></span></div><p class="path-cell">Device ${e(x.device)} · ${e(x.path)}</p></div>`;}).join(''):'<p>Measure registered locations to see filesystem capacity and item sizes. Opening Storage does not scan directories.</p>'}<label class="storage-check"><input type="checkbox" id="storage-external" ${val('storage-external',false)?'checked':''}> Include registered external locations (${d.locations.filter(r=>r.external).length})</label><p class="inline-info">Capacity is recorded per filesystem at measurement time. File deletion may not immediately reduce a virtual disk file on the host computer.</p>${d.scope_changed?notice('Registered locations changed','The saved measurement uses previous locations. Review the current paths and measure again.',true):''}${scan?.partial?notice('Partial measurement','Some files could not be counted. Review measurement details before relying on the totals.',true):''}${d.omitted?notice('Some references were omitted',d.omitted+' invalid or excess location references could not be included.',true):''}<details class="storage-scope"><summary>Review measurement scope · ${d.locations.length} registered locations</summary><p class="inline-info">Traversal budget: ${d.limits.seconds} seconds, ${d.limits.entries.toLocaleString()} entries, ${d.limits.depth} directory levels. Slow filesystem calls may take longer. No automatic scans or cleanup.</p>${d.locations.map(r=>`<p class="path-cell">${r.external?'External':'Workspace'} · ${e(r.path)}</p>`).join('')}</details></div></section>`;
+ return '<div class="storage-overview">'+intro+storageLoadMessage('inspect_storage')+storageLoadMessage('scan_storage')+capacity+storageCleanupPanel()+`<details class="storage-measurement-details" ${U.storageDetailsOpen?'open':''} data-storage-details><summary>Measurement details and registered paths</summary>`+
+(scan?`<section class="card"><div class="card-head"><div><h2>Latest saved measurement</h2><p>${e(scan.created_at)} · ${scan.elapsed_s} seconds · ${scan.include_external?'Workspace + registered external locations':'Workspace locations only'}</p></div>${btn('download-storage','Download overview',false,'','download')}</div><div class="padded">${d.scope_changed?notice('Registered locations changed','This saved measurement uses the previous locations. Review the current paths and measure again.',true):''}${notice(scan.partial?'Partial measurement':'Measured within the stated scope',scan.partial?'Some locations or entries could not be measured. Displayed bytes are a lower bound; review limits and location states.':'Only encountered regular files are counted. These figures are not reclaimable-space estimates.',scan.partial)}<div class="storage-totals"><div><small>Logical file bytes</small><strong>${storageBytes(scan.logical_bytes)}</strong></div><div><small>Allocated file blocks${scan.allocation_known?'':' · partial'}</small><strong>${storageBytes(scan.allocated_bytes)}</strong></div><div><small>Directory entries inspected</small><strong>${scan.counters.entries.toLocaleString()}</strong></div></div><div class="storage-category-grid">${groups.filter(g=>g.rows.length).map(g=>`<div><strong>${e(storageCategories[g.key])}</strong><span>${storageBytes(g.rows.reduce((n,r)=>n+r.logical_bytes,0))}</span><small>${g.rows.length} locations · logical bytes</small></div>`).join('')}</div><p class="inline-info">Skipped links: ${scan.counters.links} · special files: ${scan.counters.special} · device crossings: ${scan.counters.mounts} · inaccessible entries: ${scan.counters.inaccessible} · depth limits: ${scan.counters.depth} · already counted file entries: ${scan.counters.hardlinks}. ${scan.limits_reached.length?'Limits reached: '+e(scan.limits_reached.join(', '))+'.':''}</p>${scan.active_jobs_at_start.length?notice('Work was active during measurement','Running jobs may change files while they are counted. Measure again after work finishes.',true):''}<details><summary>Accounting and ownership limits</summary><p>${e(scan.notice)}</p></details></div></section>`:notice('No measurement saved yet','Review the registered paths, then choose Measure storage. Opening this page does not traverse directories.'))+
+ `<section class="card storage-locations" aria-label="Storage locations"><div class="card-head"><div><h2>Locations and references</h2><p>Nested locations are counted separately; parent rows exclude files already counted. References do not prove exclusive ownership.</p></div>${select('storage-category','Category',[['','All categories'],...Object.entries(storageCategories)])}</div><div class="storage-location-list">${rows.map(r=>`<article data-storage-location="${e(r.id)}"><div><strong>${e(storageCategories[r.category])}</strong> ${badge(r.external?'External location':'Inside workspace',r.external?'amber':'blue')}<p class="path-cell">${e(r.path)}</p><p>${r.state?badge(({measured:'Measured',partial:'Partial',not_selected:'External · not selected',not_scanned:'Not reached',missing:'Missing',unavailable:'Unavailable or linked',refused:'Scope refused'})[r.state]||r.state,r.state==='measured'?'':'amber'):'Not measured'} ${r.state&&['measured','partial'].includes(r.state)?storageBytes(r.logical_bytes)+' logical · '+storageBytes(r.allocated_bytes)+' allocated':''}</p><details><summary>${r.references.length} reference(s)</summary>${r.references.map(ref=>`<div class="storage-reference"><span>${e(ref.label)}</span>${ref.view==='run'&&runBy(ref.run_id)?btn('view-results','Open run results',false,ref.run_id):ref.view?btn('storage-review','Review '+({install:'installations',resources:'databases',configure:'configuration'}[ref.view]||ref.view),false,ref.view):''}</div>`).join('')}</details></div></article>`).join('')||'<p class="padded">No locations in this category.</p>'}</div></section>`+`</details></div>`;
 }
 
 function resultFileState(row){return ({available:'Available',missing:'Not present',empty:'Empty file',too_large:'Open original on disk',unavailable:'Unavailable or linked file'})[row.state]||'Unknown';}
 function resultBytes(n){return n==null?'':n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':(n/1048576).toFixed(1)+' MB';}
+function requestOutputFiles(kind,payload){
+ // Busy controls lose focus before the response replaces the dialog contents.
+ const active=parentElement.activeElement||document.activeElement;
+ U.outputFilesFocus=U.modal?.kind==='output-files'?{modalId:U.modal.id,elementId:active?.id,action:active?.dataset.action,key:active?.dataset.id,label:active?.getAttribute('aria-label')}:null;
+ request(kind,payload);
+}
+function outputFilesPanel(id){
+ const d=U.outputFiles?.id===id?U.outputFiles:null;
+ if(!d)return '<p role="status">Loading this output directory…</p>';
+ const archives=d.snapshots||[],current=archives.find(x=>x.id===d.snapshot),up=d.relative.split('/').slice(0,-1).join('/');
+ const choices=[['','Live outputs'],...(d.run_folders||[]).map(x=>[x.id,'Run files & tool history · '+x.run_id]),...archives.filter(x=>x.available).map(x=>[x.id,'Before '+x.attempt+' · '+x.created_at])];
+ return `<div class="output-browser">${select('output-snapshot','Output location',choices,d.snapshot)}${notice('Files and preserved history',e(d.notice))}${current?`<p class="inline-info">Snapshot record: ${e(current.state)} · run ${e(current.run_id)}. ${e(current.reason)}</p>`:''}${d.unavailable?notice('Folder unavailable',e(d.unavailable)+' Retained snapshots may still be available above.',true):''}${d.partial?notice('Partial directory listing','The listing reached its entry or time limit. Open the folder to see its full contents.',true):''}${d.snapshots_partial?notice('Partial snapshot list','Some histories could not be inspected or the listing reached its limit. Choose Run files & tool history to inspect its output-history directory.',true):''}<div class="output-browser-toolbar"><div class="button-row">${btn('browse-output-folder','Location root',false,'','folder',!d.relative||!!d.unavailable)}${btn('browse-output-folder','Up one folder',false,up,'arrow',!d.relative||!!d.unavailable)}${btn('open-output-folder','Open folder',false,'','external',!!d.unavailable)}</div><p class="path-cell">${e(d.path)}</p></div><div class="output-browser-table"><table><thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Size</th></tr></thead><tbody>${d.rows.map(x=>`<tr><td>${x.kind==='folder'?btn('browse-output-folder',x.name,false,x.relative,'folder'):`<span>${e(x.name)}</span>`}</td><td>${e(({folder:'Folder',file:'File',link:'Link · not followed',special:'Special file',unavailable:'Unavailable'})[x.kind]||x.kind)}</td><td>${e(resultBytes(x.bytes))}</td></tr>`).join('')||'<tr><td colspan="3">No entries available in this directory.</td></tr>'}</tbody></table></div><div class="output-browser-pagination"><span>${d.observed_entries.toLocaleString()} observed entries · Page ${d.page+1} of ${d.pages}</span><div class="button-row">${btn('output-page','Previous',false,String(d.page-1),'',d.page===0)}${btn('output-page','Next',false,String(d.page+1),'',d.page+1>=d.pages)}</div></div><details class="guided-details"><summary>Preserved output snapshots · ${archives.length}${d.snapshots_partial?' listed':''}</summary><p class="inline-info">Snapshots retain files present before an attempt. They do not establish which attempt or tool produced those files.</p>${archives.length?archives.map(x=>`<article class="output-snapshot"><strong>${e(x.attempt)}</strong><p>${e(x.created_at)} · ${e(x.state)}${x.available?'':' · Output copy unavailable'}</p><p class="path-cell">${e(x.path)}</p></article>`).join(''):'<p>No preserved snapshots are recorded yet.</p>'}</details></div>`;
+}
+function regenerateButton(report,runId){
+ const target=report.report_target||({'HybAs research report':'research','Polishing trajectory':'trajectory','Polishing validation':'validation','HybAs AWARE report':'standard','Safety report':'standard','Follow-up report':'deep','GeneScope report':'standard'})[report.name]||(report.refresh?'standard':'');
+ const run=runBy(runId);
+ if(!target||!run||run.tool==='hybas'&&report.name==='Safety report')return '';
+ return btn('preview-report-refresh','Regenerate report',false,runId+'|'+target,'clock');
+}
 function runResults(r){
  const d=U.results?.id===r.id?U.results:null;
  const registered=S.reports.filter(x=>x.run===r.id&&!(d?.reports||[]).some(y=>y.id===x.id));
- const actions=btn('preview-report-refresh','Regenerate report',false,r.id,'file')+btn('refresh-results','Refresh results',false,r.id,'clock')+btn('result-config','Frozen YAML',false,r.id,'download')+btn('result-manifest','Results manifest',false,r.id,'download')+btn('open-methods','Methods & downloads',false,r.id,'download');
- return `<section class="results-centre" aria-label="Run results and downloads"><div class="settings-intro"><div><h3>Results & downloads</h3><p>Reports, exact configuration and records for each attempt.</p></div></div><div class="button-row results-actions">${actions}</div>`+(d?`${notice('Review scope before using results',e(d.notice),true)}<div class="results-provenance"><span>Run: ${statusBadge(d.status)}</span><span>Latest execution: ${d.latest_execution?e(d.latest_execution.id)+' · '+statusBadge(d.latest_execution.status):'Not recorded'}</span><span>Source: <code>${e(d.commit||'Not recorded')}</code></span><span>Refreshed: ${e(d.created_at)}</span></div>${d.shared_output_unavailable?notice('Shared report belongs to another run','This follow-up no longer owns the shared report. Its attempt logs and resource records remain available.',true):''}<h4>Native reports</h4><p class="inline-info">Optional reports may be disabled or not applicable. Absence alone is not a failed-job diagnosis.</p><div class="results-report-list">${d.reports.map(x=>`<article data-result-report="${e(x.id)}"><div><strong>${e(x.name)}</strong> ${badge(resultFileState(x),x.state==='available'?'blue':'amber')}<p class="path-cell">${e(x.path)}</p><p class="secondary-line">${x.bytes!=null?e(resultBytes(x.bytes))+' · ':''}Producing attempt: not recorded</p><p>${x.observation?`Metadata observed after ${e(x.observation.job_id)} · ${statusBadge(x.observation.status)} · ${x.observation.changed==null?'before-attempt metadata unavailable':x.observation.changed?'new or changed during that attempt':'unchanged from before that attempt'}`:x.state==='missing'?'No report file at this path.':x.state==='unavailable'?'File metadata could not be read safely.':'No matching attempt observation. This file may predate the latest execution.'}</p></div><div class="button-row">${x.state==='available'?btn('open-result-report','Open report',true,x.id,'external')+btn('result-report','Download HTML',false,x.id,'download'):''}${x.observation?btn('job-log','Observed attempt log',false,x.observation.job_id):''}</div></article>`).join('')}</div><h4>Attempt records</h4><p class="inline-info">Execution, validation and environment checks remain separate. Missing records are not reconstructed.</p><div class="result-attempts">${d.attempts.length?d.attempts.map(j=>`<article class="result-attempt" data-result-attempt="${e(j.id)}"><div><strong>${e(({'run':'Execution','dry-run':'Validation',prepare:'Environment preparation','check-environments':'Environment check'})[j.action]||j.action)}</strong> ${jobStatus(j)}<p>${e(j.id)} · ${e(j.created)}</p><p class="secondary-line">Log: ${e(resultFileState(j.log))} ${e(resultBytes(j.log.bytes))} · Resource record: ${j.resource_record?(j.resource_partial?'Partial':'Recorded'):'Not collected'}</p><p class="path-cell">${e(j.log.path)}</p></div><div class="button-row">${btn('job-log','View log',false,j.id,'file',['missing','unavailable'].includes(j.log.state))}${btn('download-log','Download log',false,j.id,'download',!['available','empty'].includes(j.log.state))}${btn('job-usage','Resource usage',false,j.id,'cpu',!j.resource_record)}</div></article>`).join(''):'<p>No attempts recorded for this run.</p>'}</div>`:U.error?'<p>Results could not be loaded. Refresh to try again.</p>':'<p role="status">Loading result records…</p>')+(registered.length?`<h4>Saved report editions & registered reports</h4><p class="inline-info">Refreshed editions preserve the original analysis and identify their renderer.</p><div class="run-reports">${registered.map(x=>`<article><div><strong>${e(x.name)}</strong>${x.refresh?`<p>Analysis: ${e(x.analysis_version)} · Renderer: ${e(x.renderer_version)}</p>`:''}<p class="path-cell">${e(x.path)}</p></div>${btn('open-report','Open report',true,x.id,'external')}</article>`).join('')}</div>`:'')+`<div class="button-row">${quiet('go-reports','All reports')}</div></section>`;
+ const actions=btn('refresh-results','Refresh results',false,r.id,'clock')+btn('result-config','Frozen YAML',false,r.id,'download')+btn('result-manifest','Results manifest',false,r.id,'download')+btn('open-methods','Methods & downloads',false,r.id,'download');
+ return `<section class="results-centre" aria-label="Run results and downloads"><div class="settings-intro"><div><h3>Results & downloads</h3><p>Reports, exact configuration and records for each attempt.</p></div><div class="button-row">${btn('copy-results','Copy results to isolate folder',false,r.id,'folder',r.status!=='completed')}${btn('email-results','Email results',false,r.id)}${btn('output-files','All tool outputs',true,r.id,'folder')}${btn('open-analysis-folder','Open analysis folder',false,r.id,'external')}</div></div>`+(d?`${d.delivery_folder?notice('Automatic results copy',d.delivery_receipt?.state==='saved'?'Saved locally: '+e(d.delivery_receipt.path):d.delivery_receipt?.state==='failed'?'Copy failed: '+e(d.delivery_receipt.reason)+'. Retry with Copy results to isolate folder.':'Destination: '+e(d.delivery_folder),d.delivery_receipt?.state==='failed'):''}${notice('Review scope before using results',e(d.notice),true)}<details class="guided-details"><summary>Run details and versions</summary><div class="results-provenance"><span>Run: ${runStatusBadge(r)}</span><span>Latest execution: ${d.latest_execution?e(d.latest_execution.id)+' · '+jobStatus(d.latest_execution):'Not recorded'}</span><span>Source: <code>${e(d.commit||'Not recorded')}</code></span><span>Refreshed: ${e(d.created_at)}</span></div></details>${d.shared_output_unavailable?notice('Shared report belongs to another run','This follow-up no longer owns the shared report. Its attempt logs and resource records remain available.',true):''}<h4>Native reports</h4><p class="inline-info">Optional reports may be disabled or not applicable. Absence alone is not a failed-job diagnosis.</p><div class="results-report-list">${d.reports.map(x=>`<article data-result-report="${e(x.id)}"><div><strong>${e(x.name)}</strong> ${badge(resultFileState(x),x.state==='available'?'blue':'amber')}<details class="result-file-details"><summary>File location and provenance</summary><p class="path-cell">${e(x.path)}</p><p class="secondary-line">${x.bytes!=null?e(resultBytes(x.bytes))+' · ':''}Producing attempt: not recorded</p><p>${x.observation?`Metadata observed after ${e(x.observation.job_id)} · ${statusBadge(x.observation.status)} · ${x.observation.changed==null?'before-attempt metadata unavailable':x.observation.changed?'new or changed during that attempt':'unchanged from before that attempt'}`:x.state==='missing'?'No report file at this path.':x.state==='unavailable'?'File metadata could not be read safely.':'No matching attempt observation. This file may predate the latest execution.'}</p></details></div><div class="button-row">${x.state==='available'?btn('open-result-report','Open report',true,x.id,'external')+btn('result-report','Download HTML',false,x.id,'download'):''}${regenerateButton(x,r.id)}${x.observation?btn('job-log','Observed attempt log',false,x.observation.job_id):''}</div></article>`).join('')}</div><details class="guided-details result-attempt-history"><summary>Attempt records · ${d.attempts.length}</summary><p class="inline-info">Execution, validation and environment checks remain separate. Missing records are not reconstructed.</p><div class="result-attempts">${d.attempts.length?d.attempts.map(j=>`<article class="result-attempt" data-result-attempt="${e(j.id)}"><div><strong>${e(({'run':'Execution','dry-run':'Validation',prepare:'Environment preparation','check-environments':'Environment check'})[j.action]||j.action)}</strong> ${jobStatus(j)}<p>${e(j.id)} · ${e(j.created)}</p><p class="secondary-line">Log: ${e(resultFileState(j.log))} ${e(resultBytes(j.log.bytes))} · Resource record: ${j.resource_record?(j.resource_partial?'Partial':'Recorded'):'Not collected'}</p><p class="path-cell">${e(j.log.path)}</p></div><div class="button-row">${btn('job-log','View log',false,j.id,'file',['missing','unavailable'].includes(j.log.state))}${btn('download-log','Download log',false,j.id,'download',!['available','empty'].includes(j.log.state))}${btn('job-usage','Resource usage',false,j.id,'cpu',!j.resource_record)}</div></article>`).join(''):'<p>No attempts recorded for this run.</p>'}</div></details>`:U.error?'<p>Results could not be loaded. Refresh to try again.</p>':'<p role="status">Loading result records…</p>')+(registered.length?`<h4>Saved report editions & registered reports</h4><p class="inline-info">Refreshed editions preserve the original analysis and identify their renderer.</p><div class="run-reports">${registered.map(x=>`<article><div><strong>${e(x.name)}</strong>${x.refresh?`<p>Analysis: ${e(x.analysis_version)} · Renderer: ${e(x.renderer_version)}</p>`:''}<p class="path-cell">${e(x.path)}</p></div><div class="button-row">${btn('open-report','Open report',true,x.id,'external')}${regenerateButton(x,r.id)}</div></article>`).join('')}</div>`:'')+`<details class="guided-details report-tools"><summary>Report tools &amp; provenance</summary><p>Regeneration creates a separate report edition. Frozen configuration and the results manifest remain available for reproducibility.</p><div class="button-row results-actions">${actions}</div></details><div class="button-row">${quiet('go-reports','All reports')}</div></section>`;
 }
-function resultRunCards(){return `<section class="card result-run-picker" aria-label="Results by run"><div class="card-head"><div><h2>Results by run</h2><p>Open a run even when no HTML reports have been produced.</p></div></div><div class="padded"><div class="form-grid">${field('results-search','Find a run', '', 'search')}${select('results-pipeline','Pipeline',[['','All pipelines'],...Object.keys(S.pipelines).map(t=>[t,S.pipelines[t].name])])}</div><label class="results-archive"><input id="results-archived" type="checkbox" ${val('results-archived',false)?'checked':''}> Include archived runs</label><div class="result-run-grid">${S.runs.map(r=>`<article class="result-run" data-result-run="${e(r.id)}" data-result-search="${e((r.label+' '+r.sample.id+' '+r.id).toLowerCase())}" data-result-tool="${e(r.tool)}" data-result-archived="${r.archived?'yes':'no'}"><div><strong>${e(r.label)}</strong><p>${e(r.sample.id)} · ${e(S.pipelines[r.tool].name)}</p>${statusBadge(r.status)} ${r.archived?badge('Archived'):''}<p class="secondary-line">${e(r.id)}</p></div>${btn('view-results','Results & downloads',true,r.id,'download')}</article>`).join('')}</div><p id="results-no-matches" hidden>No matching runs.</p></div></section>`;}
+function resultRunCards(){return `<section class="card result-run-picker" aria-label="Results by run"><div class="card-head"><div><h2>Results by run</h2><p>Open a run even when no HTML reports have been produced.</p></div></div><div class="padded"><div class="form-grid">${field('results-search','Find a run', '', 'search')}${select('results-pipeline','Pipeline',[['','All pipelines'],...Object.keys(S.pipelines).map(t=>[t,S.pipelines[t].name])])}</div><label class="results-archive"><input id="results-archived" type="checkbox" ${val('results-archived',false)?'checked':''}> Include archived runs</label><div class="result-run-grid">${S.runs.map(r=>`<article class="result-run" data-result-run="${e(r.id)}" data-result-search="${e((r.label+' '+r.sample.id+' '+r.id).toLowerCase())}" data-result-tool="${e(r.tool)}" data-result-archived="${r.archived?'yes':'no'}"><div><strong>${e(r.label)}</strong><p>${e(r.sample.id)} · ${e(S.pipelines[r.tool].name)}</p><span class="secondary-line">Execution: ${runStatusBadge(r)} ${r.archived?badge('Archived'):''}</span>${assessmentBadge(r.assessment)}<p class="secondary-line">${e(r.id)}</p></div>${btn('view-results','Results & downloads',true,r.id,'download')}</article>`).join('')}</div><p id="results-no-matches" hidden>No matching runs.</p></div></section>`;}
 function filterResults(){const q=val('results-search','').toLowerCase().trim(),tool=val('results-pipeline',''),archived=val('results-archived',false);let shown=0;for(const row of $$('.result-run')){row.hidden=!row.dataset.resultSearch.includes(q)||(tool&&row.dataset.resultTool!==tool)||(!archived&&row.dataset.resultArchived==='yes');if(!row.hidden)shown++;}const empty=$('#results-no-matches');if(empty)empty.hidden=shown>0;}
 
 function appUpdateNotice(){const u=S.app_update;if(!u)return '';
@@ -232,8 +920,10 @@ if(u.restart_required&&u.automatic_restart)return notice('Restarting Bactologix'
 if(u.restart_required)return notice('Restart Bactologix',`Installed package: v${e(u.installed_version)}. In the Bactologix terminal press Ctrl+C, then rerun your launch command with the same port. Refresh this browser after restart.`,true);
 if(u.all_update?.status==='partial'||u.all_update?.status==='failed')return notice('Update incomplete','One or more components could not be updated. Open Update Bactologix to review each result and retry.',true);
 return '';}
-const setupSteps=[['capacity','PC capacity'],['pipeline','Pipeline'],['environments','Environments'],['databases','Databases'],['review','Review setup']];
-function install(){const tab=U.setupTab||'guide';return heading('INSTALL & UPDATE','Set up once. Run with confidence.','Follow the setup guide or open the individual tools below.')+`<div class="tabs setup-tabs" aria-label="Setup sections">${[['guide','Guided setup'],['software','Pipelines & environments'],['hardware','Compute & CUDA'],['workstation','Workstation check'],['compatibility','Compatibility']].map(([id,label])=>`<button type="button" class="tab ${tab===id?'active':''}" data-action="setup-tab" data-id="${id}" aria-pressed="${tab===id}">${e(label)}</button>`).join('')}</div>`+(tab==='guide'?setupGuide():tab==='hardware'?hardwarePanel():tab==='workstation'?workstationPanel():tab==='compatibility'?compatibilityPanel():installSoftware());}
+const setupSteps=[['pipeline','Pipeline'],['capacity','PC capacity'],['environments','Environments'],['databases','Databases'],['review','Review setup']];
+function pipelineNavigation(tab){return `<div class="tabs setup-tabs" aria-label="Setup sections">${[['guide','Guided setup'],['software','Pipelines & environments'],['databases','Databases & models'],['hardware','Compute & CUDA'],['workstation','Workstation check'],['compatibility','Compatibility']].map(([id,label])=>`<button type="button" class="tab ${tab===id?'active':''}" data-action="setup-tab" data-id="${id}" aria-pressed="${tab===id}">${e(label)}</button>`).join('')}</div>`;}
+function install(){const tab=U.setupTab||'guide';return heading('PIPELINES & DATABASES','Prepare your workspace.','Install pipelines, connect databases and review this computer’s resources.')+pipelineNavigation(tab)+(tab==='guide'?setupGuide():tab==='databases'?resources():tab==='hardware'?hardwarePanel():tab==='workstation'?workstationPanel():tab==='compatibility'?compatibilityPanel():installSoftware());}
+function resourcePage(){return heading('PIPELINES & DATABASES','Prepare your workspace.','Install pipelines, connect databases and review this computer’s resources.')+pipelineNavigation('databases')+resources();}
 
 function workstationPanel(){
  const pending=S.jobs.some(j=>j.kind==='workstation'&&['queued','running'].includes(j.status));
@@ -241,9 +931,9 @@ function workstationPanel(){
 }
 function guidancePanel(j){
  const g=j.guidance;if(!g)return '';
- const hasRun=!!runBy(g.run_id);
- const action=hasRun&&['workflow_lock','interrupted'].includes(g.category)?btn('check-workflow-lock','Check workflow lock',false,g.run_id):g.category==='dependencies'?btn('recovery-setup','Open pipeline setup',false,j.id):g.category==='databases'?btn('recovery-databases','Review database locations',false,j.id):hasRun?btn('run-detail','Review run checks',false,g.run_id):btn('go-install','Open setup');
- return `<details class="job-guidance recovery-panel" data-recovery-job="${e(j.id)}" ${U.recoveryOpen?.[j.id]?'open':''}><summary>${g.category==='workflow_lock'?'Workflow locked':'Why did this fail?'}</summary><strong>${e(g.title)}</strong><p>${e(g.confidence)}${g.step?' · Reported failed step: '+e(g.step):' · Failed step not identified'}</p><p>${e(g.text)}</p>${g.evidence?`<pre class="code-block recovery-evidence">${e(g.evidence)}</pre>`:'<p>No matching error excerpt is available.</p>'}<p class="inline-info">${e(g.scope)} Log excerpt: ${e(g.log_status)}. This local excerpt is not redacted.</p><div class="button-row">${action}${hasRun&&['databases','dependencies'].includes(g.category)?btn('run-detail','Review saved run',false,g.run_id):''}${btn('job-log','Inspect full log',false,j.id)}</div></details>`;
+ const hasRun=!!runBy(g.run_id),archived=!!runBy(g.run_id)?.archived;
+ const action=g.category==='isolate_export'?(g.receipt_id?btn('isolate-export-receipt','Review export receipt',false,g.receipt_id):btn('go-samples','Review sample exports')):g.category==='storage_cleanup'?(g.receipt_id?btn('cleanup-receipt','Review cleanup receipt',false,g.receipt_id):btn('go-storage','Review storage')):hasRun&&['workflow_lock','interrupted','storage_pause'].includes(g.category)?archived?btn('restore-run','Restore run to review lock',false,g.run_id,'arrow'):btn('check-workflow-lock','Check workflow lock',false,g.run_id):g.category==='dependencies'?btn('recovery-setup','Open pipeline setup',false,j.id):g.category==='databases'?btn('recovery-databases','Review database locations',false,j.id):hasRun?btn('run-detail','Review run checks',false,g.run_id):btn('go-install','Open setup');
+ return `<details class="job-guidance recovery-panel" data-recovery-job="${e(j.id)}" ${U.recoveryOpen?.[j.id]!==false?'open':''}><summary>${g.category==='isolate_export'?'Export recovery':g.category==='storage_cleanup'?'Cleanup recovery':g.category==='workflow_lock'?'Workflow locked':'Recovery steps'}</summary><strong>${e(g.title)}</strong><p>${e(g.confidence)}${g.step?' · Reported failed step: '+e(g.step):g.category==='storage_pause'?'':' · Failed step not identified'}</p><p>${e(g.text)}</p>${archived?'<p class="inline-info">This run is archived. Restore it first, then check the workflow lock. Restoring does not unlock or start the workflow.</p>':''}${g.evidence?`<pre class="code-block recovery-evidence">${e(g.evidence)}</pre>`:'<p>No matching error excerpt is available.</p>'}<p class="inline-info">${e(g.scope)} Log excerpt: ${e(g.log_status)}. This local excerpt is not redacted.</p><div class="button-row">${action}${hasRun&&['databases','dependencies'].includes(g.category)?btn('run-detail','Review saved run',false,g.run_id):''}${btn('job-log','Inspect full log',false,j.id)}</div></details>`;
 }
 function workstationDetail(c){
  if(!c)return '<p>Loading check record…</p>';
@@ -252,92 +942,235 @@ function workstationDetail(c){
 }
 
 function setupGuide(){
- const tool=U.setupTool||'hybas',step=U.setupStep||'capacity',index=setupSteps.findIndex(x=>x[0]===step),item=activeInstall(tool),env=item?S.environments[item.id]:null;
+ const tool=U.setupTool||'hybas',step=U.setupStep||'pipeline',index=setupSteps.findIndex(x=>x[0]===step),item=activeInstall(tool),env=item?S.environments[item.id]:null;
  const verified=env?.rows.filter(r=>r.status==='Verified').length||0,configured=S.databases[tool].rows.filter(r=>!r.managed&&r.configured).length;
  let body='';
  if(step==='capacity')body=hardwarePanel();
  else if(step==='pipeline')body=installSoftware(tool);
  else if(step==='environments')body=`<section class="card guide-environments"><div class="card-head"><div><h2>Prepare your tools</h2><p>${e(S.pipelines[tool].name)} · ${e(item?.version.ref||'No active installation')}</p></div>${badge(verified+' verified / '+(env?.rows.length||0)+' listed')}</div><div class="card-body"><p>Matching environments are reused automatically when you update a pipeline. Check what is installed, install missing tools, or repair a supported dependency problem.</p>${!item?.ready?notice('Set up the runner first','Return to Pipeline and finish setup before preparing tool environments.',true):''}${env?.error?notice('Inventory needs attention',e(env.error),true):''}<div class="button-row">${btn('setup-check-environments','Check environments',true,item?.id||'','check',!item?.ready||item?.setup_busy||env?.busy)}${btn('setup-install-environments','Install environments',false,item?.id||'','download',!item?.ready||item?.setup_busy||env?.busy)}${btn('setup-repair-environments','Repair environments',false,item?.id||'','gear',!item?.ready||item?.setup_busy||env?.busy)}</div>${env?.cache?`<p class="path-cell">Environment folder: ${e(env.cache)}</p>`:''}<div class="guide-environment-list">${(env?.rows||[]).map(r=>`<div><strong>${e(r.name)}</strong>${badge(r.status,r.status==='Verified'?'green':'')}${r.message?`<p>${e(r.message)}</p>`:''}</div>`).join('')}</div><p class="settings-note">These are installation checks. A saved run still needs validation and its own environment inventory.</p></div></section>`;
  else if(step==='databases'){U.resourceTool=tool;body=resources(true);}
- else body=`<section class="card guide-review"><div class="card-head"><div><h2>Review before your first draft</h2><p>Recorded setup status for ${e(S.pipelines[tool].name)}. This does not certify a run as ready.</p></div>${btn('refresh','Refresh status',false,'','clock')}</div><div class="card-body"><div class="guide-review-row"><div><strong>Resource defaults</strong><p>${S.resource_defaults[tool].cores} CPU threads · ${S.resource_defaults[tool].memory_mb.toLocaleString()} MB · ${e(S.resource_defaults[tool].preset)}</p></div>${quiet('setup-step','Review capacity','capacity')}</div><div class="guide-review-row"><div><strong>Pipeline runner</strong><p>${e(item?.setup_state||'Not set up')} · ${e(item?.version.ref||'Choose a supported version')}</p></div>${quiet('setup-step','Review pipeline','pipeline')}</div><div class="guide-review-row"><div><strong>Tool environments</strong><p>${verified} verified / ${env?.rows.length||0} listed. Unchecked tools may need installation.</p></div>${quiet('setup-step','Review environments','environments')}</div><div class="guide-review-row"><div><strong>Saved database locations</strong><p>${configured} configured paths. Required resources depend on the run settings; native validation checks them.</p></div>${quiet('setup-step','Review databases','databases')}</div><div class="guide-review-row"><div><strong>Samples</strong><p>${S.samples.length} registered input folders.</p></div>${btn('new-sample','Add sample',false,'','plus')}</div><p class="settings-note">A draft freezes its input references, pipeline version and configuration. Validate it before running. Nothing launches from this review.</p><div class="button-row">${btn('new-run','Create run drafts',true,'','plus',!item?.ready||!S.samples.length)}${btn('go-samples','Manage samples')}</div></div></section>`;
+ else body=`<section class="card guide-review"><div class="card-head"><div><h2>Review before your first draft</h2><p>Recorded setup status for ${e(S.pipelines[tool].name)}. This does not certify a run as ready.</p></div>${btn('refresh','Refresh status',false,'','clock')}</div><div class="card-body"><div class="guide-review-row"><div><strong>Resource defaults</strong><p>${S.resource_defaults[tool].cores} CPU threads · ${S.resource_defaults[tool].memory_mb.toLocaleString()} MB RAM${Number(S.resource_defaults[tool].swap_mb)>0?' + '+e(S.resource_defaults[tool].swap_mb)+' MB swap':' · swap off'} · ${e(S.resource_defaults[tool].preset)}</p></div>${quiet('setup-step','Review capacity','capacity')}</div><div class="guide-review-row"><div><strong>Pipeline runner</strong><p>${e(item?.setup_state||'Not set up')} · ${e(item?.version.ref||'Choose a supported version')}</p></div>${quiet('setup-step','Review pipeline','pipeline')}</div><div class="guide-review-row"><div><strong>Tool environments</strong><p>${verified} verified / ${env?.rows.length||0} listed. Unchecked tools may need installation.</p></div>${quiet('setup-step','Review environments','environments')}</div><div class="guide-review-row"><div><strong>Saved database locations</strong><p>${configured} configured paths. Required resources depend on the run settings; native validation checks them.</p></div>${quiet('setup-step','Review databases','databases')}</div><div class="guide-review-row"><div><strong>Samples</strong><p>${S.samples.length} registered input folders.</p></div>${btn('new-sample','Add sample',false,'','plus')}</div><p class="settings-note">A draft freezes its input references, pipeline version and configuration. Validate it before running. Nothing launches from this review.</p><div class="button-row">${btn('new-run','Create run drafts',true,'','plus',!item?.ready||!S.samples.length)}${btn('go-samples','Manage samples')}</div></div></section>`;
  return `<section class="setup-guide" aria-label="Guided setup"><div class="guide-heading"><div><span class="eyebrow">YOUR SETUP PATH</span><h2>From this computer to your first run.</h2><p>Move between steps freely. Existing installations and databases can be connected here.</p></div>${select('setup-pipeline','Pipeline to set up',Object.keys(S.pipelines).map(t=>[t,S.pipelines[t].name]),tool)}</div><nav class="setup-steps" aria-label="Setup steps">${setupSteps.map(([id,label],n)=>`<button type="button" class="setup-step ${step===id?'active':''}" data-action="setup-step" data-id="${id}" ${step===id?'aria-current="step"':''}><span>${n+1}</span>${label}</button>`).join('')}</nav><div class="guide-content">${body}</div><div class="guide-footer"><span>Step ${index+1} of ${setupSteps.length} · ${e(setupSteps[index][1])}</span><div class="button-row">${index?btn('setup-step','Back',false,setupSteps[index-1][0]):''}${index<setupSteps.length-1?btn('setup-step','Continue to '+setupSteps[index+1][1],true,setupSteps[index+1][0],'arrow'):''}</div></div></section>`;
 }
 function hardwarePanel(){
  const h=S.hardware;if(!h)return empty('Hardware information unavailable','Refresh the inventory to detect this computer.',btn('detect-hardware','Detect hardware',true));
+ const guided=U.view==='install'&&(U.setupTab||'guide')==='guide',tool=guided?(U.setupTool||'hybas'):val('compute-default-tool','hybas');
  const gb=n=>n==null?'Unknown':(n/1024).toLocaleString(undefined,{maximumFractionDigits:1})+' GB',g=h.gpu;
  const descriptions={high:'All available CPU threads, within the app limit. Maximum usable RAM with a system reserve.',medium:'Half the CPU threads and 60% of the usable RAM budget.',low:'A quarter of the CPU threads and 30% of the usable RAM budget.'};
- return `<section class="card hardware-overview"><div class="card-head"><div><h2>This computer</h2><p>${e(h.system)} · ${e(h.architecture)}${h.wsl?' · WSL':''} · Detected ${e(new Date(h.checked_at).toLocaleString())}</p></div>${btn('detect-hardware','Detect again',false,'','cpu')}</div><div class="hardware-stats"><article><span>CPU available</span><strong>${h.cpu.available} threads</strong><small>${e(h.cpu.model)} · ${h.cpu.logical} logical${h.cpu.physical?' / '+h.cpu.physical+' physical':''} reported</small></article><article><span>RAM capacity</span><strong>${gb(h.memory.total_mb)}</strong><small>${gb(h.memory.available_mb)} available now · ${gb(h.memory.swap_mb)} swap</small></article><article><span>Workspace storage</span><strong>${gb(h.disk.free_mb)} free</strong><small>${gb(h.disk.total_mb)} total · ${e(S.workspace)}</small></article></div><p class="inline-info">${h.wsl?'These are resources available inside WSL, which may be lower than the Windows PC total. ':'CPU affinity and container limits are included when reported by Linux. '}Detection is read-only. Swap is excluded from RAM budgets.</p></section>
+ return `<section class="card hardware-overview"><div class="card-head"><div><h2>This computer</h2><p>${e(h.system)} · ${e(h.architecture)}${h.wsl?' · WSL':''} · Detected ${e(new Date(h.checked_at).toLocaleString())}</p></div>${btn('detect-hardware','Detect again',false,'','cpu')}</div><div class="hardware-stats"><article><span>CPU available</span><strong>${h.cpu.available} threads</strong><small>${e(h.cpu.model)} · ${h.cpu.logical} logical${h.cpu.physical?' / '+h.cpu.physical+' physical':''} reported</small></article><article><span>RAM capacity</span><strong>${gb(h.memory.total_mb)}</strong><small>${gb(h.memory.available_mb)} RAM available now · ${gb(h.memory.swap_available_mb)} swap available (${gb(h.memory.swap_mb)} total)</small></article><article><span>Workspace storage</span><strong>${gb(h.disk.free_mb)} free</strong><small>${gb(h.disk.total_mb)} total · ${e(S.workspace)}</small></article></div><p class="inline-info">${h.wsl?'These are resources available inside WSL, which may be lower than the Windows PC total. ':'CPU affinity and container limits are included when reported by Linux. '}Detection is read-only. RAM presets exclude swap. Save an additional disk swap allowance below for each pipeline, then override it for an individual run when needed.</p></section>
  <section class="card hardware-gpu"><div class="card-head"><div><h2>GPU & CUDA</h2><p>${e(g.status)}</p></div>${badge(g.cards.length?g.cards.length+' NVIDIA GPU'+(g.cards.length===1?'':'s'):'GPU availability unknown',g.cards.length?'green':'')}</div>${g.cards.map(card=>`<div class="hardware-device"><strong>${e(card.name)}</strong><span>${gb(card.memory_mb)} VRAM · ${gb(card.free_mb)} free</span></div>`).join('')}<dl class="detail-list"><dt>NVIDIA driver</dt><dd>${e(g.driver||'Not detected')}</dd><dt>Driver CUDA support</dt><dd>${e(g.cuda_driver_max||'Not reported')}</dd><dt>CUDA toolkit (nvcc)</dt><dd>${e(g.cuda_toolkit||'Not found in the app environment')}</dd></dl>${g.cuda_visible_devices!==null?`<p class="inline-info">CUDA_VISIBLE_DEVICES: ${e(g.cuda_visible_devices||'(empty — CUDA devices hidden)')}</p>`:''}${g.other_devices.length?`<details class="guided-details"><summary>Graphics devices reported by PCI</summary><pre class="code-block">${e(g.other_devices.join('\n'))}</pre></details>`:''}<p class="inline-info">A GPU not detected here may still exist on the host, especially under WSL. Driver CUDA support and the installed toolkit are separate. GPU availability is informational: these presets set CPU and RAM budgets. GPU use depends on each tool and its environment.</p></section>
- <section class="card hardware-presets"><div class="card-head"><div><h2>Choose your power level</h2><p>Save the YAML resource settings and CPU/RAM defaults used by new run drafts.</p></div>${select('hardware-target','Apply defaults to',[['both','All pipelines'],...Object.keys(S.pipelines).map(t=>[t,S.pipelines[t].name])],U.view==='install'&&(U.setupTab||'guide')==='guide'?(U.setupTool||'hybas'):'both')}</div><div class="power-grid">${h.presets.map(p=>`<article class="power-card ${p.id}"><span class="eyebrow">${p.id==='high'?'MAXIMUM THROUGHPUT':p.id==='medium'?'BALANCED':'LIGHTER LOAD'}</span><h3>${e(p.label)}</h3><div class="power-budget"><strong>${p.cores}</strong> CPU threads<br><strong>${gb(p.memory_mb)}</strong> RAM budget</div><p>${e(descriptions[p.id])}</p>${btn('apply-power-preset','Use '+p.label,p.id==='medium',p.id,'check',!p.available)}</article>`).join('')}</div><p class="inline-info">RAM reserves at least 1 GB or 5% for the system, capped by currently available memory. App limits: 512 CPU threads and 2,000,000 MB RAM. These are execution budgets; individual tools may use less. Database and tool minimum requirements still apply.</p><div class="hardware-saved">${Object.keys(S.pipelines).map(t=>{const p=h.defaults[t];return `<div><strong>${e(S.pipelines[t].name)}</strong><span>${p.cores} threads · ${gb(p.memory_mb)} · ${e(p.preset)}</span></div>`;}).join('')}</div><p class="inline-info">Existing saved runs retain their settings. Edit a run to create a revised draft when you want a different budget.</p></section>`;
+ <section class="card hardware-presets"><div class="card-head"><div><h2>Choose your power level</h2><p>Save the YAML resource settings and CPU/RAM defaults used by new run drafts.</p></div>${select('hardware-target','Apply defaults to',[['both','All pipelines'],...Object.keys(S.pipelines).map(t=>[t,S.pipelines[t].name])],U.view==='install'&&(U.setupTab||'guide')==='guide'?(U.setupTool||'hybas'):'both')}</div><div class="power-grid">${h.presets.map(p=>`<article class="power-card ${p.id}"><span class="eyebrow">${p.id==='high'?'MAXIMUM THROUGHPUT':p.id==='medium'?'BALANCED':'LIGHTER LOAD'}</span><h3>${e(p.label)}</h3><div class="power-budget"><strong>${p.cores}</strong> CPU threads<br><strong>${gb(p.memory_mb)}</strong> RAM budget</div><p>${e(descriptions[p.id])}</p>${btn('apply-power-preset','Use '+p.label,p.id==='medium',p.id,'check',!p.available)}</article>`).join('')}</div><p class="inline-info">RAM reserves at least 1 GB or 5% for the system, capped by currently available memory. App limits: 512 CPU threads and 2,000,000 MB RAM. These are execution budgets; individual tools may use less. Database and tool minimum requirements still apply.</p><div class="hardware-saved">${Object.keys(S.pipelines).map(t=>{const p=h.defaults[t];return `<div><strong>${e(S.pipelines[t].name)}</strong><span>${p.cores} threads · ${gb(p.memory_mb)} RAM${Number(p.swap_mb)>0?' + '+gb(p.swap_mb)+' swap':' · swap off'} · ${e(p.preset)}</span></div>`;}).join('')}</div><p class="inline-info">Existing saved runs retain their settings. Open Edit settings on a run to change its budget.</p></section>${!guided?`<div class="compute-pipeline-choice">${select('compute-default-tool','Pipeline compute defaults',Object.keys(S.pipelines).map(t=>[t,S.pipelines[t].name]),tool)}</div>`:''}${computeDefaults(tool,false)}`;
 }
 function installSoftware(onlyTool=null){const d=S.doctor;return `<section class="card"><div class="card-head"><div><h2>Bactologix application</h2><p>Running v${e(S.version)} · Choose which app release to install.</p></div>${btn('app-updates','Update Bactologix',true,'','download')}</div></section>
 <div class="stats-grid"><div class="stat"><div class="stat-label">Platform</div><div class="stat-value">${e(d.system)}</div></div><div class="stat"><div class="stat-label">Free disk</div><div class="stat-value">${d.free_gb} GB</div></div><div class="stat"><div class="stat-label">CPU threads</div><div class="stat-value">${d.cpus}</div></div><div class="stat"><div class="stat-label">App Python</div><div class="stat-value">${e(d.python)}</div></div></div>
 <section class="card install-card"><div class="card-head"><div><h2>Local environment manager</h2><p class="path-cell">${e(d.conda||'Choose an existing Conda installation or install local Conda.')}</p></div><div class="button-row">${btn('conda','Choose Conda')}${!d.conda?btn('bootstrap','Install local Conda',true):''}${btn('smoke','Run software check',false,'','check')}</div></div><p class="inline-info">Each release gets the Python and Snakemake versions it requires. Setup installs a separate runner automatically, including local Conda when needed.</p></section>
-<div class="two-col">${(onlyTool?[onlyTool]:Object.keys(S.pipelines)).map(t=>{const i=activeInstall(t),p=S.pipelines[t],items=S.installs.filter(x=>x.tool===t),display=i||items[0];return `<section class="card install-card"><div class="pipeline-row"><div class="pipeline-logo ${t}">${t==='hybas'?'H':t==='basis'?'B':'M'}</div><div class="pipeline-info"><strong>${p.name}</strong><small>${e(p.preferred)}</small></div>${badge(display?.setup_state||'Not installed',display?.ready?'green':'amber')}</div><p>${t==='hybas'?'Assembly, AWARE+ and polishing workflows. HybAs 10 development versions are experimental.':t==='basis'?'Standalone Snakemake analysis and Safety reporting.':'Protein properties and evidence reporting through Snakemake.'}</p><p class="inline-info">${e(S.setup_overview?.[t]?.state||'')} · ${e(S.setup_overview?.[t]?.message||'')}</p><dl class="detail-list"><dt>Active source</dt><dd>${e(i?.version.ref||'No active installation')}</dd><dt>Commit</dt><dd>${e(i?.version.commit?.slice(0,12)||'—')}</dd></dl><div class="button-row">${btn('versions',i?'Update / choose version':S.setup_overview?.[t]?.first_install?'First-time install':'Choose a version',true,t,'download')}${btn('existing-install','Connect existing',false,t,'folder')}${i?btn('check-install','Check setup',false,i.id,'',i.setup_busy):''}</div>
+<div class="two-col">${(onlyTool?[onlyTool]:Object.keys(S.pipelines)).map(t=>{const i=activeInstall(t),p=S.pipelines[t],items=S.installs.filter(x=>x.tool===t),display=i||items[0];return `<section class="card install-card"><div class="pipeline-row"><div class="pipeline-logo ${t}">${t==='hybas'?'H':t==='basis'?'B':'G'}</div><div class="pipeline-info"><strong>${p.name}</strong><small>${e(p.preferred)}</small></div>${badge(display?.setup_state||'Not installed',display?.ready?'green':'amber')}</div><p>${t==='hybas'?'Assembly, AWARE+ and polishing workflows. HybAs 10 development versions are experimental.':t==='basis'?'Standalone Snakemake analysis and Safety reporting.':'Protein properties and evidence reporting through Snakemake.'}</p><p class="inline-info">${e(S.setup_overview?.[t]?.state||'')} · ${e(S.setup_overview?.[t]?.message||'')}</p><dl class="detail-list"><dt>Active source</dt><dd>${e(i?.version.ref||'No active installation')}</dd><dt>Commit</dt><dd>${e(i?.version.commit?.slice(0,12)||'—')}</dd></dl><div class="button-row">${btn('versions',i?'Update / choose version':S.setup_overview?.[t]?.first_install?'First-time install':'Choose a version',true,t,'download')}${btn('existing-install','Connect existing',false,t,'folder')}${i?btn('check-install','Check setup',false,i.id,'',i.setup_busy):''}</div>
 ${items.map(x=>`<div class="installation-entry" data-installation="${e(x.id)}"><div class="card-head"><strong>${e(x.version.ref)} · ${e(x.version.commit.slice(0,8))}</strong>${badge(x.setup_state,x.ready?'green':'amber')}</div><p class="inline-info">${e(x.setup_message)}</p><div class="button-row">${(!x.ready||x.setup_state==='Setup incomplete')&&x.supported?btn('setup-install',x.setup_state==='Setup incomplete'?'Retry setup':'Finish setup',true,x.id,'',x.setup_busy):''}${!x.supported?btn('app-updates','Update Bactologix'):''}${x.ready?btn('use-install',S.active[t]===x.id?'Active version':'Use this version',false,x.id,'',S.active[t]===x.id||x.setup_busy):''}${x.supported?btn('setup-install-environments','Install environments',true,x.id,'download',!x.ready||x.setup_busy||S.environments[x.id]?.busy):''}${x.supported?btn('setup-check-environments','Check environments',false,x.id,'check',!x.ready||x.setup_busy||S.environments[x.id]?.busy):''}${x.setup_job?btn('job-log','Setup log',false,x.setup_job,'file'):''}</div><details class="config-section"><summary>Maintenance & installation details</summary><div class="padded"><div class="installation-cache"><span>Automatic environment reuse</span><code>${e(S.environments[x.id]?.cache||x.rule_cache||S.workspace+'/envs/'+t)}</code><small>Updates keep this folder. Matching environments are reused; missing or changed requirements need installation.</small></div><p class="path-cell">${x.origin==='local'?'Connected from: '+e(x.original_source):e(x.source)}</p><p class="path-cell">${e(x.controller||'Runner has not been created')}</p><div class="button-row">${btn('check-install','Check',false,x.id,'',!x.controller||!x.supported||x.setup_busy)}${btn('repair-install','Repair runner',false,x.id,'',!x.supported||x.setup_busy)}${x.supported?btn('setup-repair-environments','Repair environments',false,x.id,'gear',!x.ready||x.setup_busy||S.environments[x.id]?.busy):''}${btn('preview-uninstall','Uninstall version',false,x.id,'trash',x.setup_busy)}</div></div></details></div>`).join('')}</section>`;}).join('')}</div>${notice('Updates reuse compatible environments','Runner environments are identified by pipeline, environment definition and platform, then checked before reuse. A pipeline update may need a compatible runner. Normal runs reuse matching tool environments and stop if any are missing; use Install environments explicitly. Prior runs retain their original version.')}`;}
 function usageNumber(value,digits=1){return Number.isFinite(value)?value.toLocaleString(undefined,{maximumFractionDigits:digits}):'Unavailable';}
 function usageMeasure(value,unit){return Number.isFinite(value)?usageNumber(value)+unit:'Unavailable';}
 function usageDuration(value){if(!Number.isFinite(value))return 'Unavailable';const s=Math.floor(Math.max(0,value));return s>=3600?Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m':s>=60?Math.floor(s/60)+'m '+s%60+'s':s+'s';}
+function networkRate(bytes){if(!Number.isFinite(bytes))return 'Unavailable';return bytes>0&&bytes<1?'<1 B/s':storageBytes(bytes)+'/s';}
+function jobNetwork(t,live){
+ const rx=t.observed_rx_bytes,tx=t.observed_tx_bytes;
+ if(!Number.isFinite(rx)&&!Number.isFinite(tx))return '<small>Network measurements unavailable for this job.</small>';
+ const rxRate=t.latest?.rx_bps,txRate=t.latest?.tx_bps;
+ const last=Date.parse(t.network_last_active_at),updated=Date.parse(t.updated_at);
+ let activity='';
+ if(Number.isFinite(last)){
+  let label=new Date(last).toLocaleString();
+  if(live&&Number.isFinite(updated)&&updated>=last){
+   const seconds=(updated-last)/1000;
+   label=seconds<1?'just now':usageDuration(seconds)+' ago';
+  }
+  activity=`<span>Last transfer <time datetime="${e(t.network_last_active_at)}" title="${e(new Date(last).toLocaleString())}">${e(label)}</time></span>`;
+ }else if(rx===0&&tx===0){
+  activity='<span>No transfer observed</span>';
+ }
+ const direction=(label,past,rate,total)=>{
+  if(!live)return `<span>${past} <strong>${storageBytes(total)}</strong></span>`;
+  const amount=Number.isFinite(total)?` (${storageBytes(total)} total)`:'';
+  return `<span>${label} <strong>${e(networkRate(rate))}</strong>${amount}</span>`;
+ };
+ return `<div class="usage-inline" role="group" aria-label="Job network activity">${direction('Download','Downloaded',rxRate,rx)}${direction('Upload','Uploaded',txRate,tx)}${activity}${t.network_partial?'<span>Partial network readings</span>':''}</div>`;
+}
 function jobTelemetry(j){
- const t=j.telemetry;if(!t)return '';const p=t.progress||{},running=j.status==='running',live=t.live;
- const counts=Number.isInteger(p.completed)&&Number.isInteger(p.total)&&p.total>0;
- return `<div class="job-progress" data-job-progress="${e(j.id)}"><div class="usage-inline"><span>Elapsed <strong>${usageDuration(t.elapsed_s)}</strong></span><span>${live?'CPU now':'Observed CPU'} <strong>${live?usageMeasure(t.latest?.cpu_percent,'%'):usageMeasure(t.samples?t.observed_cpu_s:null,' s')}</strong></span><span>Peak sampled RAM <strong>${usageMeasure(t.peak_rss_mb,' MiB')}</strong></span>${running?badge(live?'Receiving updates':'Updates paused',live?'green':'amber'):''}</div>${counts?`<div class="task-progress"><label>${p.completed} / ${p.total} tasks in current plan <span>${usageNumber(p.percent)}%</span></label><progress aria-label="Tasks in current plan" value="${p.completed}" max="${p.total}"></progress></div>`:p.source==='workflow log'?'<small>Task count not reported yet.</small>':''}${p.active_rules?.length?`<p class="usage-step">${live?'Active steps':'Last reported steps'}: <strong>${p.active_rules.map(e).join(', ')}</strong>${p.active_count>p.active_rules.length?' · '+p.active_count+' active tasks at last update':''}</p>`:live&&t.command_name?`<p class="usage-step">Command: <strong>${e(t.command_name)}</strong></p>`:''}${p.dynamic_plan?'<small>Checkpoints can change the task total.</small>':''}${t.incomplete||t.observer_errors?'<small class="usage-warning">Partial record — observation ended unexpectedly or some updates failed.</small>':''}${t.stale?'<small class="usage-warning">Showing the last saved measurements. Open the log to check the job.</small>':''}</div>`;
+ const t=j.telemetry;if(!t)return '';const p=workflowProgress(j),running=j.status==='running',live=progressFresh(j),paused=diskPaused(j);
+ const counts=taskCounts(p),names=taskNames(j,p,live,paused);
+ const command=!p&&live&&t.command_name?`<p class="usage-step">Command <strong>${e(t.command_name)}</strong></p>`:'';
+ const countLabel=running&&(!live||p?.log_gap)?'Last reported · ':'';
+ return `<div class="job-progress" data-job-progress="${e(j.id)}" data-live="${live}"><div class="usage-inline"><span>Elapsed <strong>${usageDuration(t.elapsed_s)}</strong></span><span>${live?'CPU now':'Observed CPU'} <strong>${live?usageMeasure(t.latest?.cpu_percent,'%'):usageMeasure(t.samples?t.observed_cpu_s:null,' s')}</strong></span><span>Peak sampled RAM <strong>${usageMeasure(t.peak_rss_mb,' MiB')}</strong></span>${paused?diskPauseBadge(j):running?badge(live?'Receiving updates':'Updates paused',live?'green':'amber'):''}</div>${names||command}${counts?`<div class="task-progress"><label>${countLabel}${p.completed} / ${p.total} tasks in current plan <span>${usageNumber(100*p.completed/p.total)}%</span></label><progress aria-label="Tasks in current plan" value="${p.completed}" max="${p.total}"></progress></div>`:p?'<small>Task count not reported yet.</small>':''}${jobNetwork(t,live)}${p?.dynamic_plan?'<small>Checkpoints can change the task total.</small>':''}${t.incomplete||t.observer_errors?'<small class="usage-warning">Partial record — observation ended unexpectedly or some updates failed.</small>':''}${running&&!live?'<small class="usage-warning">Showing the last saved measurements. Open the log to check the job.</small>':''}</div>`;
 }
 function usageButton(j){return j.telemetry?btn('job-usage','Resource use',false,j.id,'cpu'):'';}
 function usageChart(points,metric,title,unit){
- // Draw interval bars, not interpolated lines. Compaction retains CPU integrals and RSS peaks.
+ const network=metric==='rx_bytes'||metric==='tx_bytes';
+ const measuredSeconds=p=>metric==='tx_bytes'?(p.observed_tx_s??p.observed_network_s):p.observed_network_s;
  const stride=Math.max(1,Math.ceil(points.length/100)),buckets=[];
- for(let i=0;i<points.length;i+=stride){const group=points.slice(i,i+stride),a=group[0],b=group.at(-1),duration=b.end_s-a.start_s,observed=group.reduce((s,p)=>s+p.observed,0);const rss=group.map(p=>p.rss_peak_mb).filter(Number.isFinite);buckets.push({start:a.start_s,end:b.end_s,value:metric==='cpu'?(duration>=.1&&observed?100*group.reduce((s,p)=>s+p.cpu_s,0)/duration:null):(rss.length?Math.max(...rss):null),missing:group.some(p=>p.unavailable>0)});}
+ for(let i=0;i<points.length;i+=stride){
+  const group=points.slice(i,i+stride),start=group[0].start_s,end=group.at(-1).end_s;
+  let value=null,missing=group.some(p=>p.unavailable>0);
+  if(network){
+   const measured=group.filter(p=>measuredSeconds(p)>0&&Number.isFinite(p[metric]));
+   const seconds=measured.reduce((sum,p)=>sum+measuredSeconds(p),0);
+   if(seconds>0)value=measured.reduce((sum,p)=>sum+p[metric],0)/seconds;
+   missing=group.some(p=>!Number.isFinite(p[metric])||!(measuredSeconds(p)>0)||measuredSeconds(p)+0.001<p.end_s-p.start_s);
+  }else if(metric==='cpu'){
+   if(end-start>=.1&&group.some(p=>p.observed>0))value=100*group.reduce((sum,p)=>sum+p.cpu_s,0)/(end-start);
+  }else{
+   const rss=group.map(p=>p.rss_peak_mb).filter(Number.isFinite);
+   if(rss.length)value=Math.max(...rss);
+  }
+  buckets.push({start,end,value,missing});
+ }
+ const display=value=>network?networkRate(value):usageNumber(value)+' '+unit;
  const values=buckets.map(p=>p.value).filter(Number.isFinite);if(!values.length)return `<section class="usage-chart"><h3>${e(title)}</h3><p>No usable measurements recorded.</p></section>`;
  const peak=Math.max(1,...values),end=Math.max(1,...buckets.map(p=>p.end));
- const bars=buckets.filter(p=>Number.isFinite(p.value)).map(p=>{const x=48+408*p.start/end,w=Math.max(1,408*(p.end-p.start)/end),height=114*p.value/peak;return `<rect x="${x.toFixed(2)}" y="${(140-height).toFixed(2)}" width="${w.toFixed(2)}" height="${Math.max(1,height).toFixed(2)}" opacity="${p.missing?'.45':'.85'}"><title>${e(usageDuration(p.start)+'–'+usageDuration(p.end)+': '+usageNumber(p.value)+' '+unit+(p.missing?' (partial readings)':''))}</title></rect>`;}).join('');
- return `<section class="usage-chart"><h3>${e(title)}</h3><svg viewBox="0 0 470 175" role="img" aria-label="${e(title+' over elapsed job time; peak '+usageNumber(Math.max(...values))+' '+unit)}"><text x="4" y="20">${e(usageNumber(peak))}</text><text x="4" y="140">0</text><path d="M48 24V140H456"/><g>${bars}</g><text x="48" y="161">0s</text><text x="456" y="161" text-anchor="end">${e(usageDuration(end))}</text></svg><small>${metric==='cpu'?'Observed CPU per interval; 100% = one logical CPU.':'Peak process RSS sum per interval, in MiB.'} Faded bars contain missing readings.</small></section>`;
+ const bars=buckets.filter(p=>Number.isFinite(p.value)).map(p=>{const x=48+408*p.start/end,w=Math.max(1,408*(p.end-p.start)/end),height=114*p.value/peak;return `<rect x="${x.toFixed(2)}" y="${(140-height).toFixed(2)}" width="${w.toFixed(2)}" height="${Math.max(1,height).toFixed(2)}" opacity="${p.missing?'.45':'.85'}"><title>${e(usageDuration(p.start)+'–'+usageDuration(p.end)+': '+display(p.value)+(p.missing?' (partial readings)':''))}</title></rect>`;}).join('');
+ return `<section class="usage-chart"><h3>${e(title)}</h3><svg viewBox="0 0 470 175" role="img" aria-label="${e(title+' over elapsed job time; peak '+display(Math.max(...values)))}"><text x="4" y="20">${e(network?networkRate(peak):usageNumber(peak))}</text><text x="4" y="140">0</text><path d="M48 24V140H456"/><g>${bars}</g><text x="48" y="161">0s</text><text x="456" y="161" text-anchor="end">${e(usageDuration(end))}</text></svg><small>${network?'Average during observed intervals.':metric==='cpu'?'100% = one logical CPU.':'Peak process RSS per interval.'}${buckets.some(p=>p.missing)?' Faded bars indicate partial readings.':''}</small></section>`;
+}
+function runProgressStatus(j){return j.status==='queued'?(j.held?'Held':S.queue?.paused?'Queue paused':'Queued'):stopUnconfirmed(j)?monitorTitle(j):storageStoppedJob(j)?'Stopping · low disk space':j.cancel?'Stopping':monitorIssue(j)?monitorTitle(j):diskPaused(j)?diskPauseTitle(j):!navigator.onLine?'Offline · last saved status':!progressFresh(j)?'Updates paused':diskSafety(j)?.state==='rechecking'&&diskConnectionFresh()?'Rechecking storage':'Running';}
+function usageJob(data){const t=data.summary,saved=S.jobs.find(j=>j.id===data.id);return {...saved,id:data.id,kind:saved?.kind||t.kind,payload:saved?.payload||{action:t.action,run_id:t.run_id},status:saved?.status||t.job_status,telemetry:t};}
+function monitorAge(stamp,reference){
+ const seconds=(reference-Date.parse(stamp))/1000;
+ return Number.isFinite(seconds)?usageDuration(Math.max(0,seconds))+' ago':'Unavailable';
+}
+function monitorPulse(t,launcherPulse,reference){
+ const beats=(t.monitor_cycle?.heartbeats||[]).filter(Number.isFinite),end=reference/1000;
+ const peaks=beats.filter(stamp=>stamp<=end&&stamp>end-60).map(stamp=>{
+  const x=(60+stamp-end)*4;
+  return `<path d="M ${x-2} 15 l 1 -3 1 3 1 -10 1 10"/>`;
+ }).join('');
+ const currentPulse=t.job_status==='running'&&Number.isFinite(launcherPulse?.observed_at)
+  &&reference>=launcherPulse.observed_at*1000&&reference<launcherPulse.expires_at*1000;
+ const pulseAt=currentPulse?launcherPulse.observed_at:beats.at(-1);
+ const pulseLabel=currentPulse?'Windows launcher pulse':'Last pulse recorded with job';
+ const chart=peaks?`<svg width="240" height="20" viewBox="0 0 240 20" aria-label="Pulses recorded with this job over 60 seconds" role="img" fill="none" stroke="currentColor">${peaks}</svg>`:'';
+ return Number.isFinite(pulseAt)?`<span>${pulseLabel} · ${e(monitorAge(new Date(pulseAt*1000).toISOString(),reference))}</span>${chart}`:'';
+}
+function monitorCycle(t,launcherPulse){
+ const c=t.monitor_cycle;
+ const reference=t.job_status==='running'?Date.now():Date.parse(c?.sampled_at);
+ const content=monitorPulse(t,launcherPulse,reference);
+ if(!c&&!content)return '';
+ const pulse=`<div class="usage-pulse" data-monitor-pulse>${content}</div>`;
+ return `<section class="usage-phase" aria-label="Monitoring cycle"><h3>Observed activity</h3>${c?`<strong>${e(c.phase||'Awaiting task')}</strong>
+  ${Number.isFinite(c.reads_observed)?`<span>${e(usageNumber(c.reads_observed,0))} read results observed</span>`:''}
+  ${Number.isFinite(c.output_bytes)?`<span>Kraken2 output · ${e(storageBytes(c.output_bytes))}</span>`:''}
+  <span>Last progress · ${e(monitorAge(c.last_progress_at,reference))}</span>
+  <span>Active ${e(usageDuration(c.active_s))} · Storage paused ${e(usageDuration(c.paused_s))}</span>`:''}${pulse}</section>`;
+}
+function usageCapacity(t,disk){
+ const memory=t.system_memory,volumes=disk?.volumes||[],advisory=disk?.advisory_volumes||[];
+ const metric=(label,value)=>`<div><span>${e(label)}</span><strong>${e(value)}</strong></div>`;
+ const amount=(used,total)=>Number.isFinite(used)&&Number.isFinite(total)?storageBytes(used)+' / '+storageBytes(total):'Unavailable';
+ const memoryReadings=memory?`<section aria-label="System memory"><h3>System memory</h3><div class="usage-capacity-grid">${metric('RAM in use',amount(memory.ram_used_bytes,memory.ram_total_bytes))}${metric('Swap in use',amount(memory.swap_used_bytes,memory.swap_total_bytes))}</div></section>`:'';
+ const reference=t.job_status==='running'?Date.now():Date.parse(t.updated_at);
+ const diskReadings=volumes.length?`<section aria-label="Free disk space"><h3>Free disk space <small>Checked ${e(monitorAge(disk.checked_at,reference))}</small></h3><div class="usage-capacity-grid">${volumes.map(v=>metric(v.label||'Monitored storage',storageBytes(v.available_bytes))).join('')}${advisory.map(v=>metric((v.label||'Storage')+' · monitoring only',storageBytes(v.available_bytes))).join('')}</div></section>`:'';
+ return memoryReadings||diskReadings?`<div class="usage-capacity">${memoryReadings}${diskReadings}</div>`:'';
+}
+function usageDiagnostics(data,disk){
+ const t=data.summary,c=t.monitor_cycle,timing=c?.storage||{};
+ const fact=(label,value)=>`<div><span>${e(label)}</span><strong>${e(value)}</strong></div>`;
+ const facts=[
+  ['Observed CPU time',usageMeasure(t.samples?t.observed_cpu_s:null,' s')],
+  ['Usable / unavailable samples',usageNumber(t.samples,0)+' / '+usageNumber(t.unavailable_samples,0)],
+  ['Configured run budget',Number.isFinite(t.budget?.cores)?usageNumber(t.budget.cores,0)+' cores · '+usageNumber(t.budget.memory_mb,0)+' MB':'Not a saved run'],
+  ['Recorded platform',[t.system,t.architecture].filter(Boolean).join(' · ')||'Unavailable'],
+ ];
+ const times=[
+  ['Summary updated',t.updated_at||'Unavailable'],['Charts saved',data.history_updated_at||'Not yet'],
+  ['System memory sampled',t.system_memory?.sampled_at||'Unavailable'],['Disk space checked',disk?.checked_at||'Unavailable'],
+ ];
+ if(c)times.push(['Monitoring cycle',c.id],['Phase started',c.phase_since||'Unavailable'],['Resource sample',c.resource_sampled_at||'Unavailable'],
+  ['Disk probe',usageMeasure(timing.probe_ms,' ms')],['Storage write attempt',usageMeasure(timing.write_ms,' ms')],['Storage write including retries',usageMeasure(timing.write_delay_ms,' ms')]);
+ return `<section class="usage-diagnostics" aria-label="Measurement details"><h3>Job measurements</h3><div class="usage-facts">${facts.map(([label,value])=>fact(label,value)).join('')}</div>
+  <h3>Measurement timing</h3><div class="usage-facts">${times.map(([label,value])=>fact(label,value)).join('')}</div>
+  <p class="secondary-line">${t.history_compacted?'Older samples have been combined into intervals.':'Charts are saved at most every 30 seconds and at command completion.'}</p>
+  ${disk?.volumes?.length?`<h3>Monitored drive paths</h3><ul class="disk-safety-volumes">${disk.volumes.map(v=>
+   `<li><div><strong>${e(v.label||'Monitored storage')}</strong><span class="path-cell">${e(v.volume_path||v.path||'Path unavailable')}</span></div><div><strong>${e(storageBytes(v.available_bytes))} free</strong><small>Checked ${e(v.sampled_at||disk.checked_at||'Unavailable')}</small></div></li>`).join('')}</ul>`:''}
+  <h3>Measurement scope &amp; provenance</h3><ul>${(t.notes||[]).map(n=>`<li>${e(n)}</li>`).join('')}</ul>
+  <p>Bactologix ${e(t.app_version||'version unavailable')} · Python ${e(t.python||'version unavailable')}</p>
+  ${t.pipeline?`<p>Pipeline · ${e(S.pipelines[t.pipeline]?.name||t.pipeline)}</p><p class="path-cell">Source commit: ${e(t.commit||'Unavailable')}<br>Configuration SHA-256: ${e(t.config_sha256||'Unavailable')}<br>Workflow SHA-256: ${e(t.workflow_sha256||'Unavailable')}</p>`:''}</section>`;
 }
 function usageDetail(data){
- const t=data.summary,j={id:data.id,status:t.job_status,telemetry:t};
- return `<div class="usage-detail">${statusBadge(t.job_status)}${jobTelemetry(j)}<p class="inline-info">Recorded for this job attempt only. A resumed run gets its own record.</p><div class="usage-charts">${usageChart(data.points,'cpu','CPU use (%)','%')}${usageChart(data.points,'ram','Sampled RAM (MiB)','MiB')}</div><div class="usage-facts"><div><span>Observed CPU time</span><strong>${usageMeasure(t.samples?t.observed_cpu_s:null,' s')}</strong></div><div><span>Usable / unavailable samples</span><strong>${usageNumber(t.samples,0)} / ${usageNumber(t.unavailable_samples,0)}</strong></div><div><span>Configured run budget</span><strong>${Number.isFinite(t.budget?.cores)?usageNumber(t.budget.cores,0)+' cores · '+usageNumber(t.budget.memory_mb,0)+' MB':'Not a saved run'}</strong></div><div><span>Recorded platform</span><strong>${e(t.system)} · ${e(t.architecture)}</strong></div></div><p class="secondary-line">Summary updated ${e(t.updated_at)}<br>Charts saved ${e(data.history_updated_at||'not yet')} · ${t.history_compacted?'History combined into intervals':'Charts saved at most every 30 seconds and at command completion'}</p>${t.partial_process_tree?notice('Some processes could not be read','CPU and RAM values describe only the observed processes.',true):''}${t.progress?.log_gap?notice('Some log output was skipped','The displayed task counts and steps may be incomplete.',true):''}<details class="config-section"><summary>Measurement scope & provenance</summary><div class="padded"><ul>${(t.notes||[]).map(n=>`<li>${e(n)}</li>`).join('')}</ul><p>Bactologix ${e(t.app_version)} · Python ${e(t.python)}</p>${t.pipeline?`<p>Pipeline: ${e(S.pipelines[t.pipeline]?.name||t.pipeline)}</p><p class="path-cell">Source commit: ${e(t.commit||'Unavailable')}<br>Configuration SHA-256: ${e(t.config_sha256||'Unavailable')}<br>Workflow SHA-256: ${e(t.workflow_sha256||'Unavailable')}</p>`:''}</div></details></div>`;
+ const t=data.summary,j=usageJob(data),disk=j.disk_safety||t.monitor_cycle?.storage;
+ const details=U.modal?.section==='diagnostics';
+ const sections=[['overview','Overview'],['diagnostics','Measurement details']];
+ const controls=`<div class="usage-toolbar">${jobStatus(j)}<div role="group" aria-label="Resource monitor view">${sections.map(([id,label])=>`<button type="button" data-action="usage-section" data-id="${id}" aria-pressed="${(id==='diagnostics')===details}">${label}</button>`).join('')}</div></div>`;
+ if(details)return `<div class="usage-detail">${controls}${usageDiagnostics(data,disk)}</div>`;
+ const networkHistory=data.points.some(p=>p.observed_network_s>0||p.observed_tx_s>0)
+  ?usageChart(data.points,'rx_bytes','Download rate','')+usageChart(data.points,'tx_bytes','Upload rate',''):'';
+ return `<div class="usage-detail">${controls}<div class="usage-status"><section aria-label="Job progress"><h3>Job progress</h3>${jobTelemetry(j)}</section>${monitorCycle(t,data.launcher_pulse)}</div>
+  ${t.partial_process_tree||t.progress?.log_gap?`<p class="usage-warning">${[t.partial_process_tree?'CPU and RAM cover only the observed processes.':'',t.progress?.log_gap?'Some log output was skipped. Task counts and steps may be incomplete.':''].filter(Boolean).join(' ')}</p>`:''}
+  ${usageCapacity(t,disk)}<div class="usage-charts">${usageChart(data.points,'cpu','CPU use (%)','%')}${usageChart(data.points,'ram','Sampled RAM (MiB)','MiB')}${networkHistory}</div></div>`;
 }
 
-function jobLabel(j){return j.kind==='report_refresh'?'Regenerate report · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='database_build'?'Database Builder · '+j.payload.name+' · '+j.payload.version:j.kind==='workflow_unlock'?'Unlock workflow · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='workstation'?'Workstation check':j.kind==='environments'?'Environments · '+j.payload.tool+' · '+j.payload.action:j.kind==='database_download'?'Database · '+j.payload.tool+' · '+j.payload.resource:j.kind==='workflow'?({'dry-run':'Validate run',prepare:'Install environments',run:'Run / resume',continue:'Continue after identification','check-environments':'Check run environments'}[j.payload.action]||j.payload.action)+' · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='install'?S.pipelines[j.payload.tool]?.name+' · '+j.payload.version.ref:j.kind==='app_update'?(j.payload.update_all?'Update Bactologix & all pipelines':'Bactologix → v'+j.payload.release.version):j.kind;}
+function jobLabel(j){if(j.kind==='basis_catalog')return 'BaSIS reference catalog · '+j.payload.action;return j.kind==='factory_reset'?'Workspace reset':j.kind==='database_redownload'?'Database replacement · '+j.payload.tool+' · '+j.payload.resource:j.kind==='isolate_export'?'Export isolate · '+(j.payload.sample_id||'Copy & verify'):j.kind==='storage_cleanup'?'Storage cleanup':j.kind==='report_refresh'?'Regenerate report · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='database_build'?'Database Builder · '+j.payload.name+' · '+j.payload.version:j.kind==='workflow_unlock'?'Unlock workflow · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='workstation'?'Workstation check':j.kind==='environments'?'Environments · '+j.payload.tool+' · '+j.payload.action:j.kind==='database_download'?'Database · '+j.payload.tool+' · '+j.payload.resource:j.kind==='workflow'?({'dry-run':'Validate run',prepare:'Install environments',run:'Run / resume',continue:'Continue after identification','check-environments':'Check run environments'}[j.payload.action]||j.payload.action)+' · '+(runBy(j.payload.run_id)?.label||j.payload.run_id):j.kind==='install'?S.pipelines[j.payload.tool]?.name+' · '+j.payload.version.ref:j.kind==='app_update'?(j.payload.update_all?'Update Bactologix & all pipelines':'Bactologix → v'+j.payload.release.version):j.kind;}
 
+function storageStopPanel(stop){
+ const detail=stop.reason||'A monitored drive reached the critical free-space threshold.';
+ return `<section class="disk-safety-panel workspace-storage-stop" aria-label="Workspace storage stop"><h3>Workspace storage stop</h3><p>${e(detail)}</p>${diskVolumeList(stop.volumes)}${stop.errors?.length?`<p class="disk-safety-error">${stop.errors.map(e).join(' · ')}</p>`:''}<small>Last storage check · ${e(stop.checked_at||'Unavailable')}</small><p>Ensure every protected filesystem has more than 5 GiB free, then recheck. Clearing the stop leaves the queue paused and waiting jobs held.</p>${btn('release-storage-stop','Recheck and clear storage stop',true,stop.id,'clock',!stop.id||!!S.workspace_busy)}</section>`;
+}
 function queueNotice(){
- const q=S.queue;if(!q?.paused||U.view==='jobs')return '';
+ const q=S.queue;if(U.view==='jobs')return '';
+ if(workspaceDiskStop())return `<section class="queue-banner" aria-label="Workspace storage stop"><div><strong>Queue blocked by low disk space</strong><p>${e(workspaceDiskStop().reason)}</p></div>${btn('go-jobs','Review storage stop')}</section>`;
+ if(!q?.paused)return '';
  return `<section class="queue-banner" aria-label="Queue paused"><div><strong>${q.running.length?'Queue paused after current job':'Queue paused'}</strong><p>Waiting and newly submitted jobs will not start until you resume the queue.</p></div>${btn('go-jobs','Review queue')}</section>`;
 }
 function queuePanel(){
  const q=S.queue;if(!q)return '';
- const locked=q.update_active;
- const status=q.paused?(q.running.length?'Finishing current job · queue paused':'Queue paused'):q.waiting.length&&q.held_count===q.waiting.length?'All waiting jobs are held':'Queue enabled';
- return `<section class="card queue-controls" aria-label="Queue controls"><div class="card-head"><div><h2>${e(status)}</h2><p>${q.running.length} running · ${q.waiting.length-q.held_count} eligible waiting · ${q.held_count} held</p></div>${btn(q.paused?'resume-queue':'pause-queue',q.paused?'Resume queue':q.running.length?'Stop after current job':'Pause queue',true,'','',locked)}</div><div class="padded">${helpDetails('How queue controls work','Pausing lets the current job finish and prevents the next job from starting. Holds and the waiting order are saved across browser and app restarts.')}${q.paused&&q.pause_reason==='interruption'?notice('Review interrupted work before resuming',`${q.recovered.length} attempt(s) were marked interrupted when the worker recovered at ${e(q.recovered_at)}. Review their logs and saved runs below. Resume queue starts only eligible waiting jobs; it never retries interrupted attempts.`,true):''}${locked?notice('Application update in progress','Queue controls are unavailable until this update finishes.'):''}${q.waiting.length?`<ol class="waiting-jobs" aria-label="Waiting order">${q.waiting.map((row,index)=>{const j=S.jobs.find(j=>j.id===row.id);return `<li class="waiting-job" data-waiting-job="${e(row.id)}"><span class="waiting-position">${index+1}</span><div class="waiting-description"><strong>${e(j?jobLabel(j):row.kind)}</strong><small>${e(row.id)}</small>${badge(row.held?'Held':q.paused?'Paused':'Waiting',row.held||q.paused?'amber':'blue')}</div><div class="button-row">${btn(row.held?'release-job':'hold-job',row.held?'Release hold':'Hold job',false,row.id,'',locked)}${btn('queue-up','Move up',false,row.id,'',locked||index===0)}${btn('queue-down','Move down',false,row.id,'',locked||index===q.waiting.length-1)}</div></li>`;}).join('')}</ol><p class="inline-info">Held jobs are skipped until released. Releasing a hold does not resume a paused queue. Reordering does not change a job’s settings or automatically resolve dependencies.</p>`:'<p>No waiting jobs.</p>'}</div></section>`;
+ const stop=workspaceDiskStop(),locked=q.update_active,storage=storageActivity(),running=S.jobs.filter(j=>j.status==='running'&&!diskPaused(j)).length;
+ const status=stop?'Queue blocked by low disk space':q.paused?(storage.paused||storage.waiting?'Queue paused · storage protection active':q.running.length?'Finishing current job · queue paused':'Queue paused'):q.waiting.length&&q.held_count===q.waiting.length?'All waiting jobs are held':'Queue enabled';
+ return `<section class="card queue-controls" aria-label="Queue controls"><div class="card-head"><div><h2>${e(status)}</h2><p>${storage.label}${running} running · ${q.waiting.length-q.held_count} ${stop?'waiting':'eligible waiting'} · ${q.held_count} held</p></div>${stop?'':btn(q.paused?'resume-queue':'pause-queue',q.paused?'Resume queue':q.running.length?'Stop after current job':'Pause queue',true,'','',locked)}</div><div class="padded">${stop?storageStopPanel(stop):q.paused&&q.pause_reason==='storage_recovered'?notice('Storage check passed','Waiting jobs are held. Release the jobs you want, then resume the queue. To retry a stopped run, open its saved run.'):''}${helpDetails('How queue controls work','Queue pause prevents the next job from starting; it does not suspend current tools or resume a storage-paused run. Holds and the waiting order are saved across browser and app restarts.')}${q.paused&&q.pause_reason==='interruption'?notice('Review interrupted work before resuming',`${q.recovered.length} attempt(s) were marked interrupted when the worker recovered at ${e(q.recovered_at)}. Review their logs and saved runs below. Resume queue starts only eligible waiting jobs; it never retries interrupted attempts.`,true):''}${locked?notice('Application update in progress','Queue controls are unavailable until this update finishes.'):''}${q.waiting.length?`<ol class="waiting-jobs" aria-label="Waiting order">${q.waiting.map((row,index)=>{const j=S.jobs.find(j=>j.id===row.id);return `<li class="waiting-job" data-waiting-job="${e(row.id)}"><span class="waiting-position">${index+1}</span><div class="waiting-description"><strong>${e(j?jobLabel(j):row.kind)}</strong><small>${e(row.id)}</small>${badge(row.held?'Held':q.paused?'Paused':'Waiting',row.held||q.paused?'amber':'blue')}</div><div class="button-row">${btn(row.held?'release-job':'hold-job',row.held?'Release hold':'Hold job',false,row.id,'',locked||!!stop&&row.held)}${btn('queue-up','Move up',false,row.id,'',locked||index===0)}${btn('queue-down','Move down',false,row.id,'',locked||index===q.waiting.length-1)}</div></li>`;}).join('')}</ol><p class="inline-info">Held jobs are skipped until released. Releasing a hold does not resume a paused queue. Reordering does not change a job’s settings or automatically resolve dependencies.</p>`:'<p>No waiting jobs.</p>'}</div></section>`;
 }
-function jobCard(j){return `<div class="job-card" data-job-id="${e(j.id)}"><div><div class="job-title">${e(jobLabel(j))}</div><div class="job-sub">${e(j.id)} · ${e(j.created)}</div>${j.guidance?guidancePanel(j):j.error?`<p class="error">${e(j.error)}</p>`:''}</div><div>${jobStatus(j)}${j.cancel&&j.status==='running'?'<small class="secondary-line">Stop requested</small>':''}</div><div class="button-row">${runBy(j.payload.run_id)?btn('run-detail','Review run',false,j.payload.run_id):''}${j.kind==='workstation'?btn('workstation-detail','Review check',false,j.id):''}${btn('job-log','View log',false,j.id,'file')}${usageButton(j)}${['queued','running'].includes(j.status)&&!(j.kind==='app_update'&&j.status==='running')?btn('cancel-job','Stop',false,j.id,'stop'):''}</div>${jobTelemetry(j)}</div>`;}
+function jobCard(j){return `<div class="job-card" data-job-id="${e(j.id)}"><div><div class="job-title">${e(jobLabel(j))}</div><div class="job-sub">${e(j.id)} · ${e(j.created)}</div>${j.guidance?guidancePanel(j):j.error?`<p class="error">${e(j.error)}</p>`:''}</div><div>${jobStatus(j)}${j.cancel&&j.status==='running'?'<small class="secondary-line">Stop requested</small>':''}</div><div class="button-row">${runBy(j.payload.run_id)?btn('run-detail','Review run',false,j.payload.run_id):''}${j.kind==='workstation'?btn('workstation-detail','Review check',false,j.id):''}${btn('job-log','View log',false,j.id,'file')}${j.kind==='isolate_export'?btn('isolate-export-receipt','View export receipt',false,j.id,'file'):''}${usageButton(j)}${diskResumeButton(j)}${['queued','running'].includes(j.status)&&!(j.kind==='app_update'&&j.status==='running')?btn('cancel-job',stopUnconfirmed(j)?'Exit unconfirmed':'Stop',false,j.id,'stop',stopUnconfirmed(j)):''}</div>${diskSafetyPanel(j)}${monitoringPanel(j,!activeJob(j))}${jobTelemetry(j)}</div>`;}
 const activeJob=j=>['queued','running'].includes(j.status);
 const jobPipeline=j=>j.payload.tool||runBy(j.payload.run_id)?.tool||S.installs.find(i=>i.id===j.payload.installation)?.tool||'';
-const jobKinds={workflow:'Saved-run workflow',environments:'Environment maintenance',database_download:'Database preparation',install:'Pipeline installation',connect:'Connect installation',check:'Runner check',smoke:'Software check',workstation:'Workstation check',app_update:'Application update'};
-function historyRows(){
+const jobKinds={factory_reset:'Workspace reset',database_redownload:'Database replacement preparation',isolate_export:'Isolate export',storage_cleanup:'Storage cleanup',workflow:'Saved-run workflow',environments:'Environment maintenance',database_download:'Database preparation',install:'Pipeline installation',connect:'Connect installation',check:'Runner check',smoke:'Software check',workstation:'Workstation check',app_update:'Application update'};
+function visibleJobHistory(){
+ return S.jobs.filter(j=>!activeJob(j)&&!j.history_hidden);
+}
+function historyRows(history=visibleJobHistory()){
  const query=val('history-search').trim().toLowerCase(),status=val('history-status','all'),pipeline=val('history-pipeline','all'),kind=val('history-kind','all');
- const rows=S.jobs.filter(j=>!activeJob(j)&&
+ const rows=history.filter(j=>
   (status==='all'||j.status===status)&&(pipeline==='all'||(jobPipeline(j)||'unassigned')===pipeline)&&(kind==='all'||j.kind===kind)&&
   [j.id,jobLabel(j),j.kind,j.payload.action,j.payload.run_id,runBy(j.payload.run_id)?.sample?.id,jobPipeline(j),S.pipelines[jobPipeline(j)]?.name].join(' ').toLowerCase().includes(query));
  return val('history-order','newest')==='oldest'?rows.reverse():rows;
 }
-function historyList(){
- const all=S.jobs.filter(j=>!activeJob(j)),rows=historyRows(),pages=Math.max(1,Math.ceil(rows.length/25));
+function historyList(all=visibleJobHistory()){
+ const rows=historyRows(all),pages=Math.max(1,Math.ceil(rows.length/25));
  U.historyPage=Math.max(0,Math.min(U.historyPage||0,pages-1));const start=U.historyPage*25;
- return `<div class="history-summary"><p role="status">${rows.length?`${start+1}–${Math.min(start+25,rows.length)} of ${rows.length} matching attempts`:'No matching attempts'} · ${all.length} total history</p>${btn('download-history','Download matching history',false,'','download',!rows.length)}</div>${helpDetails('History export contents','Includes every matching page from the displayed workspace snapshot, with job IDs, run labels and timestamps. Review before sharing. Logs, job payloads and configurations are excluded.')}${rows.length?rows.slice(start,start+25).map(jobCard).join(''):empty('No matching job history.',all.length?'Change or clear the history filters.':'Completed, failed, cancelled and interrupted attempts will appear here.')}<div class="history-pagination">${btn('history-page','Previous page',false,String(U.historyPage-1),'',U.historyPage===0)}<span>Page ${U.historyPage+1} of ${pages}</span>${btn('history-page','Next page',false,String(U.historyPage+1),'',U.historyPage+1>=pages)}</div>`;
+ return `<div class="history-summary"><p role="status">${rows.length?`${start+1}–${Math.min(start+25,rows.length)} of ${rows.length} matching attempts`:'No matching attempts'} · ${all.length} total history</p>${btn('download-history','Download matching history',false,'','download',!rows.length)}</div>${helpDetails('History export contents','Includes every matching page from the displayed workspace snapshot, with job IDs, run labels and timestamps. Review before sharing. Logs, job payloads and configurations are excluded.')}${rows.length?rows.slice(start,start+25).map(jobCard).join(''):empty(all.length?'No matching job history.':'Job history is empty.',all.length?'Change or clear the history filters.':'Completed, failed, cancelled and interrupted attempts will appear here.')}<div class="history-pagination">${btn('history-page','Previous page',false,String(U.historyPage-1),'',U.historyPage===0)}<span>Page ${U.historyPage+1} of ${pages}</span>${btn('history-page','Next page',false,String(U.historyPage+1),'',U.historyPage+1>=pages)}</div>`;
+}
+function resetHistoryFilters(){
+ for(const [key,value] of Object.entries({search:'',status:'all',pipeline:'all',kind:'all',order:'newest'}))setDraft('history-'+key,value);
+ U.historyPage=0;
 }
 function refreshHistory(reset=false){if(!$('#history-list'))return;if(reset)U.historyPage=0;$('#history-list').innerHTML=historyList();renderBusy();}
 function downloadHistory(){
  const rows=historyRows().map(j=>({id:j.id,kind:j.kind,label:jobLabel(j),status:j.status,pipeline:jobPipeline(j)||null,run_id:j.payload.run_id||null,run_label:runBy(j.payload.run_id)?.label||null,action:j.payload.action||null,created:j.created,started:j.started,finished:j.finished}));
  download('Bactologix-job-history.json',JSON.stringify({schema:1,exported_at:new Date().toISOString(),app_version:S.version,scope:'Matching non-active attempts from the displayed workspace snapshot; not a live status check or a backup.',filters:{search:val('history-search'),status:val('history-status','all'),pipeline:val('history-pipeline','all'),kind:val('history-kind','all'),order:val('history-order','newest')},count:rows.length,jobs:rows},null,2),'application/json');
 }
-function jobs(){
- const active=S.jobs.filter(activeJob),history=S.jobs.filter(j=>!activeJob(j));
- return heading('JOBS & PROGRESS','See what’s happening.','Real worker status and process output. Jobs continue when the browser closes.',btn('refresh','Refresh',false,'','clock')+btn('recover-jobs','Start / recover queue'))+queuePanel()+
- `<section class="card active-jobs" aria-label="Active jobs"><div class="card-head"><div><h2>Active jobs</h2><p>Running and waiting attempts stay visible regardless of history filters.</p></div>${badge(active.length+' active','blue')}</div>${active.length?active.map(jobCard).join(''):'<p class="compact-empty">No running or waiting jobs.</p>'}</section><section class="card job-history" aria-label="Job history"><div class="card-head"><div><h2>Job history</h2><p>Review each attempt separately, including jobs for archived runs.</p></div>${btn('clear-history','Clear history filters')}</div><div class="history-filters">${field('history-search','Search history','','search','placeholder="Job ID, run label, sample ID or action"')}${select('history-status','History status',[['all','All statuses'],...Array.from(new Set(history.map(j=>j.status))).sort().map(s=>[s,s])])}${select('history-pipeline','History pipeline',[['all','All pipelines'],...Object.entries(S.pipelines).map(([k,p])=>[k,p.name]),['unassigned','App / unassigned']])}${select('history-kind','Job type',[['all','All job types'],...Array.from(new Set(history.map(j=>j.kind))).sort().map(k=>[k,jobKinds[k]||k])])}${select('history-order','History order',[['newest','Newest submitted first'],['oldest','Oldest submitted first']])}</div><div id="history-list" tabindex="-1">${historyList()}</div></section>`;
+function workflowLocksPanel(){
+ const locks=S.workflow_locks||[];
+ if(!locks.length)return '';
+ const runById=new Map(S.runs.map(run=>[run.id,run]));
+ const rows=[];
+ for(const {run_id,issue} of locks){
+  const run=runById.get(run_id);
+  if(!run)continue;
+  const action=issue?btn('run-detail','Review saved run',false,run.id):run.archived?btn('restore-run','Restore to review lock',false,run.id,'arrow'):btn('check-workflow-lock','Review lock',false,run.id);
+  rows.push(`<div class="overview-job"><div><strong>${e(run.label||run.id)}</strong><span class="secondary-line">${e(S.pipelines[run.tool]?.name||run.tool)} · ${e(run.id)}</span>${issue?`<p class="error">Lock check unavailable. ${e(issue)}</p>`:''}</div>${run.archived?badge('Archived'):''}${action}</div>`);
+ }
+ if(!rows.length)return '';
+ return `<section class="card workflow-locks" aria-label="Workflow locks to review"><div class="card-head"><div><h2>Workflow locks to review</h2><p>Check who owns a lock before unlocking its saved run.</p></div>${badge(rows.length+' to review','amber')}</div>${rows.join('')}</section>`;
 }
-function reportsPage(){const rows=S.reports.filter(r=>!U.reportRun||r.run===U.reportRun);return heading('RESULTS & REPORTS','From a run to its results.','Open native MultiQC, Safety and other HTML reports directly in your workspace.',btn('register-report','Add existing report',true,'','plus'))+resultRunCards()+
-`${U.reportRun?`<div class="selection-bar">Reports for ${e(runBy(U.reportRun)?.label||U.reportRun)} ${btn('all-reports','Show all reports')}</div>`:''}<section class="card">${rows.length?`<div class="table-wrap"><table><thead><tr><th>Report</th><th>Sample</th><th>Run</th><th>Run status</th><th>Open</th></tr></thead><tbody>${rows.map(r=>`<tr><td><strong>${e(r.name)}</strong><span class="secondary-line path-cell">${e(r.path)}</span></td><td>${e(r.sample)}</td><td>${e(r.run)}</td><td>${statusBadge(r.run_status||'User-selected')}</td><td>${btn('open-report','Open report',true,r.id,'external')}</td></tr>`).join('')}</tbody></table></div>`:empty('No reports found here yet.','Reports appear when the native workflow writes them. You can also register an existing local HTML report.',btn('register-report','Add report'))}</section>`;}
+function jobs(){
+ const active=S.jobs.filter(activeJob),history=visibleJobHistory();
+ return heading('JOBS & PROGRESS','See what’s happening.','Follow running tasks, review stopped attempts and manage the queue.',btn('refresh','Refresh',false,'','clock')+btn('recover-jobs','Start / recover queue',false,'','',!!workspaceDiskStop())+btn('cleanup-failed-items','Clean up failed items',false,'','trash'))+queuePanel()+
+ `<section class="card active-jobs" aria-label="Active jobs"><div class="card-head"><div><h2>Active jobs</h2><p>Running and waiting attempts stay visible regardless of history filters.</p></div>${badge(active.length+' active','blue')}</div>${active.length?active.map(jobCard).join(''):'<p class="compact-empty">No running or waiting jobs.</p>'}</section>${workflowLocksPanel()}<section class="card job-history" aria-label="Job history"><div class="card-head"><div><h2>Job history</h2><p>Review each attempt separately, including jobs for archived runs.</p></div><div class="button-row">${btn('clear-history','Clear history filters')}${btn('clear-job-history','Clear job history',false,'','trash',!history.length)}</div></div><div class="history-filters">${field('history-search','Search history','','search','placeholder="Job ID, run label, sample ID or action"')}${select('history-status','History status',[['all','All statuses'],...Array.from(new Set(history.map(j=>j.status))).sort().map(s=>[s,s])])}${select('history-pipeline','History pipeline',[['all','All pipelines'],...Object.entries(S.pipelines).map(([k,p])=>[k,p.name]),['unassigned','App / unassigned']])}${select('history-kind','Job type',[['all','All job types'],...Array.from(new Set(history.map(j=>j.kind))).sort().map(k=>[k,jobKinds[k]||k])])}${select('history-order','History order',[['newest','Newest submitted first'],['oldest','Oldest submitted first']])}</div><div id="history-list" tabindex="-1">${historyList(history)}</div></section>`;
+}
+function reportsPage(){const rows=S.reports.filter(r=>!U.reportRun||r.run===U.reportRun);return heading('RESULTS & REPORTS','From a run to its results.','Find reports, review evidence coverage and access the methods used for each run.',btn('register-report','Add existing report',false,'','plus'))+resultRunCards()+
+`${U.reportRun?`<div class="selection-bar">Reports for ${e(runBy(U.reportRun)?.label||U.reportRun)} ${btn('all-reports','Show all reports')}</div>`:''}<section class="card">${rows.length?`<div class="table-wrap"><table><thead><tr><th>Report</th><th>Sample</th><th>Run</th><th>Execution</th><th>Assessment coverage</th><th>Actions</th></tr></thead><tbody>${rows.map(r=>`<tr><td><strong>${e(r.name)}</strong><span class="secondary-line path-cell">${e(r.path)}</span></td><td>${e(r.sample)}</td><td>${e(r.run)}</td><td>${statusBadge(r.analysis_status||r.run_status||'User-selected')}${r.refresh?`<span class="secondary-line">Report rendering: ${e(r.render_status||'Report-only')}</span><span class="secondary-line">${e(r.evidence_identity?.label||'Evidence attribution unverified')}</span>`:''}</td><td>${assessmentBadge(r.assessment)}</td><td><div class="button-row">${btn('open-report','Open report',true,r.id,'external')}${regenerateButton(r,r.run)}</div></td></tr>`).join('')}</tbody></table></div>`:empty('No reports found here yet.','Reports appear when the native workflow writes them. You can also register an existing local HTML report.',btn('register-report','Add report'))}</section>`;}
 function defaultEditor(tool=U.tool){return U.defaultEditors?.[tool];}
 function defaultsDirty(c){return !!c&&(Object.keys(c.changes).length>0||c.text!==c.savedText);}
 function editorUI(c=runEditor()){
@@ -362,14 +1195,117 @@ function configuration(){
  `<div class="tabs configuration-pipelines">${Object.keys(S.pipelines).map(x=>`<button class="tab ${t===x?'active':''}" data-action="config-tool" data-id="${x}">${S.pipelines[x].name}${defaultsDirty(defaultEditor(x))?'<span class="unsaved-dot" aria-label="Unsaved changes"></span>':''}</button>`).join('')}</div>${computeDefaults(t)}<section class="card defaults-editor"><div class="defaults-header"><div><strong>${e(S.pipelines[t].name)} defaults</strong><p>Category tabs for everyday changes. Advanced contains every setting.</p></div>${badge('Future runs','green')}</div><div class="defaults-toolbar"><div class="button-row"><label class="btn upload-label">${icon('file')}Import YAML<input type="file" id="yaml-upload" accept=".yaml,.yml" class="visually-hidden" ${!c?'disabled':''}></label>${btn('download-yaml','Download YAML',false,'','download',!c)}${btn('check-run-config','Check settings',false,'','check',!c)}</div>${btn('reload-run-defaults','Reload saved defaults',false,'','',!c)}</div>${stale?notice('Saved defaults changed','Download your edits to keep a copy, then reload saved defaults before saving. New database selections or changes from another window are protected.',true):''}<div class="defaults-content">${body}</div><div class="defaults-footer"><div><strong id="default-save-status">${defaultsDirty(c)?'Unsaved changes':'Saved defaults'}</strong><p>Changes apply to future drafts. Existing runs keep their saved settings.</p></div>${btn('save-config','Save defaults',true,t,'check',!c||stale)}</div></section>`;
 }
 function runEditor(){return wizardKind()==='edit-run'?U.revisionConfig:wizardKind()==='new-run'?U.runConfigs?.[val('run-tool','hybas')]:U.view==='configure'?defaultEditor():U.runConfigs?.[val('run-tool','hybas')];}
-function computeDefaults(tool){
- const h=S.hardware,p=S.resource_defaults?.[tool];if(!h||!p)return '';
- const dirty=defaultsDirty(defaultEditor(tool)),mode=tool==='micpscope'?'cpu':(p.gpu_mode||'native');
- return `<section class="card compute-defaults" aria-label="Default compute resources"><div class="card-head"><div><h2>Default compute resources</h2><p>${e(S.pipelines[tool].name)} · used by each new run; saved runs keep their limits.</p></div>${btn('open-compute-hardware','Hardware & CUDA details',false,tool,'cpu')}</div><div class="power-grid">${h.presets.map(x=>`<article class="power-card ${x.id}"><h3>${e(x.label)}</h3><p>${x.cores} CPU threads · ${(x.memory_mb/1024).toLocaleString()} GB RAM</p>${btn('pipeline-power-preset','Use '+x.label,x.id==='medium',tool+':'+x.id,'check',dirty||!x.available)}</article>`).join('')}</div><div class="padded"><p>Saved: <strong>${p.cores} CPU threads · ${(p.memory_mb/1024).toLocaleString()} GB RAM</strong>. Full power reserves memory for the system.</p><div class="form-grid">${field('compute-cores-'+tool,'Default CPU threads',p.cores,'number','min="1" max="'+h.cpu.available+'" step="1"')}${field('compute-memory-'+tool,'Default RAM (MB)',p.memory_mb,'number','min="1024" step="1"')}${select('compute-gpu-'+tool,'GPU / CUDA policy',tool==='micpscope'?[['cpu','CPU tools — CUDA not supported']]:[['native','Native tool settings'],['cpu','CPU only — hide CUDA devices']],mode)}</div><p>${tool==='micpscope'?'GeneScope’s current search and report tools run on CPU.':'Native mode preserves GPU visibility and each tool’s own settings; it does not force GPU use or install CUDA. CPU-only mode hides CUDA devices for the run.'}</p>${dirty?notice('Unsaved pipeline settings','Save or reload your pending settings before changing compute defaults.',true):''}${btn('save-pipeline-compute','Save compute defaults',true,tool,'check',dirty)}</div></section>`;
+function autoSwapSelected(scope,tool){
+ if(tool!=='hybas'||(scope!=='defaults'&&(scope!=='run'||wizardKind()!=='new-run')))return false;
+ return val(scope+'-auto-swap-'+tool,S.resource_defaults?.hybas?.auto_swap===true)===true;
 }
+function autoSwapControl(scope){
+ const label=scope==='defaults'?'Calculate swap for each new HybAs draft':'Calculate swap automatically for this draft';
+ return `<label class="check-field"><input id="${scope}-auto-swap-hybas" type="checkbox" ${autoSwapSelected(scope,'hybas')?'checked':''}> ${label}</label>`;
+}
+function computeDefaults(tool,showPresets=true){
+ const h=S.hardware,p=S.resource_defaults?.[tool];if(!h||!p)return '';
+ const automatic=autoSwapSelected('defaults',tool);
+ const dirty=defaultsDirty(defaultEditor(tool)),mode=tool==='micpscope'?'cpu':(p.gpu_mode||'native'),enabled=val('compute-swap-enabled-'+tool,Number(p.swap_mb)>0),swap=enabled?Number(val('compute-swap-'+tool,p.swap_mb||0)):0;
+ return `<section class="card compute-defaults" aria-label="Default compute resources"><div class="card-head"><div><h2>Default compute resources</h2><p>${e(S.pipelines[tool].name)} · used by each new run; saved runs keep their limits.</p></div>${showPresets?btn('open-compute-hardware','Hardware & CUDA details',false,tool,'cpu'):''}</div>${showPresets?`<div class="power-grid">${h.presets.map(x=>`<article class="power-card ${x.id}"><h3>${e(x.label)}</h3><p>${x.cores} CPU threads · ${(x.memory_mb/1024).toLocaleString()} GB RAM</p>${btn('pipeline-power-preset','Use '+x.label,x.id==='medium',tool+':'+x.id,'check',dirty||!x.available)}</article>`).join('')}</div>`:''}<div class="padded"><p>Saved: <strong>${p.cores} CPU threads · ${(p.memory_mb/1024).toLocaleString()} GB RAM${p.auto_swap?' · automatic swap':Number(p.swap_mb)>0?' + '+e(p.swap_mb)+' MB swap':' · swap off'}</strong>. Power presets change CPU and physical RAM; the saved swap allowance is kept.</p><div class="form-grid">${field('compute-cores-'+tool,'Default CPU threads',p.cores,'number','min="1" max="'+h.cpu.available+'" step="1"')}${field('compute-memory-'+tool,'Default RAM (MB)',p.memory_mb,'number','min="1024" step="1"')}${select('compute-gpu-'+tool,'GPU / CUDA policy',tool==='micpscope'?[['cpu','CPU tools — CUDA not supported']]:[['native','Native tool settings'],['cpu','CPU only — hide CUDA devices']],mode)}</div><p>${tool==='micpscope'?'GeneScope’s current search and report tools run on CPU.':'Native mode preserves GPU visibility and each tool’s own settings; it does not force GPU use or install CUDA. CPU-only mode hides CUDA devices for the run.'}</p>${tool==='hybas'?autoSwapControl('defaults'):''}${automatic?'<p class="settings-note">Each new draft uses its selected Kraken database and current capacity to save an allowance.</p>':`<div class="compute-default-swap"><label class="check-field"><input type="checkbox" id="compute-swap-enabled-${tool}" ${enabled?'checked':''} aria-describedby="compute-swap-help-${tool}"> Allow disk swap by default for ${e(S.pipelines[tool].name)}</label><p id="compute-swap-help-${tool}" class="settings-note">New ${e(S.pipelines[tool].name)} drafts inherit this allowance. You can change it or turn it off for an individual run. Saving does not create or allocate swap; available RAM, Linux/WSL swap and operating-system limits are checked before validation and launch.</p>${enabled?`<div class="form-grid run-budget-grid">${field('compute-swap-'+tool,'Default additional swap allowance (MB)',p.swap_mb||0,'number','min="1" max="2000000" step="1" aria-describedby="compute-swap-help-'+tool+'"')}<div class="field"><span>Requested scheduling budget</span><strong data-default-scheduling-total="${tool}">${e(computeTotal(val('compute-memory-'+tool,p.memory_mb),swap))}</strong></div></div><p class="settings-note">Disk swap can be substantially slower. It stays separate from physical RAM and individual tool memory settings.</p>`:''}</div>${swapRecommendationPanel('defaults',tool)}`}${dirty?notice('Unsaved pipeline settings','Save or reload your pending settings before changing compute defaults.',true):''}${btn('save-pipeline-compute','Save compute defaults',true,tool,'check',dirty)}</div></section>`;
+}
+function resetDefaultAutoSwap(tool,enabled){
+ if(tool!=='hybas')return;
+ const id='defaults-auto-swap-hybas';
+ U.drafts[id]=enabled===true;
+ const checkbox=$('#'+id);if(checkbox)checkbox.checked=U.drafts[id];
+}
+function defaultSwap(tool){return val('compute-swap-enabled-'+tool,Number(S.resource_defaults?.[tool]?.swap_mb)>0)?Number(val('compute-swap-'+tool,S.resource_defaults?.[tool]?.swap_mb||0)):0;}
+function setDefaultSwapDraft(tool,amount){setDraft('compute-swap-enabled-'+tool,Number(amount)>0);const toggle=$('#compute-swap-enabled-'+tool);if(toggle)toggle.checked=Number(amount)>0;setDraft('compute-swap-'+tool,amount||0);}
+function swapRecommendationKey(scope,tool){return scope+':'+tool+(scope==='revision'?':'+(U.revision?.id||''):'');}
+function pendingKrakenPath(){
+ const row=S.databases?.hybas?.rows.find(r=>r.id==='kraken');
+ if(!row)return undefined;
+ if(U.databaseStates?.hybas?.resets.kraken)return null;
+ const selected=val(dbPath('hybas','kraken'),row.path);
+ return selected===row.path?undefined:selected;
+}
+function swapRecommendationInputs(scope,tool){
+ const budget=scope==='defaults'?S.resource_defaults?.[tool]:scope==='revision'?U.revision:draftBudget(tool),prefix=scope==='defaults'?'compute-memory-'+tool:scope+'-memory';
+ const c=scope==='revision'?U.revisionConfig:scope==='run'?U.runConfigs?.[tool]:null;
+ const path=scope==='defaults'?pendingKrakenPath():undefined;
+ return {tool,memory_mb:Number(val(prefix,budget?.memory_mb||0)),...(scope==='revision'?{run_id:U.revision?.id}:{}),...(c?{config:{tool:c.tool,text:c.text,changes:c.changes}}:{}),...(scope==='defaults'?{revision:S.databases?.[tool]?.revision}:{}),...(path===undefined?{}:{kraken_path:path})};
+}
+function swapRecommendationContext(scope,tool){
+ const defaults=scope==='defaults';
+ const budget=defaults?S.resource_defaults?.[tool]:scope==='revision'?U.revision:draftBudget(tool);
+ const enabled=val(defaults?'compute-swap-enabled-'+tool:scope+'-swap-enabled',Number(budget?.swap_mb)>0);
+ const amount=Number(val(defaults?'compute-swap-'+tool:scope+'-swap',budget?.swap_mb||0));
+ return JSON.stringify([asyncContext(),swapRecommendationInputs(scope,tool),S.active?.[tool],defaults&&defaultsDirty(defaultEditor(tool)),autoSwapSelected(scope,tool),enabled,enabled?amount:0]);
+}
+function swapRequestCurrent(swap){
+ return !!swap&&Date.now()-swap.requestedAt<300000&&swap.context===swapRecommendationContext(swap.scope,swap.tool);
+}
+function calculateSwap(scope,tool){
+ if(!['defaults','run','revision'].includes(scope)||tool!=='hybas')return;
+ if(scope==='defaults'&&defaultsDirty(defaultEditor(tool))){toast('Save or reload pending pipeline settings before calculating swap.',true);return;}
+ const payload=swapRecommendationInputs(scope,tool);
+ if(scope!=='defaults'&&!payload.config){toast('Open the draft settings before calculating swap.',true);return;}
+ const context=swapRecommendationContext(scope,tool);
+ delete U.swapRecommendations?.[swapRecommendationKey(scope,tool)];
+ request('recommend_swap',payload,false,{scope,tool,context,requestedAt:Date.now()});
+ render();
+}
+function receiveSwapRecommendation(swap,result){
+ if(!swapRequestCurrent(swap))return;
+ const {scope,tool}=swap;
+ const amount=result.proposal?.swap_mb;
+ const filled=result.can_apply===true&&Number.isInteger(amount)&&amount>=0&&result.proposal.memory_mb===swapRecommendationInputs(scope,tool).memory_mb;
+ if(filled){
+  if(scope==='defaults')setDefaultSwapDraft(tool,amount);
+  else{setSwapDraft(scope,amount);invalidateSetupAdvice();persistWizard();}
+ }
+ U.swapRecommendations ||= {};
+ U.swapRecommendations[swapRecommendationKey(scope,tool)]={result,filled,context:swapRecommendationContext(scope,tool),receivedAt:Date.now()};
+}
+function freshSwapRecommendation(scope,tool){const row=U.swapRecommendations?.[swapRecommendationKey(scope,tool)];return !!row&&row.context===swapRecommendationContext(scope,tool)&&Date.now()-row.receivedAt<300000;}
+function swapRecommendationPanel(scope,tool){
+ if(tool!=='hybas')return '';
+ const key=swapRecommendationKey(scope,tool),saved=U.swapRecommendations?.[key],r=saved?.result,fresh=freshSwapRecommendation(scope,tool),dirty=scope==='defaults'&&defaultsDirty(defaultEditor(tool));
+ const pending=Object.values(U.asyncTasks||{}).some(task=>task.origin?.swap?.scope===scope&&task.origin.swap.tool===tool&&asyncCurrent(task))||swapRequestCurrent(U.queuedRequest?.swap)&&U.queuedRequest.swap.scope===scope;
+ const outcome=saved?.filled
+  ? (scope==='defaults'?'Allowance filled. Save compute defaults to use it for future drafts.':'Allowance filled. Save the draft to keep this value.')
+  : 'Calculation could not fill an allowance. Review the details below.';
+ let sourceNote='Uses the Kraken database and settings currently selected in this draft.';
+ if(scope==='defaults'){
+  const path=pendingKrakenPath();
+  sourceNote='Uses the saved Kraken database and the RAM budget above.';
+  if(path!==undefined){
+   sourceNote=path===null?'Uses the pipeline default Kraken folder.':'Uses the selected Kraken folder '+path+'.';
+   sourceNote+=' Save the selection in Databases to use it in future runs.';
+  }
+ }
+ const mb=value=>Number.isFinite(value)?Number(value).toLocaleString()+' MB':'Not verified';
+ const inputs=r?.inputs||{};
+ const amounts=[
+  ['Kraken memory estimate',inputs.estimated_kraken_mb],
+  ...(inputs.required_budget_mb>inputs.estimated_kraken_mb?[['Kraken reservation',inputs.required_budget_mb]]:[]),
+  ['Chosen RAM budget',inputs.ram_budget_mb],
+  ['RAM HybAs can use',inputs.effective_ram_mb],
+  ['Calculated additional swap',inputs.calculated_swap_mb],
+  ['Effective HybAs budget with recommended swap',inputs.effective_budget_mb],
+  ['Usable free swap after reserve',inputs.usable_swap_mb]
+ ];
+ return `<section class="swap-recommendation" data-swap-scope="${scope}" data-swap-tool="${tool}" aria-label="Kraken swap recommendation"><div class="button-row"><strong>Need help choosing swap?</strong>${btn('calculate-swap',pending?'Calculating swap…':'Calculate and fill swap allowance',false,scope+':'+tool,'cpu',dirty||pending)}</div><p class="settings-note">${e(sourceNote)} The check reads file sizes and available capacity; it does not download or allocate anything.</p>${r?`<div role="status"><p data-swap-outcome ${fresh?'':'hidden'}><strong>${e(outcome)}</strong></p><p>${e(r.message)}</p>${r.available?`<dl class="review-settings">${amounts.map(([label,value])=>`<div><dt>${e(label)}</dt><dd>${mb(value)}</dd></div>`).join('')}</dl>`:''}${r.problems?.length?`<ul>${r.problems.map(x=>'<li>'+e(x)+'</li>').join('')}</ul>`:''}${r.warnings?.length?`<ul>${r.warnings.map(x=>'<li>'+e(x)+'</li>').join('')}</ul>`:''}<p class="settings-note">${e(r.notice)}</p><p class="settings-note" data-swap-stale ${fresh?'hidden':''}>This calculation is out of date. Calculate again for the current settings.</p>${r.formula?`<details class="guided-details"><summary>Calculation and storage checks</summary><p>${e(r.formula)}</p><p>${e(r.database?.resolved_path||'')}</p>${(r.storage?.volumes||[]).map(v=>`<p>${e(v.label)}: ${Number.isFinite(v.available_bytes)?(v.available_bytes/1073741824).toFixed(1)+' GiB free':'Not verified'}</p>`).join('')}<p>${e(r.storage?.notice||'')}</p></details>`:''}</div>`:''}</section>`;
+}
+function syncSwapRecommendation(){
+ for(const panel of $$('[data-swap-scope]')){
+  const fresh=freshSwapRecommendation(panel.dataset.swapScope,panel.dataset.swapTool);
+  const stale=panel.querySelector('[data-swap-stale]'),outcome=panel.querySelector('[data-swap-outcome]');
+  if(stale)stale.hidden=fresh;
+  if(outcome)outcome.hidden=!fresh;
+ }
+}
+function syncDefaultCompute(tool){const total=$('[data-default-scheduling-total="'+tool+'"]');if(total)total.textContent=computeTotal(val('compute-memory-'+tool,S.resource_defaults?.[tool]?.memory_mb||0),defaultSwap(tool));}
 function runFieldValue(c,f){return Object.hasOwn(c.changes,f.key)?c.changes[f.key]:f.kind==='yaml'?f.yaml:f.value;}
 function runConfigPayload(){const c=runEditor();return c?{tool:c.tool,text:c.text,changes:c.changes}:null;}
 function editRunField(c,f,value){
+ if(c.scope!=='defaults')invalidateSetupAdvice();
  c.changes[f.key]=value;
  const get=name=>c.fields.find(x=>x.name===name),put=(name,v)=>{const row=get(name);if(row)c.changes[row.key]=v;};
  if(c.tool==='hybas'&&f.name==='aware_mode'&&value!=='legacy'){
@@ -485,46 +1421,136 @@ function runSettingsPanel(c){
  }
  return runSettingTabs(c)+`<div class="guided-panel">${content}</div>`;
 }
-function runReview(c,chosen,budget={cores:val('run-cores',S.resource_defaults?.[c.tool]?.cores??4),memory_mb:val('run-memory',S.resource_defaults?.[c.tool]?.memory_mb??16000)}){
+function setupAdvicePayload(){
+ const c=runEditor();if(wizardKind()!=='new-run'||!c)return null;
+ const budget=draftBudget(c.tool);
+ return {tool:c.tool,ids:S.samples.filter(s=>val('run-sample-'+s.id,false)).map(s=>s.id),config:runConfigPayload(),cores:Number(val('run-cores',budget.cores)),memory_mb:Number(val('run-memory',budget.memory_mb)),swap_mb:draftSwap('run')};
+}
+function setupAdviceContext(){
+ const p=setupAdvicePayload();if(!p)return null;
+ const source=activeInstall(p.tool);
+ return JSON.stringify({payload:p,source:source?{id:source.id,source:source.source,version:source.version,ready:source.ready,setup_completed:source.setup_completed}:null,samples:S.samples.filter(s=>p.ids.includes(s.id))});
+}
+function setupAdviceFresh(){return !!U.setupAdvice&&!U.setupAdviceInvalidated&&U.setupAdviceContext===setupAdviceContext();}
+function invalidateSetupAdvice(){
+ if(!U.setupAdvice)return;
+ U.setupAdviceInvalidated=true;
+ const status=$('[data-setup-advice-status]');if(status)status.textContent='Setup changed. Refresh the review before applying a source value.';
+ const refresh=$('[data-action="review-setup"]');if(refresh)refresh.textContent='Refresh review';
+ for(const button of $$('[data-action="apply-setup-advice"]'))button.disabled=true;
+}
+function adviceValue(value){return value===null||value===undefined?'Not recorded':value===''?'Blank (native selection)':typeof value==='boolean'?(value?'On':'Off'):typeof value==='object'?JSON.stringify(value):String(value);}
+function setupAdvicePanel(c){
+ if(wizardKind()!=='new-run')return '';
+ if(U.setupAdvice&&U.setupAdviceContext!==setupAdviceContext())U.setupAdviceInvalidated=true;
+ const advice=U.setupAdvice?.tool===c.tool?U.setupAdvice:null,fresh=!!advice&&setupAdviceFresh(),selected=S.samples.some(s=>val('run-sample-'+s.id,false));
+ const title=`<div class="setup-advice-heading"><div><h3 tabindex="-1" data-setup-advice-heading>Setup adviser</h3><p>Review your selected inputs and compare settings with the selected source’s starting values.</p></div>${btn('review-setup',advice?'Refresh review':'Review setup',false,'','check',!selected)}</div>`;
+ if(!advice)return `<section class="setup-advice" aria-label="Setup adviser">${title}<p class="setup-advice-empty">Suggestions stay separate from your settings until you choose to apply one. No analysis starts here.</p></section>`;
+ const source=advice.source||{};
+ return `<section class="setup-advice" aria-label="Setup adviser">${title}<p class="setup-advice-status" data-setup-advice-status role="status">${fresh?'Review complete. These are starting values, not sample-specific optima. Apply only the settings you want to use.':'Setup changed. Refresh the review before applying a source value.'}</p><div class="setup-advice-source">${badge(source.verified?'Source verified':'Source unverified',source.verified?'blue':'amber')}<span>${e(source.label||'Selected pipeline source')}</span>${source.commit?`<code>${e(source.commit.slice(0,12))}</code>`:''}</div>${(advice.checks||[]).length?`<div class="setup-advice-checks">${advice.checks.map(item=>`<div class="setup-advice-check ${['error','warning'].includes(item.level)?'needs-review':''}"><strong>${e(item.title)}</strong><p>${e(item.detail)}</p></div>`).join('')}</div>`:''}<details class="setup-advice-inputs"><summary>Inputs · ${(advice.samples||[]).length} sample${advice.samples?.length===1?'':'s'}</summary>${(advice.samples||[]).map(sample=>`<div class="setup-advice-sample"><div><strong>${e(sample.id)}</strong><span>${e(readMode(sample.mode||'Not recorded'))}</span></div><ul>${(sample.inputs||[]).map(item=>`<li><strong>${e(item.label)}</strong>${badge(item.status)}<p>${e(item.detail)}</p></li>`).join('')}</ul></div>`).join('')}</details>${(advice.settings||[]).length?`<h4 class="setup-advice-settings-title">Source starting settings</h4><div class="setup-advice-settings">${advice.settings.map(item=>`<article data-advice-setting="${e(item.name)}"><h4>${e(item.name.replaceAll('_',' '))}</h4><dl><div><dt>Current setting</dt><dd>${e(adviceValue(item.current))}</dd><small>${e(item.current_origin)}</small></div><div><dt>Selected-source starting value</dt><dd>${e(adviceValue(item.default))}</dd><small>${e(item.origin)}</small></div></dl><p>${e(item.detail)}</p>${item.change!==null&&item.change!==undefined&&item.applicable?btn('apply-setup-advice','Use source value',false,item.name,'',!fresh):''}</article>`).join('')}</div>`:''}${(advice.limits||[]).length?`<details class="setup-advice-limits" open><summary>What this review can establish</summary><ul>${advice.limits.map(item=>`<li>${e(item)}</li>`).join('')}</ul></details>`:''}<details class="setup-advice-provenance"><summary>Source details</summary><dl><dt>Source commit</dt><dd>${e(source.commit||'Not recorded')}</dd><dt>Configuration</dt><dd>${e(source.config_path||'Not recorded')}</dd><dt>Configuration SHA256</dt><dd>${e(source.config_sha256||'Not recorded')}</dd></dl></details></section>`;
+}
+function reviewSwapNotice(requested){
+ const swap=Number(requested);
+ if(!(swap>0))return '';
+ const usable=S.hardware?.usable_swap_mb;
+ if(Number.isFinite(usable)&&swap>usable){
+  return notice('Swap request exceeds available capacity',
+   'You requested '+swap.toLocaleString()+' MB. At the last hardware check, '+usable.toLocaleString()+' MB was usable after the reserve. Reduce the allowance by at least '+(swap-usable).toLocaleString()+' MB or free additional swap before validation.',true);
+ }
+ return notice('Disk swap enabled for this run','Available RAM and swap will be checked before validation and launch. Paging to disk can be substantially slower. Individual tool memory settings stay unchanged.',true);
+}
+function runReview(c,chosen,budget={cores:val('run-cores',S.resource_defaults?.[c.tool]?.cores??4),memory_mb:val('run-memory',S.resource_defaults?.[c.tool]?.memory_mb??16000),swap_mb:draftSwap('run')}){
+ const automatic=autoSwapSelected('run',c.tool);
  const v=name=>{const f=c.fields.find(f=>f.name===name);return f?runFieldValue(c,f):'—';};
  const pairs=c.tool==='micpscope'?[['Input','Annotated protein FASTA'],['Workflow','Protein properties + report']]:c.tool==='hybas'?[['AWARE+ mode',v('aware_mode')==='legacy'?(v('run_kraken')?v('kraken_decision_mode'):'off'):v('aware_mode')],['Polishing',v('polish_mode')],['BUSCO',v('run_busco')==='auto'?'Auto':v('run_busco')===true||v('run_busco')==='true'?'On':'Off'],['Prokka',v('run_prokka')==='auto'?'Auto':v('run_prokka')===true||v('run_prokka')==='true'?'On':'Off'],['MultiQC',v('run_multiqc')==='auto'?'Auto':v('run_multiqc')===true||v('run_multiqc')==='true'?'On':'Off']]:[['Enabled modules',c.fields.filter(f=>f.name.startsWith('modules.')&&f.name.endsWith('.enabled')&&runFieldValue(c,f)===true).length],['AWARE',v('deep.aware.enabled')?'On':'Off'],['DeepSafe',v('deep.enabled')?'On':'Off']];
- return `<div class="settings-intro"><div><h3>Ready to create your drafts?</h3><p>Each sample gets its own saved run. Nothing starts until you launch it.</p></div></div><div class="review-stats"><div><span>Samples</span><strong>${chosen.length}</strong></div><div><span>CPU per run</span><strong data-review-budget="cores">${e(budget.cores)} cores</strong></div><div><span>Memory per run</span><strong data-review-budget="memory">${e(budget.memory_mb)} MB</strong></div></div><dl class="review-settings">${pairs.map(([k,v])=>`<div><dt>${e(k)}</dt><dd>${e(v)}</dd></div>`).join('')}</dl><div class="review-samples">${chosen.map(s=>`<div>${icon('samples')}<strong>${e(s.id)}</strong><span>${e(s.mode.replaceAll('_',' '))}</span></div>`).join('')||'<p>No samples selected. Return to Samples to choose one.</p>'}</div><p class="settings-note">Saved defaults and existing runs are unchanged. Check each new draft with a native dry-run before preparing tools or running it.</p>`;
+ const revision=U.wizard?.kind==='edit-run',variant=revision&&U.revision?.variant;
+ const current=editingCurrentDraft();
+ const title=current?'Save changes to this draft?':variant?'Ready to create a variant?':revision?'Ready to create a revised draft?':'Ready to create your drafts?';
+ const detail=current?'Save changes keeps this run ID and its job history. Validate the updated settings before launching.':variant?'Your variant gets its own run. Validate the variant before launching it.':revision?'These settings will be saved in a new revision. Select Validate run on the revised draft.':'Each sample gets its own saved run. Nothing starts until you launch it.';
+ return `<div class="settings-intro"><div><h3>${title}</h3><p>${detail}</p></div></div><div class="review-stats"><div><span>Samples</span><strong>${chosen.length}</strong></div><div><span>CPU per run</span><strong data-review-budget="cores">${e(budget.cores)} cores</strong></div><div><span>Physical RAM budget</span><strong data-review-budget="memory">${e(budget.memory_mb)} MB</strong></div><div><span>Additional disk swap</span><strong data-review-budget="swap">${automatic?'Automatic':Number(budget.swap_mb)>0?e(budget.swap_mb)+' MB':'Off'}</strong></div>${!automatic&&Number(budget.swap_mb)>0?`<div><span>Requested scheduling budget</span><strong>${e(computeTotal(budget.memory_mb,budget.swap_mb))}</strong></div>`:''}</div>${automatic?'<p class="settings-note">Creating the draft calculates and saves the allowance using current capacity.</p>':reviewSwapNotice(budget.swap_mb)}<dl class="review-settings">${pairs.map(([k,v])=>`<div><dt>${e(k)}</dt><dd>${e(v)}</dd></div>`).join('')}</dl><div class="review-samples">${chosen.map(s=>`<div>${icon('samples')}<strong>${e(s.id)}</strong><span>${e(readMode(s.mode))}</span></div>`).join('')||'<p>No samples selected. Return to Samples to choose one.</p>'}</div><p class="settings-note">Validate the saved settings before launching the run.</p>`;
 }
 function wizardPage(){
  if(!U.wizard)return heading('RUN DRAFT','No unfinished draft.','Start a new draft from your registered samples.',btn('new-run','Create run drafts',true));
- const revision=U.wizard.kind==='edit-run',c=runEditor(),tab=U.runConfigTab||'samples';
- const empty=!c||(!revision&&!S.samples.some(s=>val('run-sample-'+s.id,false)));
+ const revision=U.wizard.kind==='edit-run',c=runEditor(),tab=U.runConfigTab||(revision?'settings':'purpose'),step=tab==='yaml'?'settings':tab;
+ const selectedCount=revision?0:S.samples.filter(s=>val('run-sample-'+s.id,false)).length;
+ const empty=!c||(!revision&&!selectedCount);
  const ready=revision||!!activeInstall(val('run-tool','hybas'))?.ready;
- const next=tab==='review'?btn(revision?'save-run-revision':'create-runs',revision?(U.revision?.variant?'Create variant':'Create revised draft'):'Create drafts',true,'','check',empty||!ready):btn('run-config-tab',tab==='samples'?'Continue to settings':'Review drafts',true,tab==='samples'?'settings':'review','arrow',empty);
- return heading(revision?(U.revision?.variant?'RESULT VARIANT':'REVISE RUN'):'NEW RUN',revision?(U.revision?.variant?'Branch from existing results':'Edit run settings'):'Create run drafts',revision?(U.revision?.variant?'Keep existing tool selections; change only what you want to vary. Eligible results are inherited into an isolated branch.':'Save a separate revision of this run.'):'Samples → Settings → Review. Save your choices before starting any work.',btn('leave-wizard','Save & exit'))+
-  (U.wizardRecovered?notice('Recovered unfinished edits','Your selection and settings were recovered from this browser tab. Review them before creating a run.'):'' )+
-  (!ready?notice('Pipeline runner needs setup','Finish setup for the selected pipeline before creating drafts. You can keep editing here.',true):'')+
-  `<section class="card run-wizard">${revision?renderRunRevision():renderNewRun()}<div class="wizard-footer"><div><strong id="wizard-save-status">${e(wizardSaveStatus())}</strong><p>Closing this tab may clear recovery. Saved runs are stored in your workspace.</p></div><div class="button-row">${btn('discard-wizard','Discard edits')}${tab!=='samples'&&!(revision&&tab==='settings')?btn('run-config-tab','Back',false,tab==='review'?'settings':'samples'):''}${next}</div></div></section>`;
+ const current=editingCurrentDraft();
+ const saveAction=current?'save-current-draft':revision?'save-run-revision':'create-runs';
+ const saveLabel=current?'Save changes':U.revision?.variant?'Create variant':revision?'Create revised draft':'Create drafts';
+ const copy=step==='review'&&current?btn('save-run-revision','Save as new draft',false,'','branch',empty||!ready):'';
+ const next=step==='review'?copy+btn(saveAction,saveLabel,true,'','check',empty||!ready):btn('run-config-tab',step==='purpose'?'Continue to inputs':step==='samples'?'Continue to settings':current?'Review changes':'Review drafts',true,step==='purpose'?'samples':step==='samples'?'settings':'review','arrow',step!=='purpose'&&empty);
+ const back=step==='review'?'settings':step==='settings'&&!revision?'samples':step==='samples'?'purpose':null;
+ const progress=step==='review'&&!revision?`<div id="draft-create-status" data-count="${selectedCount}" role="status" hidden><strong></strong><p></p></div>`:'';
+ return heading(current?'EDIT DRAFT':revision?(U.revision?.variant?'RESULT VARIANT':'REVISE RUN'):'NEW RUN',revision?(U.revision?.variant?'Branch from existing results':'Edit run settings'):'New run',current?'Edit the settings for this run.':revision?(U.revision?.variant?'Choose which settings to vary. Eligible results are inherited into a separate run.':'Save a separate revision to keep earlier run records associated with their settings.'):'Choose your purpose, connect inputs, then review your settings. Nothing starts until you launch.',btn('leave-wizard','Leave editor'))+
+  (U.wizardRecovered?notice('Recovered unfinished edits','Your selection and settings were recovered from this browser tab. Review the changes before saving.'):'' )+
+  (!ready&&step==='review'?notice('Pipeline runner needs setup','Finish setup for the selected pipeline before creating drafts. Your edits remain available in this tab.',true):'')+
+  `<section class="card run-wizard">${revision?renderRunRevision():renderNewRun()}<div class="wizard-footer"><div><strong id="wizard-save-status">${e(wizardSaveStatus())}</strong><p>Closing this tab may clear unsaved edits.</p></div>${progress}<div class="button-row">${btn('discard-wizard','Discard edits')}${back?btn('run-config-tab','Back',false,back):''}${next}</div></div></section>`;
+}
+const runPurposes=[
+ ['hybas','Build a genome assembly','Create an assembly from sequencing reads.','Sequencing reads','branch'],
+ ['basis','Review genomic screening evidence','Examine indicators that may need follow-up.','Assembled genome','file'],
+ ['micpscope','Explore application genes','Review proteins with an optional application database.','Annotated protein FASTA; coordinates optional','resources']
+];
+function runComputeBudget(tool,revision=null){
+ const prefix=revision?'revision':'run',automatic=autoSwapSelected(prefix,tool),budget=revision||draftBudget(tool),cores=val(prefix+'-cores',budget.cores),memory=val(prefix+'-memory',budget.memory_mb),enabled=val(prefix+'-swap-enabled',Number(budget.swap_mb)>0),swap=draftSwap(prefix,budget.swap_mb||0),available=S.hardware?.memory?.swap_available_mb;
+ const availability=Number.isFinite(available)?Math.floor(available).toLocaleString()+' MB of Linux/WSL swap available at the last hardware check.':'Available Linux/WSL swap has not been established. Capacity will be checked before validation and launch.';
+ return `<details class="compute-summary" ${U.runComputeOpen?'open':''}><summary>Customize compute resources <span data-compute-summary="${prefix}">${e(cores)} CPU threads · ${e(memory)} MB RAM${automatic?' · automatic swap':swap>0?' + '+e(swap)+' MB swap':''} per run</span></summary><p class="settings-note">These limits start from the pipeline’s saved compute defaults. Changes here apply only to this draft; other runs and pipeline defaults stay unchanged.</p><div class="form-grid run-budget-grid">${field(prefix+'-cores','CPU cores per run',cores,'number','min="1" max="512"')}${field(prefix+'-memory','Physical RAM budget (MB)',memory,'number','min="512" max="2000000" step="512"')}</div>${prefix==='run'&&tool==='hybas'?autoSwapControl(prefix):''}${automatic?'<p class="settings-note">Bactologix calculates the swap allowance when you create the draft. It saves zero if Kraken is off or fits in RAM.</p>':`<label class="check-field"><input type="checkbox" id="${prefix}-swap-enabled" ${enabled?'checked':''} aria-describedby="${prefix}-swap-help"> Allow disk swap for this run</label><p id="${prefix}-swap-help" class="settings-note">${e(availability)} This is separate from physical RAM and does not increase individual tool memory settings.</p>${enabled?`<div class="form-grid run-budget-grid">${field(prefix+'-swap','Additional swap allowance (MB)',val(prefix+'-swap',budget.swap_mb||0),'number','min="1" max="2000000" step="1" aria-describedby="'+prefix+'-swap-help"')}<div class="field"><span>Requested scheduling budget</span><strong data-scheduling-total="${prefix}">${e(computeTotal(memory,swap))}</strong></div></div>${notice('Disk swap can be substantially slower','Use only the additional allowance this run needs. Available RAM, swap and operating-system limits are checked again before validation and launch.',true)}`:''}${swapRecommendationPanel(prefix,tool)}`}</details>`;
+}
+function selectRunPipeline(tool){
+ if(!Object.hasOwn(S.pipelines,tool))return;
+ invalidateSetupAdvice();
+ draftInputs();setDraft('run-tool',tool);U.runBudgetTool=tool;
+ const budget=draftBudget(tool);setDraft('run-cores',budget.cores);setDraft('run-memory',budget.memory_mb);setSwapDraft('run',budget.swap_mb||0);
+ const c=runEditor();
+ if(U.runConfigTab==='purpose'){render();return;}
+ if(c){if(c.raw){U.runSettingTab[c.tool]='advanced';U.runConfigTab='yaml';render();}else if(U.runConfigTab==='yaml'&&Object.keys(c.changes).length)request('run_config_editor',{...runConfigPayload(),view:'yaml'});else render();}
+ else request('run_config_editor',{tool,view:U.runConfigTab||'samples'});
+}
+function deliveryFolder(sample){return val('run-delivery-'+sample.id,sample.input_manifest?'':sample.path);}
+function deliverySettings(chosen){
+ const enabled=val('run-auto-delivery',false);
+ return '<section class="guided-panel"><h3>Results delivery</h3><label class="check-field"><input id="run-auto-delivery" type="checkbox" '+(enabled?'checked':'')+'><span>Copy results to isolate folder when run finishes</span></label>'+
+ (enabled?'<p>After successful completion, save a verified results ZIP in each folder below. The workspace retains all working files.</p>'+chosen.map(sample=>field('run-delivery-'+sample.id,e(sample.id)+' · isolate folder',deliveryFolder(sample))).join(''):'<p>Review and copy results later from Results.</p>')+'</section>';
 }
 function renderNewRun(){
- const tool=val('run-tool','hybas'),c=runEditor(),tab=U.runConfigTab||'samples',chosen=S.samples.filter(s=>val('run-sample-'+s.id,false));
- let body=(tool==='micpscope'?notice('GeneScope inputs','Register a folder containing annotation/&lt;sample_id&gt;.faa. Optional files in the same folder: &lt;sample_id&gt;.evidence.csv, &lt;sample_id&gt;.gff (coordinates), &lt;sample_id&gt;.interpro.tsv (existing signatures). Read mode does not affect this workflow.'):'')+`<div class="run-draft-intro"><strong>Your run, your settings.</strong><span>Start with saved defaults. Customize only the drafts you create here.</span></div><div class="form-grid run-budget-grid">${select('run-tool','Pipeline',Object.keys(S.pipelines).map(t=>[t,S.pipelines[t].name]),'hybas')}${field('run-cores','CPU cores per run',S.resource_defaults?.[tool]?.cores??Math.min(4,S.doctor.cpus||1),'number','min="1" max="512"')}${field('run-memory','Memory budget (MB)',S.resource_defaults?.[tool]?.memory_mb??16000,'number','min="512" max="2000000" step="512"')}</div><div class="tabs run-config-tabs">${[['samples','Samples'],['settings','Run settings'],['review','Review']].map(([id,label],i)=>`<button type="button" class="tab ${(tab==='yaml'?'settings':tab)===id?'active':''}" data-action="run-config-tab" data-id="${id}" ${!c?'disabled':''}><span class="step-number" aria-hidden="true">${i+1}</span>${label}</button>`).join('')}</div>`;
- if(!c)return body+'<p>Loading saved configuration…</p>';
- if(tab==='samples')body+=`<h3>Select samples</h3><p class="inline-info">These samples receive the same settings. Removing a sample also moves its inactive saved runs to Archived; files and reports are kept.</p>${S.samples.length?S.samples.map(s=>`<div class="sample-choice"><label class="source-card"><input type="checkbox" id="run-sample-${e(s.id)}" data-sample="${e(s.id)}" ${val('run-sample-'+s.id,false)?'checked':''}><span><strong>${e(s.id)}</strong><small>${e(s.path)}</small></span></label>${btn('remove-sample','Remove sample',false,s.id,'trash')}</div>`).join(''):empty('Add a sample first.','Register the folder containing your original inputs.',btn('new-sample','Add sample'))}`;
- else if(tab==='settings')body+=runSettingsPanel(c);
- else if(tab==='review')body+=runReview(c,chosen);
- else body+=`${runSettingTabs(c)}<div class="guided-panel"><div class="settings-intro"><div><h3>Full configuration</h3><p>Edit custom keys or paste your existing YAML. Returning to the controls checks its format.</p></div>${btn('run-config-tab','Back to controls',false,'settings')}</div>${area('run-yaml-'+tool,'Run configuration YAML',c.text,'spellcheck="false" rows="18" data-run-yaml="'+tool+'"')}</div>`;
- body+=`<div class="run-draft-summary"><span>${chosen.length} sample${chosen.length===1?'':'s'} selected · ${e(S.pipelines[tool].name)} · Settings apply to these drafts only</span>${btn('check-run-config','Check settings',false,'','check')}</div>`;
+ const tool=val('run-tool','hybas'),c=runEditor(),tab=U.runConfigTab||'purpose',step=tab==='yaml'?'settings':tab,chosen=S.samples.filter(s=>val('run-sample-'+s.id,false));
+ let body=`<nav class="tabs run-config-tabs wizard-stepper" aria-label="New run steps">${[['purpose','Purpose'],['samples','Inputs'],['settings','Settings'],['review','Review']].map(([id,label],i)=>`<button type="button" class="tab ${step===id?'active':''}" data-action="run-config-tab" data-id="${id}" ${step===id?'aria-current="step"':''} ${['settings','review'].includes(id)&&(!c||!chosen.length)?'disabled':''}><span class="step-number" aria-hidden="true">${i+1}</span>${label}</button>`).join('')}</nav>`;
+ if(tab==='purpose')return body+`<div class="wizard-purpose"><h2>What would you like to do?</h2><div class="purpose-grid" role="group" aria-label="Run purpose">${runPurposes.filter(([id])=>S.pipelines[id]).map(([id,title,desc,inputs,ico])=>`<button type="button" class="purpose-card ${tool===id?'selected':''}" data-action="run-purpose" data-id="${id}" aria-pressed="${tool===id}">${icon(ico)}<span class="purpose-copy"><strong>${e(title)}</strong>${badge(S.pipelines[id].name)}<span>${e(desc)}</span></span><span class="purpose-input"><strong>Input:</strong> ${e(inputs)}</span></button>`).join('')}</div><div class="purpose-next">${icon('folder')}<div><strong>Next: connect your inputs</strong><p>Select registered samples or connect a folder on your computer.</p></div></div>${helpDetails('How these pipelines fit together','HybAs creates assemblies from sequencing reads. BaSIS reviews genomic screening evidence. GeneScope explores annotated proteins and application databases. Each pipeline has its own input requirements; choose the task you need next.')}<p class="settings-note">No run has been created yet.</p></div>`;
+ if(!c)return body+'<p role="status">Loading saved configuration…</p>';
+ if(tool==='micpscope')body+=notice('GeneScope inputs','Register a folder containing annotation/&lt;sample_id&gt;.faa. Optional files in the same folder: &lt;sample_id&gt;.evidence.csv, &lt;sample_id&gt;.gff (coordinates), &lt;sample_id&gt;.interpro.tsv (existing signatures). Read mode does not affect this workflow.');
+ if(tab==='samples')body+=`<div class="settings-intro"><div><h3>Connect your inputs</h3><p>${e(S.pipelines[tool].name)} · Select the samples to include. Each sample receives its own draft.</p></div>${btn('new-sample','Connect input folder',false,'','plus')}</div><p class="inline-info">Connecting a folder registers its location. Original files stay where they are. Unchecking a sample only excludes it from these drafts.</p>${S.samples.length?S.samples.map(s=>`<div class="sample-choice"><label class="source-card"><input type="checkbox" id="run-sample-${e(s.id)}" data-sample="${e(s.id)}" ${val('run-sample-'+s.id,false)?'checked':''}><span><strong>${e(s.id)}</strong><small>${e(s.path)}</small></span></label></div>`).join(''):empty('No input folders connected yet.','Connect the folder containing the inputs for your chosen pipeline.')}`;
+ else if(tab==='settings')body+=`<div class="run-draft-intro"><strong>Review the settings for your drafts.</strong><span>Start with saved defaults. Customize only what this task needs.</span></div>${select('run-tool','Pipeline',Object.keys(S.pipelines).map(t=>[t,S.pipelines[t].name]),tool)}${deliverySettings(chosen)}${runComputeBudget(tool)}${setupAdvicePanel(c)}${runSettingsPanel(c)}`;
+ else if(tab==='review')body+=runReview(c,chosen)+deliverySettings(chosen)+setupAdvicePanel(c);
+ else body+=`${runComputeBudget(tool)}${runSettingTabs(c)}<div class="guided-panel"><div class="settings-intro"><div><h3>Full configuration</h3><p>Edit custom keys or paste your existing YAML. Returning to the controls checks its format.</p></div>${btn('run-config-tab','Back to controls',false,'settings')}</div>${area('run-yaml-'+tool,'Run configuration YAML',c.text,'spellcheck="false" rows="18" data-run-yaml="'+tool+'"')}</div>`;
+ body+=`<div class="run-draft-summary"><span>${chosen.length} sample${chosen.length===1?'':'s'} selected · ${e(S.pipelines[tool].name)} · Settings apply to these drafts only</span>${tab!=='samples'?btn('check-run-config','Check settings',false,'','check'):''}</div>`;
  return body;
 }
 function renderRunRevision(){
  const r=U.revision,c=runEditor(),tab=U.runConfigTab||'settings';if(!r||!c)return '<p>Loading saved run settings…</p>';
- let body=(r.tool==='micpscope'?notice('GeneScope inputs','Register a folder containing annotation/&lt;sample_id&gt;.faa. Optional files in the same folder: &lt;sample_id&gt;.evidence.csv, &lt;sample_id&gt;.gff (coordinates), &lt;sample_id&gt;.interpro.tsv (existing signatures). Read mode does not affect this workflow.'):'')+`<div class="run-draft-intro"><strong>Revise ${e(r.sample.id)}</strong><span>Start from this run’s saved settings. Saving creates a separate draft with the same inputs.</span></div><div class="revision-source">${badge(S.pipelines[r.tool].name,'blue')}<span>${e(r.id)}</span>${badge(r.sample.mode.replaceAll('_',' '))}</div><div class="form-grid revision-budget">${field('revision-cores','CPU cores per run',r.cores,'number','min="1" max="512"')}${field('revision-memory','Memory budget (MB)',r.memory_mb,'number','min="512" max="2000000" step="512"')}</div><div class="tabs run-config-tabs">${[['settings','Run settings'],['review','Review']].map(([id,label])=>`<button type="button" class="tab ${(tab==='yaml'?'settings':tab)===id?'active':''}" data-action="run-config-tab" data-id="${id}">${label}</button>`).join('')}</div>`;
- if(tab==='review')body+=runReview(c,[r.sample],{cores:val('revision-cores',r.cores),memory_mb:val('revision-memory',r.memory_mb)});
- else if(tab==='yaml')body+=`${runSettingTabs(c)}<div class="guided-panel"><div class="settings-intro"><div><h3>Full configuration</h3><p>Custom keys are preserved. Generated paths are assigned to the new draft.</p></div>${btn('run-config-tab','Back to controls',false,'settings')}</div>${area('run-yaml-'+c.tool,'Run configuration YAML',c.text,'spellcheck="false" rows="18" data-run-yaml="'+c.tool+'"')}</div>`;
+ const current=editingCurrentDraft();
+ let body=(r.tool==='micpscope'?notice('GeneScope inputs','Register a folder containing annotation/&lt;sample_id&gt;.faa. Optional files in the same folder: &lt;sample_id&gt;.evidence.csv, &lt;sample_id&gt;.gff (coordinates), &lt;sample_id&gt;.interpro.tsv (existing signatures). Read mode does not affect this workflow.'):'')+`<div class="run-draft-intro"><strong>${current?'Edit':'Revise'} ${e(r.sample.id)}</strong><span>${current?'These changes apply to the draft shown below.':'Saving creates a separate draft with the same inputs.'}</span></div><div class="revision-source">${badge(S.pipelines[r.tool].name,'blue')}<span>${e(r.id)}</span>${badge(readMode(r.sample.mode))}</div>${tab!=='review'?runComputeBudget(r.tool,r):''}<div class="tabs run-config-tabs">${[['settings','Run settings'],['review','Review']].map(([id,label])=>`<button type="button" class="tab ${(tab==='yaml'?'settings':tab)===id?'active':''}" data-action="run-config-tab" data-id="${id}">${label}</button>`).join('')}</div>`;
+ if(tab==='review')body+=runReview(c,[r.sample],{cores:val('revision-cores',r.cores),memory_mb:val('revision-memory',r.memory_mb),swap_mb:draftSwap('revision',r.swap_mb||0)});
+ else if(tab==='yaml')body+=`${runSettingTabs(c)}<div class="guided-panel"><div class="settings-intro"><div><h3>Full configuration</h3><p>Generated paths are managed by Bactologix.</p></div>${btn('run-config-tab','Back to controls',false,'settings')}</div>${area('run-yaml-'+c.tool,'Run configuration YAML',c.text,'spellcheck="false" rows="18" data-run-yaml="'+c.tool+'"')}</div>`;
  else body+=runSettingsPanel(c);
- return body+`<div class="run-draft-summary"><span>Original run and saved defaults stay unchanged.</span>${btn('check-run-config','Check settings',false,'','check')}</div>`;
+ return body+`<div class="run-draft-summary"><span>${current?'Validate this draft after saving changes.':'Validation is required for the new draft.'}</span>${btn('check-run-config','Check settings',false,'','check')}</div>`;
+}
+function methodsFlowPanel(r,m){
+ const graph=m.flow,steps=m.workflow_steps||graph?.tool_steps||[];
+ if(!graph)return '';
+ const drawing=typeof m.flow_svg==='string'&&m.flow_svg.trim()?`data:image/svg+xml;charset=utf-8,${encodeURIComponent(m.flow_svg)}`:'';
+ const alt='Data-flow diagram for '+r.id+'. Tool roles and evidence are listed below.';
+ const image=drawing?`<img src="${e(drawing)}" alt="${e(alt)}" class="methods-flow-image">`:'';
+ const list=values=>Array.isArray(values)&&values.length?values.map(v=>e(v)).join(' · '):'Not established';
+ const color=status=>['failed','error'].includes(status)?'red':['executed','recorded','completed','succeeded'].includes(status)?'blue':['unverified','unknown','unavailable','configured'].includes(status)?'amber':'';
+ return `<section class="methods-flow" aria-label="Run-specific data flow"><div class="methods-section-head"><div><h3>Data flow for this run</h3><p>${e(graph.coverage?.label||'Review the available evidence')}</p></div><div class="button-row">${btn('methods-download-svg','Diagram SVG',false,r.id,'download')}${btn('methods-download-json','Diagram JSON',false,r.id,'download')}</div></div><p class="methods-flow-caption">${e(graph.caption||graph.coverage?.explanation||'Arrows describe configured dependencies; they do not establish that each step executed.')}</p>${graph.coverage?.explanation&&graph.coverage.explanation!==graph.caption?`<p class="settings-note">${e(graph.coverage.explanation)}</p>`:''}<p class="methods-flow-legend">Read each node’s evidence label: configured, recorded, reused, skipped or unavailable. A completed workflow does not establish that every tool ran.</p>${image?`<figure class="methods-flow-figure">${image}<figcaption>${e(r.id)} · ${e(m.pipeline)} · ${e(m.sample_id)}</figcaption></figure><details class="guided-details methods-full-diagram"><summary>View diagram at full size</summary><div class="methods-flow-scroll" role="region" aria-label="Full-size data-flow diagram" tabindex="0">${image}</div><p class="settings-note">Scroll within the figure or download the SVG to inspect small labels.</p></details>`:'<p class="settings-note">No diagram image is available. The recorded details remain below.</p>'}<div class="methods-tool-heading"><h3>Tools, data and purpose</h3><p>Each role explains the configured operation and why it is included. Its evidence label determines what this run actually establishes.</p></div>${steps.length?`<div class="methods-tool-list">${steps.map(step=>`<article class="methods-tool-card" data-methods-tool="${e(step.tool||step.id)}"><div class="methods-tool-title"><h4>${e(step.label||step.tool)}${step.version&&step.version!=='Not recorded'?` <span>${e(step.version)}</span>`:''}</h4>${badge(step.status_label||step.status||'Not established',color(step.status))}</div><dl class="methods-tool-purpose"><div><dt>What it does</dt><dd>${e(step.what||'Role not established for this source.')}</dd></div><div><dt>Why it is included</dt><dd>${e(step.why||'Rationale not recorded.')}</dd></div></dl><details class="methods-tool-evidence"><summary>Inputs, outputs and evidence</summary><dl><div><dt>Inputs</dt><dd>${list(step.declared_inputs||step.inputs)}</dd></div><div><dt>Outputs</dt><dd>${list(step.declared_outputs||step.outputs)}</dd></div><div><dt>Recorded version</dt><dd>${e(step.version||'Not recorded')}</dd></div></dl><p>${e(step.evidence||'Execution evidence is unavailable.')}</p>${step.version_scope?`<p class="settings-note">${e(step.version_scope)}</p>`:''}</details></article>`).join('')}</div>`:'<p class="inline-info">The available source and evidence do not support a tool-level reconstruction. No tool sequence has been invented.</p>'}</section>`;
 }
 function runMethods(r){
  const m=U.methods?.id===r.id?U.methods:null;
- let body=`<div class="settings-intro"><div><h3>Methods for your publication</h3><p>Generated from this run’s frozen settings and available execution records.</p></div>${btn('refresh-methods',m?'Refresh Methods':'Generate Methods',false,r.id,'clock')}</div>`;
+ let body=`<div class="settings-intro"><div><h3>Run-specific Methods</h3><p>A Methods section describing this run’s processing steps, tools and saved thresholds, with its evidence and diagram.</p></div>${btn('refresh-methods',m?'Refresh Methods':'Generate Methods',false,r.id,'clock')}</div>`;
  if(!m)return body+'<p class="settings-note">Generate a preview to review and download. No analysis or database download is started.</p>';
- body+=`<section class="methods-export"><div class="methods-status">${badge(m.state,m.state==='Completed workflow'?'green':'amber')}<span>${e(m.evidence_origin)}</span></div><div class="button-row methods-downloads">${btn('methods-download-txt','Download text',true,r.id,'download')}${btn('methods-download-md','Markdown',false,r.id,'download')}${btn('methods-download-html','Printable HTML',false,r.id,'download')}${btn('methods-download-zip','Reproducibility ZIP',false,r.id,'download')}</div><p class="settings-note">The ZIP includes Methods, frozen YAML, settings, recorded evidence and the pipeline citation when available. Exports contain sample identifiers and local paths; review them before sharing.</p><article class="methods-prose" aria-label="Methods preview">${m.paragraphs.map(p=>`<p>${e(p)}</p>`).join('')}</article><details class="guided-details publication-notes"><summary>Review before publication · ${m.warnings.length} notes</summary><ul class="methods-notes">${m.warnings.map(w=>`<li>${e(w)}</li>`).join('')}</ul></details><details class="guided-details"><summary>Recorded execution</summary><div class="padded">${m.execution.map(p=>`<p>${e(p)}</p>`).join('')}</div></details><details class="guided-details"><summary>Software versions</summary><div class="table-wrap"><table><thead><tr><th>Software</th><th>Recorded version</th><th>Scope</th></tr></thead><tbody>${m.software.map(x=>`<tr><td>${e(x.tool)}</td><td>${e(x.version)}</td><td>${e(x.scope)}</td></tr>`).join('')}</tbody></table></div></details><p class="settings-note">Generated ${e(m.generated_at)} · Template v${e(m.generator_version)} · <a href="${e(safeURL(m.citation_url))}" target="_blank" rel="noopener noreferrer">Pinned pipeline source ↗</a></p></section>`;
+ const controller=m.software.find(x=>x.tool==='snakemake');
+ body+=`<section class="methods-export"><div class="methods-validation" role="note"><strong>Experimental pipeline · scientific validation not established</strong><p>${e(m.validation_status||'This document describes a research workflow and its available evidence. Successful software execution does not establish analytical accuracy or suitability for an application.')}</p></div><div class="methods-status">${badge(m.state,m.state==='Completed workflow'?'blue':'amber')}<span>${e(m.evidence_origin)}</span></div><div class="button-row methods-downloads">${btn('methods-download-manuscript','Methods only',true,r.id,'download')}${btn('methods-download-txt','Full text',false,r.id,'download')}${btn('methods-download-md','Markdown',false,r.id,'download')}${btn('methods-download-html','Printable HTML',false,r.id,'download')}${btn('methods-download-zip','Reproducibility ZIP',false,r.id,'download')}</div><p class="settings-note">Methods only downloads the narrative with its evidence qualifications. The ZIP also includes the diagram, frozen YAML, settings, recorded evidence and available pipeline citation. Exports contain sample identifiers and local paths; review them before sharing.</p><aside class="methods-controller" aria-label="Workflow controller"><div><strong>Snakemake</strong><span>${e(controller?.version||'Not recorded')}</span></div><p>Schedules the workflow and its dependencies. This identifies orchestration software; it does not establish scientific validation.</p><p class="settings-note">${e(controller?.scope||'No attributable controller version is available for this attempt. Current installations cannot establish a historical version.')}</p></aside><article class="methods-prose" aria-label="Methods preview"><h3>Methods narrative</h3><p class="settings-note">${e(m.narrative?.status||'Run-specific Methods draft')}</p>${(m.narrative?.paragraphs||m.paragraphs).map(p=>`<p>${e(p)}</p>`).join('')}</article>${methodsFlowPanel(r,m)}<details class="guided-details publication-notes"><summary>Review before publication · ${m.warnings.length} notes</summary><ul class="methods-notes">${m.warnings.map(w=>`<li>${e(w)}</li>`).join('')}</ul></details><details class="guided-details"><summary>Configuration and evidence notes</summary><div class="padded">${m.paragraphs.map(p=>`<p>${e(p)}</p>`).join('')}</div></details><details class="guided-details"><summary>Recorded execution</summary><div class="padded">${m.execution.map(p=>`<p>${e(p)}</p>`).join('')}</div></details><details class="guided-details"><summary>Software versions</summary><div class="table-wrap"><table><thead><tr><th>Software</th><th>Recorded version</th><th>Scope</th></tr></thead><tbody>${m.software.map(x=>`<tr><td>${e(x.label||x.tool)}</td><td>${e(x.version)}</td><td>${e(x.scope)}</td></tr>`).join('')}</tbody></table></div></details>${m.databases?.length?`<details class="guided-details"><summary>Database identities</summary><div class="padded">${m.databases.map(p=>`<p>${e(p)}</p>`).join('')}</div></details>`:''}<p class="settings-note">Generated ${e(m.generated_at)} · Generator v${e(m.generator_version)} · <a href="${e(safeURL(m.citation_url))}" target="_blank" rel="noopener noreferrer">Pinned pipeline source ↗</a></p></section>`;
  return body;
 }
 function savedValue(value){
@@ -539,15 +1565,21 @@ function savedFields(fields,fullNames=false){
 function runReadiness(r,d){
  const p=d.readiness;if(!p)return '';
  const next=p.next,disabled=r.busy||r.archived,validated=p.validated&&!p.blocked;
+ const awareReady=['complete','continuation_ready'].includes(r.aware_state?.state);
+ const launch=r.identification?.state==='awaiting_review'?['review-identification','Review identification','check',disabled]:awareReady?['aware-outputs','AWARE outputs / continue','play',disabled]:r.identification?.decision_path?['continue-reviewed','Continue run','play',disabled||p.blocked]:['run',r.review_enabled?'Start identification':'Run / resume','play',disabled||!validated||p.execution_blocked||p.missing_environments>0];
+ const primary=r.archived?'restore-run':r.identification?.state==='awaiting_review'?'review-identification':awareReady?'aware-outputs':next==='run'?launch[0]:({'dry-run':'dry-run','check-environments':'check-run-environments',prepare:'prepare'})[next];
+ const actions=[['dry-run','Validate run','check',disabled||p.blocked],['check-run-environments','Check environments','check',disabled||!validated],['prepare','Install environments','download',disabled||!validated],launch];
+ const actionButton=([id,label,ico,locked])=>btn(id,label,id===primary,r.id,ico,locked||!!workspaceDiskStop()&&!['review-identification','aware-outputs'].includes(id));
  const actionText={review:'Review the items that need attention.', 'dry-run':'Next: validate this run.', 'check-environments':'Next: check this run’s environment cache.',prepare:'Next: review the missing environments.',run:'Listed environments are available. Execution checks them again.'};
- return experimentalNotice(r)+`<section class="run-readiness" aria-label="Run checks"><div class="readiness-heading"><h3>Run checks</h3>${btn('run-detail','Refresh checks',false,r.id,'clock',r.busy)}</div><p class="readiness-next">${e(actionText[next])}</p><div class="button-row saved-run-actions">${r.archived?btn('restore-run','Restore run',true,r.id,'arrow'):btn('dry-run','Validate run',next==='dry-run',r.id,'check',disabled||p.blocked)}${btn('check-run-environments','Check environments',next==='check-environments',r.id,'check',disabled||!validated)}${btn('prepare','Install environments',next==='prepare',r.id,'download',disabled||!validated)}${r.identification?.state==='awaiting_review'?btn('review-identification','Review identification',true,r.id,'check',disabled):r.aware_state?.state==='complete'||r.aware_state?.state==='continuation_ready'?btn('aware-outputs','AWARE outputs / continue',true,r.id,'play',disabled):r.identification?.decision_path?btn('continue-reviewed','Continue run',true,r.id,'play',disabled||p.blocked):btn('run',r.review_enabled?'Start identification':'Run / resume',next==='run',r.id,'play',disabled||!validated||p.execution_blocked||p.missing_environments>0)}${btn('view-results','View results',false,r.id,'file')}</div><p class="readiness-policy">Run / resume reuses matching environments. Installation happens only when you choose Install environments.</p><div class="readiness-grid">${p.rows.map(x=>`<div class="readiness-item ${e(x.level)}" data-readiness="${e(x.id)}"><div><strong>${e(x.title)}</strong>${badge(x.state,x.level==='good'?'green':x.level==='error'?'red':x.level==='warning'?'amber':'')}</div><p>${e(x.text)}</p>${x.checked_at?`<small>Checked ${e(new Date(x.checked_at).toLocaleString())}</small>`:''}${x.action==='budget'&&r.run_type!=='followup'?quiet('edit-run-settings','Review run budget',r.id):''}${x.id==='pipeline'?quiet('go-install','Open setup'):''}${x.id==='databases'&&r.run_type!=='followup'?quiet('saved-run-tab','Review saved paths','databases'):''}</div>`).join('')}</div>${p.destinations?.length?`<details class="guided-details"><summary>Checked destinations</summary>${p.destinations.map(x=>`<div class="readiness-environment"><strong>${e(x.label)}</strong><code>${e(x.path)}</code><span>${e(x.text)}</span></div>`).join('')}</details>`:''}${p.environments.length?`<details class="guided-details"><summary>Listed tool environments · ${p.environments.length}</summary>${p.environments.map(x=>`<div class="readiness-environment"><strong>${e(x.name)}</strong>${badge(x.state,x.state==='Available'?'green':'amber')}<code>${e(x.path)}</code></div>`).join('')}</details>`:''}</section>`;
+ return experimentalNotice(r)+`<section class="run-readiness" aria-label="Run checks"><div class="readiness-heading"><h3>Run checks</h3>${btn('refresh-run-checks','Refresh checks',false,r.id,'clock',r.busy)}</div><p class="readiness-next">${r.archived?'Restore this run above before validating or starting jobs.':e(actionText[next])}</p><div class="button-row saved-run-actions">${actions.filter(a=>a[0]===primary).map(actionButton).join('')}${btn('view-results','View results',false,r.id,'file')}</div><details class="guided-details more-run-actions"><summary>More run actions</summary><div class="button-row">${actions.filter(a=>a[0]!==primary).map(actionButton).join('')}</div></details><p class="readiness-policy">Run / resume reuses matching environments. Installation happens only when you choose Install environments.</p><div class="readiness-grid">${p.rows.map(x=>`<div class="readiness-item ${e(x.level)}" data-readiness="${e(x.id)}"><div><strong>${e(x.title)}</strong>${badge(x.state,x.level==='good'?'green':x.level==='error'?'red':x.level==='warning'?'amber':'')}</div><p>${e(x.text)}</p>${x.checked_at?`<small>Checked ${e(new Date(x.checked_at).toLocaleString())}</small>`:''}${x.recalculate_swap&&!disabled?quiet('recalculate-run-swap','Recalculate swap',r.id):''}${x.action==='budget'&&r.run_type!=='followup'?quiet('edit-run-settings','Review run budget',r.id):''}${x.id==='pipeline'?quiet('go-install','Open setup'):''}${x.id==='databases'&&r.run_type!=='followup'?quiet('saved-run-tab','Review saved paths','databases'):''}</div>`).join('')}</div>${p.destinations?.length?`<details class="guided-details"><summary>Checked destinations</summary>${p.destinations.map(x=>`<div class="readiness-environment"><strong>${e(x.label)}</strong><code>${e(x.path)}</code><span>${e(x.text)}</span></div>`).join('')}</details>`:''}${p.environments.length?`<details class="guided-details"><summary>Listed tool environments · ${p.environments.length}</summary>${p.environments.map(x=>`<div class="readiness-environment"><strong>${e(x.name)}</strong>${badge(x.state,x.state==='Available'?'green':'amber')}<code>${e(x.path)}</code></div>`).join('')}</details>`:''}</section>`;
 }
 function renderSavedRun(r,d){
- const c=d.settings,tabs=[['overview','Overview','home'],...(r.run_type==='followup'?[['advanced','Advanced','config']]:guidedTabs[r.tool]),['activity','Activity','jobs'],['results','Results','file'],['methods','Methods','file']];
+ const c=d.settings,tabs=[['overview','Overview','home'],...(r.run_type==='followup'?[['advanced','Advanced','config']]:guidedTabs[r.tool]),['activity','Activity','jobs'],['results','Results','file'],['methods','Methods & citation','file']];
  let tab=U.runDetailTab||'overview';if(!tabs.some(t=>t[0]===tab)){tab='overview';U.runDetailTab=tab;writeRoute(true);}
  const included=c.fields.filter(f=>f.included),settings=included.filter(f=>!f.managed);
  const core=['overview','activity','results','methods'],tabButton=([id,label,ico])=>`<button type="button" class="settings-tab ${tab===id?'active':''}" data-action="saved-run-tab" data-id="${id}" aria-pressed="${tab===id}">${icon(ico)}${label}</button>`;
- let body=`<div class="detail-pills">${badge(S.pipelines[r.tool].name,'blue')}${r.archived?badge('Archived'):statusBadge(r.status)}${badge(d.readiness?.validated?'Native dry-run passed':'Needs validation',d.readiness?.validated?'green':'amber')}</div><div class="settings-tabs saved-run-tabs primary-run-tabs" aria-label="Saved run sections">${core.map(id=>tabButton(tabs.find(t=>t[0]===id))).join('')}</div><details class="saved-settings-nav" ${!core.includes(tab)?'open':''}><summary>Saved configuration${!core.includes(tab)?' · '+e(tabs.find(t=>t[0]===tab)?.[1]):''}</summary><div class="settings-tabs saved-run-tabs" aria-label="Saved configuration sections">${tabs.filter(t=>!core.includes(t[0])).map(tabButton).join('')}</div></details>`;
+ const assessment=r.assessment||{label:'Coverage not recorded',state:'unknown',reasons:['No usable saved assessment coverage.']};
+ let body=`<div class="result-status-grid"><section class="result-status-card ${['failed','interrupted'].includes(r.status)?'failure':r.status==='completed'?'':'neutral'}" aria-label="Execution status"><span class="eyebrow">EXECUTION</span><h3>${r.archived?badge('Archived'):runStatusBadge(r)}</h3><p>${d.readiness?.validated?'Saved configuration check passed.':'Configuration has not passed validation.'}</p></section><section class="result-status-card ${assessment.state==='incomplete'?'incomplete':'neutral'}" aria-label="Evidence coverage"><span class="eyebrow">EVIDENCE COVERAGE</span><h3>${badge(assessment.label,assessment.state==='incomplete'?'amber':'blue')}</h3><p>${e(assessment.reasons?.[0]||'Review the saved evidence.')}</p></section></div>${assessmentDetails(r.assessment)}<div class="settings-tabs saved-run-tabs primary-run-tabs" aria-label="Saved run sections">${core.map(id=>tabButton(tabs.find(t=>t[0]===id))).join('')}</div><details class="saved-settings-nav" ${!core.includes(tab)?'open':''}><summary>Saved configuration${!core.includes(tab)?' · '+e(tabs.find(t=>t[0]===tab)?.[1]):''}</summary><div class="settings-tabs saved-run-tabs" aria-label="Saved configuration sections">${tabs.filter(t=>!core.includes(t[0])).map(tabButton).join('')}</div></details>`;
 
  if(tab==='overview'){
   if(r.aware_state)body+=notice(r.status==='aware_complete'?'AWARE complete':'AWARE outputs available','Retained groups are ready to inspect. Assembly completion is tracked separately.')+btn('aware-outputs','Open AWARE outputs',true,r.id,'file',r.busy||r.archived);
@@ -555,7 +1587,7 @@ function renderSavedRun(r,d){
   if(r.identification?.selection)body+=notice('Finalized identification decision',e(r.identification.selection.name)+' · TaxID '+e(r.identification.selection.taxid)+' · '+e(r.identification.selection.mode)+'. The original YAML and the reviewed decision are both retained.');
   const transition=r.followup_transition;if(transition)body+=notice('Recorded follow-up source','Screening '+e(transition.screening_commit.slice(0,12))+' · Follow-up '+e(transition.commit.slice(0,12))+' · Scope '+e(transition.scope));
   const names=r.tool==='micpscope'?['threads','memory_mb']:r.tool==='hybas'?['kraken_decision_mode','polish_mode','run_busco','run_prokka','run_multiqc']:['deep.aware.enabled','deep.aware.preset','deep.enabled'];
-  body+=(r.variant?notice('Result variant',r.variant.checkpoints+' checkpoint groups available from '+r.variant.parent+'. '+(r.variant.mode==='native_cache'?'Native BaSIS jobs verify each cached execution identity before deciding whether to reuse it.':r.variant.mode==='mixed'?'Verified completed results are restored into this run. Other native BaSIS cache candidates are rechecked before reuse.':'Verified intermediate results are restored into this run; downstream work follows the native workflow.')+(r.variant.unknown_changes?.length?' Changes requiring recomputation: '+e(r.variant.unknown_changes.join(', '))+'.':''))+`<details class="guided-details"><summary>Result inheritance · ${r.variant.checkpoints} groups</summary><p>Changed settings: ${e(r.variant.changed.join(', ')||'None')}</p>${(r.variant.items||[]).map(x=>`<div class="readiness-environment"><strong>${e(x.rule)}</strong><span>${e(x.outputs.join(', ')||'Verified native cache candidate')}</span></div>`).join('')}</details>`:'')+`<div class="settings-intro"><div><h3>Your saved run</h3><p>Review its settings, edit a new revision, or continue execution.</p></div></div>${runReadiness(r,d)}<div class="review-stats"><div><span>Read mode</span><strong>${e(r.sample.mode.replaceAll('_',' '))}</strong></div><div><span>CPU per run</span><strong>${r.cores} cores</strong></div><div><span>Memory per run</span><strong>${r.memory_mb} MB</strong></div></div>${savedFields(settings.filter(f=>names.includes(f.name)))}<details class="guided-details"><summary>Folders and source version</summary><dl class="saved-run-locations"><div><dt>Input folder</dt><dd>${e(r.sample.path)}</dd></div><div><dt>Results folder</dt><dd>${e(d.output)}</dd></div><div><dt>Source version</dt><dd>${e(r.commit?.slice(0,12))}${r.parent?' · Parent '+e(r.parent):''}</dd></div></dl></details><div class="button-row">${r.run_type!=='followup'?btn('create-variant','Create variant',false,r.id,'branch',r.archived||r.busy||r.status!=='completed'):''}${r.can_micp_handoff?btn('micp-handoff','Create GeneScope draft',false,r.id,'',r.archived):''}${r.can_handoff?btn('handoff','Create BaSIS AWARE draft',false,r.id,'',r.archived):''}${r.can_followup?btn('followup','Review follow-up',false,r.id,'',r.archived):''}</div>`;
+  body+=(r.variant?notice('Result variant',r.variant.checkpoints+' checkpoint groups available from '+r.variant.parent+'. '+(r.variant.mode==='native_cache'?'Native BaSIS jobs verify each cached execution identity before deciding whether to reuse it.':r.variant.mode==='mixed'?'Verified completed results are restored into this run. Other native BaSIS cache candidates are rechecked before reuse.':'Verified intermediate results are restored into this run; downstream work follows the native workflow.')+(r.variant.unknown_changes?.length?' Changes requiring recomputation: '+e(r.variant.unknown_changes.join(', '))+'.':''))+`<details class="guided-details"><summary>Result inheritance · ${r.variant.checkpoints} groups</summary><p>Changed settings: ${e(r.variant.changed.join(', ')||'None')}</p>${(r.variant.items||[]).map(x=>`<div class="readiness-environment"><strong>${e(x.rule)}</strong><span>${e(x.outputs.join(', ')||'Verified native cache candidate')}</span></div>`).join('')}</details>`:'')+`<div class="settings-intro"><div><h3>Your saved run</h3><p>Review its settings and validation status.</p></div></div>${runReadiness(r,d)}<div class="review-stats"><div><span>Read mode</span><strong>${e(readMode(r.sample.mode))}</strong></div><div><span>CPU per run</span><strong>${r.cores} cores</strong></div><div><span>Physical RAM budget</span><strong>${r.memory_mb} MB</strong></div><div><span>Additional disk swap</span><strong>${Number(r.swap_mb)>0?e(r.swap_mb)+' MB':'Off'}</strong></div>${Number(r.swap_mb)>0?`<div><span>Requested scheduling budget</span><strong>${e(computeTotal(r.memory_mb,r.swap_mb))}</strong></div>`:''}</div>${savedFields(settings.filter(f=>names.includes(f.name)))}<details class="guided-details"><summary>Folders and source version</summary><dl class="saved-run-locations"><div><dt>Input folder</dt><dd>${e(r.sample.path)}</dd></div><div><dt>Results folder</dt><dd>${e(d.output)}</dd></div><div><dt>Source version</dt><dd>${e(r.commit?.slice(0,12))}${r.parent?' · Parent '+e(r.parent):''}</dd></div></dl></details><div class="button-row">${r.run_type!=='followup'&&r.reuse_reviewed?btn('create-variant','Create variant',false,r.id,'branch',r.archived||r.busy||r.status!=='completed'):''}${r.can_micp_handoff?btn('micp-handoff','Create GeneScope draft',false,r.id,'',r.archived):''}${r.can_handoff?btn('handoff','Create BaSIS AWARE draft',false,r.id,'',r.archived):''}${r.can_followup?btn('followup','Review follow-up',false,r.id,'',r.archived):''}</div>`;
  }else if(tab==='activity'){body+=runActivity(r);
  }else if(tab==='results'){body+=runResults(r);
  }else if(tab==='methods'){body+=runMethods(r);
@@ -566,7 +1598,7 @@ function renderSavedRun(r,d){
  }else{
   const groups={kraken:'Kraken & AWARE',assembly:'Assembly & polishing',quality:'Quality & annotation',aware:'BaSIS AWARE',deep:'DeepSafe'};
   const fields=tab==='modules'?settings.filter(f=>f.name.startsWith('modules.')&&f.name.endsWith('.enabled')):settings.filter(f=>f.group===groups[tab]);
-  body+=`<div class="settings-intro"><div><h3>${e(tabs.find(t=>t[0]===tab)?.[1]||'Settings')}</h3><p>Values saved with this run. Use Edit settings to create a revision.</p></div>${badge('Saved values')}</div>${fields.length?savedFields(fields):'<p class="settings-note">No explicit values were saved in this section. The pipeline uses its defaults.</p>'}`;
+  body+=`<div class="settings-intro"><div><h3>${e(tabs.find(t=>t[0]===tab)?.[1]||'Settings')}</h3><p>Values saved with this run.</p></div>${badge('Saved values')}</div>${fields.length?savedFields(fields):'<p class="settings-note">No explicit values were saved in this section. The pipeline uses its defaults.</p>'}`;
  }
  return body;
 }
@@ -600,6 +1632,24 @@ function referenceBuilder(){
  if(starter&&(!Object.hasOwn(U.drafts,'reference-spec')||U.drafts['reference-spec']===referenceTemplate||U.drafts['reference-spec']===U.referenceDefaultText)){setDraft('reference-spec',starter.text);U.referenceDefaultText=starter.text;}
  return `<section class="card"><div class="card-head"><h2>Database Builder</h2>${badge('Snakemake')}</div><div class="card-body"><p>Build a versioned reference database from your YAML or JSON specification. Local FASTA paths refer to this Linux/WSL computer. Input files are copied into the build record.</p>${!b.available?notice('Update GeneScope','Install a release containing Database Builder and finish runner setup.'):''}${starter?`<p><strong>Bundled starter: ${e(starter.name)} ${e(starter.version)}</strong> · ${starter.proteins} protein references · ${starter.literature_records} literature entries</p><p class="path-cell">${e(starter.path)}</p><p>Ready to build. Published regulatory observations are included as evidence; mapped regulatory sequences: ${starter.regulatory}.</p>`:notice('Starter unavailable','Update GeneScope to load the bundled literature starter, or supply your own specification.')}<details id="reference-editor"><summary>Edit or replace reference specification</summary><div class="field"><label for="reference-upload">Load reference specification</label><input id="reference-upload" type="file" accept=".yaml,.yml,.json"></div>${area('reference-spec','Reference specification',starter?.text||referenceTemplate,'rows="16" spellcheck="false"')}${starter?btn('restore-reference-starter','Restore bundled starter'):''}</details>${field('reference-cores','CPU threads',2,'number','min="1"')}${field('reference-memory','Memory (MB)',2048,'number','min="512"')}<div class="button-row">${btn('validate-reference-spec','Validate inputs')}${btn('build-reference','Build database',true,'','play',!b.available)}</div><p>Build checks validate files and identities, not biological claims. Completed packages are registered below. GeneScope uses the selected application package for reference searches and report interpretation.</p><details><summary>Input format</summary><p>Schema 2.0 requires application.id, name, version and description. The name labels the database; id and version name its package. Each local protein needs id, path, record, evidence, references and license. UniProt records instead require accession, taxon_id, sequence_version, sequence_sha256 and curation_status: approved. Regulatory records additionally require accession_version, feature_type, start, end, strand and sequence_sha256; intervals are 1-based inclusive. The checksum is for the transcription-oriented extracted sequence. Use absolute local paths.</p></details></div></section><section class="card"><div class="card-head"><h2>Built databases</h2></div><div class="card-body"><p>Selected application: ${e(row?.application?row.application.name+' · '+row.application.version:'None')}</p><p>${e(row?.application?.description||'')}</p><p class="path-cell">${e(row?.path||'')}</p>${b.builds.map(x=>`<article><strong>${e(x.name)} · ${e(x.version)}</strong>${badge(x.status)}${x.description?`<p>${e(x.description)}</p>`:''}${x.error?`<p class="error">${e(x.error)}</p>`:''}${x.result_path?`<p class="path-cell">${e(x.result_path)}</p>${btn('select-built-reference','Select for future drafts',false,x.id)}`:''}${x.job?btn('job-log','View build log',false,x.job):''}</article>`).join('')||'<p>No databases built yet.</p>'}</div></section>`;
 }
+function basisCatalogBuilder(){
+ const builder=S.basis_catalog_builder;
+ if(!builder)return '';
+ const disabled=!builder.available;
+ const recent=builder.results.filter(row=>row.action==='build');
+ const latest=(S.jobs||[]).find(job=>job.kind==='basis_catalog');
+ const receipt=latest&&builder.results.find(row=>row.job===latest.id);
+ const counts=row=>e(row.approved)+' approved · '+e(row.pending)+' pending · '+e(row.excluded)+' excluded';
+ return `<section class="card"><div class="card-head"><h2>Researcher-curated reference catalog</h2></div><div class="card-body">
+ <p>Describe local reference files in a JSON manifest with their sources, licenses and review decisions. A build copies the approved files into a versioned package.</p>
+ ${disabled?notice('Builder unavailable','Activate a BaSIS Dev release with the reference catalog builder.') : ''}
+ ${field('basis-catalog-spec','Reference catalog JSON path','','text','placeholder="/home/jimi/references/catalog.json"')}
+ <div class="button-row">${btn('basis-catalog-template','Download JSON template',false,'','download',disabled)}${btn('basis-catalog-run','Check manifest',false,'check','check',disabled)}${btn('basis-catalog-run','Build catalog',true,'build','play',disabled)}</div>
+ <details><summary>Draft a reference from a DOI</summary><p>Look up one citation in Crossref and download a pending JSON manifest for review.</p>${field('basis-catalog-doi','DOI or doi.org link')}${btn('basis-catalog-doi','Look up citation',false,'','download',disabled)}</details>
+ ${latest?`<p>Latest ${e(latest.payload.action)} · ${statusBadge(latest.status)} ${btn('job-log','View log',false,latest.id,'file')}</p>`:''}
+ ${receipt?`<p>${e(receipt.name)} ${e(receipt.version)} · ${counts(receipt)}</p>`:''}
+ ${recent.length?`<details><summary>Built catalogs · ${recent.length}</summary>${recent.map(row=>`<article><strong>${e(row.name)} · ${e(row.version)}</strong><p>${counts(row)}</p><p class="path-cell">${e(row.output)}</p>${row.placement_registry?`<p>Placement registry for a future draft</p><p class="path-cell">${e(row.placement_registry)}</p>`:'<p>Reference archive.</p>'}<div class="button-row">${btn('basis-catalog-verify','Verify package',false,row.job,'check',disabled)}${btn('job-log','Build log',false,row.job,'file')}</div></article>`).join('')}</details>`:''}</div></section>`;
+}
 function resources(embedded=false){const t=U.resourceTool||'hybas',p=S.databases[t],state=dbState(t),scan=state.scan;
 const databaseTabs=embedded?'':`<div class="tabs">${Object.keys(S.pipelines).map(x=>`<button class="tab ${x===t?'active':''}" data-action="database-tool" data-id="${x}">${e(S.pipelines[x].name)}</button>`).join('')}</div>`;
 if(t==='micpscope')return databaseTabs+referenceBuilder();
@@ -607,48 +1657,198 @@ if(!p.rows.length)return (embedded?'':heading('DATABASES & MODELS','Your databas
 const dirty=p.rows.filter(r=>!r.managed&&(state.resets[r.id]||val(dbPath(t,r.id),r.path)!==r.path));
 return (embedded?'':heading('DATABASES & MODELS','Your databases, connected.','Choose installed resources for each pipeline. Save selected locations for future runs. Existing drafts keep their own paths until you create a revision.',btn('save-databases','Save for future runs',true,t,'check',!dirty.length)+btn('use-databases-for-runs','Update saved drafts',false,t,'resources',!!dirty.length||!visibleRuns().some(r=>r.tool===t&&!r.busy&&r.run_type!=='followup'))))+
 `${embedded?'':`<div class="tabs">${Object.keys(S.pipelines).map(x=>`<button class="tab ${x===t?'active':''}" data-action="database-tool" data-id="${x}">${e(S.pipelines[x].name)}</button>`).join('')}</div>`}
+${t==='basis'?basisCatalogBuilder():''}
 <section class="card database-scan"><div class="card-head"><div><h2>Find installed databases</h2><p>Scan known locations and common folders, or include a folder on another disk.</p></div>${btn('scan-databases','Auto scan',true,t,'resources')}</div><div class="card-body"><div class="folder-address">${field('dbscan-'+t,'Additional scan folder (optional)','','text','placeholder="/home/jimi/databases or D:\\databases"')}${btn('browse-folder','Browse',false,'dbscan-'+t,'folder')}</div><p class="inline-info">A valid saved location is preferred. Otherwise the scan suggests a recognized installation; review its release and scope before saving.</p>
 ${scan?`<details class="database-scan-details"><summary>${Object.values(scan.candidates).reduce((n,a)=>n+a.length,0)} candidates found · ${scan.visited} folders checked${scan.limited?' · scan limits reached':''}</summary><p>${e(scan.scope)}</p>${scan.limits.length?`<p>Reached: ${e(scan.limits.join(', '))}. Scan a more specific folder to continue.</p>`:''}${scan.inaccessible?`<p>${scan.inaccessible} inaccessible folders skipped.</p>`:''}<p class="path-cell">${scan.roots.map(e).join('<br>')}</p></details>`:''}</div></section>
-${!S.download_options[t].available?notice('Set up database downloads','In Install & update, select and finish setup for the recommended pipeline version.'):''}${scan?.invalid.length?`<details class="card database-rejected"><summary>${scan.invalid.length} locations need attention</summary>${scan.invalid.map(x=>`<div><strong>${e(p.rows.find(r=>r.id===x.id)?.name||x.id)}</strong><p class="path-cell">${e(x.path)}</p><p class="error">${e(x.message)}</p></div>`).join('')}</details>`:''}
+${!S.download_options[t].available?notice('Database preparation unavailable',e(S.download_options[t].reason||'Open pipeline setup and check the active installation.')):''}${S.download_options[t].checked_at?`<p class="secondary-line">Preparation capability checked ${e(S.download_options[t].checked_at)}. Starting preparation rechecks the installed source.</p>`:''}${scan?.invalid.length?`<details class="card database-rejected"><summary>${scan.invalid.length} locations need attention</summary>${scan.invalid.map(x=>`<div><strong>${e(p.rows.find(r=>r.id===x.id)?.name||x.id)}</strong><p class="path-cell">${e(x.path)}</p><p class="error">${e(x.message)}</p></div>`).join('')}</details>`:''}
 ${state.revision!==p.revision?notice('Saved defaults have changed','Reload locations before saving these choices.',true):''}
-<div class="database-summary"><span>${dirty.length?dirty.length+' unsaved selection'+(dirty.length===1?'':'s'):'Saved locations'} · ${t==='basis'?'Missing resources follow the '+e(p.policy)+' preparation policy.':'Download databases here, then save the prepared locations.'}</span>${btn('reload-databases','Reload locations',false,t)}</div>
+<div class="database-summary"><span>${dirty.length?dirty.length+' unsaved selection'+(dirty.length===1?'':'s'):'Saved locations'} · ${t==='basis'?'Missing resources follow the '+e(p.policy)+' preparation policy.':'Select an existing database or download one, then save its location.'}</span>${btn('reload-databases','Reload locations',false,t)}</div>
 <div class="database-grid">${p.rows.filter(r=>!r.managed).map(r=>{const id=dbPath(t,r.id),value=val(id,r.path),checked=state.checks[r.id],choices=scan?.candidates[r.id]||[],chosen=choices.find(c=>c.path===value),status=checked?.path===value?checked:chosen,reset=state.resets[r.id],invalid=scan?.invalid.find(x=>x.id===r.id&&x.path===value);
 return `<section class="card database-card"><div class="database-title"><h2>${e(r.name)}</h2>${badge(reset?'Pipeline default':status?'Layout recognized':value?'Location not checked':'Pipeline default',status?'green':'')}</div><p class="database-description">${e(r.description)}</p><div class="folder-address">${field(id,r.name+' location',r.path,'text','placeholder="Choose an installed database folder"')}${btn('browse-database','Browse',false,r.id,'folder')}</div>
 ${choices.length?select('dbcand-'+t+'-'+r.id,'Detected installations · '+choices.length,[['','Choose a detected location'],...choices.map(c=>[c.path,(c.preferred?'Preferred · ':'')+(c.version?c.version+' · ':'')+c.path])],chosen?.path||''):''}
 ${status?`<p class="database-evidence">${icon('check')}<span>${e(status.reason||'Expected files found. Native runtime checks still apply.')}${status.version?'<br>Recorded version: '+e(status.version):''}</span></p>`:invalid?`<p class="error">${e(invalid.message)}</p>`:''}
 ${reset?'<p class="inline-info">Save to use the pipeline default for this resource.</p>':`<p class="database-selection-state">${value!==r.path?'Selected · not saved':r.path?'Saved for future runs':'Using the pipeline default'}</p>`}
-<div class="database-actions">${btn('check-database','Check location',false,r.id,'check',!value||!!reset)}${btn('reset-database','Use pipeline default',false,r.id,'',!value&&!reset)}${btn('download-database',r.id==='kraken'?'Download and build':'Download and prepare',false,r.id,'download',!S.download_options[t].available)}</div>${resourceDownloads(t,r.id)}</section>`;}).join('')}</div>
+<div class="database-actions">${btn('check-database','Check location',false,r.id,'check',!value||!!reset)}${btn('reset-database','Use pipeline default',false,r.id,'',!value&&!reset)}${btn('download-database',r.id==='kraken'?'Download and build':'Download and prepare',false,r.id,'download',!S.download_options[t].available)}${r.path?btn('redownload-database','Download again',false,r.id,'download'):''}</div>${resourceDownloads(t,r.id)}</section>`;}).join('')}</div>
 <section class="card database-managed"><div class="card-head"><h2>Tool-managed resources</h2></div><div class="card-body">${p.rows.filter(r=>r.managed).map(r=>`<div><strong>${e(r.name)}</strong>${badge('Tool-managed')}<p>${e(r.description)}</p></div>`).join('')}</div></section>
 ${notice('A quick layout check','Discovery reads filenames and small metadata files. The native pipeline performs its full resource checks when preparing a run. Scanning does not download databases.')}
 <div class="database-footer"><span>${dirty.length?'Selections are not saved yet. Save to use them in future drafts.':'Existing run drafts keep their frozen resource paths.'}</span>${btn('save-databases','Save for future runs',true,t,'check',!dirty.length)}</div>`;}
-function render(){draftInputs();$('#navigation').innerHTML=navs.map(([key,label,ico])=>`${key==='overview'?'<div class="nav-label">WORK</div>':key==='install'?'<div class="nav-divider"></div><div class="nav-label">MANAGE</div>':''}<a href="#${key}" aria-label="${e(label)}" data-nav="${key}" class="nav-item ${(['run','draft'].includes(U.view)?'runs':U.view)===key?'active':''}" ${(['run','draft'].includes(U.view)?'runs':U.view)===key?'aria-current="page"':''}>${icon(ico)}<span>${label}</span>${key==='jobs'&&S.jobs.some(j=>['queued','running'].includes(j.status))?`<span class="nav-count">${S.jobs.filter(j=>['queued','running'].includes(j.status)).length}</span>`:''}</a>`).join('');$('#crumb').textContent=U.view==='draft'?'Runs / Unfinished draft':U.view==='run'?'Runs / '+(runBy(U.runId)?.label||'Saved run'):navs.find(n=>n[0]===U.view)?.[1]||'Overview';$('#app-version').textContent='v'+S.version;$('#workspace-name').textContent=S.workspace.split('/').pop();$('#workspace-name').title=S.workspace;$('#workspace-label').textContent=S.workspace_label||'Local workspace';const running=S.jobs.filter(j=>j.status==='running').length,queued=S.jobs.filter(j=>j.status==='queued').length;$('#queue-status').textContent=S.queue?.paused?`Queue paused · ${running} running · ${queued} waiting`:running||queued?`${running} running · ${queued} queued${S.queue?.held_count?' · '+S.queue.held_count+' held':''}`:'No active jobs';$('.status-dot').classList.toggle('active',!!running);
-$('#main').innerHTML=appUpdateNotice()+queueNotice()+wizardBanner()+(!U.modal&&U.error?`<div class="error" role="alert">${e(U.error)}</div>`:'')+({overview,samples,runs:runsPage,run:runPage,draft:wizardPage,comparisons,jobs,reports:reportsPage,storage:storagePage,install,resources,configure:configuration}[U.view]||overview)();
-if(!$('#connection-status')){const x=document.createElement('div');x.id='connection-status';x.className='connection-status';$('.topbar-location').append(x);}syncNavigation();renderBusy();renderModal();filterResults();filterCompatibility();if(['configure','draft'].includes(U.view)&&!U.modal)filterRunSettings();persistWizard();schedulePoll();
+function render(){draftInputs();document.title=S.application_title||'Bactologix';$('#navigation').innerHTML=navs.map(([key,label,ico])=>`${key==='overview'?'<div class="nav-label">WORK</div>':key==='install'?'<div class="nav-divider"></div><div class="nav-label">MANAGE</div>':''}<a href="#${key}" aria-label="${e(label)}" data-nav="${key}" class="nav-item ${(['run','draft'].includes(U.view)?'runs':U.view==='resources'?'install':U.view)===key?'active':''}" ${(['run','draft'].includes(U.view)?'runs':U.view==='resources'?'install':U.view)===key?'aria-current="page"':''}>${icon(ico)}<span>${label}</span>${key==='jobs'&&S.jobs.some(j=>['queued','running'].includes(j.status))?`<span class="nav-count">${S.jobs.filter(j=>['queued','running'].includes(j.status)).length}</span>`:''}</a>`).join('');$('#crumb').textContent=U.view==='draft'?'Runs / Unfinished draft':U.view==='run'?'Runs / '+(runBy(U.runId)?.label||'Saved run'):navs.find(n=>n[0]===U.view)?.[1]||({jobs:'Activity',resources:'Pipelines & databases'})[U.view]||'Home';$('#app-version').textContent='v'+S.version;$('#workspace-name').textContent=S.workspace.split('/').pop();$('#workspace-name').title=S.workspace;$('#workspace-label').textContent=S.workspace_label||'Local workspace';const storage=storageActivity(),paused=storage.paused+storage.waiting,running=S.jobs.filter(j=>j.status==='running'&&!diskPaused(j)).length,queued=S.jobs.filter(j=>j.status==='queued').length;$('#queue-status').textContent=workspaceDiskStop()?'Queue blocked · low disk space':S.queue?.paused?`Queue paused · ${storage.label}${running} running · ${queued} waiting`:running||queued||paused?`${storage.label}${running} running · ${queued} queued${S.queue?.held_count?' · '+S.queue.held_count+' held':''}`:'No active jobs';$('.status-dot').classList.toggle('active',!!running);$('#header-activity-count').textContent=running+queued+paused?'('+String(running+queued+paused)+')':'';$('#header-workspace').textContent=S.workspace_label||'Local workspace';$('#header-workspace').title=S.workspace;const dev=S.channel==='development'||S.channel==='dev'||S.version.includes('.dev');$('#release-channel-badge').textContent=dev?'DEV · Experimental':'REGULAR';$('#release-channel-badge').classList.toggle('experimental',dev);
+$('[data-action="close-desktop"]').hidden=!S.desktop_close_available;
+$('#main').innerHTML=(S.workspace_busy?notice(S.desktop_reconnecting?'Reconnecting to workspace':'Workspace database busy','Showing the last available view. Bactologix is checking for a fresh update.',true):'')+appUpdateNotice()+queueNotice()+wizardBanner()+`<div id="async-checks-slot">${asyncProgress()}</div>`+(!U.modal&&U.error?`<div class="error" role="alert">${e(U.error)}</div>`:'')+({overview,samples,runs:runsPage,sequences:sequencesPage,run:runPage,draft:wizardPage,comparisons,jobs,reports:reportsPage,storage:storagePage,install,resources:resourcePage,configure:configuration}[U.view]||overview)();
+syncNotificationBell();if(!$('#connection-status')){const x=document.createElement('div');x.id='connection-status';x.className='connection-status';$('.topbar-location').append(x);}syncNavigation();renderBusy();renderModal();filterResults();filterCompatibility();if(['configure','draft'].includes(U.view)&&!U.modal)filterRunSettings();persistWizard();schedulePoll();
+if(S.workspace_busy)return;
 if(U.view==='install'&&U.setupTab==='compatibility'&&!U.compatibility&&!U.pending&&!U.queuedRequest&&!U.error)request('inspect_compatibility');
-if(U.view==='storage'&&!U.storage&&!U.pending&&!U.queuedRequest&&!U.error)request('inspect_storage');
-if(U.view==='run'&&!U.modal&&!U.pending&&!U.queuedRequest&&!U.error&&runBy(U.runId)&&U.detail?.id!==U.runId)request('inspect_run',{id:U.runId});
-if(U.view==='run'&&U.runDetailTab==='results'&&!U.modal&&!U.pending&&!U.queuedRequest&&!U.error&&U.results?.id!==U.runId)request('inspect_results',{id:U.runId});
-if(U.view==='draft'&&U.wizard&&!runEditor()&&!U.pending&&!U.error){if(wizardKind()==='edit-run')request('edit_run_settings',{id:U.wizard.id,variant:!!U.wizard.variant});else request('run_config_editor',{tool:val('run-tool','hybas'),view:'samples'});}
+if(U.view==='storage'&&!U.modal&&!U.storage&&!storageLoad('inspect_storage').state&&!U.pending&&!U.queuedRequest&&!U.error)request('inspect_storage');
+if(U.view==='run'&&!U.modal&&!U.pending&&!U.queuedRequest&&!U.error){
+ const run=runBy(U.runId);
+ if(run&&U.detail?.id!==run.id)request('inspect_run',{id:run.id});
+ else if(run&&!run.busy&&U.detailRevision&&U.detailRevision!==runCheckRevision(run))request('inspect_run',{id:run.id},true);
+}
+if(U.modal?.kind==='output-files'&&!U.outputFiles&&!U.pending&&!U.queuedRequest&&!U.error&&runBy(U.modal.id))request('inspect_output_files',{id:U.modal.id});
+if(U.view==='run'&&U.runDetailTab==='results'&&!U.modal&&!U.pending&&!U.queuedRequest&&!U.error&&runBy(U.runId)&&U.results?.id!==U.runId)request('inspect_results',{id:U.runId});
+if(U.view==='draft'&&U.wizard&&!runEditor()&&!U.pending&&!U.error&&U.runConfigTab!=='purpose'){if(wizardKind()==='edit-run'){if(!Object.values(U.asyncTasks).some(task=>task.kind==='edit_run_settings'&&asyncCurrent(task)))request('edit_run_settings',{id:U.wizard.id,variant:!!U.wizard.variant});}else request('run_config_editor',{tool:val('run-tool','hybas'),view:U.runConfigTab||'samples'});}
 if(U.view==='configure'&&!U.modal&&!U.pending&&!U.queuedRequest&&!U.error){const c=defaultEditor();if(!c||!defaultsDirty(c)&&c.revision!==S.databases[U.tool].revision)request('default_config_editor',{tool:U.tool});}}
 function schedulePoll(){
- clearTimeout(pollTimer);if(U.pending||U.queuedRequest||!S.jobs.some(j=>['queued','running'].includes(j.status)))return;
+ clearTimeout(pollTimer);if(U.pending||U.queuedRequest)return;
+ if(S.workspace_busy){pollTimer=setTimeout(()=>request('refresh',{},true),2000);return;}
+ const activeJobs=S.jobs.some(j=>['queued','running'].includes(j.status));
+ const activeSequence=U.view==='sequences'&&!U.sequenceOpen&&(S.sequences||[]).some(p=>p.state==='active');
+ const task=Object.values(U.asyncTasks).find(task=>task.token);
+ if(task&&(!activeJobs||Date.now()-(U.lastWorkspacePoll||0)<4000)){
+  pollTimer=setTimeout(()=>request(task.cancelled||!asyncCurrent(task)?'cancel_ui_task':'poll_ui_task',{token:task.token},true),600);return;
+ }
+ if(!activeJobs&&!activeSequence&&!S.notifications)return;
+ const delay=activeJobs||activeSequence?4000:desktopNotificationState().enabled?15000:30000;
  pollTimer=setTimeout(()=>{
   const active=parentElement.activeElement||document.activeElement;
-  const editing=active&&root.contains(active)&&active.matches('input,textarea,select,[contenteditable="true"]');
-  if(editing||(U.modal&&!['run','log','usage','workstation'].includes(U.modal.kind))){schedulePoll();return;}
-  const kind=U.modal?.kind==='workstation'?'inspect_workstation':U.modal?.kind==='usage'?'job_metrics':U.modal?.kind==='log'?'job_log':U.view==='run'&&runBy(U.runId)?(U.runDetailTab==='results'?'inspect_results':'inspect_run'):'refresh';
-  request(kind,U.modal?{id:U.modal.id}:U.view==='run'?{id:U.runId}:{},true);
- },4000);
+  const editing=document.hasFocus()&&active&&root.contains(active)&&active.matches('input,textarea,select,[contenteditable="true"]');
+  if(editing||(document.hasFocus()&&U.modal&&!['run','log','usage','workstation','isolate-export-receipt','notifications'].includes(U.modal.kind))){schedulePoll();return;}
+  const kind=U.modal?.kind==='isolate-export-receipt'?'isolate_export_receipt':U.modal?.kind==='workstation'?'inspect_workstation':U.modal?.kind==='usage'?'job_metrics':U.modal?.kind==='log'?'job_log':U.view==='run'&&U.runDetailTab==='results'&&runBy(U.runId)?'inspect_results':'refresh';
+  request(kind,U.modal&&U.modal.kind!=='notifications'?{id:U.modal.id}:U.view==='run'?{id:U.runId}:{},true);
+ },delay);
 }
+// Notifications stay in this local workspace. Desktop permission is per browser.
+const notificationStorageKey='bactologix:notifications:v1:'+S.workspace;
+function desktopNotificationState(){
+ if(U.notificationDevice)return U.notificationDevice;
+ try{const value=JSON.parse(localStorage.getItem(notificationStorageKey)||'null');
+  U.notificationDevice={enabled:value?.enabled===true,seen:Array.isArray(value?.seen)?value.seen.filter(x=>typeof x==='string').slice(-1000):[],nextClaimAt:Number.isFinite(value?.nextClaimAt)?Math.min(value.nextClaimAt,Date.now()+30000):0};
+ }catch{U.notificationDevice={enabled:false,seen:[],nextClaimAt:0};U.notificationStorageError=true;}
+ return U.notificationDevice;
+}
+function saveDesktopNotificationState(){
+ try{localStorage.setItem(notificationStorageKey,JSON.stringify(desktopNotificationState()));U.notificationStorageError=false;}
+ catch{U.notificationStorageError=true;}
+}
+function notificationPermission(){
+ if(typeof window.Notification!=='function')return 'unsupported';
+ if(!window.isSecureContext)return 'insecure';
+ return Notification.permission;
+}
+function notificationStateMessage(){
+ const permission=notificationPermission();
+ if(permission==='unsupported')return 'Desktop alerts are unavailable in this app window. Use Restart as browser to try a supported desktop browser. Saved alerts remain here.';
+ if(permission==='insecure')return 'Desktop alerts need a secure browser context, such as HTTPS or localhost. Saved alerts remain available here.';
+ if(permission==='denied')return 'Desktop alerts are blocked by your browser. Change this site’s notification permission in browser settings, then enable alerts here.';
+ return desktopNotificationState().enabled&&permission==='granted'?'Desktop alerts are enabled in this browser while Bactologix is open or minimized. Your browser and operating system control delivery.':'Desktop alerts are off in this browser. Enable them to request permission; saved alerts remain available in Bactologix.';
+}
+function syncNotificationBell(){
+ if(!S.notifications)return;
+ let button=$('[data-action="notifications"]');
+ if(!button){button=document.createElement('button');button.type='button';button.className='btn notification-bell';button.dataset.action='notifications';button.dataset.id='';$('.top-actions').prepend(button);}
+ const unread=Math.max(0,Number(S.notifications.unread)||0);
+ button.setAttribute('aria-label','Notifications'+(unread?', '+unread+' unread':''));
+ button.title='Notifications';button.innerHTML=icon('bell')+'<span class="notification-bell-label">Notifications</span>'+(unread?'<span class="notification-count" aria-hidden="true">'+(unread>99?'99+':unread)+'</span>':'');
+}
+function notificationContext(item){
+ const target=item.target||{},job=target.kind==='job'?S.jobs.find(row=>row.id===target.id):null;
+ const run=target.kind==='run'?runBy(target.id):job?.payload?.run_id?runBy(job.payload.run_id):null;
+ if(run)return [S.pipelines[run.tool]?.name,run.sample?.id||run.label,job?.id||run.id].filter(Boolean).join(' · ');
+ if(job)return job.id;
+ if(target.kind==='pipeline_update')return S.pipelines[target.tool]?.name||'';
+ return '';
+}
+function notificationCenter(){
+ const n=S.notifications||{},settings=n.settings||{},check=n.update_check||{},items=n.items||[],permission=notificationPermission(),device=desktopNotificationState();
+ const choices=[['jobs','Job outcomes'],['review','Runs waiting for review'],['updates','Available updates'],['auto_update_checks','Check for updates automatically']];
+ const errors=Array.isArray(check.errors)?check.errors:Object.entries(check.errors||{}).map(([name,value])=>name+': '+(typeof value==='string'?value:JSON.stringify(value)));
+ return `<section class="notification-center"><div class="notification-overview"><div><strong>${n.unread||0} unread</strong><p>Saved alerts for this workspace. Opening an alert marks it as read.</p></div><div class="button-row">${btn('notifications-read-all','Mark all read',false,'','check',!n.unread)}${btn('notifications-clear-all','Clear all notifications',false,'','trash',!items.length)}</div></div><section class="notification-desktop" aria-label="Desktop alert preferences"><h3>Desktop alerts</h3><p data-notification-permission>${e(notificationStateMessage())}</p>${U.notificationError?`<p class="error" role="alert">${e(U.notificationError)}</p>`:''}${U.notificationStorageError?'<p class="inline-info">This browser cannot save notification preferences. Keep this tab open; enable alerts again after reopening.</p>':''}<div class="button-row">${device.enabled&&permission==='granted'?btn('notifications-desktop-off','Turn off desktop alerts')+btn('notifications-test','Send test alert'):btn('notifications-desktop-on',U.notificationPermissionBusy?'Waiting for browser permission…':'Enable desktop alerts',false,'','bell',U.notificationPermissionBusy||['unsupported','insecure','denied'].includes(permission))}</div><p class="inline-info">Pop-ups use brief status messages. Opening one takes you back to Bactologix. No desktop alerts are sent after the application closes.</p></section><details class="notification-preferences" ${U.notificationPreferencesOpen?'open':''}><summary>Notification and update preferences</summary><div class="notification-choice-grid">${choices.map(([key,label])=>`<label class="check-field"><input type="checkbox" id="notifications-${key}" ${val('notifications-'+key,settings[key]!==false)?'checked':''}><span>${label}</span></label>`).join('')}</div>${btn('notifications-save','Save preferences',true)}<p class="inline-info">Automatic checks look for available application and pipeline releases. Installation remains a separate choice.</p></details><section class="notification-update-status" aria-label="Update check status"><div><strong>${check.checking?'Checking available updates…':'Update availability'}</strong><p>Last successful check: ${e(check.last_success||'Not checked yet')}${check.last_attempt&&check.last_attempt!==check.last_success?'<br>Last attempt: '+e(check.last_attempt):''}</p></div>${btn('notifications-check-updates','Check for updates',false,'','download',!!check.checking)}${errors.length?`<div class="notification-update-errors" role="status"><strong>Some update checks could not finish</strong><ul>${errors.map(error=>`<li>${e(typeof error==='string'?error:JSON.stringify(error))}</li>`).join('')}</ul><p>Previously saved availability may be out of date.</p></div>`:''}</section><div class="notification-list" aria-label="Saved notifications">${items.length?items.map(item=>`<article class="notification-item ${item.read?'is-read':'is-unread'}" data-notification-id="${e(item.id)}"><div><div class="notification-item-title"><h3>${e(item.title)}</h3>${item.active===false?badge('Resolved'):!item.read?badge('Unread','blue'):''}</div><p>${e(item.body)}</p>${notificationContext(item)?`<p class="notification-context">${e(notificationContext(item))}</p>`:''}<small>${e(item.created||'Date not recorded')} · ${e({jobs:'Job outcome',review:'Researcher review',updates:'Update availability'}[item.category]||'Workspace')}</small></div><div class="button-row">${btn('notification-open','Open alert',false,item.id,'arrow')}${!item.read?btn('notification-read','Mark read',false,item.id):''}</div></article>`).join(''):'<div class="notification-empty"><h3>No saved alerts yet</h3><p>New job outcomes, review requests and available updates will appear here.</p></div>'}</div><p class="notification-history-note">Showing up to 200 saved alerts.</p></section>`;
+}
+function refreshNotificationControls(){if(U.modal?.kind==='notifications'){draftInputs();renderModal();$('.modal [data-action="close"]')?.focus({preventScroll:true});}syncNotificationBell();schedulePoll();}
+async function enableDesktopNotifications(){
+ if(U.notificationPermissionBusy)return;
+ U.notificationError='';const permission=notificationPermission();
+ if(['unsupported','insecure','denied'].includes(permission)){refreshNotificationControls();return;}
+ U.notificationPermissionBusy=true;
+ try{
+  const granted=permission==='granted'?permission:await Notification.requestPermission();
+  const device=desktopNotificationState();device.enabled=granted==='granted';
+  if(device.enabled){device.seen=[...new Set([...(device.seen||[]),...(S.notifications?.items||[]).map(x=>x.id),...(S.notifications?.desktop_candidates||[]).map(x=>x.id)])].slice(-1000);device.nextClaimAt=0;}
+  saveDesktopNotificationState();
+  if(granted!=='granted')U.notificationError=granted==='denied'?'Desktop alerts were blocked. Saved alerts remain available in Bactologix.':'Permission was not granted. You can enable desktop alerts again later.';
+ }catch{desktopNotificationState().enabled=false;saveDesktopNotificationState();U.notificationError='This app window could not request desktop permission. Try Restart as browser; saved alerts remain available here.';}
+ finally{U.notificationPermissionBusy=false;root._notificationRefresh?.();}
+}
+function openNotificationTarget(target){
+ if(!target||typeof target!=='object')return;
+ if(target.kind==='job'&&typeof target.id==='string'){modal('log',target.id);request('job_log',{id:target.id});}
+ else if(target.kind==='run'&&typeof target.id==='string')openRun(target.id,'overview');
+ else if(target.kind==='app_update'){modal('app-update');if(!S.app_update.catalog)request('refresh_app_releases');}
+ else if(target.kind==='pipeline_update'&&S.pipelines[target.tool]){U.drafts['version-search']='';U.drafts['version-channel']='all';U.versionChoiceExplicit=false;U.drafts['version-'+target.tool]=defaultPipelineVersion(target.tool);modal('versions',target.tool);}
+ else toast('This alert has no available workspace destination.',true);
+}
+function requestNotificationOpen(item){
+ if(!item)return;
+ if(U.pending&&!U.background||U.queuedRequest){toast('Wait for the current action, then open the saved alert.',true);return;}
+ U.notificationOpen={id:item.id,target:item.target};request('mark_notifications_read',{ids:[item.id]});
+}
+function showDesktopNotification(item,test=false){
+ if(!desktopNotificationState().enabled||notificationPermission()!=='granted')return;
+ try{
+  const scope=Array.from(S.workspace).reduce((value,ch)=>(value*31+ch.charCodeAt(0))>>>0,0).toString(16);
+  const app=S.version.includes('.dev')?'Bactologix Dev':'Bactologix';
+  const popup=new Notification(app+' · '+item.title,{body:item.body,tag:'bactologix-'+scope+'-'+item.id});
+  popup.onclick=()=>{window.focus();popup.close();if(!test)root._notificationOpen?.(item);};
+  if(test)toast('Test alert requested. Browser and operating system settings control whether it is displayed.');
+ }catch{
+  desktopNotificationState().enabled=false;saveDesktopNotificationState();U.notificationError='This browser could not display a desktop alert. Saved alerts are still available here. Try a supported desktop browser or check its notification settings.';root._notificationRefresh?.();
+ }
+}
+function claimDesktopNotifications(){
+ const device=desktopNotificationState();if(!S.notifications||!device.enabled||notificationPermission()!=='granted'||U.pending||U.queuedRequest||Date.now()<(device.nextClaimAt||0))return;
+ const seen=new Set(device.seen),items=(S.notifications.desktop_candidates||[]).filter(item=>!item.read&&!seen.has(item.id)).slice(0,3);
+ if(!items.length)return;
+ device.seen=[...device.seen,...items.map(item=>item.id)].slice(-1000);device.nextClaimAt=Date.now()+30000;saveDesktopNotificationState();
+ request('claim_desktop_notifications',{ids:items.map(item=>item.id)},true);
+}
+function notificationStorageChanged(event){if(event.key!==notificationStorageKey)return;U.notificationDevice=null;root._notificationRefresh?.();}
+root._notificationRefresh=refreshNotificationControls;
+root._notificationOpen=requestNotificationOpen;
+
 function supportMatches(){return !!U.support&&(U.support.job_id||'')===val('support-job','')&&U.support.include_log===!!val('support-log',false);}
-function clearSupport(){U.support=null;for(const key of ['support-job','support-log','support-text','support-reviewed'])delete U.drafts[key];}
+function clearSupport(){U.supportHandoff=null;U.support=null;for(const key of ['support-job','support-log','support-text','support-reviewed'])delete U.drafts[key];}
 function supportValid(){const text=val('support-text','');return supportMatches()&&text.trim()&&!text.includes('\0')&&new TextEncoder().encode(text).length<=131072&&val('support-reviewed',false)===true;}
 function syncSupport(){
  const text=$('#support-text');if(text)U.drafts['support-text']=text.value;
  const bytes=new TextEncoder().encode(val('support-text','')).length,info=$('#support-size');
  if(info){info.textContent=bytes.toLocaleString()+' / 131,072 bytes · downloads contain exactly this text';info.classList.toggle('error',bytes>131072);}
- for(const button of $$('[data-action^="support-download-"]'))button.disabled=!supportValid();
+ if(!supportValid()){U.supportHandoff=null;const status=$('#support-handoff');if(status)status.replaceChildren();}
+ for(const button of $$('[data-action^="support-download-"],[data-action="support-chat"]'))button.disabled=!supportValid();
  renderBusy();
+}
+function supportHandoffStatus(){
+ const handoff=U.supportHandoff;
+ if(!handoff)return '';
+ const copy=handoff.copied===null?'Copying the reviewed text…':handoff.copied
+  ?'Reviewed text copied. Paste it into the ChatGPT message box and send when ready.'
+  :'Clipboard unavailable. Download the reviewed text and attach it in ChatGPT, or select the preview and copy it manually.';
+ const fallback=handoff.opened?'':` Your browser blocked the new tab. <a href="${e($('#support-plugin').href)}" target="_blank" rel="noopener noreferrer">Open Bactologix Support</a>.`;
+ return copy+fallback;
+}
+function openReviewedSupport(){
+ syncSupport();
+ if(!supportValid())return;
+ const field=$('#support-text'),url=$('#support-plugin').href;
+ field.focus();
+ field.select();
+ // The Windows desktop workspace is commonly served over LAN HTTP.
+ let copied=false;
+ try{copied=document.execCommand('copy');}catch(_){}
+ let pending=null;
+ if(!copied){
+  try{pending=navigator.clipboard?.writeText(field.value);}catch(_){}
+ }
+ // Open while the click has user activation. A blank same-origin tab lets us
+ // detect popup blocking and sever its opener before the external navigation.
+ let tab=null,opened=false;
+ try{
+  tab=window.open('about:blank','_blank');
+  if(tab){tab.opener=null;tab.location.replace(url);opened=true;}
+ }catch(_){tab?.close();}
+ const handoff=U.supportHandoff={opened,copied:pending?null:copied};
+ const show=()=>{const slot=$('#support-handoff');if(slot&&U.supportHandoff===handoff)slot.innerHTML=supportHandoffStatus();};
+ show();
+ if(pending)pending.then(()=>{handoff.copied=true;},()=>{handoff.copied=false;}).then(show);
 }
 function supportPanel(){
  const preview=U.support,match=supportMatches(),jid=val('support-job','');
@@ -659,6 +1859,47 @@ function identificationMatches(){const d=U.identification;return !!d&&val('ident
 function syncIdentification(){for(const b of $$('[data-action="save-identification"],[data-action="continue-identification"]'))b.disabled=!U.identification?.valid||!identificationMatches();}
 function renderModal(){const m=U.modal;if(!m){$('#modal-root').innerHTML='';$('.app-shell').removeAttribute('inert');return;}
 let title='',desc='',body='',foot='',wide=false;
+if(m.kind==='sequence-copy'){
+ const [sid,key]=m.id.split('/'),sample=decodeURIComponent(key),row=sequenceSelectedPlan(sid)?.rows.find(r=>r.sample===sample);
+ const input=sequenceSample(sample)||runBy(row?.source||row?.runs?.[0])?.sample;
+ title='Copy combined results';body=field('seq-copy-folder','Local isolate folder',row?.folder||(input&&!input.input_manifest?input.path:''));
+ foot=btn('confirm-sequence-copy','Save combined ZIP',true,m.id,'folder');
+}
+if(m.kind==='delivery'){title='Copy results to isolate folder';const plan=U.delivery?.id===m.id?U.delivery:null;
+ body=U.deliveryPath?notice('Verified ZIP saved locally',e(U.deliveryPath))+ '<p>Your sync client handles upload to Teams.</p>':plan?
+ field('delivery-folder','Local isolate folder (Windows or WSL path)',plan.folder)+'<p>A new ZIP will be saved under Bactologix Results in this folder. Anyone with access to the synced folder may see it.</p><details><summary>Package contents and linked report assets</summary><ul>'+plan.files.map(f=>'<li>'+e(f)+'</li>').join('')+'</ul></details>':'<p>Checking final outputs…</p>';
+ if(plan&&!U.deliveryPath)foot=btn('confirm-copy-results','Save results ZIP',true,m.id,'folder');}
+if(m.kind==='output-files'){wide=true;title='All tool outputs';desc='Browse live files, tool history and preserved output snapshots.';body=outputFilesPanel(m.id);foot=btn('refresh-output-files','Refresh listing',false,'','clock');}
+if(m.kind==='notifications'){wide=true;title='Notifications';desc='Job outcomes, researcher reviews and update availability.';body=notificationCenter();}
+if(m.kind==='factory-reset'){wide=true;title='Review workspace reset';desc='Developer action · permanent deletion of the reviewed managed data.';body=resetPanel()+asyncProgress();foot=btn('execute-factory-reset','Permanently reset reviewed data',true,'','trash',!resetConfirmed());}
+if(m.kind==='redownload-database'){wide=true;title='Download database again';desc='Keep the existing database and prepare a separate replacement candidate.';body=redownloadPanel()+asyncProgress();foot=btn('start-database-redownload','Prepare new snapshot',true,m.id,'download',!U.redownloadPlan?.alternative.available||!val('redownload-reviewed',false));}
+const priorModal=$('.isolate-modal,.isolate-folder-modal,.notification-modal,[data-modal-kind="usage"]'),keepIsolatePosition=priorModal?.dataset.modalKind===m.kind,priorActive=parentElement.activeElement||document.activeElement,focusInIsolate=keepIsolatePosition&&priorModal.contains(priorActive),priorFocus=focusInIsolate?{id:priorActive.id,action:priorActive.dataset.action,key:priorActive.dataset.id,label:priorActive.getAttribute('aria-label')}:null,priorBodyScroll=keepIsolatePosition?$('.modal-body')?.scrollTop:0,priorGraph=keepIsolatePosition?$('.isolate-graph-scroll'):null,priorGraphScroll=priorGraph?{top:priorGraph.scrollTop,left:priorGraph.scrollLeft}:null;
+if(m.kind==='isolate'){
+ wide=true;title='Isolate · '+m.id;desc='Original inputs, linked analyses and recorded history in one place.';
+ const d=U.isolate?.sample?.id===m.id?U.isolate:null,tab=U.isolateTab||'files';
+ body=`<nav class="isolate-tabs" aria-label="Isolate sections">${[['files','Files & analyses'],['history','Sample history'],['export','Export isolate']].map(([id,label])=>`<button type="button" class="tab ${tab===id?'active':''}" data-action="isolate-tab" data-id="${id}" aria-pressed="${tab===id}">${label}</button>`).join('')}</nav>`;
+ body+=d?(tab==='history'?isolateHistory(d):tab==='export'?isolateExportForm(d):isolateFiles(d)):'<p role="status">Loading the registered folders and linked analysis records…</p>';
+ foot=tab==='export'?btn('start-isolate-export','Copy & verify',true,'','download',!d||!isolateCanExport()):btn('refresh-isolate','Refresh isolate',false,m.id,'check');
+}
+if(m.kind==='isolate-folders'){
+ title='Isolate folders · '+m.id;desc='Choose a saved analysis folder. Linked pipelines can use separate folders.';
+ const d=U.isolateFolderChoices?.sample_id===m.id?U.isolateFolderChoices:null,folders=d?.folders||[];
+ body=folders.length?`<div class="isolate-runs isolate-folder-choices">${folders.map(f=>`<article data-isolate-folder="${e(f.run_id)}"><div class="isolate-folder-labels">${(f.runs||[]).map(r=>`<div><strong>${e(S.pipelines[r.tool]?.name||r.tool)} · ${e(r.label||r.id)}</strong><small>${e(r.id)}${r.archived?' · Archived':''}</small></div>`).join('')}</div><p class="path-cell">${e(f.path)}</p>${!f.available?'<p class="inline-info">Folder unavailable at its saved location.</p>':''}${btn('open-isolate-analysis','Open analysis folder',false,f.run_id,'folder',!f.available)}</article>`).join('')}</div>`:'<p class="inline-info">No saved analysis folders are recorded for this isolate. Create a run to start an analysis; its output folder will appear here when available.</p>';
+ body+=isolateWarningList(d?.warnings,'Folder notes');
+}
+if(m.kind==='isolate-export-receipt'){
+ wide=true;title='Isolate export receipt';desc='Copied contents, verification and any unavailable history.';
+ const saved=U.isolateExportReceipt?.id===m.id?U.isolateExportReceipt:null,latest=(S.isolate_exports||[]).find(r=>r.id===m.id),r=saved||latest?{...saved,...latest}:null;
+ body=r?isolateReceipt(r):'<p role="status">Loading the export receipt…</p>';
+ foot=r?.destination?btn('open-isolate-export','Open destination folder',true,r.id,'folder'):'';
+}
+if(m.kind==='remove-sample'){
+ const sample=m.sample,related=S.runs.filter(r=>r.sample.id===m.id&&r.sample.path===sample?.path),idle=related.filter(r=>!r.archived&&!r.busy).length,active=related.filter(r=>r.busy).length;
+ title='Remove sample from list?';desc='The original input files and reports will remain on disk.';
+ body=`<p><strong>${e(m.id)}</strong></p><p class="path-cell">${e(sample?.path||'')}</p><p>This removes the sample registration from this workspace and archives its inactive runs. ${idle} current inactive run${idle===1?'':'s'} will be archived. ${active?active+' active run(s) remain visible.':''}</p><p>You can register the folder again later. To permanently delete files, use Storage and review their exact paths.</p>`;
+ foot=btn('confirm-remove-sample','Remove from list',true,m.id,'close',!sample);
+}
+
 if(m.kind==='aware'){
  const d=U.awareOutputs;
  title='AWARE outputs';desc='Inspect retained groups, select derived samples, or continue the parent assembly.';wide=true;
@@ -681,18 +1922,23 @@ if(m.kind==='identification'){
  foot=ready&&d.state==='awaiting_review'?btn('save-identification','Save for later',false,m.id,'',!d.valid||!identificationMatches())+btn('continue-identification',manual?'Confirm target & continue':'Use AWARE & continue',true,m.id,'play',!d.valid||!identificationMatches()):'';
 }
 
+if(m.kind==='clear-job-history'){
+ title='Clear job history?';desc='Hide all finished attempts from Job history, including those outside the current filters.';
+ body='<p>Saved runs, logs and outputs stay available. Active jobs appear in history when they finish.</p>';
+ foot=btn('confirm-clear-job-history','Clear job history',true,'','trash');
+}
 if(m.kind==='discard-wizard'){title='Discard unfinished edits?';desc='Only the unfinished editor will be cleared.';body='<p>Saved runs, samples, outputs and default settings are kept. Close this dialog to continue editing.</p>';foot=btn('confirm-discard-wizard','Discard unfinished edits',true,'','trash');}
 if(m.kind==='editor-conflict'){
  const target=runBy(m.id),pipeline=S.pipelines[target?.tool]?.name||'the selected run',current=U.wizard?.kind==='edit-run'?(U.revision||runBy(U.wizard.id)):null;
  title='Unfinished edits';desc='Choose which editor to continue.';
- body=`<p>You asked to ${m.variant?'create a variant of':'edit'} <strong>${e(pipeline)} · ${e(target?.label||m.id)}</strong>.</p><p class="path-cell">${e(m.id)}</p><p>An unfinished <strong>${e(unfinishedPipeline())} ${current?'revision of '+e(current.label):'draft'}</strong> is already open in this browser tab. Resume those edits, or discard them to open the selected run.</p>${current?`<p class="path-cell">Unfinished revision: ${e(current.id)}</p>`:''}<p>Closing this dialog keeps your unfinished edits. Discarding clears only the unfinished editor; saved runs and results are kept.</p>`;
+ body=`<p>You asked to ${m.variant?'create a variant of':'edit'} <strong>${e(pipeline)} · ${e(target?.label||m.id)}</strong>.</p><p class="path-cell">${e(m.id)}</p><p>An unfinished <strong>${e(unfinishedPipeline())} ${current?'edit of '+e(current.label):'draft'}</strong> is already open in this browser tab. Resume those edits, or discard them to open the selected run.</p>${current?`<p class="path-cell">Unfinished revision: ${e(current.id)}</p>`:''}<p>Closing this dialog keeps your unfinished edits. Discarding clears only the unfinished editor; saved runs and results are kept.</p>`;
  foot=btn('resume-conflicting-editor','Resume unfinished edits')+btn('replace-conflicting-editor','Discard edits and open '+pipeline,true);
 }
 
 if(m.kind==='report-refresh'){
- const p=U.refreshPlan;title='Regenerate report';desc='Create a separate report edition from saved evidence.';
- body=p?notice(p.available?'Report-only refresh':'Refresh unavailable',p.available?'Original results and HTML stay preserved. No analysis workflow will start.':p.reasons.join(' '),!p.available)+`<p><strong>Analysis version:</strong> ${e(typeof p.analysis_version==='object'?JSON.stringify(p.analysis_version):p.analysis_version)}</p><p><strong>Selected installed renderer:</strong> ${e(p.renderer_version||'Not available')}</p><p class="path-cell">${e(p.renderer_commit||'')}</p><p>To use newer reporting code, update and select that pipeline version in Install & update first.</p><ul>${p.notes.map(n=>`<li>${e(n)}</li>`).join('')}</ul>`:'<p>Checking saved evidence…</p>';
- foot=btn('confirm-report-refresh','Create refreshed report',true,m.id,'file',!p?.available);
+ const p=U.refreshPlan;title=p?.target_label?'Regenerate '+p.target_label:'Regenerate report';desc='Save a new edition for this run.';
+ body=p?notice(p.available?(p.mode==='measure-validation'?'New validation measurements':'Render saved evidence'):'Refresh unavailable',p.available?(p.mode==='measure-validation'?'This job aligns retained assemblies and maps available Illumina reads using your installed tools.':'This job reads the saved measurements and creates a new report edition.'):p.reasons.join(' '),!p.available)+`<p><strong>Analysis version:</strong> ${e(typeof p.analysis_version==='object'?JSON.stringify(p.analysis_version):p.analysis_version)}</p><p><strong>Latest analysis attempt:</strong> ${statusBadge(p.analysis_status||'Not recorded')}</p><p><strong>Evidence attribution:</strong> ${e(p.evidence_identity?.label||'Unverified')}</p><p><strong>Observed evidence attempt:</strong> ${e(p.evidence_identity?.job_id||'Not recorded')} · ${e(p.evidence_identity?.attempt_status||'Not recorded')}</p><p class="path-cell"><strong>Source recorded for observed attempt:</strong> ${e(p.analysis_commit||'Not recorded')}</p>${assessmentDetails(p.assessment)}<p><strong>Selected installed renderer:</strong> ${e(p.renderer_version||'Not available')}</p><p class="path-cell">${e(p.renderer_commit||'')}</p><p>To use newer reporting code, update and select that pipeline version in Install & update first.</p><ul>${p.notes.map(n=>`<li>${e(n)}</li>`).join('')}</ul>`:'<p>Checking saved evidence…</p>';
+ foot=btn('confirm-report-refresh',p?.mode==='measure-validation'?'Measure and create report':'Create refreshed report',true,m.id,'file',!p?.available);
 }
 if(m.kind==='app-update'){
  wide=true;title='Update Bactologix';desc='Choose the application version to install. Update each pipeline separately in Install & update.';
@@ -720,7 +1966,7 @@ if(m.kind==='apply-databases'){
 if(m.kind==='environments'){
  wide=true;const item=S.installs.find(i=>i.id===m.id),panel=S.environments[m.id],checking=m.action==='check',repairing=m.action==='repair',advanced=$('#environment-storage')?.open??!!m.advanced;
  title=checking?'Check environments':repairing?'Repair environments':'Install environments';desc=S.pipelines[item.tool].name+' · '+item.version.ref;
- body=`<p>${checking?'Check which selected tools are installed and working. This does not install or change environments.':repairing?'Check selected environments, prepare missing or incomplete ones, and apply supported dependency repairs. Healthy environments are reused.':'Prepare the selected tools for this pipeline. Matching completed environments are reused automatically; missing environments are installed.'} No sample or run draft is needed.</p>${notice('Reuse is automatic','Pipeline updates keep the previous version’s environment folder. Snakemake identifies matching environments in that folder. You do not need to select a reuse option.')}<p class="inline-info">${checking?'Checks inspect deployment completion, run native tool checks and test NanoPlot HTML/PNG rendering when included.':repairing?'The known NanoPlot 1.46.2 / MultiQC 1.32 conflict is repaired with Plotly 6.1.2 and Kaleido 0.2.1. Package changes are recorded. Incomplete copies are backed up before rebuilding; unsupported failures are reported without deleting complete environments. Shared runs using these environments will see repaired packages.':'Installation prepares software only. It does not run samples or start database downloads. A changed requirement may need a new environment.'}</p>${panel.error?notice('Environment inventory unavailable',e(panel.error),true):''}
+ body=`<p>${checking?'Check which selected tools are installed and working. This does not install or change environments.':repairing?'Check selected environments, prepare missing or incomplete ones, and apply supported dependency repairs. Healthy environments are reused.':'Prepare the selected tools for this pipeline. Matching completed environments are reused automatically; missing environments are installed.'} No sample or run draft is needed.</p>${notice('Reuse is automatic','Pipeline updates keep the previous version’s environment folder. Snakemake identifies matching environments in that folder. You do not need to select a reuse option.')}<p class="inline-info">${checking?'Checks inspect deployment completion, run native tool checks and test NanoPlot HTML/PNG rendering when included.':repairing?'Repairs are limited to supported package combinations and record package changes. Conflicting NanoPlot/MultiQC requirements need separate environments; existing complete environments are retained if no supported repair is available. Reviewed split-QC environments may download a missing rendering browser when you explicitly choose Install or Repair; Check environments does not download it. Incomplete copies are backed up before rebuilding; unsupported failures are reported without deleting complete environments. Shared runs using these environments will see repaired packages.':'Installation prepares software, including a missing browser for reviewed NanoPlot rendering environments. It does not run samples or start database downloads. A changed requirement may need a new environment.'}</p>${panel.error?notice('Environment inventory unavailable',e(panel.error),true):''}
  <div class="environment-selection"><strong id="environment-selection-count"></strong><div class="button-row">${btn('select-environments','Select all')}${btn('clear-environments','Clear selection')}</div></div>
  <div class="environment-list">${panel.rows.map(r=>`<label class="environment-row"><input id="envpick-${e(m.id)}-${e(r.id)}" data-environment="${e(r.id)}" type="checkbox" ${val('envpick-'+m.id+'-'+r.id,true)?'checked':''}><span><strong>${e(r.name)}</strong><small>${e(r.id)}${r.checked_at?' · Checked '+e(r.checked_at):''}</small>${r.path?`<small class="path-cell">${e(r.path)}</small>`:''}${r.message?`<small>${e(r.message)}</small>`:''}</span>${badge(r.status,r.status==='Verified'?'green':['Check failed','Repair failed','Incomplete'].includes(r.status)?'amber':'')}</label>`).join('')}</div>
  <details id="environment-storage" class="guided-details" ${advanced?'open':''}><summary>Advanced: environment storage</summary><p class="inline-info">Change this only to use a different storage location or a cache from an external installation. Choose the parent folder containing environment subfolders, not an individual Conda environment. Existing runs retain their saved folder.</p><div class="folder-address">${field('environment-cache-'+m.id,'Environment cache folder',panel.cache)}${btn('browse-env-cache','Browse',false,m.id,'folder')}</div><div class="button-row">${btn('save-env-cache','Save folder',false,m.id)}</div><p id="environment-cache-note" class="inline-info"></p></details>`;
@@ -730,6 +1976,55 @@ if(m.kind==='uninstall'){
  wide=true;title='Uninstall pipeline version';const plan=U.uninstallPlan?.id===m.id?U.uninstallPlan:null;desc=plan?S.pipelines[plan.tool].name+' · '+plan.version:m.id;
  body=plan?`<div class="uninstall-scope"><h3>Remove this version</h3><p>The version entry and ${plan.source_exists?'this managed source copy':'its missing source reference'} will be removed.</p><code>${e(plan.source)}</code></div><div class="uninstall-kept"><h3>Keep on this machine</h3><ul><li>Runner environment: <span class="path-cell">${e(plan.controller||'None recorded')}</span></li><li>Tool environment cache: <span class="path-cell">${e(plan.cache)}</span></li><li>Databases, saved runs, results and logs</li><li>Any original checkout connected from another folder</li></ul></div>${plan.blocked.length?notice('This version is still needed',plan.blocked.map(e).join('<br>'),true):'<p class="inline-info">This is not the active version and no saved runs depend on it. Uninstall does not remove retained environments to reclaim their disk space.</p>'}`:'<p>Checking version dependencies and source files…</p>';
  foot=btn('uninstall-version','Uninstall this version',true,m.id,'trash',!plan||!!plan.blocked.length);
+}
+if(m.kind==='cleanup-preview'){
+ const failed=m.id==='failed';
+ wide=true;title=failed?'Clean up failed items':'Review permanent cleanup';
+ desc=failed?'Review failed runs, database installations and pipeline setup files before permanently deleting them.':'Only the reviewed paths will be eligible for removal. There is no undo.';
+ const p=U.cleanupPlan,blocked=p?.blocked||[];
+ const blockedNotice=blocked.length?notice('Cleanup is blocked',blocked.map(x=>e(typeof x==='string'?x:x.reason||x.message||JSON.stringify(x))).join('<br>'),true):'';
+ if(!p){
+  body=['failed','cancelled'].includes(storageLoad('preview_storage_cleanup').state)
+   ?storageLoadMessage('preview_storage_cleanup')+btn('retry-cleanup-preview','Retry preview',true)
+   :'<p role="status">Checking dependencies and measuring the selected paths. No files are being deleted…</p>';
+ }else if(failed&&!p.targets.length){
+  body='<p role="status">No failed items are eligible for cleanup.</p>'+blockedNotice+failedCleanupSkipped(p);
+ }else{
+  const candidates=p.candidates||[];
+  const paths=(p.paths||[]).map(x=>`<div><code>${e(typeof x==='string'?x:x.path)}</code><span>${x.logical_bytes!=null?storageBytes(x.logical_bytes)+' logical bytes':''}${x.files!=null?' · '+x.files+' file(s)':''}${x.links?' · '+x.links+' link(s)':''}${x.kind?' · '+e(x.kind.replaceAll('_',' ')):''}</span></div>`).join('');
+  body=`<div class="cleanup-preview-summary"><div><small>Selected items</small><strong>${p.targets.length}</strong></div><div><small>Estimated logical bytes</small><strong>${storageBytes(p.logical_bytes)}</strong></div><div><small>Allocated file blocks</small><strong>${storageBytes(p.allocated_bytes)}</strong></div></div>
+   <p class="inline-info">${failed?'Allocated file blocks estimate how much space cleanup can reclaim.':e(p.notice||'File bytes are estimates, not guaranteed freed disk space. Dependencies and paths are checked again before deletion.')}</p>
+   ${blockedNotice}${failed?failedCleanupCounts(candidates):''}
+   <div class="cleanup-receipt-targets">${candidates.map(c=>`<p><strong>${e(c.label||c.id)}</strong><br><span class="inline-info">${e(c.description||'')}</span></p>${cleanupRestoreControls(c)}`).join('')}</div>
+   <h3>Reviewed removal scope</h3><div class="cleanup-paths">${paths||(failed?'<p>Only the listed workspace records will be removed.</p>':'<p>No file paths are scheduled for deletion. Only the selected records will be removed; files outside this scope stay on disk.</p>')}</div>`;
+  if(failed)body+=failedCleanupSkipped(p);
+  else{
+   if(candidates.some(c=>c.kind==='sample_registration'))body+=notice('Registration removal does not free data space','Selected sample registrations will be removed. Their files remain unless a separate sample-file cleanup is explicitly included.');
+   body+='<p class="inline-info">Keep the source inputs, databases and transferred copies you still need. Unselected files stay on disk. Closing this preview cancels the decision.</p>';
+  }
+  if(p.targets.length&&!blocked.length){
+   const label=failed?'I want to permanently delete the listed failed items.':'I have verified my transferred copies, or I intentionally discard these files.<small>This is your acknowledgment. Cleanup does not recheck your destination or its current contents.</small>';
+   body+=`<label class="check-field cleanup-acknowledgment"><input id="cleanup-acknowledged" type="checkbox" ${val('cleanup-acknowledged',false)?'checked':''}><span>${label}</span></label>`;
+   body+=field('cleanup-confirmation','Type '+(p.confirmation||'DELETE')+' to confirm permanent deletion','','text','autocomplete="off" spellcheck="false"');
+  }
+ }
+ body+=asyncProgress();
+ foot=failed&&p&&!p.targets.length?'':btn('execute-cleanup',failed?'Delete failed items':'Permanently delete selected',true,'','trash',!cleanupCanExecute());
+}
+if(m.kind==='cleanup-receipt'){
+ wide=true;title='Cleanup receipt';desc='Recorded outcome of an explicitly confirmed cleanup.';
+ const receipt=U.cleanupReceipt?.id===m.id?U.cleanupReceipt:null;
+ body=receipt?cleanupReceipt(receipt):'<p role="status">Loading the recorded cleanup outcome…</p>';
+ foot=receipt?.job_id?btn('job-log','View cleanup log',false,receipt.job_id,'file'):'';
+}
+if(m.kind==='vfdb-repair'){
+ const d=U.resourceRepair?.id===m.id?U.resourceRepair:null;
+ title='Repair VFDB reference';desc='Review a new draft that uses native database preparation.';wide=true;
+ body=d?`<p>${e(d.reason||'Review the saved VFDB paths and the proposed settings below.')}</p>
+ <div class="table-wrap"><table><thead><tr><th>Saved field</th><th>Current value</th><th>State</th></tr></thead><tbody>${(d.fields||[]).map(f=>`<tr><td>${e(f.field)}</td><td class="path-cell">${e(f.value||'Not set')}</td><td>${e(f.status)}</td></tr>`).join('')}</tbody></table></div>
+ <h3>Changes in the revised draft</h3><div class="table-wrap"><table><thead><tr><th>Setting</th><th>Before</th><th>After</th></tr></thead><tbody>${(d.changes||[]).map(c=>`<tr><td>${e(c.field)}</td><td class="path-cell">${e(c.before??'Not set')}</td><td>${e(c.after===null||c.after===''?'Blank · native preparation':c.after)}</td></tr>`).join('')}</tbody></table></div>
+ <p>${e(d.notice||'')}</p><p>The original run, inputs, outputs and recorded settings are retained. Creating this draft does not download a database or start analysis. Validate the new draft before execution.</p>`:'<p role="status">Checking saved references…</p>';
+ foot=btn('apply-vfdb-repair','Create revised draft',true,m.id,'check',!d?.available);
 }
 if(m.kind==='download-database'){
  const t=U.resourceTool||'hybas',r=S.databases[t].rows.find(x=>x.id===m.id);title=(r.id==='kraken'?'Download and build ':'Download and prepare ')+r.name;desc='Choose a location and review the preparation steps.';
@@ -771,21 +2066,23 @@ if(m.kind==='manifest'){wide=true;title='Import HybAs libraries';desc='Declare p
 if(m.kind==='import'){wide=true;title='Import a sample table';desc='Preview every row before registering input folders.';body=`<label class="btn upload-label">Choose CSV / TSV<input type="file" id="sample-upload" accept=".csv,.tsv" class="visually-hidden"></label><div class="form-grid">${area('sample-table','Table contents','sample_id,input_folder,read_mode\n','rows="9" spellcheck="false"')}</div><div class="button-row">${btn('sample-template','Download template')}${btn('preview-samples','Preview table',true)}</div><p class="settings-note">CSV or TSV · sample_id, input_folder, optional read_mode. Blank read modes use Hybrid. Up to 500 rows / 2 MB. This registers folders; it does not validate input files or create runs.</p><div id="sample-import-status"></div><div id="sample-import-preview">${sampleImportPreview()}</div>`;foot=btn('import-samples','Import reviewed samples',true,'','',true);}
 if(m.kind==='conda'){title='Choose Conda';desc='Use an existing executable or install local Conda from Install & update.';body=field('conda-path','Conda executable',S.doctor.conda||'');foot=btn('save-conda','Save location',true);}
 
-if(m.kind==='versions'){wide=true;const t=m.id,c=S.catalogs[t],{releases:releaseRows,recommended,ordered}=pipelineVersionChoices(t);title='Choose '+S.pipelines[t].name+' version';desc='Reviewed release contracts and legacy compatible snapshots. '+(c.live?'Cached GitHub catalogue; last successful check: ':'Bundled catalogue dated: ')+c.checkedAt;body=`<p class="inline-info">Installed: ${e(activeInstall(t)?.version.ref||'Not installed')} · Latest release: ${e(releaseRows[0]?.ref||'Not recorded')} · Recommended compatible release: ${e((recommended?.kind==='release'?recommended.ref:null)||(val('release-channel','prerelease')==='stable'?'No tested stable release':'Use a reviewed legacy snapshot'))} · Last successful check: ${e(c.checkedAt)}</p><div class="toolbar"><input class="search" id="version-search" placeholder="Search versions…" aria-label="Search versions" value="${e(val('version-search'))}">${select('release-channel','Release channel',[['prerelease','Prereleases and stable'],['stable','Stable only']],'prerelease')}${select('version-channel','Source type',[['all','All'],['pinned','Compatible snapshots'],['release','Releases'],['branch','Branches']],'all')}${btn('refresh-versions','Refresh from GitHub',false,t)}</div><div class="version-list">${ordered.map(v=>`<label class="source-card version-choice" data-version-prerelease="${!!v.prerelease}" data-version-kind="${v.kind}" data-version-name="${e((v.ref+' '+v.name).toLowerCase())}"><input type="radio" name="version" value="${e(v.id)}" ${val('version-'+t)===v.id?'checked':''}><span><strong>${e(v.ref)}</strong> ${v.id===recommended?.id?badge('Recommended','green'):''} ${v.commit===activeInstall(t)?.version.commit?badge('Installed','blue'):''} ${badge(v.kind,'blue')} ${v.supported?badge('Runner supported','green'):badge('Source only')}<small>${e(v.name)} · ${e(v.commit.slice(0,12))}</small><small>${e(v.compatibility_reason||'Legacy reviewed snapshot')}</small><a href="${e(safeURL(v.url))}" target="_blank" rel="noopener noreferrer">Source / release notes ↗</a>${v.notes?`<details><summary>Release notes</summary><pre class="release-notes">${e(v.notes)}</pre></details>`:''}</span></label>`).join('')}</div>${notice(S.setup_overview?.[t]?.first_install?'First-time installation':'Keep your existing environments',(S.setup_overview?.[t]?.first_install?'This installs the source, runner and all listed tool environments. Database setup is separate. ':'')+'Compatible runners are checked and reused. Other source versions can be downloaded, but managed runs require a reviewed adapter for that exact commit.')}`;const chosen=c.versions.find(x=>x.id===val('version-'+t));foot=btn('install-version',chosen?.supported?(S.setup_overview?.[t]?.first_install?'Install pipeline and tools':'Download and set up'):'Download source only',true,t,'',!chosen);}
+if(m.kind==='versions'){wide=true;const t=m.id,c=S.catalogs[t],{releases:releaseRows,recommended,ordered}=pipelineVersionChoices(t);title='Choose '+S.pipelines[t].name+' version';desc='Reviewed release contracts and legacy compatible snapshots. '+(c.live?'Cached GitHub catalogue; last successful check: ':'Bundled catalogue dated: ')+c.checkedAt;body=`<p class="inline-info">Installed: ${e(activeInstall(t)?.version.ref||'Not installed')} · Latest release: ${e(releaseRows[0]?.ref||'Not recorded')} · Recommended compatible release: ${e(recommended?.ref||(val('release-channel','prerelease')==='stable'?'No tested stable release':'Use a reviewed legacy snapshot'))} · Last successful check: ${e(c.checkedAt)}</p><div class="toolbar"><input class="search" id="version-search" placeholder="Search versions…" aria-label="Search versions" value="${e(val('version-search'))}">${select('release-channel','Release channel',[['prerelease','Prereleases and stable'],['stable','Stable only']],'prerelease')}${select('version-channel','Source type',[['all','All'],['pinned','Compatible snapshots'],...(c.versions.some(v=>v.kind==='development')?[['development','Development snapshots']]:[]),['release','Releases'],['branch','Branches']],'all')}${btn('refresh-versions','Refresh from GitHub',false,t)}</div><div class="version-list">${ordered.map(v=>`<label class="source-card version-choice" data-version-prerelease="${!!v.prerelease}" data-version-kind="${v.kind}" data-version-name="${e((v.ref+' '+v.name).toLowerCase())}"><input type="radio" name="version" value="${e(v.id)}" ${val('version-'+t)===v.id?'checked':''}><span><strong>${e(v.ref)}</strong> ${v.id===recommended?.id?badge('Recommended','green'):''} ${v.commit===activeInstall(t)?.version.commit?badge('Installed','blue'):''} ${badge(v.kind,'blue')} ${v.supported?badge('Runner supported','green'):badge('Source only')}<small>${e(v.name)} · ${e(v.commit.slice(0,12))}</small><small>${e(v.compatibility_reason||'Legacy reviewed snapshot')}</small><a href="${e(safeURL(v.url))}" target="_blank" rel="noopener noreferrer">Source / release notes ↗</a>${v.notes?`<details><summary>Release notes</summary><pre class="release-notes">${e(v.notes)}</pre></details>`:''}</span></label>`).join('')}</div>${notice(S.setup_overview?.[t]?.first_install?'First-time installation':'Keep your existing environments',(S.setup_overview?.[t]?.first_install?'This installs the source, runner and all listed tool environments. Database setup is separate. ':'')+'Compatible runners are checked and reused. Other source versions can be downloaded, but managed runs require a reviewed adapter for that exact commit.')}`;const chosen=c.versions.find(x=>x.id===val('version-'+t));foot=btn('install-version',chosen?.supported?(S.setup_overview?.[t]?.first_install?'Install pipeline and tools':'Download and set up'):'Download source only',true,t,'',!chosen);}
 
 if(m.kind==='followup'){
  wide=true;title='Review saved screening for follow-up';desc=m.id;
  const choices=runBy(m.id)?.followup_sources||[],selected=val('followup-source-'+m.id,choices[0]?.id||'screening'),chosen=choices.find(x=>x.id===selected),scopes=chosen?.scopes||[];
+ const packages=S.basis_catalog_builder?.results.filter(row=>row.action==='build'&&row.placement_registry)||[];
  const scopeDefault=scopes.includes('amrfinder-review')?'amrfinder-review':'';
- body=notice('Separate follow-up','Review the screening report and settings first. A later attempt replaces follow-up outputs; screening outputs remain separate.',true)+btn('view-results','Open screening results',false,m.id)+
+ body=notice('Separate follow-up','Review the screening report and settings first. Existing outputs are preserved before later attempts. Use All tool outputs to browse live files and preserved copies.',true)+btn('view-results','Open screening results',false,m.id)+
  select('followup-source-'+m.id,'Workflow version for this follow-up',choices.map(x=>[x.id,x.label+' · '+x.commit.slice(0,12)]),selected)+
  select('followup-scope-'+m.id,'AWARE scope',[['','Inherit saved screening policy'],...scopes.map(x=>[x,x==='amrfinder-review'?'AMRFinder reported review cues':'All supported sources (broader)'])],scopeDefault)+
  `<p>AMRFinder review uses reported ambiguous findings. It does not recover unreported alignments. Presets control review selection; they do not change AMRFinder reporting thresholds.</p>`+
+ (packages.length?select('followup-catalog-'+m.id,'Reviewed placement registry for this draft',[['','Use follow-up configuration'],...packages.map(row=>[row.job,row.name+' '+row.version+' · '+row.catalog_sha256.slice(0,12)])], '')+'<p>A selected catalog uses locally available placement references. Enable family placement in the reviewed configuration to request it.</p>':'')+
  area('followup-yaml-'+m.id,'Reviewed follow-up configuration','deep:\n  enabled: false\n  maximum_candidates: 5\nresource_receipts: []\n','rows="12" spellcheck="false"')+
  `<label class="check-field"><input type="checkbox" id="followup-reviewed" ${val('followup-reviewed',false)?'checked':''}><span>I reviewed the screening report, selected workflow version, scope and configuration.</span></label><p>Set enabled to true to request follow-up. Five is a per-isolate candidate ceiling; deferred findings remain for review. Resource paths must be absolute and already prepared. Validate the new draft before execution.</p>`;
  foot=btn('create-followup','Create follow-up draft',true,m.id);
 }
-if(m.kind==='support'){wide=true;title='Get support';desc='Generate → review and edit → download';body=supportPanel();foot=btn('support-download-zip','Download ZIP',false,'','download',!supportValid())+btn('support-download-txt','Download reviewed snapshot',true,'','download',!supportValid());}
+if(m.kind==='support'){wide=true;title='Get support';desc='Review the log excerpt, then paste it or attach the text file in ChatGPT.';body=supportPanel()+'<p id="support-handoff" role="status" aria-live="polite">'+supportHandoffStatus()+'</p>';foot=btn('support-chat','Copy reviewed text & open ChatGPT',true,'','external',!supportValid())+btn('support-download-zip','Download ZIP',false,'','download',!supportValid())+btn('support-download-txt',val('support-log',false)?'Download reviewed log':'Download reviewed text',false,'','download',!supportValid());}
 if(m.kind==='workflow-lock'){
  title='Workflow lock';desc='Review ownership before unlocking';const p=U.unlockPlan;
  body=notice(p?.allowed?'Leftover workflow lock':'Unlock unavailable',e(p?.message||'Checking…'),!p?.allowed)+(p?.directory?`<p class="path-cell">${e(p.directory)}</p><p class="inline-info">Recorded source: ${e(p.commit)} · ${p.lock_count} lock file(s)</p>`:'');
@@ -796,21 +2093,32 @@ if(m.kind==='workstation'){
  body=workstationDetail(c);const available=!!c?.rows?.length&&!['queued','running'].includes(c.job_status);
  foot=btn('workstation-detail','Refresh check',false,m.id)+btn('workstation-report','Open check report',false,m.id,'file',!available)+btn('download-workstation','Download check JSON',true,m.id,'download',!available);
 }
-if(m.kind==='log'){wide=true;title='Job log';desc=m.id;const l=U.log?.id===m.id?U.log:null;const j=S.jobs.find(j=>j.id===m.id);body=`${l?statusBadge(l.status):''}${j?jobTelemetry(j)+guidancePanel(j):''}${j&&!j.telemetry?'<p class="inline-info">No resource record has been collected for this job. Recording starts when a new job runs in v0.1.0a27 or later.</p>':''}${l?.error?`<div class="error">${e(l.error)}</div>`:''}<pre class="code-block log-output">${e(l?.text||'Loading process output…')}</pre>`;foot=btn('get-support','Get support',false,m.id)+(j?usageButton(j):'')+btn('job-log','Refresh log',false,m.id)+btn('download-log','Download full log',false,m.id);}
+if(m.kind==='log'){wide=true;title='Job log';desc=m.id;const l=U.log?.id===m.id?U.log:null;const j=S.jobs.find(j=>j.id===m.id);body=`${l?statusBadge(l.status):''}${j&&diskSafety(j)?.state==='rechecking'?diskSafetyPanel(j):''}${j?jobTelemetry(j)+guidancePanel(j):''}${j&&!j.telemetry?'<p class="inline-info">No resource record has been collected for this job. Recording starts when a new job runs in v0.1.0a27 or later.</p>':''}${l?.error&&!(j?.guidance?.category==='storage_pause'&&l.error.startsWith('Worker ended unexpectedly.'))?`<div class="error">${e(l.error)}</div>`:''}<pre class="code-block log-output">${e(l?.text||'Loading process output…')}</pre>`;foot=btn('get-support','Get support',false,m.id)+(j?usageButton(j):'')+btn('job-log','Refresh log',false,m.id)+btn('download-log','Download full log',false,m.id);}
 if(m.kind==='usage'){wide=true;title='Resource use & progress';desc=m.id;const u=U.usage?.id===m.id?U.usage:null;body=u?usageDetail(u):'<p>Loading recorded measurements…</p>';foot=btn('refresh-usage','Refresh',false,m.id)+btn('usage-download-csv','CSV',false,m.id,'download',!u)+btn('usage-download-json','JSON',false,m.id,'download',!u)+btn('usage-download-zip','Download record (ZIP)',true,m.id,'download',!u);}
 if(m.kind==='register-report'){title='Add an existing HTML report';desc='Choose a local file. Its association is user-selected.';body=`<div class="form-grid">${field('report-name','Report label','Existing report')}${field('report-path','HTML report path','','text','placeholder="/home/jimi/results/safety/report.html"')}</div>`;foot=btn('save-report','Register report',true);}
-if(m.kind==='report'){wide=true;const r=U.report?.id===m.id?U.report:null;title=r?.name||'HTML report';desc=r?.path||'Loading report…';body=r?'<div id="report-frame-container"></div>':'<p>Loading the original HTML report…</p>';foot=r?.workstation?btn('workstation-detail','Back to check',true,m.id):btn('open-report-folder','Open report folder',false,m.id,'folder',!r)+btn('download-report','Download original HTML',true,m.id,'download',!r);}
-if(m.kind==='app-window-help'){title='Open Bactologix as an app';desc='A dedicated window without the usual browser tabs and address bar.';body=`<p>Bactologix opens in app mode by default:</p><pre class="code-block">bactologix</pre><p>Uses an installed Chrome, Edge or Chromium browser. Under WSL it tries Windows Edge or Chrome. If an app window is unavailable, the regular browser opens.</p><p class="settings-note">Windows desktop shortcut: closing the last dedicated window stops this session, with confirmation for active jobs. Separately launched Ubuntu work stays running. Terminal launch: keep the terminal open; closing a browser tab alone does not stop that server. After an app update, the existing window refreshes. Browser policies may affect window appearance.</p><p class="settings-note">Use Workspace tools → Restart as browser to open this workspace in a regular browser without stopping the server or jobs. The Windows shortcut keeps the new browser window in its own session; closing the last session window stops its work.</p>`;foot='';}
+if(m.kind==='report'){wide=true;const r=U.report?.id===m.id?U.report:null;title=r?.name||'HTML report';desc=r?.path||'Loading report…';body=r?'<div id="report-frame-container"></div>':'<p>Loading the original HTML report…</p>';foot=r?.workstation?btn('workstation-detail','Back to check',true,m.id):btn('open-report-folder','Open report folder',false,m.id,'folder',!r)+(r&&(r.run_id||r.run)?btn('open-original','Open in browser',false,r.id,'external'):'')+btn('download-report','Download HTML',true,m.id,'download',!r)+(r?regenerateButton(r,r.run_id||r.run):'');}
+if(m.kind==='close-desktop'){
+ const closing=m.requested===true;
+ title=closing?'Closing Bactologix…':'Close Bactologix?';
+ desc=m.acknowledged?'The desktop close request was sent.':closing?'Requesting a stop for this desktop session.':'This closes all windows in this desktop session and stops its queued and running jobs.';
+ body=closing?'<p role="status">Waiting for the desktop to close. An application update in progress can finish first.</p>':'<p>Saved runs and their outputs stay available when you reopen Bactologix.</p>';
+ foot=closing?'':btn('confirm-close-desktop','Close desktop session',true,'','stop');
+}
+if(m.kind==='app-window-help'){title='Open Bactologix as an app';desc='A dedicated window without the usual browser tabs and address bar.';body=`<p>Bactologix opens in app mode by default:</p><pre class="code-block">bactologix</pre><p>Uses an installed Chrome, Edge or Chromium browser. Under WSL it tries Windows Edge or Chrome. If an app window is unavailable, the regular browser opens.</p><p class="settings-note">Windows desktop shortcut: closing the last dedicated window stops this session, including its queued and running jobs. Separately launched Ubuntu work stays running. Terminal launch: keep the terminal open; closing a browser tab alone does not stop that server. After an app update, the existing window refreshes. Browser policies may affect window appearance.</p><p class="settings-note">Use Workspace tools → Restart as browser to open this workspace in a regular browser without stopping the server or jobs. The Windows shortcut keeps the new browser window in its own session; closing the last session window stops its work.</p>`;foot='';}
 if(m.kind==='credits'){title='Citations & credits';desc='Powered by GenoMix Human Link';body=`<div class="author-card"><span class="brand-mark">__BRAND_SVG__</span><div><h3>Your workflow, connected.</h3><p>HybAs AWARE, BaSIS AWARE and GeneScope (MICP Scope) in one workspace.</p></div></div><p class="credits-copy">Created by <strong>Jimi Goldstein</strong> · Human Link<br><a href="https://orcid.org/0000-0002-7829-0090" target="_blank" rel="noopener noreferrer">ORCID 0000-0002-7829-0090 ↗</a></p><pre class="code-block">${e(S.citations['CITATION.txt'])}</pre><div class="button-row">${['ris','bib','cff','txt'].map(x=>btn('citation','Download '+x.toUpperCase(),false,'CITATION.'+x,'download')).join('')}</div><p class="credits-copy">Cite the pipelines, individual tools and databases used in your analysis as well as Bactologix.</p><div class="button-row">${btn('citation','HybAs AWARE citation',false,'CITATION.HybAs.cff')}${btn('citation','BaSIS AWARE citation',false,'CITATION.BaSIS.cff')}${btn('citation','GeneScope / MICP Scope citation',false,'CITATION.GeneScope.cff')}</div><p class="credits-copy">Pipeline downloads are general software citations. For a publication, record the exact pipeline version and commit used in your run.</p><p class="credits-copy"><a href="https://github.com/crackberryq/Bactologix" target="_blank" rel="noopener noreferrer">Bactologix on GitHub ↗</a> · MIT license · v${e(S.version)}</p>`;}
-$('#modal-root').innerHTML=`<div class="modal-shade"><section class="modal ${wide?'':'narrow'} ${m.kind==='report'?'report-modal':['new-run','edit-run'].includes(m.kind)?'run-draft-modal':m.kind==='run'?'saved-run-modal':''}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-head"><div><h2 id="modal-title">${e(title)}</h2><p>${e(desc)}</p></div><button class="icon-btn" data-action="close" aria-label="Close dialog">${icon('close')}</button></div><div class="modal-body">${body}<div id="action-error" class="error" role="alert">${e(U.error||'')}</div></div><div class="modal-foot"><small>${['new-run','edit-run'].includes(m.kind)?'Draft not saved yet':m.kind==='run'?'Saved run · changes create a revision':m.kind==='download-database'?'Starts only when you confirm':m.kind==='apply-databases'?'Creates a new draft · original kept':'Local workspace'}</small><div class="button-row">${btn('close','Close')}${foot}</div></div></section></div>`;
+$('#modal-root').innerHTML=`<div class="modal-shade"><section class="modal ${wide?'':'narrow'} ${m.kind==='report'?'report-modal':m.kind==='cleanup-preview'?'cleanup-drawer':['new-run','edit-run'].includes(m.kind)?'run-draft-modal':m.kind==='run'?'saved-run-modal':['isolate','isolate-export-receipt'].includes(m.kind)?'isolate-modal':m.kind==='isolate-folders'?'isolate-folder-modal':m.kind==='notifications'?'notification-modal':''}" data-modal-kind="${e(m.kind)}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-head"><div><h2 id="modal-title">${e(title)}</h2><p>${e(desc)}</p></div><button class="icon-btn" data-action="close" aria-label="Close dialog">${icon('close')}</button></div><div class="modal-body">${body}<div id="action-error" class="error" role="alert">${e(U.error||'')}</div></div><div class="modal-foot"><small>${['new-run','edit-run'].includes(m.kind)?'Draft not saved yet':m.kind==='run'?'Saved run':m.kind==='download-database'?'Starts only when you confirm':m.kind==='apply-databases'?'Creates a new draft · original kept':m.kind==='isolate'?'Original inputs and results stay in place':'Local workspace'}</small><div class="button-row">${btn('close','Close')}${foot}</div></div></section></div>`;
 $('.app-shell').setAttribute('inert','');
-if(m.kind==='report'&&U.report?.id===m.id){const f=document.createElement('iframe');f.title=U.report.name;f.setAttribute('sandbox','allow-scripts allow-downloads allow-modals');f.referrerPolicy='no-referrer';f.className='html-report-frame';f.srcdoc=reportDocument(U.report.base64);$('#report-frame-container').append(f);}
+if(m.kind==='report'&&U.report?.id===m.id){const f=document.createElement('iframe');f.title=U.report.name;f.setAttribute('sandbox','allow-scripts allow-downloads allow-modals');f.referrerPolicy='no-referrer';f.className='html-report-frame';f.srcdoc=reportDocument(U.report.base64,reportCompanions(U.report),m.reportAnchor);$('#report-frame-container').append(f);}
 if(m.kind==='support')syncSupport();
 if(m.kind==='import')syncSampleImport();
 if(m.kind==='versions')filterVersions();
 if(['new-run','edit-run'].includes(m.kind)&&U.runConfigTab==='settings')filterRunSettings();
 if(m.kind==='environments')syncEnvironmentControls();
+if(m.kind==='cleanup-preview')syncCleanupConfirmation();
+if(m.kind==='isolate')syncIsolateExport();
 renderBusy();
+if(keepIsolatePosition){const body=$('.modal-body');if(body)body.scrollTop=priorBodyScroll||0;const graph=$('.isolate-graph-scroll');if(graph&&priorGraphScroll){graph.scrollTop=priorGraphScroll.top;graph.scrollLeft=priorGraphScroll.left;}}
+if(priorFocus){const target=priorFocus.id?$$('.isolate-modal [id],.isolate-folder-modal [id],.notification-modal [id],[data-modal-kind="usage"] [id]').find(n=>n.id===priorFocus.id):$$('.isolate-modal [data-action],.isolate-folder-modal [data-action],.notification-modal [data-action],[data-modal-kind="usage"] [data-action]').find(n=>n.dataset.action===priorFocus.action&&n.dataset.id===priorFocus.key&&n.getAttribute('aria-label')===priorFocus.label);if(target&&!target.disabled)target.focus({preventScroll:true});}
 }
 function sampleImportPreview(){
  const d=U.sampleImport;if(!d)return '<p class="padded">Preview the table to review resolved folders and row errors.</p>';
@@ -839,16 +2147,37 @@ function safeURL(url){try{const u=new URL(url);return u.protocol==='https:'&&u.h
 function filterVersions(){const q=val('version-search').toLowerCase(),c=val('version-channel','all');for(const row of $$('.version-choice')){row.hidden=(val('release-channel','prerelease')==='stable'&&(row.dataset.versionPrerelease==='true'||row.dataset.versionKind!=='release'))||!row.dataset.versionName.includes(q)||(c!=='all'&&row.dataset.versionKind!==c);const radio=row.querySelector('input');if(row.hidden&&radio.checked){radio.checked=false;U.drafts['version-'+U.modal.id]='';}}const chosen=S.catalogs[U.modal.id].versions.find(x=>x.id===val('version-'+U.modal.id));const button=$('[data-action="install-version"]');if(button){button.disabled=!chosen;button.textContent=!chosen?'Choose a version':chosen.supported?'Download and set up':'Download source only';}}
 
 async function change(event){const t=event.target;if(t.id&&t.type!=='file'){U.drafts[t.id]=t.type==='checkbox'?t.checked:t.value;}
+if(t.id==='reset-databases'){for(const task of Object.values(U.asyncTasks))if(task.kind==='factory_reset_preview')task.cancelled=true;U.resetPlan=null;setDraft('reset-confirmation','');setDraft('reset-database-confirmation','');setDraft('reset-acknowledged',false);renderModal();return;}
+if(['reset-acknowledged','reset-confirmation','reset-database-confirmation'].includes(t.id)){syncResetConfirmation();return;}
+if(t.id==='redownload-reviewed'){const b=$('[data-action="start-database-redownload"]');if(b)b.disabled=!t.checked||!U.redownloadPlan?.alternative.available;return;}
+if(t.id==='output-snapshot'&&U.modal?.kind==='output-files'){U.outputFiles=null;requestOutputFiles('inspect_output_files',{id:U.modal.id,snapshot:t.value});renderModal();return;}
+if(t.id==='isolate-export-kind'){renderModal();return;}
+if(t.id==='isolate-export-destination'){syncIsolateExport();return;}
 if(t.id==='identification-mode'){renderModal();return;}
 if(t.id==='identification-candidate'&&t.value){setDraft('identification-taxid',t.value);const box=$('#identification-taxid');if(box)box.value=t.value;syncIdentification();return;}
 if(t.id==='identification-taxid'){syncIdentification();return;}
 if(t.id?.startsWith('followup-source-')){const id=U.modal.id;delete U.drafts['followup-scope-'+id];setDraft('followup-reviewed',false);renderModal();}
-if(t.id?.startsWith('followup-scope-')){setDraft('followup-reviewed',false);renderModal();}
+if(t.id?.startsWith('followup-scope-')||t.id?.startsWith('followup-catalog-')){setDraft('followup-reviewed',false);renderModal();}
+if(sequenceChange(t))return;
+if(t.id==='run-auto-delivery'){render();return;}
 if(['support-job','support-log','support-reviewed'].includes(t.id)){if(t.id!=='support-reviewed'){setDraft('support-reviewed',false);if(!val('support-job',''))setDraft('support-log',false);}renderModal();}
+if(t.id==='compute-default-tool'){render();return;}
+if(t.id==='defaults-auto-swap-hybas'||t.id==='run-auto-swap-hybas'){
+ if(t.id==='run-auto-swap-hybas')invalidateSetupAdvice();
+ render();$('#'+t.id)?.focus();return;
+}
+if(t.id?.startsWith('compute-swap-enabled-')){const tool=t.id.slice('compute-swap-enabled-'.length);if(t.checked&&!(Number(val('compute-swap-'+tool,0))>0))setDraft('compute-swap-'+tool,8192);render();$('#'+t.id)?.focus();return;}
 if(t.id==='setup-pipeline'){U.setupTool=t.value;setDraft('hardware-target',t.value);render();}
-if(t.dataset.sample&&wizardKind()==='new-run')render();
+if(t.dataset.sample&&wizardKind()==='new-run'){invalidateSetupAdvice();render();}
+if(['run-cores','run-memory','run-swap','revision-cores','revision-memory','revision-swap'].includes(t.id)){invalidateSetupAdvice();syncComputeBudget(t.id.startsWith('revision-')?'revision':'run');}
+if(['run-swap-enabled','revision-swap-enabled'].includes(t.id)){
+ const prefix=t.id.startsWith('revision-')?'revision':'run';
+ if(t.checked&&!(Number(val(prefix+'-swap',0))>0)){const available=S.hardware?.memory?.swap_available_mb;setDraft(prefix+'-swap',Number.isFinite(available)&&available>1024?Math.max(1024,Math.min(8192,Math.floor((available-1024)/1024)*1024)):1024);}
+ invalidateSetupAdvice();render();$('#'+t.id)?.focus();return;
+}
 if(t.dataset.runField){const c=runEditor(),f=c?.fields.find(f=>f.key===t.dataset.runField);if(f){editRunField(c,f,t.type==='checkbox'?t.checked:t.value);if(t.type==='checkbox'||t.tagName==='SELECT')renderEditor();}}
-if(t.id==='run-tool'){draftInputs();U.runBudgetTool=t.value;const budget=draftBudget(t.value);setDraft('run-cores',budget.cores);setDraft('run-memory',budget.memory_mb);const c=runEditor();if(c){if(c.raw){U.runSettingTab[c.tool]='advanced';U.runConfigTab='yaml';render();}else if(U.runConfigTab==='yaml'&&Object.keys(c.changes).length)request('run_config_editor',{...runConfigPayload(),view:'yaml'});else render();}else request('run_config_editor',{tool:t.value,view:U.runConfigTab||'samples'});}
+if(t.id==='run-tool')selectRunPipeline(t.value);
+if(/^compute-(memory|swap)-/.test(t.id))syncDefaultCompute(t.id.replace(/^compute-(memory|swap)-/,''));
 if(t.dataset.applyRun||t.dataset.applyResource)renderModal();
 if(t.dataset.environment)syncEnvironmentControls();
 if(['results-search','results-pipeline','results-archived'].includes(t.id))filterResults();
@@ -858,6 +2187,9 @@ if(t.id==='comparison-reference')render();
 if(['comparison-scope','comparison-differences'].includes(t.id))refreshComparison(true);
 if(t.id==='sample-import-errors'){U.importPage=0;$('#sample-import-rows').innerHTML=sampleImportRows();}
 if(t.id==='storage-category')render();
+if(['cleanup-category','cleanup-sort'].includes(t.id))render();
+if(t.dataset.cleanupSelect){const key=t.dataset.cleanupSelect,c=cleanupCandidates().find(c=>cleanupKey(c)===key);U.cleanupSelected=(U.cleanupSelected||[]).filter(x=>x!==key&&(!t.checked||!c?.kind.startsWith('sample_')||!cleanupCandidates().some(other=>cleanupKey(other)===x&&other.id===c.id&&other.kind.startsWith('sample_'))));if(t.checked)U.cleanupSelected.push(key);render();$$('[data-cleanup-select]').find(el=>el.dataset.cleanupSelect===key)?.focus();}
+if(['cleanup-acknowledged','cleanup-confirmation'].includes(t.id))syncCleanupConfirmation();
 if(t.id==='run-filter-tool'||t.id==='run-filter-status')render();
 if(t.dataset.select){U.selected=t.checked?[...new Set([...U.selected,t.dataset.select])]:U.selected.filter(x=>x!==t.dataset.select);render();}
 if(t.id?.startsWith('dbcand-')){const tool=U.resourceTool||'hybas',key=t.id.slice(('dbcand-'+tool+'-').length);if(t.value){setDraft(dbPath(tool,key),t.value);delete dbState(tool).resets[key];render();}}
@@ -873,29 +2205,79 @@ if(t.id==='yaml-upload'||t.id==='sample-upload'){
 }
 }
 function onChange(event){if(event.target.id==='reference-upload'){const f=event.target.files[0];if(f){if(f.size>2000000){U.error='Specification exceeds 2 MB';render();return;}f.text().then(text=>{setDraft('reference-spec',text);render();});}return;}const result=change(event);persistWizard();return result;}
-function onInput(event){input(event);persistWizard();}
+function onInput(event){sequenceInput(event.target);input(event);syncSwapRecommendation();persistWizard();}
 function input(event){const t=event.target;
+if(['reset-confirmation','reset-database-confirmation','reset-acknowledged'].includes(t.id)){U.drafts[t.id]=t.type==='checkbox'?t.checked:t.value;syncResetConfirmation();}
+if(t.id==='redownload-reviewed'){U.drafts[t.id]=t.checked;const b=$('[data-action="start-database-redownload"]');if(b)b.disabled=!t.checked||!U.redownloadPlan?.alternative.available;}
+if(t.id==='isolate-export-destination'){U.drafts[t.id]=t.value;syncIsolateExport();return;}
+if(['cleanup-acknowledged','cleanup-confirmation'].includes(t.id)){U.drafts[t.id]=t.type==='checkbox'?t.checked:t.value;syncCleanupConfirmation();}
 if(t.id==='support-text'){setDraft('support-reviewed',false);const box=$('#support-reviewed');if(box)box.checked=false;syncSupport();}
-if(['run-cores','revision-cores','run-memory','revision-memory'].includes(t.id)){const kind=t.id.endsWith('cores')?'cores':'memory',label=$('[data-review-budget="'+kind+'"]');if(label)label.textContent=t.value+(kind==='cores'?' cores':' MB');}
+if(['run-cores','revision-cores','run-memory','revision-memory','run-swap','revision-swap'].includes(t.id)){invalidateSetupAdvice();const kind=t.id.endsWith('cores')?'cores':t.id.endsWith('swap')?'swap':'memory',label=$('[data-review-budget="'+kind+'"]');if(label)label.textContent=t.value+(kind==='cores'?' cores':' MB');}
 if(t.dataset.runField){const c=runEditor(),f=c?.fields.find(f=>f.key===t.dataset.runField);if(f)editRunField(c,f,t.type==='checkbox'?t.checked:t.value);}
-if(t.dataset.runYaml){const c=runEditor();c.text=t.value;c.changes={};c.raw=true;updateDefaultStatus();}
-if(t.id&&t.type!=='file')U.drafts[t.id]=t.type==='checkbox'?t.checked:t.value;if(t.id?.startsWith('identification-'))syncIdentification();if(t.id?.startsWith('environment-cache-'))syncEnvironmentControls();if(t.id?.startsWith('dbpath-')){const tool=U.resourceTool||'hybas',key=t.id.slice(('dbpath-'+tool+'-').length);delete dbState(tool).resets[key];setDraft('dbcand-'+tool+'-'+key,'');for(const b of $$('[data-action="save-databases"]'))b.disabled=false;const pos=t.selectionStart,id=t.id;render();const field=$('#'+id);field?.focus();if(pos!==null)field?.setSelectionRange(pos,pos);}if(t.id==='sample-table')syncSampleImport();if(t.id==='comparison-search')refreshComparison(true);if(t.id==='history-search')refreshHistory(true);if(t.id==='compatibility-search')filterCompatibility();if(t.id==='results-search')filterResults();if(t.id===editorSearchId(runEditor()||{}))filterRunSettings();if(t.id==='version-search'||(t.id==='version-channel'||t.id==='release-channel'))filterVersions();if(['registered-sample-search','run-search'].includes(t.id)){const pos=t.selectionStart,id=t.id;render();$('#'+id).focus();$('#'+id).setSelectionRange(pos,pos);}}
-function click(event){if(!event.target.closest('.workspace-tools'))$('.workspace-tools')?.removeAttribute('open');if(event.target.closest('.skip')){event.preventDefault();closeNavigation(false);$('#main').focus();$('#main').scrollIntoView({block:'start'});return;}const nav=event.target.closest('[data-nav]');if(nav){if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();navigate(nav.dataset.nav);return;}const a=event.target.closest('[data-action]');if(!a)return;if(a.tagName==='A'){if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();}const action=a.dataset.action,id=a.dataset.id;draftInputs();U.error='';
+if(t.dataset.runYaml){const c=runEditor();if(c.scope!=='defaults')invalidateSetupAdvice();c.text=t.value;c.changes={};c.raw=true;updateDefaultStatus();}
+if(t.id&&t.type!=='file')U.drafts[t.id]=t.type==='checkbox'?t.checked:t.value;if(/^compute-(memory|swap)-/.test(t.id))syncDefaultCompute(t.id.replace(/^compute-(memory|swap)-/,''));if(/^(run|revision)-(cores|memory|swap)$/.test(t.id))syncComputeBudget(t.id.startsWith('revision-')?'revision':'run');if(t.id?.startsWith('identification-'))syncIdentification();if(t.id?.startsWith('environment-cache-'))syncEnvironmentControls();if(t.id?.startsWith('dbpath-')){const tool=U.resourceTool||'hybas',key=t.id.slice(('dbpath-'+tool+'-').length);delete dbState(tool).resets[key];setDraft('dbcand-'+tool+'-'+key,'');for(const b of $$('[data-action="save-databases"]'))b.disabled=false;const pos=t.selectionStart,id=t.id;render();const field=$('#'+id);field?.focus();if(pos!==null)field?.setSelectionRange(pos,pos);}if(t.id==='sample-table')syncSampleImport();if(t.id==='comparison-search')refreshComparison(true);if(t.id==='history-search')refreshHistory(true);if(t.id==='compatibility-search')filterCompatibility();if(t.id==='results-search')filterResults();if(t.id===editorSearchId(runEditor()||{}))filterRunSettings();if(t.id==='version-search'||(t.id==='version-channel'||t.id==='release-channel'))filterVersions();if(['registered-sample-search','run-search','cleanup-search'].includes(t.id)){const pos=t.selectionStart,id=t.id;render();$('#'+id).focus();$('#'+id).setSelectionRange(pos,pos);}}
+function click(event){if(!event.target.closest('.workspace-tools'))$('.workspace-tools')?.removeAttribute('open');if(event.target.closest('.skip')){event.preventDefault();closeNavigation(false);$('#main').focus();$('#main').scrollIntoView({block:'start'});return;}const nav=event.target.closest('[data-nav]');if(nav){if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();navigate(nav.dataset.nav);return;}const a=event.target.closest('[data-action]');if(!a||a.id==='support-plugin')return;if(a.tagName==='A'){if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();}const action=a.dataset.action,id=a.dataset.id;draftInputs();U.error='';
+if(action==='cancel-ui-task'){const task=U.asyncTasks[id];if(task){task.cancelled=true;settleStorageTask(task,'cancelled');}render();return;}
+if(action==='open-factory-reset'){U.resetPlan=null;for(const key of ['reset-confirmation','reset-database-confirmation'])setDraft(key,'');setDraft('reset-acknowledged',false);setDraft('reset-databases',false);modal('factory-reset');$('.workspace-tools')?.removeAttribute('open');return;}
+if(action==='preview-factory-reset'){U.resetPlan=null;setDraft('reset-confirmation','');setDraft('reset-database-confirmation','');setDraft('reset-acknowledged',false);request('factory_reset_preview',{delete_databases:!!val('reset-databases',false)});renderModal();return;}
+if(action==='execute-factory-reset'){if(resetConfirmed()){const p=U.resetPlan;request('factory_reset_execute',{plan_id:p.id,signature:p.signature,confirmation:val('reset-confirmation'),database_confirmation:val('reset-database-confirmation'),acknowledged:val('reset-acknowledged',false)});}return;}
+if(action==='redownload-database'){U.redownloadPlan=null;setDraft('redownload-reviewed',false);modal('redownload-database',id);request('database_redownload_preview',{tool:U.resourceTool||'hybas',id});return;}
+if(action==='start-database-redownload'){const p=U.redownloadPlan;if(p?.alternative.available&&val('redownload-reviewed',false))request('database_redownload_request',{tool:p.tool,id:p.resource,signature:p.signature,parent:p.parent,choice:p.alternative.choice,lineage:p.alternative.lineage,cores:Number(val('redownload-cores',4)),memory_mb:Number(val('redownload-memory',16000))});return;}
+
 if(action==='toggle-navigation'){U.navOpen=!U.navOpen;syncNavigation();if(U.navOpen)$('#navigation [data-nav]').focus();return;}if(action==='close-navigation'){closeNavigation();return;}
-if(action==='close'){closeModal();return;}if(action.startsWith('go-')){navigate(action.slice(3));return;}
+if(action==='home-run-activity'){const r=runBy(id);openRun(id,r?.status==='completed'?'results':'activity');return;}if(action==='close'){closeModal();return;}if(action.startsWith('go-')){navigate(action.slice(3));return;}
 $('.workspace-tools')?.removeAttribute('open');
 const v=x=>$('#'+x)?.value??val(x);
-if(action==='get-support'){clearSupport();setDraft('support-job',S.jobs.some(j=>j.id===id)?id:'');setDraft('support-log',false);modal('support');}
+if(action==='isolate-details'||action==='isolate-export'){
+ U.isolate=null;U.isolateNode=null;U.isolateExportPlan=null;U.isolatePlanRequest=null;U.isolatePlanInvalidated=false;U.isolateTab=action==='isolate-export'?'export':'files';modal('isolate',id);request('isolate_details',{id});
+}
+else if(action==='isolate-tab'){U.isolateTab=id;renderModal();$$('[data-action="isolate-tab"]').find(n=>n.dataset.id===id)?.focus();}
+else if(action==='refresh-isolate'){U.isolateExportPlan=null;request('isolate_details',{id:U.modal.id});}
+else if(action==='open-isolate-folder'){U.isolateFolderOrigin={action,id};request('open_isolate_folder',{id,kind:'analysis'});}
+else if(action==='open-isolate-inputs'){U.isolateFolderFocus=U.modal?{kind:U.modal.kind,modalId:U.modal.id,action,id}:null;request('open_isolate_folder',{id,kind:'inputs'});}
+else if(action==='open-isolate-analysis'&&['isolate','isolate-folders'].includes(U.modal?.kind)){U.isolateFolderFocus={kind:U.modal.kind,modalId:U.modal.id,action,id};request('open_isolate_folder',{id:U.modal.id,kind:'run',run_id:id});}
+else if(action==='isolate-node'){U.isolateNode=id;renderModal();$$('[data-action="isolate-node"]').find(n=>n.dataset.id===id)?.focus();}
+else if(action==='download-isolate-history'&&U.modal?.kind==='isolate')request('download_isolate_history',{id:U.modal.id,format:id});
+else if(action==='preview-isolate-export'&&U.modal?.kind==='isolate'){
+ const destination=v('isolate-export-destination').trim(),destination_kind=val('isolate-export-kind','folder');if(!destination)return;
+ U.isolateExportPlan=null;U.isolatePlanInvalidated=false;U.isolatePlanRequest={destination,destination_kind};request('preview_isolate_export',{id:U.modal.id,destination,destination_kind});
+}
+else if(action==='start-isolate-export'&&isolateCanExport())request('start_isolate_export',{plan_id:U.isolateExportPlan.id,token:U.isolateExportPlan.token});
+else if(action==='isolate-export-receipt'){U.isolateExportReceipt=null;modal('isolate-export-receipt',id);request('isolate_export_receipt',{id});}
+else if(action==='refresh-isolate-export-receipt')request('isolate_export_receipt',{id});
+else if(action==='open-isolate-export')request('open_isolate_export',{id});
+else if(action==='copy-results'){U.delivery=null;U.deliveryPath='';delete U.drafts['delivery-folder'];modal('delivery',id);request('preview_result_delivery',{id});}
+else if(action==='confirm-copy-results')request('copy_run_results',{id,folder:v('delivery-folder')});
+else if(action==='sequence-copy'){delete U.drafts['seq-copy-folder'];modal('sequence-copy',id);}
+else if(action==='confirm-sequence-copy'){const [sid,key]=id.split('/');request('copy_sequence_results',{id:sid,sample:decodeURIComponent(key),folder:v('seq-copy-folder')});}
+else if(sequenceAction(action,id)){return;}
+else if(['sequence-start','sequence-release','sequence-retry','sequence-hold','sequence-resume'].includes(action))request('control_sequence',{id,action:action.slice(9)});
+else if(action==='email-results')request('email_results',{id});
+else if(action==='submit-support'){
+ clearSupport();
+ const currentRun=U.view==='run'?U.runId:null;
+ const job=currentRun?S.jobs.find(j=>j.payload?.run_id===currentRun):S.jobs[0];
+ setDraft('support-job',job?.id||'');setDraft('support-log',!!job);
+ modal('support');
+ request('support_preview',{job_id:job?.id||null,include_log:!!job});
+}
+else if(action==='get-support'){clearSupport();setDraft('support-job',S.jobs.some(j=>j.id===id)?id:'');setDraft('support-log',false);modal('support');}
 else if(action==='restart-as-browser')request('restart_as_browser',{});
+else if(action==='close-desktop'&&S.desktop_close_available)modal('close-desktop');
+else if(action==='confirm-close-desktop'&&S.desktop_close_available&&U.modal?.kind==='close-desktop'&&!U.modal.requested){
+ request('close_desktop');
+ if(U.requestOrigin?.kind==='close_desktop'||U.queuedRequest?.kind==='close_desktop'){U.modal.requested=true;renderModal();}
+}
 else if(action==='app-window-help')modal('app-window-help');
 else if(action==='generate-support')request('support_preview',{job_id:v('support-job')||null,include_log:!!val('support-log',false)});
+else if(action==='support-chat')openReviewedSupport();
 else if(action.startsWith('support-download-')){syncSupport();if(supportValid())request('download_support',{text:val('support-text'),reviewed:true,format:action.slice('support-download-'.length)});}
 else if(action==='resume-wizard')openWizard();
 else if(action==='leave-wizard'){persistWizard();navigate(U.wizard?.kind==='edit-run'?'runs':'samples');}
 else if(action==='discard-wizard')modal('discard-wizard');
 else if(action==='confirm-discard-wizard'){clearWizard();U.modal=null;navigate('runs');}
 else if(action==='resume-conflicting-editor'){closeModal();openWizard();}
-else if(action==='replace-conflicting-editor'&&U.modal?.kind==='editor-conflict'){const {id,variant}=U.modal;clearWizard();closeModal();editSavedRun(id,!!variant);}
+else if(action==='replace-conflicting-editor'&&U.modal?.kind==='editor-conflict'){const {id,variant,recalculateSwap}=U.modal;clearWizard();closeModal();editSavedRun(id,!!variant,!!recalculateSwap);}
 else if(action==='browse-folder')browse(id,v(id));
 else if(action==='folder-open'){setDraft('folder-query','');request('browse_folders',{path:id,show_hidden:!!val('folder-hidden',false)});}
 else if(action==='folder-go'||action==='folder-filter'||action==='folder-page'){request('browse_folders',{path:v('folder-path'),query:v('folder-query'),offset:action==='folder-page'?Number(id):0,show_hidden:!!val('folder-hidden',false)});}
@@ -916,8 +2298,18 @@ else if(action==='scan-local')request('discover_installations',{tool:id,root:v('
 else if(action==='choose-local'){setDraft('existing-source',id);U.localInstall=null;request('inspect_installation',{tool:U.modal.id,path:id});}
 else if(action==='inspect-local'){U.localInstall=null;request('inspect_installation',{tool:id,path:v('existing-source')});}
 else if(action==='connect-local'){if(!U.localInstall?.supported)return;request('connect_installation',{tool:id,path:v('existing-source'),commit:U.localInstall.commit,runner_mode:v('existing-env-choice')?'existing':'managed',controller:v('existing-env-choice')?v('existing-controller'):'',rule_cache:v('existing-cache')});}
-else if(action==='preview-report-refresh'){U.refreshPlan=null;modal('report-refresh',id);request('preview_report_refresh',{id});}
-else if(action==='confirm-report-refresh'){const p=U.refreshPlan;if(p?.available)request('regenerate_report',{id:p.run_id,evidence_sha256:p.evidence_sha256,renderer_sha256:p.renderer_sha256});}
+else if(action==='preview-report-refresh'){const [rid,target='standard']=id.split('|');U.refreshPlan=null;modal('report-refresh',rid);request('preview_report_refresh',{id:rid,target});}
+else if(action==='confirm-report-refresh'){const p=U.refreshPlan;if(p?.available)request('regenerate_report',{id:p.run_id,target:p.target,inputs_sha256:p.inputs_sha256,evidence_sha256:p.evidence_sha256,renderer_sha256:p.renderer_sha256});}
+else if(action==='notifications'){U.notificationError='';for(const key of ['jobs','review','updates','auto_update_checks'])delete U.drafts['notifications-'+key];modal('notifications');}
+else if(action==='notification-open')requestNotificationOpen(S.notifications?.items.find(item=>item.id===id));
+else if(action==='notification-read')request('mark_notifications_read',{ids:[id]});
+else if(action==='notifications-read-all')request('mark_notifications_read',{all:true});
+else if(action==='notifications-clear-all')request('clear_notifications',{ids:S.notifications.items.map(item=>item.id)});
+else if(action==='notifications-save')request('save_notification_settings',Object.fromEntries(['jobs','review','updates','auto_update_checks'].map(key=>[key,!!val('notifications-'+key,S.notifications?.settings?.[key]!==false)])));
+else if(action==='notifications-check-updates')request('check_notification_updates');
+else if(action==='notifications-desktop-on'){enableDesktopNotifications();refreshNotificationControls();}
+else if(action==='notifications-desktop-off'){desktopNotificationState().enabled=false;saveDesktopNotificationState();U.notificationError='';refreshNotificationControls();}
+else if(action==='notifications-test')showDesktopNotification({id:'test',title:'Test alert',body:'Desktop notifications are available while Bactologix is open.'},true);
 else if(action==='app-updates'){modal('app-update');if(!S.app_update.catalog)request('refresh_app_releases');}
 else if(action==='refresh-app-releases')request('refresh_app_releases');
 else if(action==='refresh-reference-databases'){request('refresh_reference_databases');}
@@ -936,11 +2328,21 @@ else if(action==='new-run'||action==='sample-draft'){
  if(U.wizard){openWizard();toast('Resumed your unfinished edits. Discard them explicitly to start again.');return;}
  if(U.view==='install'&&(U.setupTab||'guide')==='guide')setDraft('run-tool',U.setupTool||'hybas');
  if(action==='sample-draft'){for(const sample of S.samples)setDraft('run-sample-'+sample.id,sample.id===id);}
- U.wizard={kind:'new-run'};U.runConfigs={};U.runConfigGroup={};U.runSettingTab={};U.runConfigTab='samples';setDraft('run-setting-search','');U.runBudgetTool=val('run-tool','hybas');const budget=draftBudget(U.runBudgetTool);setDraft('run-cores',budget.cores);setDraft('run-memory',budget.memory_mb);
+ U.runBudgets={};U.budgetDefaults={};U.wizard={kind:'new-run'};U.runConfigs={};U.runConfigGroup={};U.runSettingTab={};U.runConfigTab='purpose';U.runComputeOpen=false;setDraft('run-tool',val('run-tool','hybas'));setDraft('run-setting-search','');U.runBudgetTool=val('run-tool','hybas');const budget=draftBudget(U.runBudgetTool);setDraft('run-cores',budget.cores);setDraft('run-memory',budget.memory_mb);setSwapDraft('run',budget.swap_mb||0);
  openWizard();
 }
+else if(action==='run-purpose')selectRunPipeline(id);
+else if(action==='review-setup'||action==='apply-setup-advice'){
+ const payload=setupAdvicePayload();if(!payload||!payload.ids.length)return;
+ const apply=action==='apply-setup-advice';
+ if(apply&&(!setupAdviceFresh()||!U.setupAdvice.settings?.some(item=>item.name===id&&item.applicable&&item.change!==null&&item.change!==undefined))){invalidateSetupAdvice();return;}
+ const kind=apply?'apply_setup_advice':'inspect_setup_advice';
+ U.setupAdviceRequest={kind,context:setupAdviceContext(),setting:apply?id:null};
+ request(kind,{...payload,...(apply?{signature:U.setupAdvice.signature,setting:id}:{})});
+}
 else if(action==='run-config-tab'){
- const c=runEditor();if(!c)return;
+ if(id==='review'){const error=swapDraftError(wizardKind()==='edit-run'?'revision':'run');if(error){U.error=error;render();return;}}
+ const c=runEditor();if(!c){if(wizardKind()==='new-run'&&['purpose','samples'].includes(id)){U.runConfigTab=id;render();}return;}
  if(id==='yaml'||id==='review'||c.raw)requestEditor(id,id==='review');
  else {editorUI(c).runConfigTab=id;renderEditor();}
 }
@@ -953,12 +2355,14 @@ else if(action==='run-choice'){
 }
 else if(action==='run-setting-group'){const c=runEditor();editorUI(c).runConfigGroup[c.tool]=id;setDraft(editorSearchId(c),'');filterRunSettings();}
 else if(action==='reload-run-defaults'){
+ invalidateSetupAdvice();
  if(runEditor()?.scope==='defaults')request('default_config_editor',{tool:U.tool,view:editorUI().runConfigTab});
  else if(wizardKind()==='edit-run')request('edit_run_settings',{id:U.revision.id,variant:!!U.revision.variant});
  else request('run_config_editor',{tool:val('run-tool','hybas'),view:U.runConfigTab});
 }
 else if(action==='check-run-config')requestEditor(editorUI().runConfigTab,true);
 else if(action==='reset-run-field'){
+ invalidateSetupAdvice();
  const c=runEditor(),f=c.fields.find(f=>f.key===id);delete c.changes[id];
  if(c.tool==='hybas'&&['run_kraken','kraken_decision_mode'].includes(f?.name))for(const x of c.fields.filter(x=>['run_kraken','kraken_decision_mode'].includes(x.name)))delete c.changes[x.key];
  renderEditor();
@@ -976,20 +2380,25 @@ else if(action==='compare-configurations'||action==='download-comparison'){U.com
 else if(action==='comparison-page'){U.comparisonPage=Number(id);refreshComparison();$('#comparison-table').focus({preventScroll:true});$('#comparison-table').scrollIntoView({block:'start'});}
 else if(action==='comparison-tab'){U.comparisonTab=id;writeRoute(true);render();}
 else if(action==='compare-selected'){U.comparisonTab='review';navigate('comparisons');}
-else if(action==='archive-run'||action==='restore-run')request(action==='archive-run'?'archive_runs':'restore_runs',{ids:[id]});
+else if(action==='archive-run')request('archive_runs',{ids:[id]});
+else if(action==='restore-run'){U.restoreOpenRun=['storage','jobs'].includes(U.view)||U.modal?.kind==='cleanup-preview'?id:null;U.cleanupPlan=null;U.cleanupSelected=[];setDraft('cleanup-acknowledged',false);const acknowledgment=$('#cleanup-acknowledged');if(acknowledgment)acknowledgment.checked=false;setDraft('cleanup-confirmation','');if(U.modal?.kind==='cleanup-preview')U.modal=null;request('restore_runs',{ids:[id]});render();}
 else if(action==='archive-selected')request('archive_runs',{ids:U.selected});
-else if(action==='remove-sample')request('remove_sample',{id,sample:S.samples.find(s=>s.id===id)});
+else if(action==='remove-sample'){const sample=S.samples.find(s=>s.id===id);if(sample)modal('remove-sample',id,{sample:structuredClone(sample)});}
+else if(action==='confirm-remove-sample'&&U.modal?.kind==='remove-sample')request('remove_sample',{id:U.modal.id,sample:U.modal.sample});
 else if(action==='preview-samples'){U.importRequestText=v('sample-table');U.importPage=0;request('preview_samples',{text:U.importRequestText});}
 else if(action==='import-page'){U.importPage=Number(id);$('#sample-import-rows').innerHTML=sampleImportRows();$('#sample-import-rows').focus({preventScroll:true});$('#sample-import-rows').scrollIntoView({block:'nearest'});}
 else if(action==='import-samples')request('import_samples',{text:v('sample-table'),token:U.sampleImport?.token});
 else if(action==='save-conda')request('save_conda',{path:v('conda-path')});
 else if(['bootstrap','smoke','refresh'].includes(action))request(action);
 else if(action==='history-page'){U.historyPage=Number(id);refreshHistory();$('#history-list').focus({preventScroll:true});$('#history-list').scrollIntoView({block:'start'});}
-else if(action==='clear-history'){for(const key of ['search','status','pipeline','kind','order'])setDraft('history-'+key,key==='search'?'':key==='order'?'newest':'all');refreshHistory(true);}
+else if(action==='clear-history'){resetHistoryFilters();refreshHistory();}
+else if(action==='clear-job-history')modal('clear-job-history');
+else if(action==='confirm-clear-job-history'&&U.modal?.kind==='clear-job-history')request('clear_job_history');
 else if(action==='download-history')downloadHistory();
 else if(action==='check-workflow-lock'){request('inspect_workflow_lock',{id});}
 else if(action==='unlock-workflow'){request('unlock_workflow',{id,signature:U.unlockPlan?.signature});}
 else if(action==='recover-jobs')request('recover_jobs');
+else if(action==='release-storage-stop'&&id===workspaceDiskStop()?.id)request('release_storage_stop',{id});
 else if(['pause-queue','resume-queue','hold-job','release-job','queue-up','queue-down'].includes(action)){
  const actions={'pause-queue':'pause','resume-queue':'resume','hold-job':'hold','release-job':'release','queue-up':'up','queue-down':'down'};
  request('queue_control',{action:actions[action],revision:S.queue?.revision,id:id||null});
@@ -1012,12 +2421,13 @@ else if(action==='apply-run-databases'){
  request('apply_run_databases',{ids:U.databaseRunPlan.runs.map(r=>r.id),selections,signature:U.databaseRunPlan.signature});
 }
 else if(['setup-install-environments','setup-check-environments','setup-repair-environments'].includes(action)){setDraft('environment-cache-'+id,S.environments[id]?.cache||'');modal('environments',id,{action:action.split('-')[1]});}
-else if(action==='setup-tab'){U.setupTab=id;writeRoute();render();}
+else if(action==='setup-tab'){U.setupTab=id;U.view='install';writeRoute();render();}
 else if(action==='setup-step'){U.setupStep=id;U.setupTab='guide';render();$('.setup-guide')?.scrollIntoView({block:'start'});}
 else if(action==='detect-hardware')request('detect_hardware');
-else if(action==='open-compute-hardware'){U.setupTab='hardware';setDraft('hardware-target',id);navigate('install');}
+else if(action==='open-compute-hardware'){U.setupTab='hardware';setDraft('hardware-target',id);setDraft('compute-default-tool',id);navigate('install');}
+else if(action==='calculate-swap'){const [scope,tool]=id.split(':');calculateSwap(scope,tool);}
 else if(action==='pipeline-power-preset'){const [tool,preset]=id.split(':');if(defaultsDirty(defaultEditor(tool))){U.error='Save or reload pending settings before changing compute defaults.';render();return;}request('apply_resource_preset',{preset,tools:[tool],revisions:S.hardware.revisions,hardware_id:S.hardware.id});}
-else if(action==='save-pipeline-compute'){if(defaultsDirty(defaultEditor(id))){U.error='Save or reload pending settings before changing compute defaults.';render();return;}request('save_compute_defaults',{tool:id,cores:v('compute-cores-'+id),memory_mb:v('compute-memory-'+id),gpu_mode:v('compute-gpu-'+id),revisions:S.hardware.revisions,hardware_id:S.hardware.id});}
+else if(action==='save-pipeline-compute'){if(defaultsDirty(defaultEditor(id))){U.error='Save or reload pending settings before changing compute defaults.';render();return;}const automatic=autoSwapSelected('defaults',id),swap=defaultSwap(id),ram=Number(v('compute-memory-'+id));if(!automatic&&val('compute-swap-enabled-'+id,false)&&(!Number.isInteger(swap)||swap<1||!Number.isFinite(ram)||ram+swap>2000000)){U.error='Enter a positive whole-number swap allowance. RAM plus swap must not exceed 2,000,000 MB.';render();return;}request('save_compute_defaults',{tool:id,...(id==='hybas'?{auto_swap:automatic}:{}),...(automatic?{}:{swap_mb:swap}),cores:v('compute-cores-'+id),memory_mb:v('compute-memory-'+id),gpu_mode:v('compute-gpu-'+id),revisions:S.hardware.revisions,hardware_id:S.hardware.id});}
 else if(action==='apply-power-preset')request('apply_resource_preset',{preset:id,tools:v('hardware-target')==='both'?Object.keys(S.pipelines):[v('hardware-target')],revisions:S.hardware.revisions,hardware_id:S.hardware.id});
 else if(action==='select-environments'||action==='clear-environments'){for(const el of $$('[data-environment]')){el.checked=action==='select-environments';U.drafts[el.id]=el.checked;}syncEnvironmentControls();}
 else if(action==='preview-uninstall'){U.uninstallPlan=null;modal('uninstall',id);request('preview_uninstall',{id});}
@@ -1026,6 +2436,10 @@ else if(action==='browse-env-cache'){U.modal.advanced=true;browse('environment-c
 else if(action==='save-env-cache')request('set_environment_cache',{id,path:v('environment-cache-'+id)});
 else if(['check-environments','install-environments','repair-environments'].includes(action))request('manage_environments',{id,action:action.split('-')[0],selected:$$('[data-environment]:checked').map(x=>x.dataset.environment)});
 else if(action==='download-database')modal('download-database',id);
+else if(action==='basis-catalog-doi')request('basis_catalog_doi',{tool:'basis',doi:v('basis-catalog-doi')});
+else if(action==='basis-catalog-template')request('basis_catalog_template',{});
+else if(action==='basis-catalog-run')request('basis_catalog_job',{action:id,spec:v('basis-catalog-spec')});
+else if(action==='basis-catalog-verify')request('basis_catalog_job',{action:'verify',id});
 else if(action==='restore-reference-starter'){const s=S.database_builder?.starter;if(s){setDraft('reference-spec',s.text);U.referenceDefaultText=s.text;render();const editor=$('#reference-editor');if(editor)editor.open=true;}}
 else if(action==='validate-reference-spec')request('validate_reference_spec',{spec:v('reference-spec')});
 else if(action==='build-reference')request('build_reference_database',{spec:v('reference-spec'),cores:Number(v('reference-cores')),memory_mb:Number(v('reference-memory'))});
@@ -1043,9 +2457,15 @@ else if(action==='reset-database'){const t=U.resourceTool||'hybas';dbState(t).re
 else if(action==='save-databases'){const state=dbState(id),changes={};for(const r of S.databases[id].rows){if(r.managed)continue;const path=v(dbPath(id,r.id));if(state.resets[r.id])changes[r.id]=null;else if(path!==r.path)changes[r.id]=path;}request('save_databases',{tool:id,changes,revision:state.revision});}
 else if(action==='save-config')request('save_default_config',{...runConfigPayload(),revision:runEditor().revision,view:editorUI().runConfigTab});
 else if(action==='download-yaml')requestEditor(editorUI().runConfigTab,false,{download:true});
-else if(action==='create-runs')request('create_runs',{tool:v('run-tool'),ids:S.samples.filter(s=>val('run-sample-'+s.id,false)).map(s=>s.id),cores:Number(v('run-cores')),memory_mb:Number(v('run-memory')),config:runConfigPayload()});
+else if(action==='create-runs'){
+ const tool=val('run-tool','hybas'),automatic=autoSwapSelected('run',tool);
+ request('create_runs',{tool,auto_delivery:!!val('run-auto-delivery',false),delivery_folders:Object.fromEntries(S.samples.filter(s=>val('run-sample-'+s.id,false)).map(s=>[s.id,deliveryFolder(s)])),ids:S.samples.filter(s=>val('run-sample-'+s.id,false)).map(s=>s.id),
+  cores:Number(v('run-cores')),memory_mb:Number(v('run-memory')),config:runConfigPayload(),
+  ...(tool==='hybas'?{auto_swap:automatic}:{}),...(automatic?{}:{swap_mb:draftSwap('run')})});
+}
 else if(action==='clear-selection'){U.selected=[];render();}
 else if(action==='run-detail')openRun(id);
+else if(action==='refresh-run-checks')request('inspect_run',{id});
 else if(action==='review-identification'){U.identification=null;for(const k of Object.keys(U.drafts))if(k.startsWith('identification-'))delete U.drafts[k];modal('identification',id);request('inspect_identification',{id});}
 else if(['preview-identification','search-identification'].includes(action)){request('inspect_identification',{id,mode:val('identification-mode',U.identification?.mode||'aware'),taxid:v('identification-taxid')||U.identification?.taxid||'',query:v('identification-query')||''});}
 else if(['save-identification','continue-identification'].includes(action)){if(!identificationMatches())return;request(action.replaceAll('-','_'),{id,mode:U.identification.mode,taxid:U.identification.taxid,signature:U.identification.signature});}
@@ -1058,12 +2478,15 @@ else if(action==='open-methods'){U.runDetailTab='methods';writeRoute(true);rende
 else if(action==='refresh-methods')request('inspect_methods',{id});
 else if(action.startsWith('methods-download-'))request('download_methods',{id,format:action.slice('methods-download-'.length)});
 else if(action==='create-variant')editSavedRun(id,true);
+else if(action==='preview-vfdb-repair'){U.resourceRepair=null;modal('vfdb-repair',id);request('preview_vfdb_repair',{id});}
+else if(action==='apply-vfdb-repair'){const d=U.resourceRepair;if(d?.id===id&&d.available)request('apply_vfdb_repair',{id,signature:d.signature});}
 else if(action==='edit-run-settings')editSavedRun(id);
-else if(action==='save-run-revision')request('revise_run',{id:U.revision.id,variant:!!U.revision.variant,signature:U.revision.signature,config:runConfigPayload(),cores:Number(v('revision-cores')),memory_mb:Number(v('revision-memory'))});
+else if(action==='recalculate-run-swap')editSavedRun(id,false,true);
+else if(action==='save-current-draft'||action==='save-run-revision')request(action==='save-current-draft'?'update_run_draft':'revise_run',{id:U.revision.id,variant:!!U.revision.variant,signature:U.revision.signature,config:runConfigPayload(),cores:Number(v('revision-cores')),memory_mb:Number(v('revision-memory')),swap_mb:draftSwap('revision',U.revision.swap_mb||0)});
 else if(action==='micp-handoff')request('micp_handoff',{id});
 else if(action==='handoff')request('handoff',{id});
-else if(action==='followup'){delete U.drafts['followup-reviewed'];delete U.drafts['followup-source-'+id];delete U.drafts['followup-scope-'+id];modal('followup',id);}
-else if(action==='create-followup')request('create_followup',{id,text:v('followup-yaml-'+id),reviewed:$('#followup-reviewed').checked,source_id:v('followup-source-'+id),scope:v('followup-scope-'+id)||null});
+else if(action==='followup'){delete U.drafts['followup-reviewed'];delete U.drafts['followup-source-'+id];delete U.drafts['followup-scope-'+id];delete U.drafts['followup-catalog-'+id];modal('followup',id);}
+else if(action==='create-followup')request('create_followup',{id,text:v('followup-yaml-'+id),reviewed:$('#followup-reviewed').checked,source_id:v('followup-source-'+id),scope:v('followup-scope-'+id)||null,catalog_id:v('followup-catalog-'+id)||null});
 else if(action==='download-frozen'&&U.detail?.id===id)download(id+'.yaml',U.detail.config,'text/yaml');
 else if(action==='start-workstation')request('check_workstation',{installation:val('workstation-runner','')||null});
 else if(action==='workstation-detail'){U.workstationCheck=null;modal('workstation',id);request('inspect_workstation',{id});}
@@ -1074,21 +2497,39 @@ else if(action==='recovery-setup'){U.setupTab='software';navigate('install');}
 else if(action==='recovery-databases'){const j=S.jobs.find(x=>x.id===id),r=runBy(j?.payload.run_id);U.resourceTool=r?.tool||j?.payload.tool||'hybas';navigate('resources');}
 else if(action==='job-log'){modal('log',id);request('job_log',{id});}
 else if(action==='job-usage'){modal('usage',id);request('job_metrics',{id});}
+else if(action==='usage-section'&&U.modal?.kind==='usage'){U.modal.section=id;renderModal();}
 else if(action==='refresh-usage')request('job_metrics',{id});
 else if(action.startsWith('usage-download-'))request('download_metrics',{id,format:action.slice('usage-download-'.length)});
 else if(action==='refresh-compatibility')request('inspect_compatibility');
 else if(action==='download-compatibility')request('download_compatibility');
 else if(action==='refresh-storage')request('inspect_storage');
+else if(action==='refresh-storage-cleanup')request('inspect_storage_cleanup');
+else if(action==='cleanup-failed-items')previewCleanup({scope:'failed'});
+else if(action==='retry-cleanup-preview'&&U.cleanupPreviewPayload){U.cleanupPlan=null;request('preview_storage_cleanup',U.cleanupPreviewPayload);renderModal();}
+else if(action==='cleanup-category'){setDraft('cleanup-category',id);render();$$('[data-action="cleanup-category"]').find(el=>el.dataset.id===id)?.focus();}
+else if(action==='cleanup-select-visible'){U.cleanupSelected=[...new Set([...(U.cleanupSelected||[]),...cleanupSelectable().map(cleanupKey)])];U.cleanupSelected=U.cleanupSelected.filter(key=>!cleanupCandidates().some(c=>cleanupKey(c)===key&&c.kind==='sample_registration'&&U.cleanupSelected.includes('sample_files:'+c.id)));render();}
+else if(action==='cleanup-clear'){U.cleanupSelected=[];render();}
+else if(action==='preview-cleanup'){const selected=cleanupSelection();if(selected.length)previewCleanup({targets:selected.map(c=>({kind:c.kind,id:c.id}))});}
+else if(action==='cleanup-review-protected'){const candidate=cleanupCandidates().find(c=>cleanupKey(c)===id);if(candidate)previewCleanup({targets:[{kind:candidate.kind,id:candidate.id}]});}
+else if(action==='execute-cleanup'){if(cleanupCanExecute())request('execute_storage_cleanup',{plan_id:U.cleanupPlan.id,signature:U.cleanupPlan.signature,confirmation:val('cleanup-confirmation',''),acknowledged:val('cleanup-acknowledged',false)});}
+else if(action==='cleanup-receipt'){U.cleanupReceipt=null;modal('cleanup-receipt',id);request('inspect_storage_cleanup_receipt',{id});}
 else if(action==='scan-storage')request('scan_storage',{revision:U.storage?.revision,include_external:!!val('storage-external',false)});
 else if(action==='download-storage')request('download_storage');
 else if(action==='storage-review')navigate(id);
 else if(action==='refresh-results')request('inspect_results',{id});
+else if(action==='output-files'){U.outputFiles=null;setDraft('output-snapshot','');modal('output-files',id);requestOutputFiles('inspect_output_files',{id});}
+else if(action==='open-analysis-folder')requestOutputFiles('open_output_folder',{id});
+else if(action==='browse-output-folder'&&U.modal?.kind==='output-files')requestOutputFiles('inspect_output_files',{id:U.modal.id,relative:id,snapshot:U.outputFiles?.snapshot||''});
+else if(action==='output-page'&&U.outputFiles)requestOutputFiles('inspect_output_files',{id:U.outputFiles.id,relative:U.outputFiles.relative,snapshot:U.outputFiles.snapshot,page:Number(id)});
+else if(action==='refresh-output-files'&&U.modal?.kind==='output-files')requestOutputFiles('inspect_output_files',{id:U.modal.id,relative:U.outputFiles?.relative||'',snapshot:U.outputFiles?.snapshot||val('output-snapshot',''),page:U.outputFiles?.page||0});
+else if(action==='open-output-folder'&&U.outputFiles)requestOutputFiles('open_output_folder',{id:U.outputFiles.id,relative:U.outputFiles.relative,snapshot:U.outputFiles.snapshot});
 else if(action==='result-config')request('download_result',{id,format:'config'});
 else if(action==='result-manifest')request('download_result',{id,format:'manifest'});
 else if(action==='open-result-report'){U.report=null;modal('report',id);request('open_result_report',{id:U.runId,report_id:id});}
 else if(action==='result-report')request('download_result',{id:U.runId,format:'report',report_id:id});
 else if(action==='download-log')request('download_log',{id});
 else if(action==='cancel-job')request('cancel_job',{id});
+else if(action==='resume-disk-job'){const j=S.jobs.find(j=>j.id===id);if(diskCanResume(j))request('resume_disk_paused_job',{job_id:id,generation:Number(a.dataset.generation)});}
 else if(action==='view-results')openRun(id,'results');
 else if(action==='all-reports'){U.reportRun=null;render();}
 else if(action==='register-report')modal('register-report');
@@ -1098,7 +2539,7 @@ else if(action==='open-report-folder'&&U.report)request('open_report_folder',{id
 else if(action==='open-original')request('open_original',{id});
 else if(action==='download-report'&&U.report){const r=U.report;download(r.path.split('/').pop(),Uint8Array.from(atob(r.base64),c=>c.charCodeAt(0)),'text/html');}
 }
-function keydown(event){if(event.key==='Escape'&&U.navOpen){event.preventDefault();closeNavigation();return;}if(event.key==='Escape'&&$('.workspace-tools[open]')){$('.workspace-tools').removeAttribute('open');$('.workspace-tools summary').focus();return;}if(event.key==='Tab'&&U.navOpen){const nodes=$$('.sidebar a,.sidebar button').filter(n=>n.getClientRects().length&&!n.disabled),first=nodes[0],last=nodes.at(-1),focused=parentElement.activeElement;if(event.shiftKey&&focused===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&focused===last){event.preventDefault();first.focus();}}if(event.key==='Escape'&&U.modal){event.preventDefault();closeModal();}if(event.key==='Tab'&&U.modal){const nodes=$$('.modal button:not(:disabled),.modal input:not(:disabled),.modal select,.modal textarea,.modal a[href],.modal summary').filter(n=>!n.disabled&&!n.hidden&&n.getClientRects().length&&getComputedStyle(n).visibility!=='hidden');const first=nodes[0],last=nodes[nodes.length-1],focused=parentElement.activeElement;if(event.shiftKey&&focused===first){last?.focus();event.preventDefault();}else if(!event.shiftKey&&focused===last){first?.focus();event.preventDefault();}}}
+function keydown(event){if(['Enter',' '].includes(event.key)&&event.target.closest?.('[data-action="isolate-node"]')){event.preventDefault();event.target.closest('[data-action="isolate-node"]').dispatchEvent(new MouseEvent('click',{bubbles:true}));return;}if(event.key==='Escape'&&U.navOpen){event.preventDefault();closeNavigation();return;}if(event.key==='Escape'&&$('.workspace-tools[open]')){$('.workspace-tools').removeAttribute('open');$('.workspace-tools summary').focus();return;}if(event.key==='Tab'&&U.navOpen){const nodes=$$('.sidebar a,.sidebar button').filter(n=>n.getClientRects().length&&!n.disabled),first=nodes[0],last=nodes.at(-1),focused=parentElement.activeElement;if(event.shiftKey&&focused===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&focused===last){event.preventDefault();first.focus();}}if(event.key==='Escape'&&U.modal){event.preventDefault();closeModal();}if(event.key==='Tab'&&U.modal){const nodes=$$('.modal button:not(:disabled),.modal input:not(:disabled),.modal select,.modal textarea,.modal a[href],.modal summary,.modal [data-action="isolate-node"]').filter(n=>!n.disabled&&!n.hidden&&n.getClientRects().length&&getComputedStyle(n).visibility!=='hidden');const first=nodes[0],last=nodes[nodes.length-1],focused=parentElement.activeElement;if(event.shiftKey&&focused===first){last?.focus();event.preventDefault();}else if(!event.shiftKey&&focused===last){first?.focus();event.preventDefault();}}}
 // This watcher survives component disposal and Streamlit reconnects during an update.
 function watchAppRestart(){
  const u=S.app_update;if(!u)return;
@@ -1130,29 +2571,73 @@ function watchAppRestart(){
 }
 watchAppRestart();
 if(!U.routeInitialized){U.routeInitialized=true;readRoute();}
-const response=data.response;
+let response=data.response;
 const newResponse=response&&response.id!==U.handled;
-const backgroundResponse=U.background;
+let completedSwap=null;
+let backgroundResponse=U.background;
+let restoreBackgroundPosition=backgroundResponse?backgroundPosition():null;
 // Preserve drafts before rendering a new server snapshot.
 draftInputs();
-if(newResponse){if(!response.ok&&U.requestOrigin?.kind==='import_samples'){U.sampleImport=null;U.importText=null;}U.handled=response.id;U.pending=null;U.error=response.ok?'':response.message;if(response.resource_defaults_saved){for(const tool of response.resource_defaults_saved){const saved=S.resource_defaults[tool];setDraft('compute-cores-'+tool,saved.cores);setDraft('compute-memory-'+tool,saved.memory_mb);setDraft('compute-gpu-'+tool,saved.gpu_mode||(tool==='micpscope'?'cpu':'native'));if(!defaultsDirty(defaultEditor(tool)))delete U.defaultEditors?.[tool];}}if(response.aware_outputs)U.awareOutputs=response.aware_outputs;if(response.manifest_import)U.manifestImport=response.manifest_import;if(response.config){const c=response.config;U.drafts['yaml-'+c.tool]=c.text;U.fields[c.tool]=c.fields;const el=$('#yaml-'+c.tool);if(el)el.value=c.text;}if(response.browser){U.browser=response.browser;setDraft('folder-path',response.browser.path);}if(response.database_scan){const scan=response.database_scan,t=scan.tool,state=dbState(t);state.scan=scan;for(const r of S.databases[t].rows){const key=dbPath(t,r.id),preferred=scan.candidates[r.id]?.find(c=>c.preferred);if(preferred&&!state.resets[r.id]&&val(key,r.path)===r.path){setDraft(key,preferred.path);setDraft('dbcand-'+t+'-'+r.id,preferred.path);}}}
+if(newResponse&&response.async_task){
+ const status=response.async_task,task=U.asyncTasks[status.request_id];
+ const transportId=response.id;
+ if(task){
+  task.token=status.token;task.progress=status.progress||task.progress;
+  if(status.status==='running')response={id:transportId,ok:true,keep_modal:true,silent_task:true};
+  else{
+   const current=asyncCurrent(task);delete U.asyncTasks[status.request_id];
+   settleStorageTask(task,current&&status.status==='completed'?'ready':current&&!['cancelled','superseded'].includes(status.status)?'failed':'cancelled',status.message);
+   if(current&&status.status==='completed'){
+    completedSwap=task.origin.swap;U.requestOrigin=task.origin;if(task.kind==='edit_run_settings'){backgroundResponse=false;restoreBackgroundPosition=null;}response={id:transportId,ok:true,keep_modal:true,...status.result};
+   }else if(current&&!['cancelled','superseded'].includes(status.status))response={id:transportId,ok:false,keep_modal:true,message:status.message||'The check did not finish. Try again.'};
+   else response={id:transportId,ok:true,keep_modal:true,silent_task:true};
+  }
+ }else response={id:transportId,ok:true,keep_modal:true,silent_task:true};
+}else if(newResponse){
+ U.lastWorkspacePoll=Date.now();
+ // Direct-dispatch test clients and failed submissions return no task envelope.
+ const task=U.asyncTasks[response.id];
+ if(task){
+  if(response.ok&&task.kind==='recommend_swap'&&asyncCurrent(task))completedSwap=task.origin.swap;
+  settleStorageTask(task,response.ok?'ready':'failed',response.message);
+  delete U.asyncTasks[response.id];
+ }
+ if(!response.ok&&['poll_ui_task','cancel_ui_task'].includes(U.requestOrigin?.kind)){
+  for(const [id,task] of Object.entries(U.asyncTasks))if(task.token===U.pendingTaskToken){settleStorageTask(task,asyncCurrent(task)?'failed':'cancelled',response.message);if(!asyncCurrent(task))response={id:response.id,ok:true,keep_modal:true};delete U.asyncTasks[id];}
+ }
+}
+const adviceResponseCurrent=newResponse&&!!U.setupAdviceRequest&&U.setupAdviceRequest.kind===U.requestOrigin?.kind&&U.setupAdviceRequest.context===setupAdviceContext();
+const preserveSetupAdvice=newResponse&&response.run_config&&U.requestOrigin?.kind==='run_config_editor'&&setupAdviceFresh();
+if(newResponse&&!response.ok&&U.requestOrigin?.kind==='close_desktop'&&U.modal?.kind==='close-desktop')U.modal.requested=false;
+if(newResponse&&response.desktop_closing&&U.modal?.kind==='close-desktop')U.modal.acknowledged=true;
+if(newResponse){if(!response.ok&&U.requestOrigin?.kind==='import_samples'){U.sampleImport=null;U.importText=null;}U.handled=response.id;U.pending=null;U.error=response.ok?(response.silent_task?U.error:''):response.message;if(response.resource_defaults_saved){for(const tool of response.resource_defaults_saved){const saved=S.resource_defaults[tool];setDraft('compute-cores-'+tool,saved.cores);setDraft('compute-memory-'+tool,saved.memory_mb);setDraft('compute-gpu-'+tool,saved.gpu_mode||(tool==='micpscope'?'cpu':'native'));setDefaultSwapDraft(tool,saved.swap_mb||0);resetDefaultAutoSwap(tool,saved.auto_swap);if(!defaultsDirty(defaultEditor(tool)))delete U.defaultEditors?.[tool];}}if(response.aware_outputs)U.awareOutputs=response.aware_outputs;if(response.manifest_import)U.manifestImport=response.manifest_import;if(response.config){const c=response.config;U.drafts['yaml-'+c.tool]=c.text;U.fields[c.tool]=c.fields;const el=$('#yaml-'+c.tool);if(el)el.value=c.text;}if(response.browser){U.browser=response.browser;setDraft('folder-path',response.browser.path);}if(response.database_scan){const scan=response.database_scan,t=scan.tool,state=dbState(t);state.scan=scan;for(const r of S.databases[t].rows){const key=dbPath(t,r.id),preferred=scan.candidates[r.id]?.find(c=>c.preferred);if(preferred&&!state.resets[r.id]&&val(key,r.path)===r.path){setDraft(key,preferred.path);setDraft('dbcand-'+t+'-'+r.id,preferred.path);}}}
 if(response.ok&&response.refreshed_catalog&&U.modal?.kind==='versions'&&U.modal.id===response.refreshed_catalog&&!U.versionChoiceExplicit){U.drafts['version-'+U.modal.id]=defaultPipelineVersion(U.modal.id);}
+if(response.ok&&response.restored_runs){U.cleanupPlan=null;U.cleanupSelected=[];U.detail=null;if(U.restoreOpenRun&&response.restored_runs.includes(U.restoreOpenRun)){U.view='run';U.runId=U.restoreOpenRun;U.runDetailTab='activity';U.modal=null;U.results=null;writeRoute();}U.restoreOpenRun=null;}
+if(response.ok&&['save_sequence','edit_sequence_isolates'].includes(U.requestOrigin?.kind)){U.sequenceEditor=null;U.sequenceOpen=false;writeRoute(true);}
+if(response.ok&&U.requestOrigin?.kind==='clear_job_history')resetHistoryFilters();
 if(response.removed_sample){
+ if(response.ok&&U.modal?.kind==='remove-sample'&&U.modal.id===response.removed_sample)U.modal=null;
  const key='run-sample-'+response.removed_sample;delete U.drafts[key];
  // render() captures the outgoing form once more before replacing the dialog.
  const checkbox=$$('[data-sample]').find(el=>el.dataset.sample===response.removed_sample);if(checkbox)checkbox.checked=false;
 }
+if(response.resource_repair)U.resourceRepair=response.resource_repair;
 if(response.edit_run){
- U.revision=response.edit_run;U.wizard={kind:'edit-run',id:U.revision.id,variant:!!U.revision.variant};U.view='draft';U.modal=null;writeRoute();U.runConfigGroup={};U.runSettingTab={};
+ U.revision=response.edit_run;U.runComputeOpen=false;U.wizard={kind:'edit-run',id:U.revision.id,variant:!!U.revision.variant};U.view='draft';U.modal=null;writeRoute();U.runConfigGroup={};U.runSettingTab={};
  U.runSettingTab[U.revision.tool]=guidedTabs[U.revision.tool].some(t=>t[0]===U.runDetailTab)?U.runDetailTab:guidedTabs[U.revision.tool][0][0];
- setDraft('revision-cores',U.revision.cores);setDraft('revision-memory',U.revision.memory_mb);setDraft('run-setting-search','');
+ setDraft('revision-cores',U.revision.cores);setDraft('revision-memory',U.revision.memory_mb);setSwapDraft('revision',U.revision.swap_mb||0);setDraft('run-setting-search','');
 }
-if(response.run_config){
+if(response.run_config&&(!response.setup_advice||adviceResponseCurrent)){
+ if(!response.setup_advice&&!preserveSetupAdvice)invalidateSetupAdvice();
  const c=response.run_config;U.runConfigs ||= {};if(wizardKind()==='edit-run')U.revisionConfig={...c,changes:{},raw:false};else U.runConfigs[c.tool]={...c,changes:{},raw:false};
  U.runConfigTab=response.run_config_view;if(U.runConfigTab==='yaml'){U.runSettingTab ||= {};U.runSettingTab[c.tool]='advanced';}setDraft('run-yaml-'+c.tool,c.text);
+ if(preserveSetupAdvice)U.setupAdviceContext=setupAdviceContext();
 }
+if(response.setup_advice&&adviceResponseCurrent){U.setupAdvice=response.setup_advice;U.setupAdviceContext=setupAdviceContext();U.setupAdviceInvalidated=false;}
+if(!response.ok&&['inspect_setup_advice','apply_setup_advice'].includes(U.requestOrigin?.kind))invalidateSetupAdvice();
 if(response.default_config){
- const c=response.default_config,old=defaultEditor(c.tool);U.defaultEditors ||= {};
+ const c=response.default_config,old=defaultEditor(c.tool);
+ if(response.default_config_saved||response.default_config_loaded){const saved=S.resource_defaults[c.tool];setDefaultSwapDraft(c.tool,saved.swap_mb||0);resetDefaultAutoSwap(c.tool,saved.auto_swap);setDraft('compute-gpu-'+c.tool,saved.gpu_mode||(c.tool==='micpscope'?'cpu':'native'));}U.defaultEditors ||= {};
  U.defaultEditors[c.tool]={...c,scope:'defaults',changes:{},raw:false,savedText:response.default_config_loaded||response.default_config_saved?c.text:old?.savedText??c.text};
  const ui=editorUI(U.defaultEditors[c.tool]);ui.runConfigTab=response.default_config_view;
  if(ui.runConfigTab==='yaml')ui.runSettingTab[c.tool]='advanced';
@@ -1161,34 +2646,152 @@ if(response.default_config){
 if(response.refresh_plan){U.refreshPlan=response.refresh_plan;U.modal={kind:'report-refresh',id:response.refresh_plan.run_id};}
 if(response.unlock_plan){U.unlockPlan=response.unlock_plan;U.modal={kind:'workflow-lock',id:response.unlock_plan.id};}
 if(response.workstation_check)U.workstationCheck=response.workstation_check;
+if(completedSwap&&response.swap_recommendation)receiveSwapRecommendation(completedSwap,response.swap_recommendation);
 if(response.download&&U.modal?.kind==='workstation')U.workstationCheck=S.workstation_checks?.find(c=>c.id===U.modal.id)||U.workstationCheck;
 if(response.uninstall_plan)U.uninstallPlan=response.uninstall_plan;
+if(response.cleanup_refresh){U.storageCleanup=null;U.storageLoads.inspect_storage_cleanup={state:'ready'};U.cleanupJobId=response.job_id;U.cleanupPlan=null;U.cleanupSelected=[];}
+if(response.storage_cleanup){U.cleanupNeedsRefresh=false;U.storageCleanup=response.storage_cleanup;const keys=new Set(cleanupCandidates().map(cleanupKey));U.cleanupSelected=(U.cleanupSelected||[]).filter(key=>keys.has(key));}
+if(response.cleanup_receipt)U.cleanupReceipt=response.cleanup_receipt;
+if(response.isolate)U.isolate=response.isolate;
+if(response.isolate_folder_choices){
+ U.isolateFolderChoices=response.isolate_folder_choices;
+ if(!U.modal){modalReturnFocus=U.isolateFolderOrigin||null;U.modalReturnFocus=modalReturnFocus;}
+ U.modal={kind:'isolate-folders',id:response.isolate_folder_choices.sample_id};
+}
+if(response.isolate_export_plan)U.isolateExportPlan=response.isolate_export_plan;
+if(response.isolate_export_receipt)U.isolateExportReceipt=response.isolate_export_receipt;
+if(response.reset_plan){U.resetPlan=response.reset_plan;setDraft('reset-confirmation','');setDraft('reset-database-confirmation','');setDraft('reset-acknowledged',false);}
+if(response.redownload_plan){U.redownloadPlan=response.redownload_plan;setDraft('redownload-reviewed',false);}
+if(response.ok&&U.requestOrigin?.kind==='factory_reset_execute'){U.resetPlan=null;U.storage=null;U.cleanupHistoryOpen=true;clearWizard();}
+if(response.ok&&U.requestOrigin?.kind==='start_isolate_export'){U.isolateExportPlan=null;U.isolatePlanRequest=null;}
+if(response.cleanup_plan){
+ U.cleanupPlan=response.cleanup_plan;U.cleanupMeasured||={};
+ for(const c of response.cleanup_plan.candidates||[]){
+  const roots=[...new Set((c.paths||[]).map(p=>typeof p==='string'?p:p.path))],measured=roots.map(path=>response.cleanup_plan.paths.find(p=>p.path===path));
+  if(c.logical_bytes!=null)U.cleanupMeasured[cleanupKey(c)]=c.logical_bytes;
+  else if(roots.length&&measured.every(p=>p?.logical_bytes!=null))U.cleanupMeasured[cleanupKey(c)]=measured.reduce((sum,p)=>sum+p.logical_bytes,0);
+ }
+}
+if(response.ok&&U.requestOrigin?.kind==='execute_storage_cleanup'){U.cleanupHistoryOpen=true;const history=$('[data-cleanup-history]');if(history)history.open=true;U.cleanupSelected=[];U.cleanupPlan=null;setDraft('cleanup-acknowledged',false);setDraft('cleanup-confirmation','');}
 if(response.open_environments){const id=response.open_environments;setDraft('environment-cache-'+id,S.environments[id]?.cache||'');U.modal={kind:'environments',id,action:U.modal?.action||'install',advanced:true};}
 if(response.database_run_plan)U.databaseRunPlan=response.database_run_plan;
 if(response.database_check){const c=response.database_check,t=c.tool;dbState(t).checks[c.id]=c;setDraft(dbPath(t,c.id),c.path);delete dbState(t).resets[c.id];}
 if(response.database_saved){clearDatabases(response.database_saved);}
-if(response.discovery)U.discovery=response.discovery;if(response.local_envs)U.localEnvs=response.local_envs;if(response.local_install){U.localInstall=response.local_install;setDraft('existing-source',response.local_install.path);setDraft('existing-cache',response.local_install.rule_cache);}if(response.detail)U.detail=response.detail;if(response.identification){U.identification=response.identification;setDraft('identification-mode',response.identification.mode);setDraft('identification-taxid',response.identification.taxid);setDraft('identification-candidate',response.identification.taxid);}if(response.sample_import){U.toast=null;U.sampleImport=response.sample_import;U.importText=U.importRequestText;}if(response.comparison)U.comparison=response.comparison;if(response.compatibility)U.compatibility=response.compatibility;if(response.storage)U.storage=response.storage;if(response.results)U.results=response.results;if(response.methods)U.methods=response.methods;if(response.log)U.log=response.log;if(response.usage)U.usage=response.usage;if(response.support&&U.modal?.kind==='support'){U.support=response.support;setDraft('support-text',response.support.text);setDraft('support-reviewed',false);}if(response.report)U.report=response.report;if(response.download)download(response.download.name,response.download.base64?Uint8Array.from(atob(response.download.base64),c=>c.charCodeAt(0)):response.download.text,response.download.type);if(response.ok&&['create_runs','revise_run'].includes(U.requestOrigin?.kind))clearWizard();if(response.ok&&!response.keep_modal&&!backgroundResponse)U.modal=null;if(response.navigate){if(response.navigate==='jobs'&&U.requestOrigin?.kind==='workflow'&&U.requestOrigin.view==='run'&&U.view==='run'&&U.requestOrigin.runId===U.runId){U.runDetailTab='activity';writeRoute(true);}else{U.view=response.navigate;writeRoute();}}if(response.open_run){U.runDetailTab='overview';U.revision=null;U.revisionConfig=null;U.modal=null;U.view='run';U.runId=response.open_run;writeRoute(true);}}
-const reportFolderMessage=event=>{const f=$('.html-report-frame');if(f&&event.source===f.contentWindow&&event.data?.kind==='bactologix-open-report-folder'&&U.report&&!U.report.workstation)request('open_report_folder',{id:U.report.id,run_id:U.report.run_id});};
+if(response.result_delivery)U.delivery=response.result_delivery;if(response.delivery_path)U.deliveryPath=response.delivery_path;
+if(response.discovery)U.discovery=response.discovery;if(response.local_envs)U.localEnvs=response.local_envs;if(response.local_install){U.localInstall=response.local_install;setDraft('existing-source',response.local_install.path);setDraft('existing-cache',response.local_install.rule_cache);}if(response.detail){U.detail=response.detail;const run=runBy(U.detail.id);U.detailRevision=U.requestOrigin?.checkRevision||(run?runCheckRevision(run):null);}if(response.identification){U.identification=response.identification;setDraft('identification-mode',response.identification.mode);setDraft('identification-taxid',response.identification.taxid);setDraft('identification-candidate',response.identification.taxid);}if(response.sample_import){U.toast=null;U.sampleImport=response.sample_import;U.importText=U.importRequestText;}if(response.comparison)U.comparison=response.comparison;if(response.compatibility)U.compatibility=response.compatibility;if(response.storage){U.storage=response.storage;if(U.requestOrigin?.kind==='scan_storage')U.cleanupNeedsRefresh=true;}if(response.results)U.results=response.results;if(response.output_files){U.outputFiles={draft_generation:U.requestOrigin?.draftGeneration??0,...response.output_files};setDraft('output-snapshot',response.output_files.snapshot);}if(response.methods)U.methods={draft_generation:U.requestOrigin?.draftGeneration??0,...response.methods};if(response.log)U.log=response.log;if(response.usage)U.usage=response.usage;if(response.support&&U.modal?.kind==='support'){U.support=response.support;setDraft('support-text',response.support.text);setDraft('support-reviewed',false);}if(response.report)U.report=response.report;if(response.download)download(response.download.name,response.download.base64?Uint8Array.from(atob(response.download.base64),c=>c.charCodeAt(0)):response.download.text,response.download.type);if(response.ok&&['create_runs','update_run_draft','revise_run'].includes(U.requestOrigin?.kind))clearWizard();if(response.ok&&!response.keep_modal&&!backgroundResponse)U.modal=null;if(response.navigate){if(response.navigate==='jobs'&&U.requestOrigin?.kind==='workflow'&&U.requestOrigin.view==='run'&&U.view==='run'&&U.requestOrigin.runId===U.runId){U.runDetailTab='activity';writeRoute(true);}else{U.view=response.navigate;writeRoute();}}if(response.open_run){U.runDetailTab='overview';U.revision=null;U.revisionConfig=null;U.modal=null;U.view='run';U.runId=response.open_run;writeRoute(true);}}
+function reportCompanions(report){
+ const run=report.run_id||report.run;
+ if(!run)return {};
+ const keys={research:'HybAs research report',trajectory:'Polishing trajectory',validation:'Polishing validation',deep:'Follow-up report',standard:'Safety report'};
+ const result={};
+ for(const [key,name] of Object.entries(keys)){
+  const sibling=S.reports.find(row=>row.run===run&&(report.refresh
+   ?row.refresh&&report.producing_job&&row.producing_job===report.producing_job&&row.report_target===key
+   :!row.refresh&&row.name===name));
+  if(sibling)result[key]=sibling.id;
+ }
+ return result;
+}
+const reportFolderMessage=event=>{
+ const frame=$('.html-report-frame'),r=U.report;
+ if(!frame||event.source!==frame.contentWindow||!r||r.workstation)return;
+ if(event.data?.kind==='bactologix-open-report-folder')request('open_report_folder',{id:r.id,run_id:r.run_id});
+ if(event.data?.kind==='bactologix-companion-report'){
+  const key=event.data.target,companions=reportCompanions(r);
+  if(!Object.hasOwn(companions,key))return;
+  const id=companions[key],anchor=event.data.anchor;
+  U.report=null;modal('report',id,{reportAnchor:typeof anchor==='string'&&/^[a-z0-9_-]{1,192}$/i.test(anchor)?anchor:''});request('open_report',{id});
+ }
+};
+window.addEventListener('online',refreshProgress);window.addEventListener('offline',refreshProgress);
+if(S.jobs.some(j=>j.status==='running'))progressTimer=setInterval(refreshProgress,1000);
+window.addEventListener('storage',notificationStorageChanged);
 window.addEventListener('message',reportFolderMessage);
 window.addEventListener('resize',syncNavigation);window.addEventListener('beforeunload',beforeUnload);window.addEventListener('popstate',routeChanged);window.addEventListener('hashchange',routeChanged);
 root.addEventListener('click',click);root.addEventListener('input',onInput);root.addEventListener('change',onChange);root.addEventListener('keydown',keydown);
+discardStaleDraftViews();
 render();
+restoreBackgroundPosition?.();
+if(newResponse&&['inspect_setup_advice','apply_setup_advice'].includes(U.requestOrigin?.kind)){
+ if(wizardKind()==='new-run')($('[data-setup-advice-heading]')||$('[data-action="review-setup"]'))?.focus({preventScroll:true});
+ U.setupAdviceRequest=null;
+}
+if(newResponse&&response.ok&&U.requestOrigin?.kind==='clear_job_history')$('#history-list')?.focus({preventScroll:true});
+if(newResponse&&(response.cleanup_plan||response.cleanup_receipt))$('.modal [data-action="close"]')?.focus();
+if(newResponse&&response.isolate_folder_choices)($('.isolate-folder-modal [data-action="open-isolate-analysis"]:not(:disabled)')||$('.isolate-folder-modal [data-action="close"]'))?.focus({preventScroll:true});
+if(newResponse&&['inspect_output_files','open_output_folder'].includes(U.requestOrigin?.kind)){
+ const saved=U.outputFilesFocus;U.outputFilesFocus=null;
+ if(saved&&U.modal?.kind==='output-files'&&U.modal.id===saved.modalId){
+  const target=saved.elementId?$$('.modal [id]').find(n=>n.id===saved.elementId):$$('.modal [data-action]').find(n=>n.dataset.action===saved.action&&n.dataset.id===saved.key&&n.getAttribute('aria-label')===saved.label);
+  (target&&!target.disabled?target:$('#output-snapshot:not(:disabled)')||$('.modal [data-action="close"]'))?.focus({preventScroll:true});
+ }
+}
+if(newResponse&&U.requestOrigin?.kind==='open_isolate_folder'){
+ // The busy state disables the opener before renderModal can capture focus.
+ // Restore it after the response so keyboard navigation remains in the dialog.
+ const saved=U.isolateFolderFocus;U.isolateFolderFocus=null;
+ if(saved&&U.modal?.kind===saved.kind&&U.modal.id===saved.modalId){
+  const target=$$('.modal [data-action]').find(n=>n.dataset.action===saved.action&&n.dataset.id===saved.id&&!n.disabled);
+  (target||$('.modal [data-action="close"]'))?.focus({preventScroll:true});
+ }
+}
+if(newResponse&&['mark_notifications_read','clear_notifications','save_notification_settings','check_notification_updates'].includes(U.requestOrigin?.kind)&&U.modal?.kind==='notifications')$('.modal [data-action="close"]')?.focus({preventScroll:true});
+if(newResponse&&U.requestOrigin?.kind==='claim_desktop_notifications'&&response.ok){for(const item of response.notification_delivery||[])showDesktopNotification(item);}
+if(newResponse&&U.notificationOpen&&U.requestOrigin?.kind==='mark_notifications_read'){
+ const chosen=U.notificationOpen;U.notificationOpen=null;if(response.ok)openNotificationTarget(chosen.target);
+}
 if(newResponse&&response.message)toast(response.message,!response.ok);else renderToast();
-if(newResponse&&U.queuedRequest){const queued=U.queuedRequest;U.queuedRequest=null;request(queued.kind,queued.payload);}
-const dispose=()=>{window.removeEventListener('message',reportFolderMessage);window.removeEventListener('resize',syncNavigation);window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('popstate',routeChanged);window.removeEventListener('hashchange',routeChanged);clearTimeout(pollTimer);clearTimeout(toastTimer);root.removeEventListener('click',click);root.removeEventListener('input',onInput);root.removeEventListener('change',onChange);root.removeEventListener('keydown',keydown);};
+if(newResponse&&response.edit_run?.recalculate_swap&&!U.queuedRequest)calculateSavedDraftSwap(response.edit_run.id);
+if(newResponse&&U.queuedRequest){
+ const queued=U.queuedRequest;U.queuedRequest=null;
+ if(queued.kind!=='edit_run_settings'||!queued.payload.recalculate_swap||queued.context===asyncContext())request(queued.kind,queued.payload,false,queued.swap);
+}
+if(!S.workspace_busy)claimDesktopNotifications();
+const dispose=()=>{clearInterval(progressTimer);window.removeEventListener('online',refreshProgress);window.removeEventListener('offline',refreshProgress);window.removeEventListener('storage',notificationStorageChanged);window.removeEventListener('message',reportFolderMessage);window.removeEventListener('resize',syncNavigation);window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('popstate',routeChanged);window.removeEventListener('hashchange',routeChanged);clearTimeout(pollTimer);clearTimeout(toastTimer);root.removeEventListener('click',click);root.removeEventListener('input',onInput);root.removeEventListener('change',onChange);root.removeEventListener('keydown',keydown);};
 root._dispose=dispose;
 return dispose;
 }
 // srcdoc inherits the host's base URL. Fragment navigation must stay inside
 // the saved report, without granting it access to the workspace origin.
-function reportDocument(base64){
+function reportDocument(base64,companions={},anchor=""){
  const doc=new DOMParser().parseFromString(new TextDecoder().decode(Uint8Array.from(atob(base64),c=>c.charCodeAt(0))),'text/html');
- for(const link of doc.querySelectorAll('a[href]')){if(['metadata/files.html','./metadata/files.html'].includes(link.getAttribute('href'))&&link.textContent.trim()==='Run files'){link.textContent='Open report folder';link.setAttribute('href','#');link.setAttribute('data-bactologix-folder','true');}}
+ const hybas=doc.documentElement.hasAttribute('data-hybas-report');
+ const basis=doc.title.startsWith('BaSIS ·');
+ for(const link of doc.querySelectorAll('a[href]')){
+  const href=link.getAttribute('href');
+  const runFiles=['metadata/files.html','./metadata/files.html'].includes(href)&&link.textContent.trim()==='Run files';
+  if(!href||href.startsWith('#')||/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(href))continue;
+  const path=href.split(/[?#]/,1)[0];
+  let key=null;
+  if(hybas)key=path.match(/(?:^|\/)polishing_(trajectory|validation)\/index\.html$/)?.[1]||
+   (/(?:^|\/)hybas_research\/hybas_report\.html$/.test(path)?'research':null);
+  if(basis)key=({'deepsafe-report/report.html':'deep','../report.html':'standard'})[path]||null;
+  if(!runFiles&&!hybas&&!key)continue;
+  link.setAttribute('href','#');
+  if(key&&Object.hasOwn(companions,key)){
+   link.setAttribute('data-bactologix-companion',key);
+   link.setAttribute('data-bactologix-anchor',href.split('#')[1]||'');
+   continue;
+  }
+  link.textContent=runFiles?'Open report folder':link.textContent.trim()+' · Open report folder';
+  link.setAttribute('data-bactologix-folder','true');
+ }
  const script=doc.createElement('script');
- script.textContent='('+function(){
+ script.textContent='('+function(anchor){
+  if(anchor)window.addEventListener('load',function(){
+   const target=document.getElementById(anchor);
+   if(!target)return;
+   if(anchor.startsWith('candidate-'))document.dispatchEvent(new CustomEvent('basis:open-candidate',{detail:{anchor}}));
+   for(let node=target;node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;
+   target.scrollIntoView({block:'start'});
+  },{once:true});
   document.addEventListener('click',function(event){
    const link=event.target.closest?.('a[href]'),href=link?.getAttribute('href');
    if(link?.hasAttribute('data-bactologix-folder')){event.preventDefault();event.stopImmediatePropagation();parent.postMessage({kind:'bactologix-open-report-folder'},'*');return;}
+   if(link?.hasAttribute('data-bactologix-companion')){
+    event.preventDefault();event.stopImmediatePropagation();
+    parent.postMessage({kind:'bactologix-companion-report',target:link.getAttribute('data-bactologix-companion'),anchor:link.getAttribute('data-bactologix-anchor')},'*');return;
+   }
    if(!href?.startsWith('#'))return;
    event.preventDefault();
    let id;try{id=decodeURIComponent(href.slice(1));}catch(_){id=href.slice(1);}
@@ -1200,7 +2803,28 @@ function reportDocument(base64){
     target.scrollIntoView({block:'start'});
    },0);
   },true);
- }.toString()+')();';
+ }.toString()+')('+JSON.stringify(/^[a-z0-9_-]{1,192}$/i.test(anchor)?anchor:'')+');';
  doc.head.prepend(script);
+ if(doc.getElementById('mqc_compressed_plotdata')){
+  const compatibility=doc.createElement('script');
+  compatibility.textContent='('+function(){
+   // MultiQC preferences last only for the lifetime of this opaque frame.
+   for(const name of ['localStorage','sessionStorage']){
+    try{void window[name];continue;}catch(_){}
+    const entries=new Map();
+    Object.defineProperty(window,name,{value:{
+     getItem:k=>entries.get(String(k))??null,setItem:(k,v)=>entries.set(String(k),String(v)),
+     removeItem:k=>entries.delete(String(k)),clear:()=>entries.clear(),
+     key:i=>Array.from(entries.keys())[i]??null,get length(){return entries.size;}
+    }});
+   }
+   try{void document.cookie;}catch(_){
+    const cookies=new Map();
+    Object.defineProperty(document,'cookie',{get:()=>Array.from(cookies.values()).join('; '),
+     set(value){const pair=String(value).split(';')[0];cookies.set(pair.split('=')[0],pair);}});
+   }
+  }.toString()+')();';
+  doc.head.prepend(compatibility);
+ }
  return '<!doctype html>'+doc.documentElement.outerHTML;
 }

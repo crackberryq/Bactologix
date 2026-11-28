@@ -7,8 +7,10 @@ from pathlib import Path
 from .identification import sha
 from .hybas_manifest_schema import validate_manifest
 from .store import now, identifier
+from .storage_guard import mutation
 
 SCHEMA = 'hybas-aware-bundle-v1'
+CHANGED_INPUT = 'Derived AWARE input changed; import the changed bundle as a new sample.'
 
 
 def supports(source):
@@ -103,6 +105,7 @@ def review(path):
     return dict(path=str(path), token=token, rows=rows, parent=doc['isolate'], limitation=doc.get('limitation',''))
 
 
+@mutation
 def commit(store, path, token, selected):
     result = review(path)
     if result['token'] != token:
@@ -126,14 +129,32 @@ def commit(store, path, token, selected):
     return samples
 
 
-def verify_sample(sample, full=True):
+def checked_sample_paths(sample):
+    records = []
     provenance = sample.get('aware_provenance')
     if not provenance:
-        return
+        return records
     for item in provenance['files']:
         p = Path(item['path'])
-        if p.is_symlink() or not p.is_file() or p.stat().st_size != item['size'] or (full and sha(p) != item['sha256']) or (not full and p.stat().st_mtime_ns != item.get('mtime_ns', p.stat().st_mtime_ns)):
-            raise ValueError('Derived AWARE input changed; import the changed bundle as a new sample.')
+        if p.is_symlink() or not p.is_file():
+            raise ValueError(CHANGED_INPUT)
+        observed = p.stat()
+        if observed.st_size != item['size']:
+            raise ValueError(CHANGED_INPUT)
+        records.append((item, p, observed))
+    return records
+
+
+def verify_sample(sample, full=True, *, digests=None):
+    for item, p, observed in checked_sample_paths(sample):
+        if full:
+            digest = digests.get(str(p.resolve())) if digests is not None else None
+            if digest is None:
+                digest = sha(p)
+            if digest != item['sha256']:
+                raise ValueError(CHANGED_INPUT)
+        elif observed.st_mtime_ns != item.get('mtime_ns', observed.st_mtime_ns):
+            raise ValueError(CHANGED_INPUT)
 
 
 def bundle_path(run):
@@ -170,6 +191,7 @@ def arguments(run):
             'aware_assembly_continuation_sha256='+state['continuation_sha256']]
 
 
+@mutation
 def continue_assembly(store, rid, token):
     from .runs import parse_config, check_run_files, tree_digest
     run = store.get('runs', rid)

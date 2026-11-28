@@ -130,16 +130,29 @@ def test_cli_no_browser_preserves_workspace_and_overrides(tmp_path, monkeypatch)
     assert calls == [((tmp_path, '127.0.0.1', 8502), {'browser': False})]
 
 
-def test_failed_server_does_not_open_another_healthy_streamlit(monkeypatch, tmp_path):
+@pytest.mark.parametrize('desktop', [False, True])
+def test_failed_server_does_not_open_another_healthy_streamlit(monkeypatch, tmp_path, desktop):
+    from bactologix.desktop import ENV, STORAGE_SESSION_DIR
+    key = 'a' * 32
+    control = tmp_path / 'sessions' / key
+    control.mkdir(parents=True)
+    monkeypatch.delenv(ENV, raising=False)
+    monkeypatch.setenv(STORAGE_SESSION_DIR, '/old/session')
     class Failed:
         stdout = io.StringIO('Port is already in use\n')
         def poll(self): return 1
         def wait(self, **kw): return 1
     monkeypatch.setattr(l, 'free_port', lambda *args: 8501)
-    monkeypatch.setattr(l.subprocess, 'Popen', lambda *args, **kw: Failed())
+    def start(*args, env, **kwargs):
+        assert env.get(STORAGE_SESSION_DIR) == (str(control) if desktop else None)
+        assert env.get(ENV) == (key if desktop else None)
+        return Failed()
+    monkeypatch.setattr(l.subprocess, 'Popen', start)
     monkeypatch.setattr(l, 'healthy', lambda url: pytest.fail('Failed child has no listening signal'))
     monkeypatch.setattr(l, 'open_browser', lambda url: pytest.fail('Failed server must not open a browser'))
-    assert l.serve(tmp_path, '127.0.0.1') == 1
+    options = {'desktop_control': control, 'desktop_session': key} if desktop else {}
+    assert l.serve(tmp_path, '127.0.0.1', **options) == 1
+    assert ENV not in os.environ
 
 
 @pytest.mark.parametrize('no_browser', [False, True])

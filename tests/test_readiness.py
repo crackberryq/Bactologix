@@ -30,7 +30,7 @@ def test_checks_do_not_claim_full_readiness_or_mutate_defaults(workspace, instal
     states = {row['id']: row['state'] for row in panel['rows']}
     assert {k: v for k, v in states.items() if k not in {'destinations', 'storage', 'resources'}} == {'inputs': 'Unchanged', 'pipeline': 'Setup recorded',
                       'configuration': 'Validation needed', 'databases': 'Frozen in this draft',
-                      'environments': 'Check this run’s cache'}
+                      'environments': 'Check this run’s cache', 'kraken_memory': 'Size unavailable'}
     run['dry_run_ok'] = True
     assert r.panel(workspace, run)['next'] == 'check-environments'
     assert workspace.get('runs', run['id']) == original
@@ -166,6 +166,19 @@ def test_recovery_evidence_and_failed_step_are_bounded(workspace, message, categ
     assert g['category'] == category and g['step'] == 'software_fixture'
     assert g['evidence'] == message and g['confidence'] == 'Possible cause'
     assert len(g['evidence']) <= 1200
+
+
+@pytest.mark.parametrize('message', [
+    'Workspace control persistence failed: database is locked',
+    'Native execution ended but its control record could not be saved: database is locked',
+    'Command exited with code 7. Final native process record could not be saved: database is locked',
+])
+def test_workspace_lock_interruption_points_back_to_the_existing_run(workspace, message):
+    jid = workspace.submit('workflow', {'run_id': 'run-fixture', 'action': 'run'})
+    workspace.update_job(jid, status='interrupted', error=message)
+    guide = r.job_guidance(workspace, workspace.job(jid))
+    assert guide['run_id'] == 'run-fixture'
+    assert 'workspace database' in guide['title'] and 'same saved run' in guide['text']
 
 
 def test_unknown_interrupted_and_unsafe_logs_keep_uncertainty(workspace, tmp_path):

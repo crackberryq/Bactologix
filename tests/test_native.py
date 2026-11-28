@@ -10,7 +10,7 @@ import yaml
 from bactologix.catalog import PIPELINES
 from bactologix.engine import Cancelled, Context, controller_key
 from bactologix.runs import (bind_paths, clone_runs, create_run, import_samples, parse_config,
-                             register_sample, stage_inputs, validate_launch)
+                             register_sample, stage_inputs, validate_launch, basis_annotation_problem)
 from bactologix.store import Store
 
 
@@ -98,6 +98,26 @@ def test_input_drift_blocks_execution(workspace, installation, sample):
     path.write_text(path.read_text() + "\n")
     with pytest.raises(ValueError, match="Input changed"):
         validate_launch(workspace, run["id"], "dry-run")
+
+
+def test_basis_handoff_requires_nonempty_annotation(tmp_path):
+    parent = tmp_path / 'parent' / 'isolate1'
+    annotation = parent / 'annotation'
+    annotation.mkdir(parents=True)
+    sample = {'id': 'isolate1', 'path': str(parent), 'mode': 'hybrid'}
+    (annotation / 'isolate1.fna').write_text('>contig\nAAAA\n')
+    (annotation / 'isolate1.gff').write_text('##gff-version 3\n')
+    protein = annotation / 'isolate1.faa'
+    protein.touch()
+    assert 'isolate1.faa' in basis_annotation_problem(parent, 'isolate1')
+    with pytest.raises(ValueError, match='nonempty annotation file.*isolate1.faa'):
+        stage_inputs(sample, 'basis', tmp_path / 'incomplete')
+
+    protein.write_text('>protein\nM\n')
+    assert basis_annotation_problem(parent, 'isolate1') is None
+    stage_inputs(sample, 'basis', tmp_path / 'valid')
+    for source in annotation.iterdir():
+        assert (tmp_path / 'valid' / 'annotation' / source.name).samefile(source)
 
 
 def test_clone_preserves_parent_and_custom_fields(workspace, installation, sample):

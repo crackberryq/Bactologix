@@ -33,16 +33,18 @@ def release_record(release):
     if release.get("draft"):
         return None
     tag = release.get("tag_name", "")
+    prefix = "dev-v" if tag.startswith("dev-v") else "v"
     try:
-        version = Version(tag.removeprefix("v"))
+        version = Version(tag.removeprefix(prefix))
     except InvalidVersion:
         return None
-    if tag != "v" + str(version):
+    if tag != prefix + str(version) or (prefix == "dev-v" and not version.is_devrelease):
         return None
     name = f"bactologix-{version}-py3-none-any.whl"
-    assets = [a for a in release.get("assets", []) if a.get("name") == name]
+    asset_name = f"Bactologix-Dev-{version}.whl" if prefix == "dev-v" else name
+    assets = [a for a in release.get("assets", []) if a.get("name") == asset_name]
     wheel = assets[0] if len(assets) == 1 else None
-    url = f"https://github.com/{REPO}/releases/download/{tag}/{name}"
+    url = f"https://github.com/{REPO}/releases/download/{tag}/{asset_name}"
     checksum = (wheel or {}).get("digest", "") or ""
     available = bool(wheel and wheel.get("state") == "uploaded" and wheel.get("browser_download_url") == url
                      and re.fullmatch(r"sha256:[0-9a-f]{64}", checksum)
@@ -55,16 +57,22 @@ def release_record(release):
             "size": wheel.get("size") if wheel else None}
 
 
+def channel_accepts(version):
+    from .channels import current
+    return Version(version).is_devrelease == (current() == "dev")
+
+
 def fetch_releases():
-    records = [record for release in pages(f"repos/{REPO}/releases") if (record := release_record(release))]
+    records = [record for release in pages(f"repos/{REPO}/releases") if (record := release_record(release)) and channel_accepts(record["version"])]
     records.sort(key=lambda row: Version(row["version"]), reverse=True)
     return {"checked_at": now(), "releases": records}
 
 
-def status(store):
+def status(store, *, jobs=None, queue=None):
     state = store.get("settings", "app-update", {})
-    queue_paused = store.queue_snapshot()["paused"]
-    active = next((j for j in store.jobs() if j["kind"] == "app_update" and j["status"] in {"queued", "running"}), None)
+    queue_paused = (store.queue_snapshot() if queue is None else queue)["paused"]
+    jobs = store.jobs() if jobs is None else jobs
+    active = next((j for j in jobs if j["kind"] == "app_update" and j["status"] in {"queued", "running"}), None)
     try:
         installed = importlib.metadata.version("bactologix")
     except importlib.metadata.PackageNotFoundError:
@@ -76,6 +84,7 @@ def status(store):
                      and (not restart or (state.get('launcher_id') == launcher['id'] and state.get('restart_status') != 'failed' and state.get('status') != 'failed')))
     catalog = copy.deepcopy(store.get("app_catalog", "releases"))
     if catalog:
+        catalog["releases"] = [r for r in catalog["releases"] if channel_accepts(r["version"])]
         for release in catalog["releases"]:
             release["older"] = Version(release["version"]) < Version(__version__)
     return {"running_version": __version__, "installed_version": installed, "python": sys.executable,
@@ -84,7 +93,7 @@ def status(store):
             "automatic_restart": automatic, "queue_paused": queue_paused,
             "launcher": {k: launcher[k] for k in ('id', 'version', 'url')} if launcher else None,
             "last_update": state, "all_update": store.get("settings", "all-update", {}), "can_install": platform.system() == "Linux" and not restart and not queue_paused
-            and not any(j["status"] in {"queued", "running"} for j in store.jobs())}
+            and not any(j["status"] in {"queued", "running"} for j in jobs)}
 
 
 def assert_current(store):
@@ -95,7 +104,7 @@ def assert_current(store):
         raise ValueError("Restart Bactologix to load the installed application before starting more work. In its terminal press Ctrl+C, then rerun your Bactologix launch command.")
 
 
-def download_wheel(record, directory):
+def download_wheel(record, directory, received=None):
     path = directory / record["wheel_name"]
     digest = hashlib.sha256()
     request = Request(record["wheel_url"], headers={"User-Agent": "Bactologix/" + __version__})
@@ -105,6 +114,8 @@ def download_wheel(record, directory):
             if not response.url.startswith("https://"):
                 raise ValueError("Wheel download redirected to an insecure URL")
             while chunk := response.read(1024 * 1024):
+                if received is not None:
+                    received(len(chunk))
                 count += len(chunk)
                 if count > record["size"] or count > MAX_WHEEL_BYTES:
                     raise ValueError("Wheel download exceeds the published size")
@@ -134,7 +145,11 @@ def validate_wheel(path, expected_version):
 
 def install_update(ctx):
     """The worker holds exclusive environment and workspace locks throughout."""
+    from .channels import application_guard
+    application_guard()
     selected = ctx.job["payload"]["release"]
+    if not channel_accepts(selected["version"]):
+        raise ValueError("Application updates cannot cross the stable/development channel boundary.")
     latest = release_record(api(f"repos/{REPO}/releases/{int(selected['id'])}"))
     identity = ("id", "tag", "version", "asset_id", "wheel_url", "sha256", "size")
     if not latest or not latest["available"] or any(latest[k] != selected[k] for k in identity):
@@ -144,7 +159,8 @@ def install_update(ctx):
     directory = ctx.store.home / "updates" / ctx.job["id"]
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     ctx.write(f"Downloading {latest['tag']} from {REPO} and verifying its SHA-256…")
-    wheel = download_wheel(latest, directory)
+    with ctx.observe_download("Bactologix update wheel") as received:
+        wheel = download_wheel(latest, directory, received)
     ctx.write("Wheel identity, checksum and Python requirement verified.")
     ctx.write("Updating only the application environment: " + sys.prefix)
     state = {"job": ctx.job["id"], "from_version": __version__, "version": latest["version"],

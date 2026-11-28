@@ -14,8 +14,8 @@ from .catalog import PIPELINES, supported
 from .runs import absolute_path
 
 
-def local_path(value):
-    """Accept Linux paths and Explorer paths pasted into a WSL-hosted app."""
+def host_path(value):
+    """Translate Explorer paths for WSL while preserving native relative names."""
     value = str(value).strip()
     if sys.platform == "linux" and re.match(r"^[A-Za-z]:[\\/]", value):
         value = "/mnt/" + value[0].lower() + "/" + value[3:].replace("\\", "/")
@@ -25,7 +25,12 @@ def local_path(value):
         if not distro or len(parts) < 5 or parts[3].casefold() != distro.casefold():
             raise ValueError("Choose a folder in the WSL distribution running Bactologix.")
         value = "/" + "/".join(parts[4:])
-    return absolute_path(value)
+    return Path(value).expanduser()
+
+
+def local_path(value):
+    """Accept an absolute Linux or Explorer path to a local resource."""
+    return absolute_path(host_path(value))
 
 
 def bookmarks(store):

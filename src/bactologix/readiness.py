@@ -71,7 +71,7 @@ def check_environments(ctx, run):
     ctx.write('Inventory checked without installing or repairing environments. The current workflow plan determines this list; later checkpoint environments remain guarded at execution.')
 
 
-def panel(store, run):
+def panel(store, run, *, just_created=False):
     """Checks are scoped and dated; no universal Ready claim or environment writes."""
     rows = []
     def row(key, title, state, text, level='info', checked_at=None):
@@ -81,8 +81,12 @@ def panel(store, run):
     checked_at = now()
     blocked = False
     try:
-        check_run_files(run)
-        row('inputs', 'Inputs and saved files', 'Unchanged', 'File sizes, timestamps and staged input links match this draft.', 'good', checked_at)
+        check_run_files(run, full=False)
+        from .runs import input_identity
+        row('inputs', 'Inputs and saved files', 'Unchanged',
+            'File metadata and staged links match this draft. Recorded identity: ' + input_identity(run) +
+            '. This quick check does not reread input content; recorded SHA-256 hashes are verified before launch or reuse.',
+            'info', checked_at)
     except (OSError, ValueError, KeyError) as exc:
         blocked = True
         row('inputs', 'Inputs and saved files', 'Needs attention', str(exc), 'error', checked_at)
@@ -90,14 +94,26 @@ def panel(store, run):
         current_controller(store, run)
         if not supported(run['tool'], run['commit'], store):
             raise ValueError('This source version needs a supported execution adapter.')
-        if tree_digest(Path(run['folder']) / 'workflow') != run['workflow_sha256']:
-            raise ValueError('The saved workflow source changed. Create a new draft from a clean installation.')
-        row('pipeline', 'Pipeline and runner', 'Setup recorded', 'The saved source is unchanged and its runner is configured. Native validation checks execution.', 'info', checked_at)
+        if just_created:
+            row('pipeline', 'Pipeline and runner', 'Setup recorded',
+                'Bactologix fingerprinted the saved workflow when it created this draft. Its runner is configured.',
+                'info', run['created'])
+        else:
+            if tree_digest(Path(run['folder']) / 'workflow') != run['workflow_sha256']:
+                raise ValueError('The saved workflow source changed. Create a new draft from a clean installation.')
+            row('pipeline', 'Pipeline and runner', 'Setup recorded', 'The saved source is unchanged and its runner is configured. Native validation checks execution.', 'info', checked_at)
     except (OSError, ValueError, KeyError) as exc:
         blocked = True
         row('pipeline', 'Pipeline and runner', 'Needs setup', str(exc), 'error', checked_at)
-    from . import preflight
-    host = preflight.panel(store, run)
+    from . import hardware, preflight
+    capacity = hardware.compute_capacity() if just_created else None
+    host = preflight.panel(store, run, capacity=capacity)
+    if run['tool'] == 'hybas' and not blocked and any(
+            item.get('estimated_full_load_mb') for item in host['rows'] if item['id'] == 'kraken_memory'):
+        from . import draft_edits
+        for item in host['rows']:
+            if item['id'] == 'resources' and item['level'] == 'error':
+                item['recalculate_swap'] = draft_edits.available(store, run, draft_edits.jobs_for(store, run))
     rows.extend(host['rows'])
     # Output permissions can block execution while a diagnostic dry-run remains useful.
     execution_blocked = blocked or host['blocked']
@@ -135,6 +151,112 @@ def job_guidance(store, job):
         return None
     from .support import log_tail
     text, scope = log_tail(store, job['id'], max_bytes=24000)
+    return _job_guidance(store, job, text, scope)
+
+
+def history_guidance(store, jobs):
+    """Reuse a finished job's display hints only while the opened log and evidence match."""
+    from .support import open_log, read_log_tail
+    previous = getattr(store, '_history_hints', {})
+    current = {}
+    for job in jobs:
+        if job['status'] not in {'failed', 'interrupted'}:
+            job['guidance'] = None
+            continue
+        # Receipt-driven hints can change independently of the log. They use its
+        # inclusion status only; recompute the hint from fresh records each time.
+        from_receipt = job['kind'] in {'isolate_export', 'storage_cleanup'} or (
+            job['kind'] == 'workflow' and job['payload'].get('action') in {'run', 'continue'}
+            and (job['disk_safety'] or {}).get('reason') == 'pause_failed')
+        jid = job['id']
+        with open_log(store, jid) as (descriptor, info, status):
+            stamp = (info.st_dev, info.st_ino, info.st_ctime_ns, info.st_mtime_ns, info.st_size) if info else status
+            key = (stamp, job['kind'], job['status'], job.get('error'), job['payload'].get('action'),
+                   job['payload'].get('run_id'), from_receipt)
+            prior = previous.get(jid)
+            if prior and prior[0] == key:
+                if from_receipt:
+                    job['guidance'] = _job_guidance(store, job, '', {'status': prior[1]['log_status']})
+                else:
+                    job['guidance'] = prior[1].copy()
+            else:
+                text, scope = read_log_tail(descriptor, info.st_size if info else 0, status, 24000)
+                job['guidance'] = _job_guidance(store, job, text, scope)
+            if job['guidance']['log_status'] != 'unavailable (permissions or unsafe link)':
+                current[jid] = (key, job['guidance'].copy())
+    store._history_hints = current
+
+
+def _job_guidance(store, job, text, scope):
+    if job['kind'] == 'workflow' and job['payload'].get('action') in {'run', 'continue'}:
+        disk = job['disk_safety'] if 'disk_safety' in job else store.get('disk_safety', job['id'])
+        if disk and disk.get('reason') == 'pause_failed':
+            from . import supervision
+            monitoring = job['monitoring'] if 'monitoring' in job else supervision.snapshot(store, job['id'])
+            evidence = [str(detail) for detail in (disk.get('pause_details') or []) + (disk.get('errors') or [])]
+            trigger = disk.get('pause_trigger')
+            if trigger == 'stale' or (not trigger and 'Required storage checks are stale.' in evidence):
+                cause = 'The last storage reading expired.'
+            elif trigger == 'low_space':
+                cause = 'A monitored drive reached the pause threshold.'
+            elif trigger == 'monitor_unavailable':
+                cause = 'A required storage check was unavailable.'
+            else:
+                cause = 'Storage protection requested a pause.'
+            exit_detail = ('The worker confirmed its recorded processes exited.' if
+                           (monitoring or {}).get('cleanup_confirmed') is True else
+                           'Check the workflow lock to verify which processes still own this run.')
+            return {
+                'title': 'Bactologix could not confirm the storage pause',
+                'text': f'{cause} The worker attempted to stop the workflow. {exit_detail}',
+                'category': 'storage_pause', 'run_id': job['payload'].get('run_id'), 'step': None,
+                'evidence': '\n'.join(dict.fromkeys(evidence))[:1200], 'confidence': 'Recorded storage pause failure',
+                'scope': 'Evidence from the storage and process monitoring records for this attempt.',
+                'log_status': scope['status'],
+            }
+    if job.get('kind') == 'isolate_export':
+        receipt = store.get('isolate_export_receipts', job['id'])
+        return {
+            'title': 'Isolate export did not finish',
+            'text': ('Original files were retained. The destination may contain a partial package. '
+                     'Review the export receipt and create a new preview before trying again.' if receipt else
+                     'No export receipt is available for this attempt. Original files were retained. '
+                     'Open Samples and create a new export preview.'),
+            'category': 'isolate_export', 'run_id': None, 'step': None,
+            'receipt_id': job['id'] if receipt else None,
+            'action': 'isolate-export-receipt' if receipt else 'go-samples',
+            'evidence': str(job.get('error') or 'Export status: ' + job['status'])[:1200],
+            'confidence': 'Recorded interruption' if job['status'] == 'interrupted' else 'Recorded failure',
+            'scope': 'Copy and verification status; no source deletion or cloud-upload verification is implied.',
+            'log_status': scope['status'],
+        }
+    if job.get('kind') == 'storage_cleanup':
+        # A recovery job continues the original receipt rather than creating one
+        # with the new job ID. A failure before staging may have no receipt yet.
+        receipt = store.get('storage_cleanup_receipts', job['id'])
+        if not receipt:
+            receipt = next((row for row in store.all('storage_cleanup_receipts')
+                            if row.get('recovery_job') == job['id']), None)
+        if not receipt:
+            plan = store.get('storage_cleanup_plans', job['payload'].get('plan_id'), {})
+            candidates = plan.get('candidates', [])
+            if len(candidates) == 1 and candidates[0].get('kind') == 'cleanup_remaining':
+                receipt = store.get('storage_cleanup_receipts', candidates[0]['id'])
+        interrupted = job['status'] == 'interrupted'
+        return {
+            'title': 'Cleanup stopped' if interrupted else 'Cleanup did not finish',
+            'text': ('Some files may already be removed. Review the cleanup receipt for deleted and retained paths. '
+                     'Review the remaining items in Storage before choosing any further cleanup.' if receipt else
+                     'No cleanup receipt is available for this attempt. Review the job log and current items in Storage '
+                     'before choosing any further cleanup. Do not assume that the selected files were removed.'),
+            'category': 'storage_cleanup', 'run_id': None, 'step': None,
+            'receipt_id': receipt['id'] if receipt else None,
+            'action': 'cleanup-receipt' if receipt else 'go-storage',
+            'evidence': str(job.get('error') or 'The cleanup job was recorded as ' + job['status'] + '.')[:1200],
+            'confidence': 'Recorded interruption' if interrupted else 'Recorded failure',
+            'scope': 'Cleanup status and receipts describe this deletion attempt. Further cleanup requires a new review and confirmation.',
+            'log_status': scope['status'],
+        }
     # Match complete bounded lines only; shell commands and huge payloads are not evidence.
     lines = [line for line in text.splitlines() if not line.lstrip().startswith('$ ')]
     error = str(job.get('error') or '')[:2048]
@@ -149,13 +271,13 @@ def job_guidance(store, job):
          'Review the output, temporary and environment-cache disks and their quotas. Free space deliberately, then review the saved run before resuming.'),
         ('permissions', r'Permission denied|Read-only file system|PermissionError|\[Errno (?:13|30)\]',
          'A file location could not be accessed',
-         'Review the path in the error and its ownership, permissions or mount state. Use a writable location through the existing settings controls; changed run paths require a revised draft.'),
+         'Review the path in the error and its ownership, permissions or mount state. Use Edit settings to select a writable location, then validate the updated settings.'),
         ('environments', r'existing environments only',
          'A matching tool environment is missing or incomplete',
          'Open the saved run and check its environment cache. Install environments only when you choose to, then review the run before retrying.'),
         ('dependencies', r"(?:AttributeError[^\n]*create_2d_density|(?:ModuleNotFoundError|ImportError):[^\n]*(?:plotly|kaleido)|ValueError[^\n]*kaleido)",
          'A plotting dependency may be incompatible',
-         'Open pipeline setup and Check environments to verify the installed packages and rendering. Repair environments offers the supported NanoPlot/MultiQC workaround only when its exact package conditions match.'),
+         'Open pipeline setup and Check environments to verify package compatibility and actual HTML/PNG rendering. NanoPlot 1.46.2 and MultiQC 1.32 require separate environments; use a reviewed pipeline version with compatible recipes and explicitly provision its required browser.'),
         ('databases', r'(?:database[^\n]{0,180}(?:missing|not found)|(?:BUSCO|Kraken)[^\n]{0,180}(?:missing|not found))',
          'Check the database location used by this run',
          'Review the frozen database paths. If you selected a new location, apply it to a revised draft and validate that draft.'),
@@ -175,6 +297,13 @@ def job_guidance(store, job):
         category, title = 'interrupted', 'The worker was interrupted'
         help_text = ('Review the retained outputs and log, then validate the saved run before Run / resume. '
                      'An interruption does not establish which tasks completed. Existing scheduler locks are not removed automatically.')
+        if (job['kind'] == 'workflow' and job['payload'].get('action') in {'run', 'continue'}
+                and re.search(r'workspace control|(?:control|final native process) record could not be saved', error, re.I)
+                and re.search(r'database(?: table)? is locked|locking protocol', error, re.I)):
+            title = 'The workspace database was locked during monitoring'
+            help_text = ('Open Jobs & progress and refresh. Once the attempt shows Interrupted, resume the queue '
+                         'if paused, then open the same saved run and retry its launch action. '
+                         'Activity keeps the earlier log.')
         evidence = error or 'The job was recorded as interrupted during worker recovery.'
     steps = re.findall(r'(?:Error in rule|Error in checkpoint) ([A-Za-z0-9_.-]{1,120})(?=[:\s]|$)', text)
     return {'title': title, 'text': help_text, 'category': category,

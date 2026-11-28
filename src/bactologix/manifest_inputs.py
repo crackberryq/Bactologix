@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .hybas_manifest_schema import load_manifest, validate_manifest
 from .store import now
+from .storage_guard import mutation
 
 
 def paths(sample):
@@ -50,6 +51,7 @@ def review(path):
             'Declarations and file availability checked. A compatible HybAs alpha and native dry-run are required; sequence content is checked during execution.'}
 
 
+@mutation
 def commit(store, path, token):
     result = review(path)
     if result['token'] != token:
@@ -73,14 +75,18 @@ def require_adapter(store, tool, installed):
 
 
 def stage(sample, destination):
-    from .aware_outputs import verify_sample
-    verify_sample(sample)
-    from .runs import snapshot_files
+    from .aware_outputs import checked_sample_paths, verify_sample
+    checked_sample_paths(sample)
+    from .runs import snapshot_files, matching_inputs
     document = {'schema_version': 1, 'samples': [sample['input_manifest']]}
     validated = validate_manifest(document, base_dir=Path(sample['path']))
     files = paths(validated['manifest']['samples'][0])
     current = snapshot_files(files)
-    if current != sample['inputs']:
+    if sample.get('aware_provenance'):
+        # Match the producing bundle against the same bytes just fingerprinted
+        # for this draft. No checksum is reused across create requests.
+        verify_sample(sample, digests={row['path']: row['sha256'] for row in current})
+    if not matching_inputs(sample['inputs'], current):
         raise ValueError('Manifest inputs changed since registration. Register the changed data again.')
     destination.mkdir(parents=True)
     return current

@@ -139,7 +139,7 @@ def test_followup_checks_parent_variant_content_before_creating_child(screening_
     original, stat = path.read_bytes(), path.stat()
     path.write_bytes(b'X' + original[1:])
     os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
-    with pytest.raises(ValueError, match='variant input changed'):
+    with pytest.raises(ValueError, match='SHA-256 content mismatch|variant input changed'):
         create_followup(store, parent['id'], 'deep: {enabled: true}', True)
     assert len(store.all('runs')) == 1
     assert [p.name for p in (store.home / 'runs').iterdir()] == [parent['id']]

@@ -6,7 +6,60 @@ import hashlib
 import json
 import os
 import psutil
+import re
 from .runs import command, validate_launch, tree_digest
+from .storage import _open
+
+
+def _lock_status(directory):
+    """Check for one entry by descriptor, without following symlinks or reading files."""
+    try:
+        with _open(directory / '.snakemake' / 'locks', directory=True) as fd, os.scandir(fd) as entries:
+            return {} if next(entries, None) is not None else None
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        return {'issue': 'Could not inspect workflow locks: ' + (exc.strerror or str(exc)) + '.'}
+
+
+def review_list(store, runs, jobs, archived):
+    """Discover native locks independently of job history. Ownership is checked on explicit review."""
+    from .followup import state_directory
+    by_id = {run['id']: run for run in runs}
+    active, recent = set(), {}
+    for index, job in enumerate(jobs):  # Newest first, including cleared attempts.
+        if job['kind'] in {'workflow', 'workflow_unlock'}:
+            rid = job['payload'].get('run_id')
+            recent.setdefault(rid, index)
+            if job['status'] in {'queued', 'running'}:
+                active.add(rid)
+
+    candidates, busy, rows = {}, set(), []
+    for rid, run in by_id.items():
+        followup = run.get('run_type') == 'followup'
+        owner = by_id.get(run.get('parent')) if followup else run
+        if not owner or (followup and owner.get('tool') != 'basis'):
+            rows.append({'run_id': rid, 'issue': 'The screening parent is unavailable for the lock check.'})
+            continue
+        folder = Path(owner.get('folder') or '')
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', owner['id']) or folder != store.home / 'runs' / owner['id']:
+            rows.append({'run_id': rid, 'issue': 'The saved workflow folder is outside its managed run location.'})
+            continue
+        directory = state_directory(owner) if followup else folder / 'workflow'
+        if rid in active:
+            busy.add(directory)
+        # Several follow-ups can address the same lock. Prefer a visible run
+        # with the most recent workflow attempt for its review.
+        rank = (rid in archived, recent.get(rid, len(jobs)))
+        if directory not in candidates or rank < candidates[directory][0]:
+            candidates[directory] = (rank, rid)
+
+    for directory, (_, rid) in candidates.items():
+        if directory not in busy:
+            observed = _lock_status(directory)
+            if observed is not None:
+                rows.append({'run_id': rid, **observed})
+    return rows
 
 
 @contextmanager
@@ -126,9 +179,28 @@ def check_processes(directory):
 
 
 def details(store, rid, own_job=None):
-    if any(j['status'] in {'queued', 'running'} and j['id'] != own_job for j in store.jobs()):
+    with store.connect() as db:
+        active = db.execute("SELECT 1 FROM jobs WHERE status IN ('queued','running') AND id IS NOT ? LIMIT 1",
+                            (own_job,)).fetchone()
+    if active:
         raise ValueError('Finish or cancel other queued/running jobs before unlocking.')
-    run = validate_launch(store, rid, 'dry-run')
+    saved = store.get('runs', rid)
+    if not saved:
+        raise ValueError('Unknown run')
+    directory = Path(saved['folder']) / 'workflow'
+    if saved.get('run_type') == 'followup':
+        from .followup import state_directory
+        directory = state_directory(store.get('runs', saved.get('parent')))
+    lock_status = _lock_status(directory)
+    if lock_status is None:
+        raise ValueError('No workflow lock remains. Review the run before Run / resume.')
+    if lock_status.get('issue'):
+        if any(path.is_symlink() for path in (directory, directory / '.snakemake', directory / '.snakemake/locks')):
+            raise ValueError('Lock location is redirected. Unlock is blocked.')
+        raise ValueError(lock_status['issue'])
+    # Unlock is maintenance: retain run/source/path checks, but do not require
+    # today's RAM and swap to admit the saved analysis scheduling budget.
+    run = validate_launch(store, rid, 'dry-run', check_memory_capacity=False, full_inputs=own_job is not None)
     source = Path(run['folder']) / 'workflow'
     if tree_digest(source) != run['workflow_sha256']:
         raise ValueError('Saved workflow source changed. Unlock is blocked.')
@@ -146,7 +218,18 @@ def details(store, rid, own_job=None):
     argv = original[:original.index('snakemake') + 1]
     for option in ('--snakefile', '--directory', '--configfile'):
         argv.extend([option, original[original.index(option) + 1]])
-    argv += ['--cores', '1', '--unlock']
+    # Native unlock still parses the workflow and its resource guards. Keep the
+    # saved scheduler budget instead of falling back to a workflow profile's
+    # smaller default, while excluding analysis targets and execution options.
+    resource_start = original.index('--resources') + 1
+    resources = []
+    for value in original[resource_start:]:
+        if value.startswith('--'):
+            break
+        resources.append(value)
+    if not resources:
+        raise ValueError('Saved workflow scheduler resources are missing. Unlock is blocked.')
+    argv += ['--cores', '1', '--resources', *resources, '--unlock']
     signature = hashlib.sha256(json.dumps([run, argv, records], sort_keys=True).encode()).hexdigest()
     return {'id': rid, 'directory': str(directory), 'commit': run['commit'], 'signature': signature,
             'lock_count': len(files), 'command': argv}

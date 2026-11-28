@@ -11,7 +11,9 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import tempfile
+import time
 
 import yaml
 
@@ -20,12 +22,15 @@ from .engine import Cancelled, find_conda
 from .local import git_read, local_path
 from .runs import parse_config, template, tree_digest
 from .store import identifier, now
+from .storage_guard import mutation
+from .supervision import MonitoringInterrupted
 from . import environment_health
 
 RECIPES = {
     "micpscope": {"properties": "Protein properties and evidence report", "database-builder": "Database Builder (DIAMOND)", "reference-search": "Reference protein search (DIAMOND)"},
     "hybas": {"library_assembly": "Library-aware SPAdes assembly", "library_preprocess": "Illumina and Nextera preparation", "pacbio_assembly": "PacBio Flye assembly", "assembly": "Assembly and read preparation", "qc": "QC, Kraken2 and BUSCO",
-              "polishing": "Racon and Polypolish", "medaka": "Medaka", "annotation": "Prokka",
+              "polishing": "Racon and Polypolish", "polishing_validation": "Polishing validation and read support", "medaka": "Medaka", "annotation": "Prokka",
+              "multiqc": "MultiQC reports",
               "controller": "Lightweight workflow Python"},
     "basis": {"core-amr": "AMRFinderPlus", "rgi": "CARD / RGI", "diamond": "VFDB and BacMet",
               "antismash": "antiSMASH", "context": "geNomad and IntegronFinder",
@@ -35,10 +40,44 @@ RECIPES = {
 }
 BASIS_MODULES = ("amrfinder", "rgi", "vfdb", "bacmet", "antismash", "genomad", "mobsuite",
                  "integronfinder", "isescan", "icescreen", "crisprcasfinder", "minced", "mlst", "pathogenfinder2")
+_DOWNLOAD_PANEL_CACHE = {}
+_DOWNLOAD_PANEL_TTL_SECONDS = 15
+_DOWNLOAD_PANEL_CACHE_LIMIT = 32
+
+
+def browser_preparation_env(store, tool, commit, source, action):
+    """Authorize one reviewed browser install contract, never a self-declaration."""
+    disabled = {'HYBAS_PREPARE_BROWSER': '0'}
+    if tool != 'hybas' or action not in {'install', 'repair', 'prepare'}:
+        return disabled
+    from .release_contract import approval, preflight
+    review = approval(store, tool, commit)
+    contract = {'interface': 1, 'environment': 'qc', 'policy': 'install_or_repair_when_missing'}
+    required = {'workflow/envs/qc.yml', 'workflow/envs/qc.post-deploy.sh',
+                'workflow/lib/rendering_runtime.py'}
+    if (not review or review.get('browser_preparation') != contract
+            or type(review['browser_preparation'].get('interface')) is not int
+            or not required <= review.get('files_sha256', {}).keys()):
+        return disabled
+    try:
+        preflight(store, tool, commit, source)
+        root = Path(source)
+        recipe = yaml.safe_load((root / 'workflow/envs/qc.yml').read_text()) or {}
+        dependencies = recipe.get('dependencies', [])
+        pins = {'nanoplot=1.46.2', 'plotly=6.1.2', 'python-kaleido=1.0.0'}
+        if (not pins <= {item for item in dependencies if isinstance(item, str)}
+                or any(isinstance(item, str) and item.startswith('multiqc') for item in dependencies)
+                or '# HYBAS_BROWSER_PREPARATION_CONTRACT=1' not in
+                (root / 'workflow/envs/qc.post-deploy.sh').read_text().splitlines()):
+            return disabled
+    except (OSError, ValueError, TypeError, KeyError):
+        return disabled
+    return {'HYBAS_PREPARE_BROWSER': '1'}
 
 
 def cache_path(store, item):
-    return local_path(item.get("rule_cache") or str(store.home / "envs" / item["tool"]))
+    from .channels import owned
+    return owned(store, local_path(item.get("rule_cache") or str(store.home / "envs" / item["tool"])), "Environment cache")
 
 
 def check_deployment_path(store, item):
@@ -51,6 +90,7 @@ def check_deployment_path(store, item):
     return cache
 
 
+@mutation
 def set_cache(store, key, value):
     item = installation(store, key)
     if any(j["status"] in {"queued", "running"} for j in store.jobs()):
@@ -181,6 +221,8 @@ def execute_environments(ctx):
     if fresh != payload:
         raise ValueError("Environment definitions or cache changed. Submit a new check.")
     rows = [r for r in recipes(item) if r["id"] in payload["definitions"]]
+    prepare_env = (browser_preparation_env(store, item['tool'], item['version']['commit'], item['source'], payload['action'])
+                   if any(row['id'] == 'qc' for row in rows) else {'HYBAS_PREPARE_BROWSER': '0'})
     job_folder = store.home / "maintenance" / ctx.job["id"]
     job_folder.mkdir(parents=True, exist_ok=True)
     # Coordinated updates share a job ID, including first-install deployment
@@ -195,7 +237,9 @@ def execute_environments(ctx):
         for row in rows:
             saved[row["id"]] = {**row, "cache": payload["cache"], "status": "Installation requested", "job": ctx.job["id"]}
         store.put("environment_checks", item["id"], saved)
-        ctx.command([*argv, "--conda-create-envs-only"], cwd=folder)
+        if prepare_env['HYBAS_PREPARE_BROWSER'] == '1':
+            ctx.write('This explicit environment installation may download a missing Chrome browser for NanoPlot PNG exports.')
+        ctx.command([*argv, "--conda-create-envs-only"], cwd=folder, extra_env=prepare_env)
     listing = folder / "environments.tsv"
     with listing.open("w") as output:
         ctx.command([*argv, "--list-conda-envs"], cwd=folder, stdout=output)
@@ -218,10 +262,12 @@ def execute_environments(ctx):
                     target = folder / row['id']
                     target.mkdir(exist_ok=True)
                     recipe = environment_snakefile(target, [row])
-                    ctx.command([*snake_command(store, item, target, recipe), '--conda-create-envs-only'], cwd=target)
-                message = environment_health.repair(ctx, row, prefix, folder, deploy)
+                    ctx.command([*snake_command(store, item, target, recipe), '--conda-create-envs-only'], cwd=target,
+                                extra_env=prepare_env if row['id'] == 'qc' else {'HYBAS_PREPARE_BROWSER': '0'})
+                message = environment_health.repair(ctx, row, prefix, folder, deploy,
+                    preparation_env=prepare_env if row['id'] == 'qc' else {'HYBAS_PREPARE_BROWSER': '0'})
                 result.update(status='Verified', message=message)
-            except Cancelled:
+            except (Cancelled, MonitoringInterrupted):
                 raise
             except Exception as exc:
                 result.update(status='Repair failed', message=str(exc))
@@ -235,7 +281,7 @@ def execute_environments(ctx):
                 environment_health.probe(ctx, row, prefix, folder)
                 result.update(status="Verified", message="Native executable checks passed." +
                               (" NanoPlot HTML and PNG rendering passed." if environment_health.plotting_recipe(row) else ""))
-            except Cancelled:
+            except (Cancelled, MonitoringInterrupted):
                 raise
             except Exception as exc:
                 result.update(status="Check failed", message=str(exc))
@@ -248,8 +294,93 @@ def execute_environments(ctx):
         raise RuntimeError("Environment checks failed: " + ", ".join(failures) + ". See the job log.")
 
 
-def download_supported(item):
-    return bool(item and item["tool"] != "micpscope" and item.get("ready") and item["version"]["commit"] == PIPELINES[item["tool"]]["commit"])
+def download_capability(item, store=None):
+    """Report preparation support for this installed source, in either channel.
+
+    A runnable pipeline is not necessarily a reviewed resource provider. In
+    particular, neither the global default commit nor a pipeline's own marker
+    establishes this capability. Recheck the same proof before execution.
+    """
+    def unavailable(reason):
+        return {"available": False, "reason": reason}
+
+    if not isinstance(item, dict) or not item:
+        return unavailable("Select a pipeline installation and finish runner setup in Install & update.")
+    tool = item.get("tool")
+    if tool == "micpscope":
+        return unavailable("Prepare GeneScope references with Database Builder.")
+    if not isinstance(tool, str) or tool not in {"hybas", "basis"}:
+        return unavailable("This pipeline has no database preparation adapter.")
+    if not item.get("ready") or not item.get("controller"):
+        return unavailable("Finish runner setup for this installation in Install & update.")
+    if item.get("setup_mode") == "first_install" and not item.get("setup_completed"):
+        return unavailable("Finish first-time installation before preparing databases.")
+    version = item.get("version")
+    commit = version.get("commit") if isinstance(version, dict) else None
+    if store is None or not commit:
+        return unavailable("Refresh pipeline versions to load the reviewed database preparation contract.")
+    try:
+        from .release_contract import approval, preflight
+        row = approval(store, tool, commit)
+        if not row:
+            return unavailable("This installed source has no reviewed database preparation contract. "
+                               "Refresh from GitHub in Install & update and select a reviewed version.")
+        if type(row.get("database_downloads")) is not int or row["database_downloads"] != 1:
+            return unavailable("Database preparation is not approved for this installed source. "
+                               "Select a version with reviewed native database preparation support.")
+        source = Path(item.get("source") or "")
+        if not item.get("source") or not source.is_dir():
+            return unavailable("The installed pipeline source folder is missing. Reconnect or reinstall this version.")
+        if git_read(source, "rev-parse", "HEAD") != commit or git_read(source, "status", "--porcelain"):
+            return unavailable("The installed pipeline source changed. Reconnect a clean copy of this exact version.")
+        preflight(store, tool, commit, source)
+        controller = Path(item["controller"])
+        if any(not (controller / "bin" / name).is_file() or not os.access(controller / "bin" / name, os.X_OK)
+               for name in ("python", "snakemake")):
+            return unavailable("The installed runner is missing or incomplete. Repair runner setup in Install & update.")
+        if not find_conda(store):
+            return unavailable("Choose your Conda executable in Install & update before preparing databases.")
+        check_deployment_path(store, item)
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError) as exc:
+        return unavailable("Database preparation check failed: " + str(exc))
+    return {"available": True, "reason": "Reviewed native database preparation is available for this installation."}
+
+
+def download_panel_capability(item, store=None):
+    """Short-lived display status only; never authorizes a job or run revision.
+
+    Polling must not repeatedly scan complete Git checkouts and hash reviewed
+    source files. Changed installation/approval records invalidate the cache;
+    changes on disk are detected by the next bounded refresh. Every mutation
+    calls download_capability directly and therefore performs a fresh check.
+    """
+    if store is None:
+        return {**download_capability(item, store), "checked_at": now(), "cached": False}
+    try:
+        from .release_contract import approval
+        review = (approval(store, item["tool"], item["version"]["commit"])
+                  if item and item.get("tool") in {"hybas", "basis"} else None)
+        binding = {"workspace": str(store.home), "channel": store.channel,
+                   "installation": item, "approval": review}
+        key = hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest()
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError):
+        # The fresh checker provides the actionable error; never cache an
+        # incomplete key or reuse a prior approval after metadata became invalid.
+        return {**download_capability(item, store), "checked_at": now(), "cached": False}
+    started = time.monotonic()
+    saved = _DOWNLOAD_PANEL_CACHE.get(key)
+    if saved and 0 <= started - saved["checked_monotonic"] < _DOWNLOAD_PANEL_TTL_SECONDS:
+        return {**saved["status"], "cached": True}
+    status = {**download_capability(item, store), "checked_at": now(), "cached": False}
+    if len(_DOWNLOAD_PANEL_CACHE) >= _DOWNLOAD_PANEL_CACHE_LIMIT:
+        oldest = min(_DOWNLOAD_PANEL_CACHE, key=lambda k: _DOWNLOAD_PANEL_CACHE[k]["checked_monotonic"])
+        _DOWNLOAD_PANEL_CACHE.pop(oldest, None)
+    _DOWNLOAD_PANEL_CACHE[key] = {"checked_monotonic": started, "status": status}
+    return dict(status)
+
+
+def download_supported(item, store=None):
+    return download_capability(item, store)["available"]
 
 
 def _number(value, label, maximum):
@@ -262,10 +393,12 @@ def download_request(store, tool, key, parent, cores=4, memory_mb=16000, lineage
     from .databases import _spec
     _spec(tool, key)
     item = installation(store, store.get("settings", "active-" + tool))
-    if not download_supported(item):
-        raise ValueError("Select the recommended pipeline snapshot to use database downloads.")
+    capability = download_capability(item, store)
+    if not capability["available"]:
+        raise ValueError(capability["reason"])
     check_deployment_path(store, item)
-    base = local_path(parent)
+    from .channels import owned
+    base = owned(store, local_path(parent), "Database download folder")
     if not base.is_dir() or not os.access(base, os.W_OK):
         raise ValueError("Choose an existing writable download folder.")
     if any(c in str(base) for c in "{}\n\r\t\"'`$\\"):
@@ -313,10 +446,14 @@ def execute_download(ctx):
     store, payload = ctx.store, ctx.job["payload"]
     item = installation(store, payload["installation"])
     check_deployment_path(store, item)
-    if not download_supported(item) or item["version"]["commit"] != payload["commit"]:
+    capability = download_capability(item, store)
+    if not capability["available"]:
+        raise ValueError(capability["reason"])
+    if item["version"]["commit"] != payload["commit"]:
         raise ValueError("The selected download adapter changed. Submit a new download.")
     folder = store.home / "maintenance" / payload["id"]
-    destination = Path(payload["destination"])
+    from .channels import owned
+    destination = owned(store, payload["destination"], "Database download")
     if destination.parent.resolve() != Path(payload["parent"]):
         raise ValueError("Download parent was replaced by a link. Choose the location again.")
     old = store.get("database_downloads", payload["id"])
@@ -339,6 +476,8 @@ def execute_download(ctx):
                "workflow_sha256": tree_digest(folder / "workflow"), "config_sha256": hashlib.sha256(text.encode()).hexdigest(), "created": now()}
     if hashlib.sha256((folder / "config.yaml").read_bytes()).hexdigest() != row["config_sha256"]:
         raise ValueError("Saved download configuration changed. Start a new download.")
+    from .release_contract import preflight
+    preflight(store, item["tool"], payload["commit"], folder / "workflow")
     row.update(job=ctx.job["id"], status="running", error="")
     store.put("database_downloads", row["id"], row)
     argv = snake_command(store, item, folder, folder / "workflow" / PIPELINES[item["tool"]]["snakefile"])
@@ -352,7 +491,7 @@ def execute_download(ctx):
         ctx.check_cancel()
         result = inspect(store, payload["tool"], payload["resource"], row["result_path"])
         row.update(status="completed", result=result, finished=now())
-        ctx.write("Database ready: " + result["path"] + ". Choose Use downloaded, then Save locations.")
+        ctx.write("Database ready: " + result["path"] + ". Choose Select downloaded location, then Save for future runs.")
     except BaseException as exc:
         row.update(status="cancelled" if isinstance(exc, Cancelled) else "failed", error=str(exc))
         raise

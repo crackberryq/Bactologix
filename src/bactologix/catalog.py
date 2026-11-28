@@ -92,6 +92,9 @@ def fetch_versions(tool):
 
 
 def versions(store, tool):
+    if store.channel == "dev":
+        from .dev_catalog import versions as dev_versions
+        return dev_versions(store, tool)
     cached = store.get("catalog", tool)
     if not cached:
         snapshot = json.loads((DATA / "versions.json").read_text())
@@ -128,6 +131,8 @@ def versions(store, tool):
 def supported(tool, commit, store=None):
     from .release_contract import approval
     spec = PIPELINES[tool]
+    if store is not None and store.channel == "dev":
+        return approval(store, tool, commit) is not None
     return commit in [spec["commit"], *spec.get("previous_commits", [])] or approval(store, tool, commit) is not None
 
 

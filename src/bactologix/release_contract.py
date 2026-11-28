@@ -14,6 +14,7 @@ from .store import now
 
 REGISTRY = 'repos/crackberryq/Bactologix/contents/compatibility/releases-v1.json?ref=main'
 INTERFACE = 1
+HYBAS_REVIEW_INTERFACE = 2
 
 
 def reason(tool, row):
@@ -21,7 +22,10 @@ def reason(tool, row):
     spec = PIPELINES[tool]
     if not isinstance(row, dict):
         return 'No reviewed release contract is available.'
-    if row.get('adapter_interface') != INTERFACE:
+    interface = row.get('adapter_interface')
+    if (type(interface) is not int or interface not in (INTERFACE, HYBAS_REVIEW_INTERFACE)
+            or (interface == HYBAS_REVIEW_INTERFACE
+                and (tool != 'hybas' or row.get('configuration_schema') != 'hybas-v2'))):
         return 'Adapter update required: unsupported adapter interface.'
     if row.get('configuration_schema') not in ({'hybas-v1', 'hybas-v2'} if tool == 'hybas' else {tool + '-v1'}):
         return 'Adapter update required: configuration schema changed.'
@@ -40,6 +44,38 @@ def reason(tool, row):
     for path, digest in hashes.items():
         if Path(path).is_absolute() or '..' in Path(path).parts or not re.fullmatch('[0-9a-f]{64}', str(digest)):
             return 'Release contract contains invalid file checksums.'
+    if interface == HYBAS_REVIEW_INTERFACE:
+        # Older applications reject interface 2 before caching the catalog. They
+        # cannot safely prepare its browser or expose its model-review controls.
+        from .medaka_review import CONTRACT, FALLBACK_CONTRACT, REQUIRED_FILES
+        browser = {'interface': 1, 'environment': 'qc', 'policy': 'install_or_repair_when_missing'}
+        required = set(REQUIRED_FILES) | {
+            'environment.yaml', 'config.example.yaml', 'workflow/lib/hybas_report.py',
+            'workflow/lib/rendering_runtime.py', 'workflow/envs/medaka.post-deploy.sh',
+            'workflow/envs/qc.yml', 'workflow/envs/qc.post-deploy.sh',
+            'workflow/envs/multiqc.yml', 'workflow/envs/multiqc.post-deploy.sh',
+        }
+        model = row.get('medaka_model_review')
+        preparation = row.get('browser_preparation')
+        if (model not in (CONTRACT, FALLBACK_CONTRACT) or preparation != browser
+                or type(model.get('interface')) is not int
+                or type(preparation.get('interface')) is not int
+                or not required <= hashes.keys()):
+            return 'Release contract lacks checked Medaka model-review or browser-preparation capabilities.'
+    retention = row.get('output_retention')
+    if retention is not None:
+        if (not isinstance(retention, dict) or retention.get('interface') != 1
+                or retention.get('strategy') != 'archive-before-replace'
+                or not isinstance(retention.get('helper'), str) or retention['helper'] not in hashes):
+            return 'Release contract lacks a checked output-preservation adapter.'
+    compute = row.get('compute_memory')
+    if compute is not None:
+        expected = {'interface': 1, 'swap_policy': 'physical_ram_plus_explicit_swap_v1',
+                    'helper': 'workflow/lib/settings.py'}
+        if (tool != 'hybas' or row.get('configuration_schema') != 'hybas-v2'
+                or not isinstance(compute, dict) or compute != expected
+                or type(compute.get('interface')) is not int or expected['helper'] not in hashes):
+            return 'Release contract lacks a checked swap-scheduling adapter.'
     followup = row.get('followup')
     if followup is not None:
         if (tool != 'basis' or not isinstance(followup, dict)
@@ -62,6 +98,9 @@ def reason(tool, row):
 def approval(store, tool, commit):
     if store is None:
         return None
+    if store.channel == 'dev':
+        from .dev_catalog import approval as dev_approval
+        return dev_approval(store, tool, commit)
     row = store.get('release_approvals', tool + ':' + commit)
     return row if row and not reason(tool, row) else None
 
@@ -72,6 +111,9 @@ def equivalent_contract(left, right):
 
 
 def refresh(store, tool):
+    if store.channel == "dev":
+        from .dev_catalog import refresh as dev_refresh
+        return dev_refresh(store, tool)
     from .catalog import api, fetch_versions
     # Commit the new catalogue only after both requests and validation succeed.
     catalog = fetch_versions(tool)
@@ -87,7 +129,7 @@ def refresh(store, tool):
             issue = reason(tool, review)
             if not issue and row['kind'] == 'release' and (row['ref'] != review['tag'] or row['prerelease'] != (review['channel'] == 'prerelease')):
                 issue = 'Release tag/channel does not match its reviewed contract.'
-            row['compatibility_reason'] = issue or 'Reviewed adapter contract v1; source preflight required.'
+            row['compatibility_reason'] = issue or f"Reviewed adapter contract v{review['adapter_interface']}; source preflight required."
             if not issue and row['kind'] == 'release':
                 key = tool + ':' + row['commit']
                 previous = store.get('release_approvals', key)
@@ -105,7 +147,7 @@ def preflight(store, tool, commit, source):
     if not row:
         from .catalog import PIPELINES
         spec = PIPELINES[tool]
-        if commit in [spec['commit'], *spec.get('previous_commits', [])]:
+        if store.channel != "dev" and commit in [spec['commit'], *spec.get('previous_commits', [])]:
             return  # Existing releases retain their legacy adapter checks.
         raise ValueError('This commit has no compatible reviewed release contract.')
     root = Path(source).resolve()

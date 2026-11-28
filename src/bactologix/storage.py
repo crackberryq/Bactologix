@@ -112,14 +112,14 @@ def catalog(store):
 
 
 @contextmanager
-def _open(path):
+def _open(path, *, directory=False):
     """No-follow descriptor traversal, including every parent directory."""
     path = Path(path)
     fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
     try:
         for index, part in enumerate(path.parts[1:], 1):
             flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
-            if index < len(path.parts) - 1:
+            if directory or index < len(path.parts) - 1:
                 flags |= os.O_DIRECTORY
             child = os.open(part, flags, dir_fd=fd)
             os.close(fd)

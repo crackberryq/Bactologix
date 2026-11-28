@@ -1,0 +1,139 @@
+# Storage cleanup and recovery
+
+Bactologix separates storage measurement from permanent cleanup. Open **Storage**
+to see the registered cleanup candidates. Opening the page does not start a drive
+scan or delete anything, and age alone never triggers deletion.
+
+During local analysis, a measured **10 GiB free or less** on any monitored drive
+stops workspace runs and blocks the queue. Make space on the affected drive,
+then open **Jobs & progress** and choose **Recheck and clear storage stop**.
+Clearing the stop requires a fresh reading of at least 15 GiB on every monitored
+drive. The queue stays paused until you resume it. A workflow paused because a
+storage measurement is unavailable retains its locks. Use **Stop run** before
+performing cleanup or exports that require an idle workspace.
+[Low-disk protection and recovery](low-disk-protection.md)
+
+You can use **Storage** to free space while the workspace is stopped. Finish or
+cancel other queued work, then preview and confirm the cleanup as usual. The
+storage stop stays active until you explicitly recheck and clear it.
+
+## Restore an archived run
+
+Archiving hides a run while keeping its configuration, files and reports. Use
+**Runs → Archived → Restore**, or the **Restore run** action for an archived run
+in Storage or on its run page. Restoration only changes list visibility. It
+does not delete files, remove workflow locks, resume the queue or start analysis.
+
+If a permanent-cleanup preview reports a workflow lock, close the preview or use
+its separate restore action to bring the archived run back. Restore does not
+require unlocking first. Then open the failed job and use **Check workflow lock**.
+Unlock is available only when the ownership checks allow it; see
+[workflow lock recovery](workflow-locks.md). A blocked cleanup preview does not
+mean that the run has been deleted.
+
+## Clean up failed items
+
+In **Jobs & progress**, choose **Clean up failed items**. The preview gathers
+eligible failed runs and files left by failed database or pipeline installations.
+Review the listed paths, estimated size and reasons an item is protected. This is
+also where you can check which failed work would lose its partial results.
+
+To delete the reviewed items, select the acknowledgment, type **DELETE** and
+choose **Delete failed items**. Follow the cleanup job in **Jobs & progress**.
+Original sample inputs, shared databases and files that another retained run or
+installation still needs are protected.
+
+A successful retry protects the working run or installation. Its older failed setup
+attempt can still have a private work folder to reclaim. Cleanup also keeps job logs
+and a receipt of the paths it removed. If an older Conda setup stopped before
+Bactologix recorded which environment folder it created, that folder stays in the cache.
+
+## Choose what to remove
+
+| Cleanup item | What it removes | What remains protected |
+| --- | --- | --- |
+| Run results | The reviewed run-owned files and associated registration records | Original input files and dependencies used by retained runs |
+| Sample registration | The selected registration record | All input files; this frees no data space |
+| Sample data | Only the explicitly enumerated known input files and their selected registration | The containing folder and unrelated files |
+| Pipeline version | An unchanged managed source snapshot and its installation entry | Connected original checkouts and files still needed by retained runs |
+| Pipeline runner or tool environment | An eligible recorded managed environment | Shared, external or unverified environments and retained dependencies |
+
+Archived runs still own files and count as retained dependencies. Review their
+results before selecting them for permanent cleanup. Removing results makes that
+saved run unavailable for normal reuse; keep the full output and required evidence
+elsewhere if you will need them later.
+
+Environments can occupy far more space than source code. Select the unused pipeline
+installation and its eligible runner/tool environments together when the preview
+requires it. Retiring the current pipeline selection clears that selection; it does
+not automatically choose a different version. Reinstall a suitable version before
+creating new drafts for that pipeline.
+
+## Review and confirm
+
+1. Transfer the files you want to retain and verify that the copies are usable.
+   An individual report download or Methods export is not a full run backup.
+2. Optionally choose **Measure storage**. Include registered external locations
+   when you want those paths measured. Measured candidates are ordered by size;
+   unmeasured selections are measured during preview.
+3. Select the items under **Reclaim disk space**, then choose
+   **Preview selected cleanup**. Read every listed path and any protection reason.
+   The preview itself does not remove files.
+4. Confirm that you verified transferred copies or intentionally discard the files,
+   type **DELETE**, and choose **Permanently delete selected**.
+5. Follow the queued cleanup in **Jobs & progress**. Review the receipt in
+   **Cleanup history**, then measure storage again to see current availability.
+
+Bactologix records your acknowledgment; it does not verify a transfer or backup.
+Closing the preview abandons that confirmation. There is no undo for completed
+file deletion.
+
+## References and concurrent work
+
+Cleanup rechecks the selected files and recorded dependencies before removal.
+Retained drafts, runs, follow-ups and shared resources can block a selection.
+Finish or cancel queued/running jobs before cleanup, and finish any draft or
+variant operation that is currently copying files. New work cannot start while
+cleanup is queued or running.
+
+Known workspace references are checked, including the separate regular and Dev
+workspaces when discoverable. This is not a global inventory of every application
+or custom workspace on the PC. Keep files needed by other software or unregistered
+workspaces. Symbolic links do not grant ownership of their targets, and a familiar
+folder name alone does not make a directory eligible for deletion.
+
+## Incomplete cleanup
+
+A failed or interrupted deletion may leave some files removed and others retained.
+Its receipt records that outcome. Review **Incomplete cleanup** and its remaining
+paths before confirming a retry; do not assume a failed job restored deleted files.
+Resolve incomplete cleanup before starting new work in the affected workspace.
+
+File sizes in the preview are estimates, not a promise of reclaimed physical disk
+space. Hard links, compression, snapshots and WSL virtual disks can affect the
+change visible to Windows. The storage measurement reports current filesystem
+availability separately. Cleanup does not compact a WSL virtual disk or remove
+unregistered files elsewhere on the drive.
+
+
+## Workspace reset and responsive loading
+
+Open **Workspace tools → Reset workspace** from the top-right menu on any page. The reset preview remains a separate review with typed confirmation; databases remain protected by default. Opening this dialog does not delete anything.
+
+Full reset and recovery of an interrupted reset use an aggregate budget of
+2,000,000 entries, 15 minutes of traversal and 192 MiB of estimated encoded
+inventory metadata. Actual memory use is higher than the encoded metadata size.
+Retained database link checks share this budget. Ordinary selected cleanup keeps
+its smaller limits. A large reset may take several minutes; the dialog reports
+the scan stage, entries checked and elapsed time, without a guessed percentage.
+Cancel stops the traversal at its next checkpoint, after any current filesystem
+call returns. A cancelled, timed-out or incomplete preview cannot authorize
+deletion. Incomplete totals cover only paths whose inventories finished; the
+message identifies the reached limit and path. If the reset exceeds these larger
+bounds, review smaller groups through Storage first, then retry the reset.
+Execution checks the complete inventory again before moving or deleting files.
+Obsolete reset previews are pruned; pending plans and deletion receipts remain.
+
+Storage first loads only its registered locations. Choose **Measure storage** to measure files, or **Load cleanup candidates** to inspect cleanup options. These observations run separately in the background, so navigation and the workspace menu remain usable. Cancel discards the result; it cannot terminate an already blocked filesystem call. A timeout or failure provides an explicit retry instead of restarting automatically. The two-task workspace limit remains occupied until outstanding filesystem work actually returns.
+
+Displayed cleanup candidates may reuse a source Git check within one request. A fresh request rechecks the source; deletion previews and execution always keep their own fresh checks. These performance changes do not authorize deletion or relax original-input, database or related-workspace protection.

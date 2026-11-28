@@ -1,6 +1,7 @@
 """Verified update handoff between the worker, launcher and open browser tabs."""
 import json
 import os
+import sqlite3
 from pathlib import Path
 import subprocess
 import sys
@@ -8,6 +9,7 @@ import time
 import uuid
 
 from . import __version__
+from .store import CONTROL_TIMEOUT, transient_lock
 
 
 def current_launcher(store):
@@ -38,21 +40,35 @@ def mark_ready(store, item):
 
 
 def pending(store, item):
-    state = store.get('settings', 'app-update', {})
-    if (state.get('status') != 'installed' or state.get('launcher_id') != item['id']
-            or state.get('environment') != sys.prefix or state.get('pip_started_at', 0) <= item['started_at']
-            or state.get('restart_status') in {'failed', 'ready'}):
-        return None
-    job = store.job(state.get('job'))
-    partial = store.get('settings', 'all-update', {})
-    verified_app_partial_pipelines = bool(job and job['payload'].get('update_all')
-        and job['status'] == 'failed' and partial.get('job') == job['id']
-        and partial.get('status') in {'partial', 'failed'}
-        and partial.get('components', {}).get('application', {}).get('status') == 'updated')
-    if not job or job['kind'] != 'app_update' or (job['status'] != 'succeeded' and not verified_app_partial_pipelines):
-        return None
-    if any(j['status'] in {'queued', 'running'} for j in store.jobs()):
-        return None
+    # The launcher polls this optional update after servicing its desktop lease.
+    # Avoid a 30-second idle-update read stalling that heartbeat or exiting the app.
+    try:
+        with store.connect(timeout=CONTROL_TIMEOUT) as db:
+            db.execute('BEGIN')
+            def setting(key):
+                row = db.execute("SELECT body FROM items WHERE kind='settings' AND id=?", (key,)).fetchone()
+                return json.loads(row[0]) if row else {}
+
+            state = setting('app-update')
+            if (state.get('status') != 'installed' or state.get('launcher_id') != item['id']
+                    or state.get('environment') != sys.prefix or state.get('pip_started_at', 0) <= item['started_at']
+                    or state.get('restart_status') in {'failed', 'ready'}):
+                return None
+            job = db.execute('SELECT id,kind,status,payload FROM jobs WHERE id=?', (state.get('job'),)).fetchone()
+            if not job or job['kind'] != 'app_update':
+                return None
+            if job['status'] != 'succeeded':
+                partial = setting('all-update')
+                if not (job['status'] == 'failed' and json.loads(job['payload']).get('update_all')
+                        and partial.get('job') == job['id'] and partial.get('status') in {'partial', 'failed'}
+                        and partial.get('components', {}).get('application', {}).get('status') == 'updated'):
+                    return None
+            if db.execute("SELECT 1 FROM jobs WHERE status IN ('queued','running') LIMIT 1").fetchone():
+                return None
+    except sqlite3.Error as exc:
+        if transient_lock(exc):
+            return None
+        raise
     return state
 
 

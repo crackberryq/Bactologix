@@ -1,0 +1,203 @@
+"""Real-browser storage pause controls using software-only job snapshots."""
+import os
+from pathlib import Path
+
+import pytest
+
+from test_browser import assert_workspace_fits_viewport
+from test_browser_run_progress import progress_page, measured
+from test_maintenance import installed
+
+pytestmark = pytest.mark.skipif(os.environ.get('BACTOLOGIX_BROWSER_TESTS') != '1',
+                               reason='Enable browser acceptance explicitly')
+
+
+def pause(page, **changes):
+    page.evaluate('''changes=>{
+      progressJob.disk_safety={id:progressJob.id,run_id:progressJob.payload.run_id,
+        state:'paused',generation:3,pause_kind:'processes_suspended',reason:'low_space',
+        volumes:[{label:'Windows D:',path:'/mnt/d',available_bytes:(changes.can_resume?18:8)*1024**3},
+          {label:'Workspace output',path:'/home/jimi/workspace/runs/output',available_bytes:22*1024**3}],
+        errors:[],checked_at:new Date().toISOString(),can_resume:false,resume_requested:false,
+        thresholds:{pause_bytes:10*1024**3,resume_bytes:15*1024**3,warning_bytes:20*1024**3},...changes};
+      progressRerender();
+    }''', changes)
+
+
+def test_pause_visible_static_and_survives_polling(progress_page):
+    from playwright.sync_api import expect
+    page = progress_page
+    pause(page)
+    bar = page.locator('#main > .run-progress')
+    panel = page.locator('#main > .disk-safety-panel')
+    controls = page.get_by_role('region', name='Run controls')
+    expect(bar).to_contain_text('Paused — low disk space')
+    expect(bar.locator('.is-moving')).to_have_count(0)
+    assert bar.locator('.run-progress-track span').evaluate('n=>getComputedStyle(n).animationName') == 'none'
+    for text in ('Windows D:', '/mnt/d', '8 GiB', 'Pause below 10 GiB', 'at least 15 GiB',
+                 'still hold memory', 'Stop run before Bactologix export or cleanup'):
+        expect(panel).to_contain_text(text)
+    expect(controls.get_by_role('button', name='Resume run', exact=True)).to_be_disabled()
+    expect(controls.get_by_role('button', name='Stop run', exact=True)).to_be_enabled()
+    expect(page.locator('#queue-status')).to_contain_text('1 storage-paused · 0 running')
+    expect(page.get_by_role('region', name='Execution status')).not_to_contain_text('Running')
+    measured(page)
+    expect(page.locator('.job-progress')).not_to_contain_text('Receiving updates')
+    expect(page.locator('.job-progress .usage-step')).to_have_text('Task at pause assembly')
+    page.evaluate('progressState.background=true;progressRerender()')
+    expect(bar).to_contain_text('Paused — low disk space')
+    assert page.locator('.app-shell').evaluate('n=>getComputedStyle(n).opacity') == '1'
+    page.get_by_role('button', name='Back to runs', exact=True).click()
+    expect(page.locator('[data-run-row]')).to_contain_text('Paused — low disk space')
+    expect(page.locator('[data-run-row]')).not_to_contain_text('Running')
+
+
+def test_resume_generation_once_and_stop_available(progress_page):
+    from playwright.sync_api import expect
+    page = progress_page
+    pause(page, can_resume=True)
+    controls = page.get_by_role('region', name='Run controls')
+    button = controls.get_by_role('button', name='Resume run', exact=True)
+    expect(button).to_be_enabled()
+    before = page.evaluate('acceptanceEvents.length')
+    button.evaluate('n=>{n.click();n.click()}')
+    events = page.evaluate('(before)=>acceptanceEvents.slice(before).map(x=>x.value)', before)
+    assert len(events) == 1 and events[0]['kind'] == 'resume_disk_paused_job'
+    assert events[0]['payload'] == {'job_id': page.evaluate('progressJob.id'), 'generation': 3}
+    pause(page, can_resume=True, resume_requested=True)
+    expect(page.locator('.disk-safety-panel h3')).to_have_text('Paused — resume requested')
+    expect(controls.get_by_role('button', name='Resume requested…', exact=True)).to_be_disabled()
+    expect(controls.get_by_role('button', name='Stop run', exact=True)).to_be_enabled()
+    controls.get_by_role('button', name='Stop run', exact=True).click()
+    assert page.evaluate('acceptanceEvents.at(-1).value.kind') == 'cancel_job'
+
+
+def test_resume_disables_on_stale_or_offline_snapshot(progress_page):
+    from playwright.sync_api import expect
+    page = progress_page
+    pause(page, can_resume=True)
+    button = page.get_by_role('region', name='Run controls').get_by_role('button', name='Resume run', exact=True)
+    page.context.set_offline(True)
+    expect(button).to_be_disabled()
+    expect(page.locator('#main > .run-progress')).to_contain_text('Paused — waiting for a fresh check')
+    expect(page.locator('.disk-safety-panel h3')).to_have_text('Paused — waiting for a fresh check')
+    page.context.set_offline(False)
+    pause(page, can_resume=True)
+    expect(button).to_be_enabled()
+    page.clock.fast_forward(11000)
+    expect(button).to_be_disabled()
+    expect(page.locator('.disk-safety-panel')).not_to_contain_text('ready to resume')
+    page.evaluate('progressJob.cancel=1;progressRerender()')
+    expect(page.locator('#main > .run-progress')).to_contain_text('Stopping')
+
+
+def test_before_launch_distinct_from_suspended_tools(progress_page):
+    from playwright.sync_api import expect
+    page = progress_page
+    workspace_drive = {'label': 'Workspace and logs', 'available_bytes': 191 * 1024**3}
+    cause = 'Cannot verify Windows backing storage: <unavailable>'
+    pause(page, pause_kind='before_launch', reason='monitor_unavailable', volumes=[workspace_drive],
+          errors=[cause], pause_details=[cause])
+    panel = page.locator('#main > .disk-safety-panel')
+    expect(panel).to_contain_text('Waiting for storage check')
+    expect(page.locator('#queue-status')).to_contain_text('1 waiting for storage · 0 running')
+    expect(panel).to_contain_text('next command has not started')
+    expect(panel).not_to_contain_text('processes are suspended')
+    expect(panel.get_by_text(cause, exact=True)).to_have_count(1)
+    expect(panel).not_to_contain_text('Reason for this pause')
+    expect(panel).to_contain_text('retries the storage check automatically')
+    expect(panel).not_to_contain_text('Free space outside this active run')
+    resume = page.get_by_role('region', name='Run controls').get_by_role('button', name='Resume run')
+    expect(resume).to_be_disabled()
+    pause(page, pause_kind='before_launch', reason='monitor_unavailable', volumes=[workspace_drive],
+          can_resume=True, pause_details=[cause])
+    expect(panel.get_by_role('heading')).to_have_text('Paused — ready to resume')
+    expect(panel).to_contain_text('Reason for this pause')
+    expect(panel).to_contain_text(cause)
+    expect(panel.locator('unavailable')).to_have_count(0)
+    expect(resume).to_be_enabled()
+    pause(page, reason='monitor_unavailable')
+    expect(panel).to_contain_text('Paused — storage check unavailable')
+
+
+def test_delayed_reading_rechecks_with_command_still_active(progress_page):
+    from playwright.sync_api import expect
+    page = progress_page
+    pause(page, state='rechecking', pause_kind=None, reason=None,
+          checked_at='2026-11-20T15:01:23+00:00',
+          errors=['Required storage checks are stale.'],
+          volumes=[{'label': 'Windows E:', 'available_bytes': 29 * 1024**3}])
+    controls = page.get_by_role('region', name='Run controls')
+    panel = page.locator('#main > .disk-safety-panel')
+    expect(panel.get_by_role('heading')).to_have_text('Rechecking storage')
+    expect(panel).to_contain_text('from the last reading')
+    expect(panel).to_contain_text('29 GiB')
+    expect(panel).to_contain_text('2026-11-20T15:01:23+00:00')
+    expect(page.locator('#main > .run-progress')).to_contain_text('Rechecking storage')
+    expect(controls.get_by_role('button', name='Resume run')).to_have_count(0)
+    expect(controls.get_by_role('button', name='Stop run')).to_be_enabled()
+    expect(page.locator('#queue-status')).to_contain_text('1 running')
+    pause(page, state='monitoring')
+    expect(panel).to_have_count(0)
+    expect(page.locator('#main > .run-progress')).to_contain_text('Running')
+
+
+def test_activity_page_and_mobile_layout(progress_page):
+    from playwright.sync_api import expect
+    page = progress_page
+    pause(page, can_resume=True)
+    page.get_by_role('link', name='Activity', exact=True).click()
+    card = page.locator('.job-card')
+    expect(card).to_contain_text('Paused — ready to resume')
+    expect(card.get_by_role('button', name='Resume run', exact=True)).to_be_enabled()
+    expect(card.get_by_role('button', name='Stop', exact=True)).to_be_enabled()
+    page.set_viewport_size({'width': 390, 'height': 844})
+    assert_workspace_fits_viewport(page, 'storage pause mobile')
+    if folder := os.environ.get('BACTOLOGIX_UI_PREVIEWS'):
+        Path(folder).mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=str(Path(folder) / 'storage-pause-mobile.png'), full_page=True)
+
+
+def test_workspace_disk_stop_blocks_queue_and_requires_deliberate_recovery(progress_page):
+    from playwright.sync_api import expect
+    page = progress_page
+    page.evaluate('''() => {
+      acceptanceWorkspace.queue.storage_stop = {id:'critical-event', blocked:true,
+        reason:'Workspace storage stop. Windows swap storage reached the 10 GiB limit.',
+        volumes:[{label:'Configured Windows swap storage',path:'E:/WSL-Swap',available_bytes:9*1024**3}],
+        checked_at:'2026-11-20T21:00:00Z',errors:[]};
+      acceptanceWorkspace.queue.paused = true;
+      progressRerender();
+    }''')
+    expect(page.get_by_role('region', name='Workspace storage stop')).to_contain_text('Windows swap storage')
+    expect(page.get_by_role('button', name='Queue blocked by storage')).to_be_disabled()
+    page.get_by_role('button', name='Review storage stop').click()
+    panel = page.get_by_role('region', name='Workspace storage stop')
+    expect(panel).to_contain_text('9 GiB free')
+    expect(panel).to_contain_text('2026-11-20T21:00:00Z')
+    expect(page.get_by_role('button', name='Resume queue', exact=True)).to_have_count(0)
+    expect(page.get_by_role('button', name='Start / recover queue')).to_be_disabled()
+    page.set_viewport_size({'width':390,'height':844})
+    assert_workspace_fits_viewport(page, 'global storage stop')
+    panel.get_by_role('button', name='Recheck and clear storage stop').click()
+    event = page.evaluate('acceptanceEvents.at(-1).value')
+    assert event['kind'] == 'release_storage_stop' and event['payload'] == {'id':'critical-event'}
+    page.evaluate('''() => {
+      delete acceptanceWorkspace.queue.storage_stop;
+      acceptanceWorkspace.queue.pause_reason = 'storage_recovered';
+      progressJob.status = 'cancelled';
+      progressJob.disk_safety = {reason:'workspace_disk_stop',state:'finished'};
+      progressRerender();
+    }''')
+    expect(page.get_by_role('region', name='Queue controls')).to_contain_text('Storage check passed')
+    expect(page.get_by_role('button', name='Resume queue', exact=True)).to_be_enabled()
+    expect(page.locator('.job-card .pill').filter(has_text='Stopped · low disk space')).to_be_visible()
+    assert page.evaluate("acceptanceEvents.filter(x=>x.value.kind==='queue_control').length") == 0
+
+
+def test_unavailable_storage_is_advisory(progress_page):
+    from playwright.sync_api import expect
+    page = progress_page
+    pause(page, state='unavailable', pause_kind=None, reason='monitor_unavailable')
+    expect(page.locator('#main')).to_contain_text('Check remaining space on Ubuntu manually')
+    expect(page.get_by_role('region', name='Run controls').get_by_role('button', name='Resume run')).to_have_count(0)

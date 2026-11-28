@@ -15,9 +15,11 @@ import time
 
 import yaml
 
-from .local import local_path, environment_paths
+from .channels import owned
+from .local import environment_paths, host_path, local_path
 from .runs import parse_config, template
 from .store import now
+from .storage_guard import mutation
 
 MAX_DIRS = 5000
 MAX_ENTRIES = 3000
@@ -37,7 +39,7 @@ def _module(key, name, description, hint):
 CATALOG = {
     "micpscope": [dict(id="reference", name="Application reference database", description="Built reference package for DIAMOND protein similarity searches and linked evidence.", hint="reference-manifest.json", fields=["reference_database"])],
     "hybas": [
-        dict(id="kraken", name="Kraken2", description="Choose the folder containing the three Kraken2 index files.", hint="hash.k2d", fields=[]),
+        dict(id="kraken", name="Kraken2", description="Choose the folder containing hash.k2d, opts.k2d and taxo.k2d. Bactologix can use it in place, including on a Windows drive.", hint="hash.k2d", fields=[]),
         dict(id="busco", name="BUSCO lineage", description="Choose a complete lineage dataset. A matching configured lineage is preferred.", hint="dataset.cfg", fields=[]),
         dict(id="prokka", name="Prokka databases", managed=True, description="Bundled with the annotation tool environment; this HybAs AWARE version does not accept a separate database path."),
     ],
@@ -148,7 +150,7 @@ def _require(root, names):
 def _hybas_paths(store, cfg):
     raw = cfg.get("db_root", "db")
     base = store.home / "resources/hybas/db" if str(raw) == "db" else local_path(raw)
-    return {"kraken": base / str(cfg.get("kraken_db_name", "standard")),
+    return {"kraken": base / host_path(cfg.get("kraken_db_name", "standard")),
             "busco": base / "busco" / str(cfg.get("busco_lineage", "bacteria_odb10"))}
 
 
@@ -263,7 +265,11 @@ def inspect(store, tool, key, value, cfg=None):
         updates = {"reference_database": str(root.resolve())}
         database = root
     elif key == "kraken":
-        _require(root, ("hash.k2d", "opts.k2d", "taxo.k2d"))
+        indexes = ("hash.k2d", "opts.k2d", "taxo.k2d")
+        _require(root, indexes)
+        for name in indexes:
+            if not os.access(root / name, os.R_OK):
+                raise ValueError("Cannot read Kraken index: " + str(root / name))
         database = root
     elif key == "busco":
         _require(root, ("dataset.cfg", "scores_cutoff", "lengths_cutoff"))
@@ -374,7 +380,19 @@ def inspect(store, tool, key, value, cfg=None):
             "receipt": receipt, "status": "Layout recognized", "checked_at": now()}
 
 
-def _roots(store, tool, cfg, extra):
+class _ScanDeadline(Exception):
+    pass
+
+
+def _scan_checkpoint(deadline):
+    if deadline is not None and time.monotonic() >= deadline:
+        raise _ScanDeadline()
+
+
+def _roots(store, tool, cfg, extra, deadline=None):
+    _scan_checkpoint(deadline)
+    if store.channel == "dev":
+        return [owned(store, extra, "Database scan folder")] if extra else [store.home / "resources", store.home / "envs"]
     roots = []
     if extra:
         chosen = local_path(extra)
@@ -382,6 +400,7 @@ def _roots(store, tool, cfg, extra):
             raise ValueError("Choose an existing folder to scan.")
         roots.append(chosen)
     for row in panel(store, tool)["rows"]:
+        _scan_checkpoint(deadline)
         if row.get("path"):
             try:
                 path = local_path(row["path"])
@@ -391,6 +410,7 @@ def _roots(store, tool, cfg, extra):
     roots.append(store.home / "resources" / tool)
     roots.append(store.home / "envs" / tool)
     for download in store.all("database_downloads"):
+        _scan_checkpoint(deadline)
         if download.get("tool") == tool:
             roots.append(Path(download["destination"]))
     if tool == "basis":
@@ -398,6 +418,7 @@ def _roots(store, tool, cfg, extra):
         if raw != "resources":
             roots.append(local_path(raw))
     for install in store.all("installs"):
+        _scan_checkpoint(deadline)
         if install.get("tool") != tool:
             continue
         for key in ("original_source", "source"):
@@ -410,22 +431,36 @@ def _roots(store, tool, cfg, extra):
     # Start at environment prefixes, not at Home: package databases can otherwise
     # exceed the depth limit before reaching share/ or site-packages/.
     roots.extend(environment_paths(store))
+    _scan_checkpoint(deadline)
     home = Path.home()
     for parent in (home / "bactomics", home / "databases", home / "db"):
+        _scan_checkpoint(deadline)
         if parent.is_dir():
             roots.append(parent)
             entries, _ = _children(parent)
             for entry in entries:
+                _scan_checkpoint(deadline)
                 base = Path(entry.path)
                 for relative in ("resources", "db", "databases", ".snakemake/conda"):
                     roots.append(base / relative)
     roots.extend((home, Path("/data"), Path("/databases"), Path("/mnt"), Path("/media"), Path("/opt")))
     for var in ("CONDA_PREFIX", "CONDA_ENVS_PATH"):
         roots.extend(Path(p) for p in os.environ.get(var, "").split(os.pathsep) if p)
-    return list(dict.fromkeys(p.resolve() for p in roots if p.is_dir()))
+    resolved = []
+    for path in roots:
+        _scan_checkpoint(deadline)
+        if path.is_dir():
+            resolved.append(path.resolve())
+    _scan_checkpoint(deadline)
+    return list(dict.fromkeys(resolved))
 
 
 def scan(store, tool, extra=""):
+    # Include configured-resource inspection and discovery in the same budget.
+    # Check between operations: a blocked filesystem syscall is not interruptible
+    # here, and the independent UI task runner bounds concurrent outstanding work.
+    deadline = time.monotonic() + MAX_SECONDS
+    reasons = set()
     cfg = parse_config(_text(store, tool))
     current = panel(store, tool)
     specs = [s for s in CATALOG[tool] if not s.get("managed")]
@@ -434,8 +469,10 @@ def scan(store, tool, extra=""):
     configured = {}
     rejected = set()
     def add(key, path, explicit=False, recognized=False):
+        _scan_checkpoint(deadline)
         try:
             result = inspect(store, tool, key, str(path), cfg)
+            _scan_checkpoint(deadline)
             keypath = result["path"]
             if explicit:
                 configured[key] = keypath
@@ -447,15 +484,19 @@ def scan(store, tool, extra=""):
             if (explicit or recognized) and identity not in rejected and len(invalid) < 200:
                 rejected.add(identity)
                 invalid.append({"id": key, "path": str(path), "message": str(exc), "configured": explicit})
-    for row in current["rows"]:
-        if row.get("path"):
-            add(row["id"], row["path"], True)
-    roots = _roots(store, tool, cfg, extra)
+    roots = []
+    try:
+        for row in current["rows"]:
+            _scan_checkpoint(deadline)
+            if row.get("path"):
+                add(row["id"], row["path"], True)
+        roots = _roots(store, tool, cfg, extra, deadline)
+        _scan_checkpoint(deadline)
+    except _ScanDeadline:
+        reasons.add("folder/time limit")
     queue = deque((p, 0) for p in roots)
     seen = set()
-    reasons = set()
     inaccessible = 0
-    deadline = time.monotonic() + MAX_SECONDS
     while queue:
         if len(seen) >= MAX_DIRS or time.monotonic() >= deadline:
             reasons.add("folder/time limit")
@@ -472,6 +513,7 @@ def scan(store, tool, extra=""):
             names = {e.name for e in entries}
             receipt = bool(names & {"provenance.json", "completed.json"})
             for spec in specs:
+                _scan_checkpoint(deadline)
                 recognized = spec.get("hint") in names
                 matched_receipt = receipt and tool == "basis" and bool(_receipt(path, spec)[0])
                 if matched_receipt or recognized:
@@ -495,6 +537,9 @@ def scan(store, tool, extra=""):
                             reasons.add("depth limit")
                 except OSError:
                     inaccessible += 1
+        except _ScanDeadline:
+            reasons.add("folder/time limit")
+            break
         except (OSError, RuntimeError):
             inaccessible += 1
     for spec in specs:
@@ -516,16 +561,18 @@ def scan(store, tool, extra=""):
     return {"tool": tool, "revision": current["revision"], "candidates": found, "invalid": invalid,
             "roots": [str(p) for p in roots], "visited": len(seen), "limited": bool(reasons),
             "limits": sorted(reasons), "inaccessible": inaccessible, "checked_at": now(),
-            "scope": f"Known resource folders, registered Conda environments and Snakemake caches, up to {MAX_DEPTH} levels deep per root. Symlinks are followed with cycle and time limits. Add a specific scan folder when the scan is limited."}
+            "scope": f"Known resource folders, registered Conda environments and Snakemake caches, up to {MAX_DEPTH} levels deep per root. The time budget includes discovery and is checked between filesystem operations; an in-progress operation may take longer. Symlinks are followed with cycle limits. Add a specific scan folder when the scan is limited."}
 
 
 def _hybas_layout(store, paths, lineage):
+    owned(store, paths["busco"], "BUSCO lineage")
     identity = {key: str(value) for key, value in paths.items()}
     identity["lineage"] = lineage
     digest = revision(json.dumps(identity, sort_keys=True))[:24]
     root = store.home / "resources/hybas/locations" / digest
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "busco").mkdir(exist_ok=True)
+    # Create only workspace directories and links, even when an index lives elsewhere.
+    owned(store, root, "Database layout")
+    owned(store, root / "busco", "BUSCO layout").mkdir(parents=True, exist_ok=True)
     for key, alias in (("kraken", root / "kraken"), ("busco", root / "busco" / lineage)):
         target = paths[key]
         if alias.is_symlink():
@@ -538,6 +585,7 @@ def _hybas_layout(store, paths, lineage):
     return root
 
 
+@mutation
 def save(store, tool, changes, expected_revision):
     if not isinstance(changes, dict) or not changes:
         raise ValueError("Choose or check a database location first.")
@@ -551,6 +599,8 @@ def save(store, tool, changes, expected_revision):
         _spec(tool, key)
         if value is not None and (not isinstance(value, str) or not value.strip()):
             raise ValueError("Choose a folder or explicitly reset this resource to pipeline defaults.")
+        if value is not None and (tool, key) != ("hybas", "kraken"):
+            owned(store, local_path(value), "Database/model")
         checked[key] = inspect(store, tool, key, value, cfg) if value is not None else None
     if tool == "hybas":
         paths = _hybas_paths(store, cfg)
@@ -566,8 +616,12 @@ def save(store, tool, changes, expected_revision):
                     lineage = "bacteria_odb10"
         if not re.fullmatch(r"[A-Za-z0-9_.-]+_odb[0-9]+", lineage):
             raise ValueError("Choose a named BUSCO lineage before saving database locations.")
-        root = _hybas_layout(store, {k: v.resolve() for k, v in paths.items()}, lineage)
-        cfg.update(db_root=str(root), kraken_db_name="kraken", busco_lineage=lineage)
+        paths = {key: path.resolve() for key, path in paths.items()}
+        root = _hybas_layout(store, paths, lineage)
+        # Other workspaces resolve absolute configuration paths when protecting shared data.
+        shared = store.channel == "dev" and not paths["kraken"].is_relative_to(store.home)
+        kraken = str(root / "kraken") if shared else "kraken"
+        cfg.update(db_root=str(root), kraken_db_name=kraken, busco_lineage=lineage)
         # Keep native download actions targeting the selected lineage in this layout.
         previous = cfg.get("busco_download_lineages", [])
         cfg["busco_download_lineages"] = list(dict.fromkeys([lineage, *(previous if isinstance(previous, list) else [])]))

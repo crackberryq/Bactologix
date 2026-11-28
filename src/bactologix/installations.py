@@ -11,6 +11,8 @@ import tempfile
 from .local import git_read, local_path
 
 
+from .storage_guard import mutation
+
 def cache_choices(store, item):
     candidates = {}
     def add(path, label):
@@ -96,6 +98,7 @@ def uninstall_plan(store, key):
             'controller': item.get('controller'), 'cache': item.get('rule_cache') or str(store.home / 'envs' / item['tool'])}
 
 
+@mutation
 def uninstall(store, key, signature):
     staged = None
     source = None

@@ -1,7 +1,9 @@
 """Version-pinned adapters with isolated outputs and immutable configurations."""
 from __future__ import annotations
+from contextvars import ContextVar
 import copy
 import csv
+from functools import lru_cache
 import hashlib
 import io
 import json
@@ -9,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import yaml
 from .catalog import DATA, PIPELINES, supported
@@ -16,7 +19,17 @@ from .store import identifier, now
 from . import __version__
 
 
+from .storage_guard import mutation
+
 def parse_config(text):
+    # The same saved YAML is used by several panels in each refresh. Give every
+    # caller its own object, including editors that update nested settings.
+    if len(text) <= 16384:
+        return copy.deepcopy(_small_config(text))
+    return _parse_yaml(text)
+
+
+def _parse_yaml(text):
     if len(text.encode()) > 2 * 1024 * 1024:
         raise ValueError("Configuration exceeds 2 MB")
     cfg = yaml.safe_load(text)
@@ -30,6 +43,9 @@ def parse_config(text):
     if len(encoded) > 4 * 1024 * 1024:
         raise ValueError("Expanded configuration exceeds 4 MB")
     return cfg
+
+
+_small_config = lru_cache(maxsize=32)(_parse_yaml)
 
 
 def template(tool):
@@ -52,6 +68,7 @@ def absolute_path(value):
     return path
 
 
+@mutation
 def register_sample(store, sid, path, mode="hybrid"):
     valid_id(sid)
     folder = absolute_path(path)
@@ -72,6 +89,7 @@ def register_sample(store, sid, path, mode="hybrid"):
     return row
 
 
+@mutation
 def remove_sample(store, sid, expected):
     """Unregister a sample and archive its idle runs without changing run records or files."""
     if not isinstance(sid, str) or not isinstance(expected, dict):
@@ -116,6 +134,7 @@ def _set_archive(db, rid, archived, reason):
                (rid, json.dumps(body)))
 
 
+@mutation
 def archive_runs(store, ids, archived=True):
     """Change list visibility atomically; frozen provenance, reports and files are retained."""
     if not isinstance(ids, list) or not ids or len(ids) > 500 or any(not isinstance(rid, str) for rid in ids):
@@ -139,15 +158,58 @@ def import_samples(store, text):
     return commit(store, text)
 
 
+input_read_progress = ContextVar("input_read_progress", default=None)
+
+
+def _fingerprint(path):
+    """Stream a file once and reject replacement or mutation during the read."""
+    digest = hashlib.sha256()
+    report = input_read_progress.get()
+    with path.open('rb') as handle:
+        before = os.fstat(handle.fileno())
+        consumed = 0
+        if report:
+            report(path, consumed, before.st_size)
+        for block in iter(lambda: handle.read(1024 * 1024), b''):
+            digest.update(block)
+            if report:
+                consumed += len(block)
+                report(path, consumed, before.st_size)
+        after = os.fstat(handle.fileno())
+    current = path.stat()
+    def identity(stat):
+        return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+    if identity(before) != identity(after) or identity(after) != identity(current):
+        raise ValueError('Input changed while its content was being checked: ' + str(path))
+    return {'path': str(path), 'size': after.st_size, 'mtime_ns': after.st_mtime_ns,
+            'sha256': digest.hexdigest()}
+
+
 def snapshot_files(paths):
     result = []
     for path in sorted(set(Path(p).resolve() for p in paths)):
-        stat = path.stat()
-        result.append({"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns})
+        result.append(_fingerprint(path))
     return result
 
 
-def check_inputs(run):
+def matching_inputs(expected, current):
+    """Match every recorded field; a legacy record makes no content assertion."""
+    if len(expected) != len(current):
+        return False
+    indexed = {row['path']: row for row in current}
+    if len(indexed) != len(current) or {row['path'] for row in expected} != set(indexed):
+        return False
+    return all(row['path'] in indexed and all(indexed[row['path']].get(key) == value
+               for key, value in row.items()) for row in expected)
+
+
+def input_identity(run):
+    return ('SHA-256 content fingerprints' if run.get('inputs') and
+            all(row.get('sha256') for row in run['inputs']) else
+            'legacy file size/mtime only; original content identity unverified')
+
+
+def check_inputs(run, full=True):
     for expected in run["inputs"]:
         path = Path(expected["path"])
         try:
@@ -156,6 +218,11 @@ def check_inputs(run):
             raise ValueError("Input is no longer accessible: " + str(path)) from exc
         if stat.st_size != expected["size"] or stat.st_mtime_ns != expected["mtime_ns"]:
             raise ValueError("Input changed since this draft was created: " + str(path) + ". Create a new draft.")
+        if 'sha256' in expected:
+            if not isinstance(expected['sha256'], str) or not re.fullmatch(r'[0-9a-f]{64}', expected['sha256']):
+                raise ValueError('Input content identity is invalid. Create a new draft: ' + str(path))
+            if full and not matching_inputs([expected], [_fingerprint(path)]):
+                raise ValueError('Input changed since this draft was created (SHA-256 content mismatch): ' + str(path) + '. Create a new draft.')
 
 
 def input_layout(output, tool):
@@ -201,7 +268,7 @@ def sample_sheet(sample, tool, output):
     return handle.getvalue()
 
 
-def check_run_files(run):
+def check_run_files(run, full=True):
     if run["tool"] == "micpscope":
         from .micp_handoff import database_identity, digest
         cfg = parse_config(run["config"])
@@ -223,7 +290,7 @@ def check_run_files(run):
     if hashlib.sha256((folder / "config.yaml").read_bytes()).hexdigest() != run["config_sha256"]:
         raise ValueError("Saved configuration changed. Create a new draft for changed settings.")
     if run.get("run_type") == "followup":
-        check_inputs(run)
+        check_inputs(run, full=full)
         if input_layout(run["output"], run["tool"]) != run["input_layout"]:
             raise ValueError("Staged screening inputs changed")
         for expected in run["followup_sources"]:
@@ -236,7 +303,7 @@ def check_run_files(run):
         raise ValueError("Saved sample sheet changed. Create a new draft.")
     from .manifest_inputs import verify as verify_manifest
     verify_manifest(run)
-    check_inputs(run)
+    check_inputs(run, full=full)
     expected = run.get("input_layout")
     if expected is None:
         # Older drafts have resolved source identities but no staged-link manifest.
@@ -268,8 +335,15 @@ def dry_run_current(store, run):
         return False
 
 
+def current_draft_jobs(run, jobs):
+    """Keep earlier attempts in Activity while evaluating the current settings."""
+    previous = set(run.get("previous_draft_jobs", ()))
+    return [job for job in jobs if job["kind"] == "workflow"
+            and job["payload"].get("run_id") == run["id"] and job.get("id") not in previous]
+
+
 def run_status(run, jobs, checked):
-    related = [j for j in jobs if j["kind"] == "workflow" and j["payload"].get("run_id") == run["id"]]
+    related = current_draft_jobs(run, jobs)
     active = next((j for j in related if j["status"] in {"queued", "running"}), None)
     if active:
         return active["status"]
@@ -284,6 +358,23 @@ def run_status(run, jobs, checked):
     if run.get("aware", {}).get("state") == "complete" and not run.get("completed"):
         return "aware_complete"
     return "completed" if run.get("completed") else "checked" if checked else "draft"
+
+
+_BASIS_REQUIRED_ANNOTATIONS = ('.fna', '.faa', '.gff')
+
+
+def basis_annotation_problem(directory, sample_id):
+    for extension in _BASIS_REQUIRED_ANNOTATIONS:
+        path = Path(directory, 'annotation', sample_id + extension)
+        try:
+            info = path.stat()
+        except FileNotFoundError:
+            return f'Missing annotation input: {path}'
+        except OSError as exc:
+            return f'Cannot inspect annotation input {path}: {exc.strerror}'
+        if not stat.S_ISREG(info.st_mode) or not info.st_size:
+            return f'BaSIS requires a nonempty annotation file: {path}. Check the HybAs annotation step.'
+    return None
 
 
 def stage_inputs(sample, tool, destination):
@@ -324,14 +415,15 @@ def stage_inputs(sample, tool, destination):
             (output / (sid + suffix)).symlink_to(source.resolve())
             inputs.append(source)
     else:
+        issue = basis_annotation_problem(original, sid)
+        if issue:
+            raise ValueError(issue)
         output = destination / "annotation"
         output.mkdir()
-        for extension in ("fna", "faa", "gff", "gbk"):
-            source = original / "annotation" / (sid + "." + extension)
-            if not source.is_file():
-                if extension == "gbk":
-                    continue
-                raise ValueError("Missing annotation input: " + str(source))
+        for extension in (*_BASIS_REQUIRED_ANNOTATIONS, '.gbk'):
+            source = original / 'annotation' / (sid + extension)
+            if extension == '.gbk' and not source.is_file():
+                continue
             (output / source.name).symlink_to(source.resolve())
             inputs.append(source)
         inputs.extend(p for p in (original / "metadata").glob("*") if p.is_file())
@@ -342,14 +434,21 @@ def stage_inputs(sample, tool, destination):
 
 
 def tree_digest(folder):
+    root = Path(folder)
+    ignored = {".git", ".snakemake", "__pycache__"}
+    files = []
+    for directory, children, names in os.walk(root, followlinks=False):
+        # Native state can contain hundreds of thousands of entries. Prune it
+        # before descent while retaining the original Path ordering for hashes.
+        children[:] = [name for name in children if name not in ignored]
+        for name in names:
+            path = Path(directory) / name
+            if name not in ignored and path.suffix != ".pyc" and path.is_file():
+                files.append(path)
     digest = hashlib.sha256()
-    for path in sorted(Path(folder).rglob("*")):
-        rel = path.relative_to(folder)
-        if any(part in {".git", ".snakemake", "__pycache__"} for part in rel.parts) or path.suffix == ".pyc":
-            continue
-        if path.is_file():
-            digest.update(str(rel).encode() + b"\0")
-            digest.update(path.read_bytes())
+    for path in sorted(files):
+        digest.update(str(path.relative_to(root)).encode() + b"\0")
+        digest.update(path.read_bytes())
     return digest.hexdigest()
 
 
@@ -370,6 +469,7 @@ def bind_paths(cfg, tool, store, installed):
             cfg.pop('reference_database_sha256', None)
         return cfg
     if tool == "hybas":
+        from .local import host_path
         raw = cfg.get("db_root", "db")
         if Path(str(raw)).expanduser().is_absolute():
             cfg["db_root"] = str(absolute_path(raw))
@@ -377,6 +477,13 @@ def bind_paths(cfg, tool, store, installed):
             cfg["db_root"] = str(store.home / "resources/hybas/db")
         else:
             raise ValueError("Set db_root to an absolute path to your shared databases")
+        kraken = host_path(cfg.get("kraken_db_name", "standard"))
+        selected = Path(cfg["db_root"]) / kraken
+        if store.channel == "dev" and not selected.resolve().is_relative_to(store.home):
+            # An absolute dependency lets neighboring workspaces protect the shared index.
+            cfg["kraken_db_name"] = str(selected)
+        elif "kraken_db_name" in cfg:
+            cfg["kraken_db_name"] = str(kraken)
     else:
         resources = cfg.setdefault("resources", {})
         if not isinstance(resources, dict):
@@ -403,21 +510,16 @@ def bind_paths(cfg, tool, store, installed):
     return cfg
 
 
-def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, parent=None, label=None, installation=None, expected_inputs=None, register=True):
-    spec = PIPELINES[tool]
-    install_id = installation or store.get("settings", "active-" + tool)
-    installed = store.get("installs", install_id)
-    if not installed or not installed.get("ready") or not supported(tool, installed["version"]["commit"], store):
-        raise ValueError("Set up a supported pipeline runner first")
-    if installed.get('setup_mode') == 'first_install' and not installed.get('setup_completed'):
-        raise ValueError('Finish first-time installation in Install & update before creating a run draft')
-    if sample.get("input_manifest"):
-        from .manifest_inputs import require_adapter
-        require_adapter(store, tool, installed)
-    cores, memory_mb = int(cores), int(memory_mb)
-    if cores < 1 or memory_mb < 512:
-        raise ValueError("Choose at least one core and 512 MB memory")
+def prepare_config(store, tool, sample, config_text, memory_mb, installed):
+    from .channels import validate_resources
+    validate_resources(store, parse_config(config_text))
     cfg = bind_paths(parse_config(config_text), tool, store, installed)
+    validate_resources(store, cfg)
+    from .compute_memory import policy, require_adapter as require_memory_adapter
+    policy({'memory_mb': memory_mb}, cfg)
+    require_memory_adapter(store, tool, installed['version']['commit'], cfg, installed['source'])
+    from .medaka_review import require_adapter as require_medaka_review_adapter
+    require_medaka_review_adapter(store, tool, installed['version']['commit'], cfg, installed['source'])
     if tool == "hybas":
         from .aware_modes import resolve
         cfg = resolve(cfg)
@@ -445,8 +547,74 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
             raise ValueError("This HybAs version does not support identification review. Update the pipeline first.")
         if cfg.get('kraken_review_decision') or cfg.get('kraken_review_decision_sha256'):
             raise ValueError("Identification decisions are managed through Review identification, not draft YAML.")
+    return cfg
+
+
+def freeze_config(cfg, tool, folder, frozen_manifest, cores, memory_mb):
+    if tool != "hybas" or cfg.get("threads") != "auto":
+        cfg["threads"] = cores
+    if tool == "hybas":
+        cfg.pop("input_manifest", None)
+        if frozen_manifest:
+            cfg["input_manifest"] = frozen_manifest["path"]
+        cfg.update(base_dir=str(folder / "outputs"), sample_sheet=str(folder / "samples.tsv"), setup_only=False, admin_mode=False, ci_mode=False)
+        cfg.pop("isolate", None)
+    elif tool == "micpscope":
+        cfg.update(output_dir=str(folder / "outputs"), samples=str(folder / "samples.tsv"), memory_mb=memory_mb)
+    else:
+        cfg.update(bactomics_root=str(folder / "outputs"), samples=str(folder / "samples.tsv"), memory_mb=memory_mb, isolates=[])
+        if 'execution' in cfg:
+            if not isinstance(cfg['execution'], dict):
+                raise ValueError('The execution settings must be a mapping.')
+            cfg['execution'].update(cores=cores, memory_mb=memory_mb)
+        cfg.pop("isolate", None)
+    return yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
+
+
+@mutation
+def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, parent=None, label=None, installation=None, expected_inputs=None, register=True, *, auto_swap=False, delivery_folder=None, sequence_step=None):
+    spec = PIPELINES[tool]
+    install_id = installation or store.get("settings", "active-" + tool)
+    installed = store.get("installs", install_id)
+    if not installed or not installed.get("ready") or not supported(tool, installed["version"]["commit"], store):
+        raise ValueError("Set up a supported pipeline runner first")
+    if installed.get('setup_mode') == 'first_install' and not installed.get('setup_completed'):
+        raise ValueError('Finish first-time installation in Install & update before creating a run draft')
+    if sample.get("input_manifest"):
+        from .manifest_inputs import require_adapter
+        require_adapter(store, tool, installed)
+    cores, memory_mb = int(cores), int(memory_mb)
+    if cores < 1 or memory_mb < 512:
+        raise ValueError("Choose at least one core and 512 MB memory")
+    submitted = parse_config(config_text)
+    policy = submitted.get('bactologix_compute')
+    if isinstance(policy, dict) and 'auto_swap' in policy:
+        # This preference belongs to future drafts. The saved input and the
+        # frozen workflow both record a concrete allowance.
+        del policy['auto_swap']
+        config_text = yaml.safe_dump(submitted, sort_keys=False, allow_unicode=True)
+    if auto_swap:
+        from . import compute_memory, swap_adviser
+        if tool != 'hybas' or parent is not None:
+            raise ValueError('Automatic swap sizing applies to new HybAs drafts.')
+        config_text = compute_memory.with_swap(config_text, 0)
+    cfg = prepare_config(store, tool, sample, config_text, memory_mb, installed)
     rid = identifier("run")
     folder = store.home / "runs" / rid
+    if auto_swap:
+        candidate = {'tool': tool, 'folder': str(folder), 'output': str(folder / 'outputs' / sample['id']),
+                     'controller': installed['controller'], 'rule_cache': installed.get('rule_cache') or str(store.home / 'envs' / tool),
+                     'commit': installed['version']['commit'], 'config': yaml.safe_dump(cfg, sort_keys=False)}
+        recommendation = swap_adviser.recommend(store, tool, memory_mb, draft_run=candidate)
+        if recommendation['state'] == 'not_needed':
+            amount = 0
+        elif recommendation['can_apply']:
+            amount = recommendation['proposal']['swap_mb']
+        else:
+            raise ValueError(' '.join([recommendation['message'], *recommendation.get('problems', [])]))
+        cfg.setdefault('bactologix_compute', {})['swap_mb'] = amount
+        config_text = compute_memory.with_swap(config_text, amount)
+        compute_memory.require_adapter(store, tool, candidate['commit'], cfg, installed['source'])
     folder.mkdir()
     try:
         source = Path(installed["source"])
@@ -457,30 +625,14 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         shutil.copytree(source, folder / "workflow", ignore=shutil.ignore_patterns(".git", ".snakemake", "__pycache__", "*.pyc"))
         output = folder / "outputs" / sample["id"]
         inputs = stage_inputs(sample, tool, output)
-        if expected_inputs is not None and inputs != expected_inputs:
+        if expected_inputs is not None and not matching_inputs(expected_inputs, inputs):
             raise ValueError("Original inputs differ from the parent run. Register changed data as a new run, not a comparison variant.")
-        if tool != "hybas" or cfg.get("threads") != "auto":
-            cfg["threads"] = cores
         frozen_manifest = None
-        if tool == "hybas":
-            cfg.pop("input_manifest", None)
-            if sample.get("input_manifest"):
-                from .manifest_inputs import freeze
-                frozen_manifest = freeze(sample, folder)
-                cfg["input_manifest"] = frozen_manifest["path"]
-            cfg.update(base_dir=str(folder / "outputs"), sample_sheet=str(folder / "samples.tsv"), setup_only=False, admin_mode=False, ci_mode=False)
-            cfg.pop("isolate", None)
-        elif tool == "micpscope":
-            cfg.update(output_dir=str(folder / "outputs"), samples=str(folder / "samples.tsv"), memory_mb=memory_mb)
-        else:
-            cfg.update(bactomics_root=str(folder / "outputs"), samples=str(folder / "samples.tsv"), memory_mb=memory_mb, isolates=[])
-            if 'execution' in cfg:
-                if not isinstance(cfg['execution'], dict):
-                    raise ValueError('The execution settings must be a mapping.')
-                cfg['execution'].update(cores=cores, memory_mb=memory_mb)
-            cfg.pop("isolate", None)
+        if sample.get("input_manifest"):
+            from .manifest_inputs import freeze
+            frozen_manifest = freeze(sample, folder)
+        text = freeze_config(cfg, tool, folder, frozen_manifest, cores, memory_mb)
         (folder / "samples.tsv").write_bytes(sample_sheet(sample, tool, output).encode())
-        text = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
         (folder / "config.yaml").write_text(text)
         (folder / "submitted.yaml").write_text(config_text)
         run = {"id": rid, "tool": tool, "sample": copy.deepcopy(sample), "folder": str(folder), "output": str(output),
@@ -489,9 +641,13 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
                "config": text, "submitted": config_text, "config_sha256": hashlib.sha256(text.encode()).hexdigest(),
                "workflow_sha256": tree_digest(folder / "workflow"), "inputs": inputs, "input_layout": input_layout(output, tool), "cores": cores, "memory_mb": memory_mb,
                "parent": parent, "label": label or sample["id"], "created": now(), "dry_run_ok": False,
-               "bactologix_version": __version__,
+               "bactologix_version": __version__, "application_channel": store.channel,
                "experimental": tool == "hybas" and (Path(installed["source"]) / "app/aware-outputs.json").is_file(),
                "reuse": "input-files-only; workflow outputs are independent"}
+        if sequence_step:
+            run["sequence_step"] = sequence_step
+        if delivery_folder:
+            run["delivery_folder"] = delivery_folder
         if frozen_manifest:
             run["frozen_manifest"] = frozen_manifest
         (folder / "bactologix-run.json").write_text(json.dumps(run, indent=2) + "\n")
@@ -503,6 +659,7 @@ def create_run(store, tool, sample, config_text, cores=4, memory_mb=16000, paren
         raise
 
 
+@mutation
 def clone_runs(store, parent_id, aware_free=False, strategies=None):
     parent = store.get("runs", parent_id)
     if not parent or parent["tool"] != "hybas":
@@ -524,7 +681,8 @@ def clone_runs(store, parent_id, aware_free=False, strategies=None):
     return created
 
 
-def validate_launch(store, rid, action, check_busy=True):
+def validate_launch(store, rid, action, check_busy=True, *, check_memory_capacity=True,
+                    full_inputs=True, write_warning=None):
     if action not in {"dry-run", "prepare", "run", "check-environments", "continue"}:
         raise ValueError("Unsupported workflow action")
     run = store.get("runs", rid)
@@ -532,11 +690,18 @@ def validate_launch(store, rid, action, check_busy=True):
         raise ValueError("Unknown run")
     if store.get("run_visibility", rid, {}).get("archived"):
         raise ValueError("Restore this run from Archived before starting a job.")
-    if check_busy and any(j["kind"] == "workflow" and j["payload"]["run_id"] == rid and j["status"] in {"queued", "running"} for j in store.jobs()):
-        raise ValueError("This run already has a queued or active job")
+    if check_busy:
+        with store.connect() as db:
+            if rid in _active_run_ids(db):
+                raise ValueError("This run already has a queued or active job")
     current_controller(store, run)
     from .release_contract import preflight
-    preflight(store, run["tool"], run["commit"], Path(run["folder"]) / "workflow")
+    from .compute_memory import require_adapter as require_memory_adapter
+    from .medaka_review import require_adapter as require_medaka_review_adapter
+    config, source = parse_config(run['config']), Path(run['folder']) / 'workflow'
+    if not require_memory_adapter(store, run['tool'], run['commit'], config, source):
+        preflight(store, run["tool"], run["commit"], source)
+    require_medaka_review_adapter(store, run['tool'], run['commit'], config, source)
     if not supported(run["tool"], run["commit"], store):
         raise ValueError("This source version has no reviewed execution adapter")
     if action == "continue" and not (run.get("identification", {}).get("decision_path") or run.get("aware", {}).get("continuation_path")):
@@ -545,14 +710,19 @@ def validate_launch(store, rid, action, check_busy=True):
         raise ValueError("Awaiting researcher review. Open Review identification to choose the target.")
     if action not in {"dry-run", "continue"} and not dry_run_current(store, run):
         raise ValueError("A successful native dry-run with the current runner is required before preparing tools or running")
-    check_run_files(run)
-    from .preflight import assert_launch
-    assert_launch(run, "run" if action == "continue" else action)
+    check_run_files(run, full=full_inputs)
+    from .preflight import assert_launch, log_kraken_warnings
+    info = assert_launch(run, "run" if action == "continue" else action, store=store,
+                         check_memory_capacity=check_memory_capacity)
+    if write_warning is not None and action in {"run", "continue"}:
+        log_kraken_warnings(write_warning, run, info)
     return run
 
 
 def command(store, run, action):
     from .engine import find_conda
+    from .compute_memory import policy, require_adapter as require_memory_adapter
+    require_memory_adapter(store, run['tool'], run['commit'], parse_config(run['config']), Path(run['folder']) / 'workflow')
     conda = find_conda(store)
     if not conda:
         raise ValueError("Conda is missing")
@@ -566,8 +736,9 @@ def command(store, run, action):
     argv = [conda, "run", "--no-capture-output", "-p", current_controller(store, run), "snakemake",
             "--snakefile", str(folder / "workflow" / entry),
             "--directory", str(directory), "--configfile", str(folder / "config.yaml"),
-            "--cores", str(run["cores"]), "--resources", "mem_mb=" + str(run["memory_mb"]), "kraken_jobs=1",
-            "--use-conda", "--conda-prefix", run.get("rule_cache") or str(store.home / "envs" / run["tool"]), "--rerun-incomplete"]
+            "--cores", str(run["cores"]), "--resources", "mem_mb=" + str(policy(run)['scheduler_mb']), "kraken_jobs=1",
+            "--use-conda", "--conda-prefix", run.get("rule_cache") or str(store.home / "envs" / run["tool"]),
+            "--rerun-incomplete", "--keep-incomplete", "--notemp"]
     if run.get("variant_entry"):
         argv.append("all")
     if action == "dry-run":
@@ -596,7 +767,7 @@ def command(store, run, action):
 
 def execute_workflow(ctx):
     payload, store = dict(ctx.job["payload"]), ctx.store
-    run = validate_launch(store, payload["run_id"], payload["action"], check_busy=False)
+    run = validate_launch(store, payload["run_id"], payload["action"], check_busy=False, write_warning=ctx.write)
     from .variants import verify
     from .aware_outputs import verify_sample
     verify_sample(run["sample"])
@@ -623,9 +794,13 @@ def execute_workflow(ctx):
             raise ValueError('Continuation needs tool environments: ' + ', '.join(missing) + '. Use Install environments, then Continue run.')
         payload['action'] = 'run'
     ctx.write("Run " + run["id"] + " · source " + run["commit"])
-    ctx.write("Input identity uses file size/mtime checks. Workflow provenance may add content checksums.")
+    from .compute_memory import summary as memory_summary
+    ctx.write('Compute policy: ' + memory_summary(run))
+    ctx.write('Input identity: ' + input_identity(run) + '. Content fingerprints, where recorded, were rechecked before launch.')
     if payload['action'] == 'run':
         ctx.write('Environment policy: reuse matching installed environments only; automatic installation and repair are disabled.')
+        from .output_retention import preserve
+        preserve(ctx, run)  # Stop on preservation failure before replacing any output.
     if payload["action"] == "dry-run":
         run["dry_run_ok"] = False
     elif payload["action"] == "run":
@@ -637,14 +812,35 @@ def execute_workflow(ctx):
     store.put("runs", run["id"], run)
     from . import results
     results.observe(ctx, run, 'before')
+    runtime, invocation_succeeded = None, False
     try:
         from .hardware import workflow_environment
         extra_env = workflow_environment(parse_config(run['config']))
         ctx.write('GPU policy: ' + ('CPU only (CUDA devices hidden)' if extra_env else 'Native tool settings; existing CUDA visibility preserved'))
+        if payload['action'] == 'prepare':
+            from .maintenance import browser_preparation_env
+            browser_env = browser_preparation_env(store, run['tool'], run['commit'],
+                                                   Path(run['folder']) / 'workflow', 'prepare')
+            extra_env = dict(extra_env or {}, **browser_env)
+            if browser_env['HYBAS_PREPARE_BROWSER'] == '1':
+                ctx.write('Selected environment preparation may download a missing NanoPlot rendering browser; checks and normal runs do not download it.')
+        if payload['action'] == 'run':
+            try:
+                from . import methods_runtime
+                runtime = methods_runtime.prepare(store, run, ctx.job)
+                extra_env = dict(extra_env or {}, **runtime['environment'])
+            except Exception as exc:
+                ctx.write('Controller runtime observation unavailable: ' + str(exc))
         kwargs = {"extra_env": extra_env} if extra_env else {}
         ctx.command(command(store, run, payload["action"]), cwd=Path(run["folder"]) / "workflow", **kwargs)
+        invocation_succeeded = True
     finally:
         results.observe(ctx, run, 'after')
+        if runtime is not None:
+            try:
+                methods_runtime.finish(store, run, ctx.job['id'], runtime, succeeded=invocation_succeeded)
+            except Exception as exc:
+                ctx.write('Controller runtime observation unavailable: ' + str(exc))
     run["last_action"] = payload["action"]
     if payload["action"] == "dry-run":
         run["dry_run_ok"] = True
@@ -676,6 +872,8 @@ def execute_workflow(ctx):
             # Export metadata must never turn a successful workflow into a failed job.
             ctx.write('Methods metadata could not be captured: ' + str(exc))
     store.put("runs", run["id"], run)
+    if payload["action"] == "run" and run.get("delivery_folder"):
+        ctx.completed_delivery_run = run["id"]
 
 
 def report_candidates(store, run):
@@ -685,7 +883,9 @@ def report_candidates(store, run):
         owned = store.get("followup_output_owner", run["parent"]) == run["id"]
         entries = [("Follow-up report", "safety/deepsafe-report/report.html")] if owned else []
     else:
-        entries = [("MultiQC", "reports/multiqc/multiqc_report.html"), ("Safety report", "safety/report.html")]
+        entries = [("MultiQC", "reports/multiqc/multiqc_report.html")]
+        if run["tool"] == "basis":
+            entries.append(("Safety report", "safety/report.html"))
         if run["tool"] == "hybas" and parse_config(run["config"]).get("kraken_review_before_filtering"):
             entries.insert(0, ("Identification review", "reports/identification/report.html"))
         if run["tool"] == "hybas" and (Path(run["output"]) / "reports/hybas/report.html").is_file():
@@ -695,6 +895,8 @@ def report_candidates(store, run):
     if run["tool"] == "hybas" and run.get("run_type") != "followup":
         entries.append(("AWARE outputs", "reports/aware/report.html"))
         entries.append(("HybAs research report", "reports/hybas_research/hybas_report.html"))
+        entries.append(("Polishing trajectory", "reports/polishing_trajectory/index.html"))
+        entries.append(("Polishing validation", "reports/polishing_validation/index.html"))
     return entries
 
 

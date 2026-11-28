@@ -19,6 +19,8 @@ from . import __version__
 from .release_contract import approval, preflight
 
 
+from .storage_guard import mutation
+
 def _contract(store, commit, parent_commit):
     row = approval(store, 'basis', commit)
     cap = row.get('followup', {}) if row else {}
@@ -49,12 +51,15 @@ def available(run, store=None):
     return bool(source_options(store, run))
 
 
-def execution_directory(store, run):
-    """Shared outputs need shared Snakemake provenance, across frozen sources."""
-    parent = store.get('runs', run.get('parent'))
+def state_directory(parent):
+    """Follow-up attempts share their screening parent's scheduler state."""
     if not parent or parent['tool'] != 'basis':
         raise ValueError('The screening parent is required for follow-up execution')
-    root = Path(parent['folder']) / 'followup-state'
+    return Path(parent['folder']) / 'followup-state'
+
+
+def execution_directory(store, run):
+    root = state_directory(store.get('runs', run.get('parent')))
     if root.is_symlink():
         raise ValueError('Follow-up execution state must not be a symlink')
     root.mkdir(exist_ok=True)
@@ -127,7 +132,8 @@ def screening_sources(output):
     return result
 
 
-def create_followup(store, parent_id, text, reviewed=False, source_id='screening', scope=None):
+@mutation
+def create_followup(store, parent_id, text, reviewed=False, source_id='screening', scope=None, catalog_id=None):
     parent = store.get("runs", parent_id)
     if not parent or not available(parent, store):
         raise ValueError("Choose a screening run using the BaSIS AWARE follow-up adapter")
@@ -180,13 +186,17 @@ def create_followup(store, parent_id, text, reviewed=False, source_id='screening
     receipts = cfg.get("resource_receipts", [])
     if not isinstance(receipts, list) or any(not isinstance(p, str) for p in receipts):
         raise ValueError("resource_receipts must be a list of absolute file paths")
+    catalog_sources = []
+    if catalog_id:
+        from .basis_catalog_builder import select_registry
+        catalog_sources = select_registry(store, catalog_id, cfg['deep'])
     cfg = bind_paths(cfg, "basis", store, {})
     cfg.pop("resources", None)
     cfg["resource_receipts"] = [str(absolute_path(p)) for p in receipts]
     if any(not Path(p).is_file() for p in cfg["resource_receipts"]):
         raise ValueError("A selected resource receipt is missing")
     cfg.update(isolate=parent["output"], threads=parent["cores"], memory_mb=parent["memory_mb"])
-    sources = screening_sources(parent["output"])
+    sources = screening_sources(parent["output"]) + catalog_sources
     sources.extend({"path": p, "sha256": hashlib.sha256(Path(p).read_bytes()).hexdigest()} for p in cfg["resource_receipts"])
     rid = identifier("run")
     folder = store.home / "runs" / rid
@@ -220,6 +230,8 @@ def create_followup(store, parent_id, text, reviewed=False, source_id='screening
                       'scope': effective_aware.get('scope', 'all-supported'),
                       'aware_enabled': effective_aware.get('enabled', False),
                       'selection': source_id, 'release_contract': contract}
+        if catalog_id:
+            transition['reference_catalog'] = {'build': catalog_id, 'sources': catalog_sources}
         encoded = json.dumps(transition, indent=2) + '\n'
         (folder / 'followup-transition.json').write_text(encoded)
         run['followup_transition'] = transition
