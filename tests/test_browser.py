@@ -1290,7 +1290,7 @@ def test_reviewed_support_snapshot_and_zip(tmp_path):
         render_component(page, store)
         page.get_by_role('button', name='Get support', exact=True).first.click()
         dialog = page.get_by_role('dialog', name='Get support', exact=True)
-        download_button = dialog.get_by_role('button', name='Download reviewed snapshot', exact=True)
+        download_button = dialog.locator('[data-action="support-download-txt"]')
         expect(download_button).to_be_disabled()
         log_choice = dialog.locator('#support-log')
         expect(log_choice).not_to_be_checked()
@@ -1366,6 +1366,67 @@ def test_reviewed_support_snapshot_and_zip(tmp_path):
         expect(download_button).to_be_disabled()
         assert errors == []
         assert len(store.jobs()) == 1 and not store.all('samples') and not store.all('runs')
+        browser.close()
+
+
+def test_support_opens_in_the_clicking_browser_and_copies_only_reviewed_text(tmp_path):
+    from playwright.sync_api import sync_playwright, expect
+    from bactologix.ui_backend import dispatch
+
+    store = Store(tmp_path / 'support-handoff')
+    job_id = store.submit('smoke', {})
+    store.log_path(job_id).write_text('Original log content')
+    url = 'https://chatgpt.com/plugins/plugins_6ae0879a9a208191b3fa4374c8b401cf'
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        # Intercept every visit. Only exercise navigation and the local clipboard.
+        page.context.route(url, lambda route: route.fulfill(body='<textarea></textarea>', content_type='text/html'))
+        render_component(page, store)
+        with page.expect_popup() as opened:
+            page.get_by_role('link', name='Ask a question').click()
+        opened.value.wait_for_url(url)
+        assert opened.value.evaluate('window.opener === null')
+        opened.value.close()
+        page.get_by_role('button', name='Share a job log').click()
+        request = page.evaluate('window.acceptanceEvents.at(-1).value')
+        assert request['kind'] == 'support_preview'
+        assert request['payload'] == {'job_id': job_id, 'include_log': True}
+        response = dispatch(store, request['kind'], request['payload'])
+        page.evaluate('window.acceptanceRender', {'id': request['id'], 'ok': True, **response})
+        editor = page.get_by_label('Review and edit snapshot', exact=True)
+        expect(editor).to_contain_text('Original log content')
+        reviewed = 'Only the user-reviewed note — café'
+        editor.fill(reviewed)
+        button = page.get_by_role('button', name='Copy reviewed text & open ChatGPT')
+        expect(button).to_be_disabled()
+        page.locator('#support-reviewed').check()
+        with page.expect_popup() as opened:
+            button.click()
+        popup = opened.value
+        popup.wait_for_url(url)
+        assert popup.evaluate('window.opener === null')
+        expect(page.locator('#support-handoff')).to_contain_text('Reviewed text copied')
+        assert popup.locator('textarea').input_value() == ''
+        popup.locator('textarea').press('Control+v')
+        expect(popup.locator('textarea')).to_have_value(reviewed)
+        popup.close()
+        # Block both capabilities, as in a restricted browser. The fallback
+        # link is still usable, and the reviewed log remains downloadable.
+        page.evaluate("""() => {
+            document.execCommand = () => false;
+            Object.defineProperty(navigator, 'clipboard', {value: undefined});
+            window.open = () => null;
+        }""")
+        button.click()
+        status = page.locator('#support-handoff')
+        expect(status).to_contain_text('Clipboard unavailable')
+        expect(status).to_contain_text('blocked the new tab')
+        assert status.get_by_role('link').get_attribute('href') == url
+        expect(page.get_by_role('button', name='Download reviewed log')).to_be_enabled()
+        editor.fill('edited again')
+        expect(button).to_be_disabled()
+        expect(status).to_be_empty()
         browser.close()
 
 
@@ -3170,7 +3231,7 @@ def test_beta_navigation_purpose_and_empty_inputs(tmp_path):
         page.on('pageerror', lambda error: errors.append(str(error)))
         render_component(page, store)
         assert page.locator('#navigation a').all_text_contents() == [
-            'Home', 'Samples', 'Runs', 'Results & reports', 'Comparisons',
+            'Home', 'Samples', 'Runs', 'Pipeline sequences', 'Results & reports', 'Comparisons',
             'Pipelines & databases', 'Storage', 'Settings']
         expect(page.get_by_role('link', name='Activity', exact=True)).to_be_visible()
         page.get_by_role('link', name='Runs', exact=True).click()

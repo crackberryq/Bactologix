@@ -1,4 +1,4 @@
-# Bactologix 0.1.0a149.dev1 — Experimental development
+# Bactologix 0.1.0a150.dev1 — Experimental development
 
 For the November 24 Dev update, select **Regenerate report** on a completed HybAs or BaSIS run. Bactologix saves a new report edition using the selected renderer. See [report regeneration](docs/report-refresh.md).
 
@@ -28,6 +28,12 @@ Closing the last dedicated app/browser window stops only that desktop session's 
 Home highlights work needing attention and recent runs. New runs follow **Purpose → Inputs → Settings → Review**, with advanced settings and compute limits available under Settings. **Activity** in the header opens the job queue; **Pipelines & databases** combines software setup and database management. Existing saved links remain usable.
 
 Results show execution and evidence coverage separately. Storage starts with measured filesystem capacity, category filters and a review of selected deletion paths. **Leave editor** retains edits in the current browser tab; use the final save action to create a durable run draft. Removing a sample registration asks for confirmation and keeps its files.
+
+### Pipeline sequences
+
+Open **Pipeline sequences → New sequence** in the sidebar. Choose the pipelines in execution order, then add the isolates. Include HybAs first to generate an assembly. To continue from a completed assembly, add BaSIS, GeneScope or both and select the saved HybAs output for each isolate. Both analyses use the assembly and annotation from that isolate. You can also select a compatible completed analysis to reuse its results.
+
+The review shows which steps will run and which will reuse outputs. Save the draft and choose **Start sequence** when ready. Edit a draft to change its steps or isolates. To change the isolates still waiting after starting, hold the sequence or use the first-isolate review. Started isolates keep their run history.
 
 ### Notifications and available updates
 
@@ -358,11 +364,14 @@ saved runs, configurations, environments, results and earlier records are retain
 
 Choose **Get support** in the sidebar/footer or from a job log. Select a job if
 relevant, optionally include its log excerpt, and choose **Generate preview**.
-Review/edit the text, confirm that you removed information you do not want to
-share, then **Download reviewed snapshot** or **Download ZIP**. Editing the text
-clears the review confirmation; changing the selected job or log option requires
-a matching preview. Downloads contain exactly the reviewed text. ZIP adds only
-that text, a checksum and a static notice, with no hidden/raw diagnostics.
+**Share a job log** opens a preview with the selected job's
+redacted log excerpt. Edit the text and confirm your review, then choose **Copy
+reviewed text & open ChatGPT**. Paste the text into the message box to send it.
+**Ask a question** opens the support plugin directly for a question. If clipboard
+access is unavailable, choose **Download reviewed log** and attach the text file.
+Editing the text clears the confirmation. Changing the job or log option
+requires a matching preview. Downloads contain exactly the reviewed text.
+**Download ZIP** adds a checksum and a static notice.
 
 The snapshot includes app package versions, cached PC capacity, active pipeline
 commits, recorded setup/environment checks and selected-job metadata. A saved
@@ -370,7 +379,7 @@ run's exact commit stays separate from the active installation. Missing evidence
 remains unknown; recorded readiness is not a new health check. Generation does
 not execute tools, install software, change settings or scan input files.
 
-Log inclusion is **off by default**. Only the selected job's application log is
+Log inclusion is **off by default** in **Get support**. Only the selected job's application log is
 eligible, limited to its last 32 KiB and 160 lines. Clipped first lines and lines
 over 2 KiB are omitted; symbolic links and special files are refused. The excerpt
 can miss the first error or an external tool's separate log. Common credential

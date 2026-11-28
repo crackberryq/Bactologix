@@ -148,7 +148,7 @@ def snapshot(store, *, cached=False):
     # dispatch and workers still perform fresh authorization checks.
     if cached and store.home in _SNAPSHOTS:
         return copy.deepcopy(_SNAPSHOTS[store.home])
-    from . import disk_pause, notifications, supervision, workflow_unlock
+    from . import disk_pause, notifications, sequences, supervision, workflow_unlock
     from .queue import reconcile_interrupted
     reconcile_interrupted(store)
     jobs = store.jobs()
@@ -220,7 +220,7 @@ def snapshot(store, *, cached=False):
             "app_update": app_update, "hardware": hardware_panel, "workstation_checks": workstation.history(store),
             "resource_defaults": hardware_panel["defaults"],
             "active": {t: store.get("settings", "active-" + t) for t in PIPELINES},
-            "sequences": [{k: v for k, v in plan.items() if k != "settings"} for plan in store.all("sequences")], "catalogs": catalogs, "samples": store.all("samples"), "runs": runs,
+            "sequences": [sequences.summary(plan, jobs) for plan in store.all("sequences")], "catalogs": catalogs, "samples": store.all("samples"), "runs": runs,
             "workflow_locks": workflow_unlock.review_list(store, saved_runs, jobs, archived),
             "isolate_exports": isolate_actions.export_history(store),
             "jobs": jobs, "queue": queue_state, "reports": report_rows, "configs": configs,
@@ -678,18 +678,28 @@ def dispatch(store, kind, p):
     if kind == 'copy_sequence_results':
         from .result_delivery import deliver_runs
         plan = _item(store, 'sequences', p.get('id'))
-        row = next((r for r in plan['rows'] if r['runs'][0] == p.get('source')), None)
+        if p.get('sample'):
+            row = next((r for r in plan['rows'] if r['sample'] == p['sample']), None)
+        else:
+            row = next((r for r in plan['rows'] if r['runs'] and r['runs'][0] == p.get('source')), None)
         if not row or row['state'] != 'done':
             raise ValueError('Choose a completed isolate sequence.')
         path = deliver_runs(store, [_item(store, 'runs', rid) for rid in row['runs']], p.get('folder'), plan['id'])
         return {'message': 'Verified sequence ZIP saved locally: ' + path}
-    if kind in {'save_sequence', 'control_sequence'}:
+    if kind in {'save_sequence', 'edit_sequence_isolates', 'control_sequence'}:
         from . import sequences
         if kind == 'save_sequence':
-            sequences.save(store, p.get('ids'), p.get('steps'), p.get('pilot') is True, configs=p.get('configs'), folders=p.get('folders'))
+            if 'isolates' in p:
+                sequences.save_inputs(store, p.get('isolates'), p.get('steps'), p.get('pilot') is True,
+                                      configs=p.get('configs'), folders=p.get('folders'), sid=p.get('id'), revision=p.get('revision'))
+            else:
+                sequences.save(store, p.get('ids'), p.get('steps'), p.get('pilot') is True,
+                               configs=p.get('configs'), folders=p.get('folders'))
+        elif kind == 'edit_sequence_isolates':
+            sequences.edit_members(store, p.get('id'), p.get('isolates'), p.get('folders'), revision=p.get('revision'))
         else:
             sequences.control(store, p.get('id'), p.get('action'))
-        return {'navigate': 'runs', 'message': 'Sequence saved.' if kind == 'save_sequence' else 'Sequence updated.'}
+        return {'navigate': 'sequences', 'message': 'Sequence saved.' if kind == 'save_sequence' else 'Sequence updated.'}
     if kind == "create_runs":
         tool = _tool(p)
         defaults = hardware.run_defaults(store, tool)

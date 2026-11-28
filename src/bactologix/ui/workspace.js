@@ -67,7 +67,7 @@ function beforeUnload(event){draftInputs();persistWizard();if(U.wizardStorageErr
 restoreWizard();
 let pollTimer, toastTimer, progressTimer;
 const snapshotReceivedAt=performance.now();
-const navs=[['overview','Home','home'],['samples','Samples','samples'],['runs','Runs','play'],['reports','Results & reports','file'],['comparisons','Comparisons','compare'],['install','Pipelines & databases','resources'],['storage','Storage','folder'],['configure','Settings','config']];
+const navs=[['overview','Home','home'],['samples','Samples','samples'],['runs','Runs','play'],['sequences','Pipeline sequences','branch'],['reports','Results & reports','file'],['comparisons','Comparisons','compare'],['install','Pipelines & databases','resources'],['storage','Storage','folder'],['configure','Settings','config']];
 const btn=(action,label,primary=false,id='',ico='',disabled=false)=>`<button type="button" class="btn${primary?' primary':''}" data-action="${action}" data-id="${e(id)}" ${disabled?'disabled':''}>${ico?icon(ico):''}${e(label)}</button>`;
 const quiet=(action,label,id='')=>`<button type="button" class="quiet" data-action="${action}" data-id="${e(id)}">${e(label)} ${icon('arrow')}</button>`;
 const badge=(label,color='')=>`<span class="pill ${color}">${e(label)}</span>`;
@@ -175,7 +175,7 @@ function renderBusy(){
   else if(!locked&&el.dataset.pendingDisabled){el.disabled=false;delete el.dataset.pendingDisabled;}
  }
 }
-function routeHash(){return U.view==='install'&&U.setupTab==='compatibility'?'#install/compatibility':U.view==='draft'?'#drafts/'+(U.wizard?.kind==='edit-run'?'revise/'+encodeURIComponent(U.wizard.id):'new'):U.view==='run'?'#runs/'+encodeURIComponent(U.runId)+'/'+(U.runDetailTab||'overview'):U.view==='comparisons'?'#comparisons/'+(U.comparisonTab||'review'):'#'+U.view;}
+function routeHash(){if(U.view==='sequences'&&U.sequenceOpen)return '#sequences/'+(U.sequenceEditor.id?'edit/'+encodeURIComponent(U.sequenceEditor.id):'new');return U.view==='install'&&U.setupTab==='compatibility'?'#install/compatibility':U.view==='draft'?'#drafts/'+(U.wizard?.kind==='edit-run'?'revise/'+encodeURIComponent(U.wizard.id):'new'):U.view==='run'?'#runs/'+encodeURIComponent(U.runId)+'/'+(U.runDetailTab||'overview'):U.view==='comparisons'?'#comparisons/'+(U.comparisonTab||'review'):'#'+U.view;}
 function writeRoute(replace=false){const hash=routeHash();if(U.routeApplied!==hash)U.asyncEpoch=(U.asyncEpoch||0)+1;U.routeApplied=hash;if(window.location.hash!==hash)window.history[replace?'replaceState':'pushState'](null,'',hash);}
 function readRoute(){
  const hash=window.location.hash;if(hash===U.routeApplied)return false;
@@ -184,13 +184,21 @@ function readRoute(){
  if(key==='drafts'){U.view='draft';}
  else if(key==='runs'&&parts[1]){U.view='run';U.runId=parts[1];U.detail=null;U.results=null;U.runDetailTab=['overview','kraken','assembly','quality','databases','advanced','modules','aware','deep','resources','activity','results','methods'].includes(parts[2])?parts[2]:'overview';}
  else if(['compare','experiments','comparisons'].includes(key)){U.view='comparisons';U.comparisonTab=key==='experiments'||parts[1]==='create'?'create':'review';}
+ else if(key==='sequences'){
+  U.view='sequences';U.sequenceOpen=false;
+  const id=parts[1]==='edit'?parts[2]:'',plan=id?sequenceSelectedPlan(id):null;
+  if(parts[1]==='new'||plan&&['draft','held','review','attention'].includes(plan.state)){
+   if(!U.sequenceEditor||U.sequenceEditor.id!==id)U.sequenceEditor=sequenceEditor(plan);
+   U.sequenceOpen=true;
+  }
+ }
  else if(key==='install'){U.view='install';U.setupTab=parts[1]==='compatibility'?'compatibility':'guide';}
  else if(navs.some(n=>n[0]===key)||['jobs','resources'].includes(key))U.view=key;
  else return false;
  U.asyncEpoch=(U.asyncEpoch||0)+1;U.routeApplied=hash;U.error='';return true;
 }
 function routeChanged(){draftInputs();if(readRoute()){if(!['new-run','edit-run'].includes(U.modal?.kind))U.modal=null;render();$('#main').focus({preventScroll:true});}}
-function navigate(view){U.asyncEpoch=(U.asyncEpoch||0)+1;U.navOpen=false;draftInputs();U.view=view;U.modal=null;U.error='';if(['compare','experiments'].includes(view)){U.view='comparisons';U.comparisonTab=view==='experiments'?'create':'review';}writeRoute();render();$('#main').focus({preventScroll:true});$('.workspace-shell').scrollIntoView({block:'start'});}
+function navigate(view){if(view==='sequences')U.sequenceOpen=false;U.asyncEpoch=(U.asyncEpoch||0)+1;U.navOpen=false;draftInputs();U.view=view;U.modal=null;U.error='';if(['compare','experiments'].includes(view)){U.view='comparisons';U.comparisonTab=view==='experiments'?'create':'review';}writeRoute();render();$('#main').focus({preventScroll:true});$('.workspace-shell').scrollIntoView({block:'start'});}
 function openRun(id,tab='overview',replace=false){U.asyncEpoch=(U.asyncEpoch||0)+1;draftInputs();U.view='run';U.runId=id;U.runDetailTab=tab;U.results=null;U.modal=null;U.error='';U.detail=null;writeRoute(replace);render();$('#main').focus({preventScroll:true});$('.workspace-shell').scrollIntoView({block:'start'});}
 
 let modalReturnFocus=U.modalReturnFocus||null;
@@ -210,7 +218,7 @@ function defaultPipelineVersion(tool){
  return (recommended&&visible(recommended)?recommended:ordered.find(r=>r.supported&&visible(r)))?.id||'';
 }
 function browse(target,path='',nearest=false){U.browserReturn=U.modal?{...U.modal}:null;U.browser=null;U.drafts['folder-query']='';U.drafts['folder-hidden']=false;modal('folders',target);request('browse_folders',{path,nearest});}
-function draftInputs(){if($('.notification-preferences'))U.notificationPreferencesOpen=$('.notification-preferences').open;const compute=$('.run-wizard .compute-summary');if(compute)U.runComputeOpen=compute.open;if($('[data-cleanup-history]'))U.cleanupHistoryOpen=$('[data-cleanup-history]').open;if($('[data-storage-details]'))U.storageDetailsOpen=$('[data-storage-details]').open;U.recoveryOpen ||= {};for(const el of $$('.recovery-panel'))U.recoveryOpen[el.dataset.recoveryJob]=el.open;for(const el of $$('input[id],textarea[id],select[id]')){if(el.type==='file')continue;U.drafts[el.id]=el.type==='checkbox'?el.checked:el.value;}if(wizardKind()==='new-run'&&U.runBudgetTool&&$('#run-cores')){U.runBudgets||={};U.runBudgets[U.runBudgetTool]={cores:val('run-cores'),memory_mb:val('run-memory'),swap_mb:draftSwap('run')};}}
+function draftInputs(){for(const el of $$('[data-sequence-details]'))(U.sequenceDetails||={})[el.dataset.sequenceDetails]=el.open;if($('.notification-preferences'))U.notificationPreferencesOpen=$('.notification-preferences').open;const compute=$('.run-wizard .compute-summary');if(compute)U.runComputeOpen=compute.open;if($('[data-cleanup-history]'))U.cleanupHistoryOpen=$('[data-cleanup-history]').open;if($('[data-storage-details]'))U.storageDetailsOpen=$('[data-storage-details]').open;U.recoveryOpen ||= {};for(const el of $$('.recovery-panel'))U.recoveryOpen[el.dataset.recoveryJob]=el.open;for(const el of $$('input[id],textarea[id],select[id]')){if(el.type==='file')continue;U.drafts[el.id]=el.type==='checkbox'?el.checked:el.value;}if(wizardKind()==='new-run'&&U.runBudgetTool&&$('#run-cores')){U.runBudgets||={};U.runBudgets[U.runBudgetTool]={cores:val('run-cores'),memory_mb:val('run-memory'),swap_mb:draftSwap('run')};}}
 function draftBudget(tool){U.runBudgets||={};return U.runBudgets[tool]||={...(S.resource_defaults?.[tool]||{cores:4,memory_mb:16000,swap_mb:0})};}
 function draftSwap(prefix,fallback=0){return val(prefix+'-swap-enabled',Number(fallback)>0)?Number(val(prefix+'-swap',fallback)):0;}
 function swapDraftError(prefix){if(autoSwapSelected(prefix,val('run-tool','hybas')))return '';const enabled=val(prefix+'-swap-enabled',false),swap=draftSwap(prefix),memory=Number(val(prefix+'-memory',0));return enabled&&(!Number.isInteger(swap)||swap<1||!Number.isFinite(memory)||swap+memory>2000000)?'Enter a positive whole-number swap allowance. RAM plus swap must not exceed 2,000,000 MB.':'';}
@@ -469,31 +477,242 @@ function isolateReceipt(r){
  const verified=r.status==='completed'&&r.verification==='verified-local',partial=r.scope_status==='partial',running=['running','queued'].includes(r.status),percentage=r.total_bytes?Math.min(100,100*(r.copied_bytes||0)/r.total_bytes):0;
  return `<div class="isolate-receipt">${isolateExportBadge(r)}<h3>${e(r.sample_id||'Isolate')}</h3><p class="path-cell">${e(r.destination||'Destination not recorded')}</p><div class="isolate-facts"><div><small>Files copied</small><strong>${r.copied_files??0} / ${r.total_files??0}</strong></div><div><small>Bytes copied</small><strong>${storageBytes(r.copied_bytes??0)}</strong></div><div><small>Verification</small><strong class="isolate-verification">${verified?'SHA-256 verified':running?'In progress':'Incomplete'}</strong></div></div>${running?`<progress value="${percentage}" max="100" aria-label="Export copy progress">${percentage.toFixed(0)}%</progress><p>Copying and verification are still in progress. Use Activity to stop this job if needed.</p>`:''}${notice(verified?(partial?'Copied files verified; historical scope is partial':'Local package verified'):'Keep the original files',verified?'The copied files passed destination verification. Original files have not been deleted. Review scope notes and any SharePoint sync status before considering local cleanup.':'This receipt does not establish a complete verified copy. Keep the source files; the partial destination is retained for inspection.',!verified||partial)}${r.destination_kind==='sharepoint_sync'?notice('Cloud upload is not verified','Verification covers the local destination only. Check the OneDrive / SharePoint sync status separately.',true):''}${r.error?notice('Export stopped',e(r.error),true):''}${isolateWarningList(r.missing,'Unavailable files or history')}${isolateWarningList(r.warnings,'Receipt notes')}<details><summary>Receipt details</summary><pre class="code-block">${e(JSON.stringify(r,null,2))}</pre></details><div class="button-row">${btn('refresh-isolate-export-receipt','Refresh receipt',false,r.id,'check')}${btn('go-jobs','View Activity',false,'','clock')}${r.id?btn('job-log','View export log',false,r.id,'file'):''}</div></div>`;
 }
-function sequenceRuns(){return S.runs.filter(r=>!r.archived&&r.tool==='hybas'&&r.run_type!=='followup');}
-function sequenceChosen(){const rows=sequenceRuns().filter(r=>val('seq-run-'+r.id,false)),pilot=val('seq-first','');return rows.sort((a,b)=>Number(b.id===pilot)-Number(a.id===pilot));}
-function sequenceForm(){
- const rows=sequenceRuns(),chosen=sequenceChosen(),steps=val('seq-steps','basis,micpscope').split(',');
- if(!rows.length)return '<p>Create a HybAs draft or choose a workspace with a completed HybAs run.</p>';
- const choices=rows.map(r=>'<label class="check-field"><input type="checkbox" id="seq-run-'+e(r.id)+'" '+(chosen.some(x=>x.id===r.id)?'checked':'')+'><span>'+e(r.label)+' · '+e(r.sample.id)+' · '+e(r.status)+'</span></label>').join('');
- return '<h3>Starting runs</h3><p>Choose one HybAs draft or completed assembly per isolate. Completed assemblies supply inputs directly.</p>'+choices+
- select('seq-steps','Downstream order',[['basis,micpscope','BaSIS → GeneScope'],['micpscope,basis','GeneScope → BaSIS'],['basis','BaSIS'],['micpscope','GeneScope']],'basis,micpscope')+
- '<p>Both downstream pipelines use the assembly and annotation from HybAs.</p>'+steps.map(t=>'<details><summary>'+e(S.pipelines[t].name)+' settings</summary>'+area('seq-config-'+t,'Pipeline YAML',S.configs[t],'rows="9"')+'</details>').join('')+
- (chosen.length>1?'<label class="check-field"><input id="seq-pilot" type="checkbox" '+(val('seq-pilot',true)?'checked':'')+'><span>Test one isolate first and hold the rest for review</span></label>'+select('seq-first','First isolate',chosen.map(r=>[r.id,r.sample.id]),chosen[0].id):'')+
- '<label class="check-field"><input id="seq-deliver" type="checkbox" '+(val('seq-deliver',false)?'checked':'')+'><span>Copy combined results after each isolate finishes</span></label>'+
- (val('seq-deliver',false)?chosen.map(r=>field('seq-folder-'+r.id,e(r.sample.id)+' · local delivery folder',r.sample.input_manifest?'':r.sample.path)).join(''):'')+
- '<p>'+chosen.length+' isolate(s) · '+(1+steps.length)+' pipeline steps per isolate</p>';
+function sequenceName(tool){return S.pipelines[tool]?.name||tool;}
+function sequenceSourceRuns(steps,sample){
+ const statuses=steps.includes('hybas')?['draft','checked','completed']:['completed'];
+ return S.runs.filter(r=>!r.archived&&!r.busy&&r.run_type!=='followup'&&r.tool==='hybas'&&statuses.includes(r.status)&&(!sample||r.sample.id===sample));
 }
-function sequenceCards(){return (S.sequences||[]).map(p=>{
- const action={draft:['start','Start sequence'],review:['release','Continue remaining isolates'],attention:['retry','Retry after review'],active:['hold','Hold after current job'],held:['resume','Resume sequence']}[p.state];
- return '<section class="card padded"><h3>'+e(p.steps.map(t=>S.pipelines[t].name).join(' → '))+'</h3><p>'+e(p.id)+' · '+e(p.state==='review'?'First isolate ready for review':p.state)+'</p>'+
- p.rows.map(r=>'<article><strong>'+e(r.sample)+'</strong> · '+e(r.state)+(r.message?' · '+e(r.message):'')+'<div class="button-row">'+r.runs.map((id,i)=>btn('run-detail',S.pipelines[p.steps[i]].name,false,id)).join('')+'</div>'+(r.state==='done'?btn('sequence-copy','Copy sequence results',false,p.id+'/'+r.runs[0],'folder'):'')+(r.delivery?'<p>'+e(r.delivery)+'</p>':'')+'</article>').join('')+
- (action?btn('sequence-'+action[0],action[1],true,p.id):'')+'</section>';}).join('');}
+function sequenceSample(sample){return S.samples.find(s=>s.id===sample);}
+function sequenceReuseRuns(editor,row,tool){
+ const source=runBy(row.source),native=sequenceSample(row.sample);
+ if(row.source&&source?.status!=='completed'||!row.source&&editor.steps.includes('hybas'))return [];
+ return S.runs.filter(r=>!r.archived&&r.status==='completed'&&r.tool===tool&&r.run_type!=='followup'&&r.sample.id===row.sample&&
+  (source?((r.sample.micp_handoff?.source_run||r.parent)===source.id):(native&&r.sample.path===native.path)));
+}
+function sequenceNativeAvailable(editor,sample){
+ const native=sequenceSample(sample);
+ return !!native&&(editor.steps.includes('hybas')||!native.input_manifest||
+  editor.steps.every(tool=>sequenceReuseRuns(editor,{sample,source:null},tool).length>0));
+}
+function sequenceRunLabel(run){return (run.label||run.sample.id)+' · '+run.id+' · '+run.status;}
+function sequenceEditor(plan=null){
+ const membership=!!plan&&plan.state!=='draft';
+ const rows=(plan?.rows||[]).map(r=>({
+  sample:r.sample,source:r.source||null,reuse:{...r.reuse},
+  folder:r.folder||'',editable:!membership||!!r.editable
+ }));
+ return {id:plan?.id||'',revision:plan?.revision??0,membership,page:membership?1:0,steps:[...(plan?.steps||[])],isolates:rows,
+  configs:{...S.configs,...plan?.configs},pilot:plan?!!plan.pilot:true,pilotSample:rows[0]?.sample||'',
+  deliver:rows.some(r=>r.folder),adding:'',isolatePage:0};
+}
+function sequenceSelectedPlan(id){return (S.sequences||[]).find(p=>p.id===id);}
+function beginSequence(id=''){
+ const plan=id?sequenceSelectedPlan(id):null;
+ if(id&&!plan)return;
+ U.sequenceEditor=sequenceEditor(plan);U.sequenceOpen=true;U.view='sequences';U.error='';writeRoute();render();
+ $('#main').focus({preventScroll:true});$('.workspace-shell').scrollIntoView({block:'start'});
+}
+function sequenceOption(value,label,selected){return '<option value="'+e(value)+'"'+(value===selected?' selected':'')+'>'+e(label)+'</option>';}
+function sequenceEligibleSamples(editor){
+ const ids=new Set([...S.samples.filter(s=>sequenceNativeAvailable(editor,s.id)).map(s=>s.id),...sequenceSourceRuns(editor.steps).map(r=>r.sample.id)]);
+ for(const row of editor.isolates)ids.delete(row.sample);
+ return [...ids].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+}
+function sequenceFolder(row){
+ const sample=sequenceSample(row.sample)||runBy(row.source)?.sample;
+ return sample&&!sample.input_manifest?sample.path||'':'';
+}
+function sequenceRowValid(editor,row){
+ if(!row.editable)return true;
+ if(row.source===undefined)return false;
+ if(row.source?!sequenceSourceRuns(editor.steps,row.sample).some(r=>r.id===row.source):!sequenceNativeAvailable(editor,row.sample))return false;
+ if(!row.source&&!editor.steps.includes('hybas')&&sequenceSample(row.sample)?.input_manifest&&editor.steps.some(t=>!row.reuse[t]))return false;
+ return Object.entries(row.reuse).every(([tool,id])=>!id||sequenceReuseRuns(editor,row,tool).some(r=>r.id===id));
+}
+function sequenceStepPanel(editor){
+ const descriptions={hybas:'Assemble and polish reads',basis:'Screen the assembly',micpscope:'Analyze annotated genomes'};
+ const available=['hybas','basis','micpscope'].filter(t=>S.pipelines[t]&&!editor.steps.includes(t));
+ return '<div class="card-head"><div><h2>Pipeline order</h2><p>Add the pipelines you want to run for each isolate.</p></div></div><div class="card-body">'+
+  (editor.steps.length?'<ol class="sequence-steps">'+editor.steps.map((tool,i)=>{
+   const fixed=tool==='hybas',up=fixed||i===0||editor.steps[i-1]==='hybas',down=fixed||i===editor.steps.length-1;
+   return '<li><span class="sequence-number">'+(i+1)+'</span><div class="sequence-step-title"><strong>'+e(sequenceName(tool))+'</strong><p>'+e(descriptions[tool])+'</p></div><div class="button-row">'+
+    (!up||!down?btn('sequence-step-up','Move up',false,tool,'',up)+btn('sequence-step-down','Move down',false,tool,'',down):'')+
+    btn('sequence-remove-step','Remove',false,tool)+'</div></li>';
+  }).join('')+'</ol>':'<p class="sequence-placeholder">Choose your first pipeline below.</p>')+
+  (available.length?'<div class="sequence-add"><div class="button-row">'+available.map(tool=>btn('sequence-add-step','Add '+sequenceName(tool),false,tool,'plus')).join('')+'</div></div>':'')+
+  (editor.steps.includes('hybas')&&editor.steps.length>1?'<p class="section-note">HybAs supplies the assembly to subsequent pipelines.</p>':'')+'</div>';
+}
+function sequenceIsolateInputs(editor,row){
+ if(!row.editable)return '<p class="secondary-line">Processing has started for this isolate.</p>';
+ const sources=sequenceSourceRuns(editor.steps,row.sample),registered=sequenceSample(row.sample),withAssembly=editor.steps.includes('hybas');
+ const native=sequenceNativeAvailable(editor,row.sample);
+ const options=native?[sequenceOption('',withAssembly?'Run HybAs from registered reads':'Use registered assembly and annotation folder',row.source===null?'':row.source)]:[];
+ if(row.source===undefined)options.unshift('<option value="choose" selected disabled>Choose a starting input</option>');
+ options.push(...sources.map(r=>sequenceOption(r.id,(r.status==='completed'?'Use completed HybAs output':'Continue HybAs draft')+' · '+sequenceRunLabel(r),row.source)));
+ if((row.source&&!sources.some(r=>r.id===row.source))||(row.source===null&&!native))options.unshift(sequenceOption(row.source||'','Input unavailable · choose another source',row.source||''));
+ const changes=editor.steps.filter(t=>t!=='hybas').map(tool=>{
+  const runs=sequenceReuseRuns(editor,row,tool),selected=row.reuse[tool]||'';
+  if(!runs.length&&!selected)return '';
+  const choices=[sequenceOption('','Run '+sequenceName(tool),selected),...runs.map(r=>sequenceOption(r.id,'Use completed output · '+sequenceRunLabel(r),selected))];
+  if(selected&&!runs.some(r=>r.id===selected))choices.push(sequenceOption(selected,'Output unavailable · choose another source',selected));
+  return '<label class="field"><span>'+e(sequenceName(tool))+' step</span><select data-seq-reuse="'+e(tool)+'" data-sample="'+e(row.sample)+'">'+choices.join('')+'</select></label>';
+ }).join('');
+ return '<div class="sequence-inputs"><label class="field"><span>Starting input</span><select data-seq-source data-sample="'+e(row.sample)+'">'+options.join('')+'</select>'+(row.source===null&&registered?'<small class="secondary-line path-cell">'+e(registered.path)+'</small>':'')+'</label>'+changes+'</div>';
+}
+function sequenceIsolatesPanel(editor){
+ const eligible=sequenceEligibleSamples(editor);
+ if(!eligible.includes(editor.adding))editor.adding=eligible[0]||'';
+ const remaining=500-editor.isolates.length,bulk=Math.min(eligible.length,remaining);
+ const add=eligible.length&&remaining>0?'<div class="sequence-add-isolate"><label class="field"><span>Available isolates</span><select data-seq-add-isolate>'+eligible.map(id=>sequenceOption(id,id,editor.adding)).join('')+'</select></label>'+'<div class="button-row">'+btn('sequence-add-isolate','Add isolate',false,'','plus')+(bulk>1?btn('sequence-add-all',bulk===eligible.length?'Add all '+bulk+' isolates':'Add first '+bulk+' isolates'):'')+'</div></div>':
+  !editor.isolates.length?notice('No isolates available','Connect an isolate folder in Samples or choose a workspace with a saved HybAs run.')+btn('new-sample','Connect input folder',false,'','folder'):'';
+ const size=10,total=editor.isolates.length;
+ editor.isolatePage=Math.min(editor.isolatePage,Math.max(0,Math.ceil(total/size)-1));
+ const start=editor.isolatePage*size,end=Math.min(total,start+size),visible=editor.isolates.slice(start,end);
+ const page=total>size?'<div class="sequence-pagination button-row">'+btn('sequence-isolate-prev','Previous isolates',false,'','',!start)+'<span>'+ (start+1)+'–'+end+' of '+total+'</span>'+btn('sequence-isolate-next','Next isolates',false,'','',end>=total)+'</div>':'';
+ const unresolved=total>size&&editor.isolates.find(row=>!sequenceRowValid(editor,row));
+ return '<div class="card-head"><div><h2>Isolates and inputs</h2><p>Choose the starting input for each isolate. Compatible completed outputs appear alongside the steps that can reuse them.</p></div></div><div class="card-body">'+add+
+  (unresolved?btn('sequence-check-input','Review input for '+unresolved.sample,false,unresolved.sample):'')+'<div class="sequence-isolates">'+visible.map(row=>'<article><div class="sequence-row-title"><h3>'+e(row.sample)+'</h3>'+(row.editable?btn('sequence-remove-isolate','Remove isolate',false,row.sample):badge('Started'))+'</div>'+sequenceIsolateInputs(editor,row)+'</article>').join('')+'</div>'+page+'</div>';
+}
+function sequenceRowSummary(editor,row){
+ const usesHybAs=editor.steps.includes('hybas');
+ const start=row.source?'HybAs '+row.source:usesHybAs?'Registered reads':'Registered pipeline inputs';
+ return '<li><strong>'+e(row.sample)+'</strong><div>Input · '+e(start)+'</div>'+editor.steps.map(tool=>{
+  const id=tool==='hybas'?row.source:row.reuse[tool],run=id&&runBy(id);
+  return '<div>'+e(sequenceName(tool))+' · '+(run?.status==='completed'?'Reuse '+e(id):run?'Continue '+e(id):'Run')+'</div>';
+ }).join('')+'</li>';
+}
+function sequenceReviewPanel(editor){
+ const editable=editor.isolates.filter(row=>row.editable);
+ const newSteps=editor.steps.filter(t=>editor.isolates.some(r=>t==='hybas'?!r.source:!r.reuse[t]));
+ return '<div class="card-head"><div><h2>Review sequence</h2><p>'+e(editor.steps.map(sequenceName).join(' → '))+'</p></div>'+badge(editor.isolates.length+' isolate'+(editor.isolates.length===1?'':'s'))+'</div><div class="card-body">'+
+  '<ul class="sequence-review-list">'+editor.isolates.map(r=>sequenceRowSummary(editor,r)).join('')+'</ul>'+
+  (!editor.membership&&editor.isolates.length>1?'<div class="sequence-option"><label class="check-field"><input data-seq-pilot type="checkbox" '+(editor.pilot?'checked':'')+'><span>Run one isolate first and hold the rest for review</span></label>'+
+   (editor.pilot?'<label class="field"><span>First isolate</span><select data-seq-first>'+editor.isolates.map(r=>sequenceOption(r.sample,r.sample,editor.pilotSample)).join('')+'</select></label>':'')+'</div>':'')+
+  (editable.length?'<div class="sequence-option"><label class="check-field"><input type="checkbox" data-seq-deliver '+(editor.deliver?'checked':'')+'><span>Copy combined results to isolate folders after completion</span></label>'+
+   (editor.deliver?editable.map(row=>'<label class="field"><span>'+e(row.sample)+' · delivery folder</span><input type="text" data-seq-folder data-sample="'+e(row.sample)+'" value="'+e(row.folder)+'"></label>').join(''):'')+'</div>':'')+
+  (!editor.membership&&newSteps.length?'<details class="help-details"><summary>Pipeline settings</summary>'+newSteps.map(t=>'<label class="field"><span>'+e(sequenceName(t))+' settings (YAML)</span><textarea rows="8" data-seq-config="'+e(t)+'">'+e(editor.configs[t])+'</textarea></label>').join('')+'</details>':'')+'</div>';
+}
+function sequenceCanSave(editor){
+ return editor.steps.length&&editor.isolates.length&&editor.isolates.every(row=>sequenceRowValid(editor,row)&&(!editor.deliver||!row.editable||row.folder.trim()));
+}
+function sequenceBuilder(editor){
+ const pages=editor.membership?['Isolates','Review']:['Pipelines','Isolates','Review'];
+ const body=[sequenceStepPanel,sequenceIsolatesPanel,sequenceReviewPanel][editor.page](editor);
+ return heading('PIPELINE SEQUENCES',editor.membership?'Edit sequence isolates':editor.id?'Edit sequence draft':'New pipeline sequence',
+  editor.membership?'Update the isolates still waiting to start.':'Set the order, choose inputs and review the sequence before saving.')+
+  '<div class="sequence-builder"><ol class="sequence-progress">'+pages.map((label,i)=>'<li '+(i+(editor.membership?1:0)===editor.page?'aria-current="step"':'')+'>'+label+'</li>').join('')+'</ol><section class="card">'+body+
+  '<div class="sequence-footer button-row">'+(editor.page===2?btn('save-sequence',editor.membership?'Save isolate changes':editor.id?'Save changes':'Save sequence draft',true,'','check',!sequenceCanSave(editor)):
+   btn('sequence-next',editor.page===0?'Next · Isolates':'Next · Review',true,'','arrow',!editor.steps.length||(editor.page===1&&(!editor.isolates.length||editor.isolates.some(row=>!sequenceRowValid(editor,row))))))+
+  (editor.page>(editor.membership?1:0)?btn('sequence-back','Back'):'')+btn('sequence-cancel','Cancel')+'</div></section></div>';
+}
+function sequenceCards(){
+ return (S.sequences||[]).map(p=>{
+  const action={draft:['start','Start sequence'],review:['release','Continue remaining isolates'],attention:['retry','Retry after review'],active:['hold','Hold after current job'],held:['resume','Resume sequence']}[p.state];
+  return '<section class="card sequence-card"><div class="card-head"><div><h2>'+e(p.steps.map(sequenceName).join(' → '))+'</h2><p>'+e(p.id)+' · '+p.rows.length+' isolate'+(p.rows.length===1?'':'s')+'</p></div>'+badge(({draft:'Draft',review:'Pilot ready for review',active:'Running',held:'Held',attention:'Needs attention',done:'Completed'})[p.state]||p.state,p.state==='done'?'green':'')+'</div><div class="card-body"><div class="button-row">'+
+   (action?btn('sequence-'+action[0],action[1],true,p.id):'')+
+   (p.state==='draft'?btn('edit-sequence','Edit draft',false,p.id):['review','held','attention'].includes(p.state)?btn('edit-sequence','Edit isolates',false,p.id):'')+
+   '</div><details class="help-details" data-sequence-details="'+e(p.id)+'" '+(U.sequenceDetails?.[p.id]?'open':'')+'><summary>Isolates and run outputs</summary>'+p.rows.map(r=>{
+    const source=r.source||(p.steps[0]==='hybas'?r.runs?.[0]:null),links=p.steps.map((t,i)=>{
+     const id=r.runs?.[i]||r.reuse?.[t]||(t==='hybas'?source:null);
+     return id?btn('run-detail',sequenceName(t),false,id):'';
+    }).join('');
+    return '<article><strong>'+e(r.sample)+'</strong> · '+e(r.state)+(r.message?'<p>'+e(r.message)+'</p>':'')+
+     '<div class="button-row">'+(source&&p.steps[0]!=='hybas'?btn('run-detail','HybAs input',false,source):'')+links+
+     (r.state==='done'?btn('sequence-copy','Copy combined results',false,p.id+'/'+encodeURIComponent(r.sample),'folder'):'')+'</div>'+(r.delivery?'<p>'+e(r.delivery)+'</p>':'')+'</article>';
+   }).join('')+'</details></div></section>';
+ }).join('');
+}
+function sequencesPage(){
+ if(U.sequenceOpen&&U.sequenceEditor)return sequenceBuilder(U.sequenceEditor);
+ const plans=S.sequences||[];
+ return heading('WORKSPACE','Pipeline sequences','Run an ordered set of pipelines across one or more isolates.',plans.length?btn('new-sequence','New sequence',true,'','plus'):'')+
+  (plans.length?sequenceCards():'<section class="card">'+empty('Create your first pipeline sequence','Choose pipelines, add isolates and continue from saved outputs.',btn('new-sequence','New sequence',true,'','plus'))+'</section>');
+}
+function sequenceMove(editor,tool,shift){
+ const from=editor.steps.indexOf(tool),to=from+shift;
+ if(from<0||to<0||to>=editor.steps.length||tool==='hybas'||editor.steps[to]==='hybas')return;
+ [editor.steps[from],editor.steps[to]]=[editor.steps[to],editor.steps[from]];
+}
+function sequenceChange(t){
+ const editor=U.sequenceOpen&&U.sequenceEditor;
+ if(!editor)return false;
+ const row=editor.isolates.find(r=>r.sample===t.dataset.sample);
+ if(t.hasAttribute('data-seq-source')&&row?.editable){row.source=t.value||null;row.reuse={};}
+ else if(t.dataset.seqReuse&&row?.editable){if(t.value)row.reuse[t.dataset.seqReuse]=t.value;else delete row.reuse[t.dataset.seqReuse];}
+ else if(t.hasAttribute('data-seq-pilot'))editor.pilot=t.checked;
+ else if(t.hasAttribute('data-seq-first')){editor.pilotSample=t.value;return true;}
+ else if(t.hasAttribute('data-seq-add-isolate')){editor.adding=t.value;return true;}
+ else if(t.hasAttribute('data-seq-deliver')){
+  editor.deliver=t.checked;
+  if(editor.deliver)for(const row of editor.isolates)if(row.editable&&!row.folder)row.folder=sequenceFolder(row);
+ }else return false;
+ render();return true;
+}
+function sequenceInput(t){
+ const editor=U.sequenceOpen&&U.sequenceEditor;
+ if(!editor)return;
+ if(t.dataset.seqConfig)editor.configs[t.dataset.seqConfig]=t.value;
+ if(t.hasAttribute('data-seq-folder')){
+  const row=editor.isolates.find(r=>r.sample===t.dataset.sample);
+  if(row?.editable)row.folder=t.value;
+  const save=$('[data-action="save-sequence"]');if(save)save.disabled=!sequenceCanSave(editor);
+ }
+}
+function sequenceAction(action,id){
+ const editor=U.sequenceEditor;
+ if(action==='new-sequence'||action==='edit-sequence'){beginSequence(id);return true;}
+ if(!U.sequenceOpen||!editor)return false;
+ if(action==='sequence-add-step'){
+  if(!S.pipelines[id]||editor.steps.includes(id))return true;
+  if(id==='hybas')editor.steps.unshift(id);else editor.steps.push(id);
+  for(const row of editor.isolates)for(const tool of Object.keys(row.reuse))if(!sequenceReuseRuns(editor,row,tool).some(r=>r.id===row.reuse[tool]))delete row.reuse[tool];
+ }else if(action==='sequence-step-up'||action==='sequence-step-down')sequenceMove(editor,id,action==='sequence-step-up'?-1:1);
+ else if(action==='sequence-remove-step'){
+  editor.steps=editor.steps.filter(t=>t!==id);
+  for(const row of editor.isolates){delete row.reuse[id];if(id==='hybas'&&row.source&&runBy(row.source)?.status!=='completed'){row.source=null;row.reuse={};}}
+ }else if(action==='sequence-isolate-prev'||action==='sequence-isolate-next'){
+  editor.isolatePage+=action==='sequence-isolate-next'?1:-1;
+ }else if(action==='sequence-check-input'){
+  editor.isolatePage=Math.floor(editor.isolates.findIndex(r=>r.sample===id)/10);
+ }else if(action==='sequence-add-all'||action==='sequence-add-isolate'){
+  const eligible=sequenceEligibleSamples(editor),samples=action==='sequence-add-all'?eligible:eligible.filter(sample=>sample===editor.adding);
+  for(const sample of samples.slice(0,500-editor.isolates.length)){
 
+   const sources=sequenceSourceRuns(editor.steps,sample),native=sequenceNativeAvailable(editor,sample);
+   let source;
+   if(editor.steps.includes('hybas')&&native)source=null;
+   else if(sources.length===1)source=sources[0].id;
+   else if(native&&!sources.length)source=null;
+   const row={sample,source,reuse:{},folder:'',editable:true};
+   if(editor.deliver)row.folder=sequenceFolder(row);
+   editor.isolates.push(row);if(!editor.pilotSample)editor.pilotSample=sample;
+  }
+  if(action==='sequence-add-isolate')editor.isolatePage=Math.max(0,Math.floor((editor.isolates.length-1)/10));
+ }else if(action==='sequence-remove-isolate'){
+  editor.isolates=editor.isolates.filter(r=>r.sample!==id||!r.editable);
+  if(!editor.isolates.some(r=>r.sample===editor.pilotSample))editor.pilotSample=editor.isolates[0]?.sample||'';
+ }else if(action==='sequence-next'||action==='sequence-back')editor.page+=action==='sequence-next'?1:-1;
+ else if(action==='sequence-cancel'){U.sequenceOpen=false;U.sequenceEditor=null;writeRoute();}
+ else if(action==='save-sequence'){
+  if(!sequenceCanSave(editor))return true;
+  const rows=[...editor.isolates];
+  if(editor.pilot&&!editor.membership)rows.sort((a,b)=>Number(b.sample===editor.pilotSample)-Number(a.sample===editor.pilotSample));
+  const isolates=rows.map(({sample,source,reuse})=>({sample,source,reuse}));
+  const folders=Object.fromEntries(rows.filter(r=>r.folder&&(r.editable?editor.deliver:true)).map(r=>[r.sample,r.folder.trim()]));
+  const payload={isolates,folders,...(editor.id?{id:editor.id,revision:editor.revision}:{})};
+  if(editor.membership)request('edit_sequence_isolates',payload);
+  else request('save_sequence',{...payload,steps:editor.steps,pilot:rows.length>1&&editor.pilot,configs:Object.fromEntries(editor.steps.map(t=>[t,editor.configs[t]]))});
+  return true;
+ }else return false;
+ render();
+ if(['sequence-next','sequence-back','sequence-cancel'].includes(action)){$('#main').focus({preventScroll:true});$('.workspace-shell').scrollIntoView({block:'start'});}
+ return true;
+}
 function runsPage(){
  const archived=U.runList==='archived',q=val('run-search').toLowerCase(),tool=val('run-filter-tool','all'),status=val('run-filter-status','all'),sample=U.runSampleFilter;
  const rows=S.runs.filter(r=>!!r.archived===archived&&`${r.sample.id} ${r.label} ${r.id}`.toLowerCase().includes(q)&&(tool==='all'||r.tool===tool)&&(status==='all'||r.status===status)&&(!sample||r.sample.id===sample));
  const hidden=U.selected.filter(id=>!rows.some(r=>r.id===id)).length;
- return heading('RUNS','Drafts, activity and history.','Each run keeps its own configuration, input references and outputs.',btn('new-run','Create run drafts',true,'','plus')+btn('new-sequence','Pipeline sequence',false,'','branch'))+sequenceCards()+
+ return heading('RUNS','Drafts, activity and history.','Each run keeps its own configuration, input references and outputs.',btn('new-run','Create run drafts',true,'','plus'))+
  `<section class="card saved-runs"><div class="run-list-toolbar"><div class="tabs"><button type="button" class="tab ${!archived?'active':''}" data-action="run-list" data-id="current">Current runs <span>${visibleRuns().length}</span></button><button type="button" class="tab ${archived?'active':''}" data-action="run-list" data-id="archived">Archived <span>${S.runs.filter(r=>r.archived).length}</span></button></div>${btn('clear-run-filters','Reset filters')}</div><div class="run-filters"><div class="field"><label for="run-search">Find a run</label><input class="search" id="run-search" aria-label="Search runs" placeholder="Sample, name or run ID…" value="${e(val('run-search'))}"></div>${select('run-filter-tool','Pipeline',[['all','All pipelines'],...Object.keys(S.pipelines).map(t=>[t,S.pipelines[t].name])],'all')}${select('run-filter-status','Status',[['all','All statuses'],['draft','Draft'],['checked','Validated'],['queued','Queued'],['running','Running'],['failed','Failed'],['interrupted','Interrupted'],['cancelled','Cancelled'],['completed','Completed']],'all')}</div>
  ${sample?`<div class="filter-context">Runs for <strong>${e(sample)}</strong>${quiet('clear-sample-filter','Show all samples')}</div>`:''}
  ${!archived&&U.selected.length?`<div class="selection-bar"><strong>${U.selected.length} selected${hidden?' · '+hidden+' outside this filter':''}</strong><div class="button-row">${btn('compare-selected','Compare settings')}${btn('batch-dry-run','Validate run',false,'','',!!workspaceDiskStop())}${btn('batch-prepare','Install environments',false,'','',!!workspaceDiskStop())}${btn('batch-run','Run / resume',true,'','',!!workspaceDiskStop())}${btn('archive-selected','Archive',false,'','trash')}${btn('clear-selection','Clear')}</div></div>`:''}${runTable(rows,!archived,archived)}<div class="section-note">${rows.length} shown. ${archived?'Restore a run to use it again. Saved configurations and outputs are retained.':'Archive hides inactive runs from this list. It keeps their files, settings and reports.'}</div></section>`;
@@ -1297,7 +1516,7 @@ function deliverySettings(chosen){
 function renderNewRun(){
  const tool=val('run-tool','hybas'),c=runEditor(),tab=U.runConfigTab||'purpose',step=tab==='yaml'?'settings':tab,chosen=S.samples.filter(s=>val('run-sample-'+s.id,false));
  let body=`<nav class="tabs run-config-tabs wizard-stepper" aria-label="New run steps">${[['purpose','Purpose'],['samples','Inputs'],['settings','Settings'],['review','Review']].map(([id,label],i)=>`<button type="button" class="tab ${step===id?'active':''}" data-action="run-config-tab" data-id="${id}" ${step===id?'aria-current="step"':''} ${['settings','review'].includes(id)&&(!c||!chosen.length)?'disabled':''}><span class="step-number" aria-hidden="true">${i+1}</span>${label}</button>`).join('')}</nav>`;
- if(tab==='purpose')return body+btn('new-sequence','Build a pipeline sequence',false,'','branch')+`<div class="wizard-purpose"><h2>What would you like to do?</h2><div class="purpose-grid" role="group" aria-label="Run purpose">${runPurposes.filter(([id])=>S.pipelines[id]).map(([id,title,desc,inputs,ico])=>`<button type="button" class="purpose-card ${tool===id?'selected':''}" data-action="run-purpose" data-id="${id}" aria-pressed="${tool===id}">${icon(ico)}<span class="purpose-copy"><strong>${e(title)}</strong>${badge(S.pipelines[id].name)}<span>${e(desc)}</span></span><span class="purpose-input"><strong>Input:</strong> ${e(inputs)}</span></button>`).join('')}</div><div class="purpose-next">${icon('folder')}<div><strong>Next: connect your inputs</strong><p>Select registered samples or connect a folder on your computer.</p></div></div>${helpDetails('How these pipelines fit together','HybAs creates assemblies from sequencing reads. BaSIS reviews genomic screening evidence. GeneScope explores annotated proteins and application databases. Each pipeline has its own input requirements; choose the task you need next.')}<p class="settings-note">No run has been created yet.</p></div>`;
+ if(tab==='purpose')return body+`<div class="wizard-purpose"><h2>What would you like to do?</h2><div class="purpose-grid" role="group" aria-label="Run purpose">${runPurposes.filter(([id])=>S.pipelines[id]).map(([id,title,desc,inputs,ico])=>`<button type="button" class="purpose-card ${tool===id?'selected':''}" data-action="run-purpose" data-id="${id}" aria-pressed="${tool===id}">${icon(ico)}<span class="purpose-copy"><strong>${e(title)}</strong>${badge(S.pipelines[id].name)}<span>${e(desc)}</span></span><span class="purpose-input"><strong>Input:</strong> ${e(inputs)}</span></button>`).join('')}</div><div class="purpose-next">${icon('folder')}<div><strong>Next: connect your inputs</strong><p>Select registered samples or connect a folder on your computer.</p></div></div>${helpDetails('How these pipelines fit together','HybAs creates assemblies from sequencing reads. BaSIS reviews genomic screening evidence. GeneScope explores annotated proteins and application databases. Each pipeline has its own input requirements; choose the task you need next.')}<p class="settings-note">No run has been created yet.</p></div>`;
  if(!c)return body+'<p role="status">Loading saved configuration…</p>';
  if(tool==='micpscope')body+=notice('GeneScope inputs','Register a folder containing annotation/&lt;sample_id&gt;.faa. Optional files in the same folder: &lt;sample_id&gt;.evidence.csv, &lt;sample_id&gt;.gff (coordinates), &lt;sample_id&gt;.interpro.tsv (existing signatures). Read mode does not affect this workflow.');
  if(tab==='samples')body+=`<div class="settings-intro"><div><h3>Connect your inputs</h3><p>${e(S.pipelines[tool].name)} · Select the samples to include. Each sample receives its own draft.</p></div>${btn('new-sample','Connect input folder',false,'','plus')}</div><p class="inline-info">Connecting a folder registers its location. Original files stay where they are. Unchecking a sample only excludes it from these drafts.</p>${S.samples.length?S.samples.map(s=>`<div class="sample-choice"><label class="source-card"><input type="checkbox" id="run-sample-${e(s.id)}" data-sample="${e(s.id)}" ${val('run-sample-'+s.id,false)?'checked':''}><span><strong>${e(s.id)}</strong><small>${e(s.path)}</small></span></label></div>`).join(''):empty('No input folders connected yet.','Connect the folder containing the inputs for your chosen pipeline.')}`;
@@ -1455,7 +1674,7 @@ ${notice('A quick layout check','Discovery reads filenames and small metadata fi
 <div class="database-footer"><span>${dirty.length?'Selections are not saved yet. Save to use them in future drafts.':'Existing run drafts keep their frozen resource paths.'}</span>${btn('save-databases','Save for future runs',true,t,'check',!dirty.length)}</div>`;}
 function render(){draftInputs();document.title=S.application_title||'Bactologix';$('#navigation').innerHTML=navs.map(([key,label,ico])=>`${key==='overview'?'<div class="nav-label">WORK</div>':key==='install'?'<div class="nav-divider"></div><div class="nav-label">MANAGE</div>':''}<a href="#${key}" aria-label="${e(label)}" data-nav="${key}" class="nav-item ${(['run','draft'].includes(U.view)?'runs':U.view==='resources'?'install':U.view)===key?'active':''}" ${(['run','draft'].includes(U.view)?'runs':U.view==='resources'?'install':U.view)===key?'aria-current="page"':''}>${icon(ico)}<span>${label}</span>${key==='jobs'&&S.jobs.some(j=>['queued','running'].includes(j.status))?`<span class="nav-count">${S.jobs.filter(j=>['queued','running'].includes(j.status)).length}</span>`:''}</a>`).join('');$('#crumb').textContent=U.view==='draft'?'Runs / Unfinished draft':U.view==='run'?'Runs / '+(runBy(U.runId)?.label||'Saved run'):navs.find(n=>n[0]===U.view)?.[1]||({jobs:'Activity',resources:'Pipelines & databases'})[U.view]||'Home';$('#app-version').textContent='v'+S.version;$('#workspace-name').textContent=S.workspace.split('/').pop();$('#workspace-name').title=S.workspace;$('#workspace-label').textContent=S.workspace_label||'Local workspace';const storage=storageActivity(),paused=storage.paused+storage.waiting,running=S.jobs.filter(j=>j.status==='running'&&!diskPaused(j)).length,queued=S.jobs.filter(j=>j.status==='queued').length;$('#queue-status').textContent=workspaceDiskStop()?'Queue blocked · low disk space':S.queue?.paused?`Queue paused · ${storage.label}${running} running · ${queued} waiting`:running||queued||paused?`${storage.label}${running} running · ${queued} queued${S.queue?.held_count?' · '+S.queue.held_count+' held':''}`:'No active jobs';$('.status-dot').classList.toggle('active',!!running);$('#header-activity-count').textContent=running+queued+paused?'('+String(running+queued+paused)+')':'';$('#header-workspace').textContent=S.workspace_label||'Local workspace';$('#header-workspace').title=S.workspace;const dev=S.channel==='development'||S.channel==='dev'||S.version.includes('.dev');$('#release-channel-badge').textContent=dev?'DEV · Experimental':'REGULAR';$('#release-channel-badge').classList.toggle('experimental',dev);
 $('[data-action="close-desktop"]').hidden=!S.desktop_close_available;
-$('#main').innerHTML=(S.workspace_busy?notice(S.desktop_reconnecting?'Reconnecting to workspace':'Workspace database busy','Showing the last available view. Bactologix is checking for a fresh update.',true):'')+appUpdateNotice()+queueNotice()+wizardBanner()+`<div id="async-checks-slot">${asyncProgress()}</div>`+(!U.modal&&U.error?`<div class="error" role="alert">${e(U.error)}</div>`:'')+({overview,samples,runs:runsPage,run:runPage,draft:wizardPage,comparisons,jobs,reports:reportsPage,storage:storagePage,install,resources:resourcePage,configure:configuration}[U.view]||overview)();
+$('#main').innerHTML=(S.workspace_busy?notice(S.desktop_reconnecting?'Reconnecting to workspace':'Workspace database busy','Showing the last available view. Bactologix is checking for a fresh update.',true):'')+appUpdateNotice()+queueNotice()+wizardBanner()+`<div id="async-checks-slot">${asyncProgress()}</div>`+(!U.modal&&U.error?`<div class="error" role="alert">${e(U.error)}</div>`:'')+({overview,samples,runs:runsPage,sequences:sequencesPage,run:runPage,draft:wizardPage,comparisons,jobs,reports:reportsPage,storage:storagePage,install,resources:resourcePage,configure:configuration}[U.view]||overview)();
 syncNotificationBell();if(!$('#connection-status')){const x=document.createElement('div');x.id='connection-status';x.className='connection-status';$('.topbar-location').append(x);}syncNavigation();renderBusy();renderModal();filterResults();filterCompatibility();if(['configure','draft'].includes(U.view)&&!U.modal)filterRunSettings();persistWizard();schedulePoll();
 if(S.workspace_busy)return;
 if(U.view==='install'&&U.setupTab==='compatibility'&&!U.compatibility&&!U.pending&&!U.queuedRequest&&!U.error)request('inspect_compatibility');
@@ -1473,12 +1692,13 @@ function schedulePoll(){
  clearTimeout(pollTimer);if(U.pending||U.queuedRequest)return;
  if(S.workspace_busy){pollTimer=setTimeout(()=>request('refresh',{},true),2000);return;}
  const activeJobs=S.jobs.some(j=>['queued','running'].includes(j.status));
+ const activeSequence=U.view==='sequences'&&!U.sequenceOpen&&(S.sequences||[]).some(p=>p.state==='active');
  const task=Object.values(U.asyncTasks).find(task=>task.token);
  if(task&&(!activeJobs||Date.now()-(U.lastWorkspacePoll||0)<4000)){
   pollTimer=setTimeout(()=>request(task.cancelled||!asyncCurrent(task)?'cancel_ui_task':'poll_ui_task',{token:task.token},true),600);return;
  }
- if(!activeJobs&&!S.notifications)return;
- const delay=activeJobs?4000:desktopNotificationState().enabled?15000:30000;
+ if(!activeJobs&&!activeSequence&&!S.notifications)return;
+ const delay=activeJobs||activeSequence?4000:desktopNotificationState().enabled?15000:30000;
  pollTimer=setTimeout(()=>{
   const active=parentElement.activeElement||document.activeElement;
   const editing=document.hasFocus()&&active&&root.contains(active)&&active.matches('input,textarea,select,[contenteditable="true"]');
@@ -1586,14 +1806,49 @@ root._notificationRefresh=refreshNotificationControls;
 root._notificationOpen=requestNotificationOpen;
 
 function supportMatches(){return !!U.support&&(U.support.job_id||'')===val('support-job','')&&U.support.include_log===!!val('support-log',false);}
-function clearSupport(){U.support=null;for(const key of ['support-job','support-log','support-text','support-reviewed'])delete U.drafts[key];}
+function clearSupport(){U.supportHandoff=null;U.support=null;for(const key of ['support-job','support-log','support-text','support-reviewed'])delete U.drafts[key];}
 function supportValid(){const text=val('support-text','');return supportMatches()&&text.trim()&&!text.includes('\0')&&new TextEncoder().encode(text).length<=131072&&val('support-reviewed',false)===true;}
 function syncSupport(){
  const text=$('#support-text');if(text)U.drafts['support-text']=text.value;
  const bytes=new TextEncoder().encode(val('support-text','')).length,info=$('#support-size');
  if(info){info.textContent=bytes.toLocaleString()+' / 131,072 bytes · downloads contain exactly this text';info.classList.toggle('error',bytes>131072);}
+ if(!supportValid()){U.supportHandoff=null;const status=$('#support-handoff');if(status)status.replaceChildren();}
  for(const button of $$('[data-action^="support-download-"],[data-action="support-chat"]'))button.disabled=!supportValid();
  renderBusy();
+}
+function supportHandoffStatus(){
+ const handoff=U.supportHandoff;
+ if(!handoff)return '';
+ const copy=handoff.copied===null?'Copying the reviewed text…':handoff.copied
+  ?'Reviewed text copied. Paste it into the ChatGPT message box and send when ready.'
+  :'Clipboard unavailable. Download the reviewed text and attach it in ChatGPT, or select the preview and copy it manually.';
+ const fallback=handoff.opened?'':` Your browser blocked the new tab. <a href="${e($('#support-plugin').href)}" target="_blank" rel="noopener noreferrer">Open Bactologix Support</a>.`;
+ return copy+fallback;
+}
+function openReviewedSupport(){
+ syncSupport();
+ if(!supportValid())return;
+ const field=$('#support-text'),url=$('#support-plugin').href;
+ field.focus();
+ field.select();
+ // The Windows desktop workspace is commonly served over LAN HTTP.
+ let copied=false;
+ try{copied=document.execCommand('copy');}catch(_){}
+ let pending=null;
+ if(!copied){
+  try{pending=navigator.clipboard?.writeText(field.value);}catch(_){}
+ }
+ // Open while the click has user activation. A blank same-origin tab lets us
+ // detect popup blocking and sever its opener before the external navigation.
+ let tab=null,opened=false;
+ try{
+  tab=window.open('about:blank','_blank');
+  if(tab){tab.opener=null;tab.location.replace(url);opened=true;}
+ }catch(_){tab?.close();}
+ const handoff=U.supportHandoff={opened,copied:pending?null:copied};
+ const show=()=>{const slot=$('#support-handoff');if(slot&&U.supportHandoff===handoff)slot.innerHTML=supportHandoffStatus();};
+ show();
+ if(pending)pending.then(()=>{handoff.copied=true;},()=>{handoff.copied=false;}).then(show);
 }
 function supportPanel(){
  const preview=U.support,match=supportMatches(),jid=val('support-job','');
@@ -1604,8 +1859,12 @@ function identificationMatches(){const d=U.identification;return !!d&&val('ident
 function syncIdentification(){for(const b of $$('[data-action="save-identification"],[data-action="continue-identification"]'))b.disabled=!U.identification?.valid||!identificationMatches();}
 function renderModal(){const m=U.modal;if(!m){$('#modal-root').innerHTML='';$('.app-shell').removeAttribute('inert');return;}
 let title='',desc='',body='',foot='',wide=false;
-if(m.kind==='sequence-copy'){const [sid,rid]=m.id.split('/'),r=runBy(rid);title='Copy sequence results';body=field('seq-copy-folder','Local isolate folder',r?.sample.input_manifest?'':r?.sample.path||'');foot=btn('confirm-sequence-copy','Save combined ZIP',true,m.id,'folder');}
-if(m.kind==='sequence'){title='New pipeline sequence';wide=true;body=sequenceForm();foot=btn('save-sequence','Save sequence draft',true,'','check',!sequenceChosen().length);}
+if(m.kind==='sequence-copy'){
+ const [sid,key]=m.id.split('/'),sample=decodeURIComponent(key),row=sequenceSelectedPlan(sid)?.rows.find(r=>r.sample===sample);
+ const input=sequenceSample(sample)||runBy(row?.source||row?.runs?.[0])?.sample;
+ title='Copy combined results';body=field('seq-copy-folder','Local isolate folder',row?.folder||(input&&!input.input_manifest?input.path:''));
+ foot=btn('confirm-sequence-copy','Save combined ZIP',true,m.id,'folder');
+}
 if(m.kind==='delivery'){title='Copy results to isolate folder';const plan=U.delivery?.id===m.id?U.delivery:null;
  body=U.deliveryPath?notice('Verified ZIP saved locally',e(U.deliveryPath))+ '<p>Your sync client handles upload to Teams.</p>':plan?
  field('delivery-folder','Local isolate folder (Windows or WSL path)',plan.folder)+'<p>A new ZIP will be saved under Bactologix Results in this folder. Anyone with access to the synced folder may see it.</p><details><summary>Package contents and linked report assets</summary><ul>'+plan.files.map(f=>'<li>'+e(f)+'</li>').join('')+'</ul></details>':'<p>Checking final outputs…</p>';
@@ -1823,7 +2082,7 @@ if(m.kind==='followup'){
  `<label class="check-field"><input type="checkbox" id="followup-reviewed" ${val('followup-reviewed',false)?'checked':''}><span>I reviewed the screening report, selected workflow version, scope and configuration.</span></label><p>Set enabled to true to request follow-up. Five is a per-isolate candidate ceiling; deferred findings remain for review. Resource paths must be absolute and already prepared. Validate the new draft before execution.</p>`;
  foot=btn('create-followup','Create follow-up draft',true,m.id);
 }
-if(m.kind==='support'){wide=true;title='Get support';desc='Generate → review and edit → download';body=supportPanel();foot=btn('support-chat','Copy reviewed text & open ChatGPT',true,'','external',!supportValid())+btn('support-download-zip','Download ZIP',false,'','download',!supportValid())+btn('support-download-txt','Download reviewed snapshot',true,'','download',!supportValid());}
+if(m.kind==='support'){wide=true;title='Get support';desc='Review the log excerpt, then paste it or attach the text file in ChatGPT.';body=supportPanel()+'<p id="support-handoff" role="status" aria-live="polite">'+supportHandoffStatus()+'</p>';foot=btn('support-chat','Copy reviewed text & open ChatGPT',true,'','external',!supportValid())+btn('support-download-zip','Download ZIP',false,'','download',!supportValid())+btn('support-download-txt',val('support-log',false)?'Download reviewed log':'Download reviewed text',false,'','download',!supportValid());}
 if(m.kind==='workflow-lock'){
  title='Workflow lock';desc='Review ownership before unlocking';const p=U.unlockPlan;
  body=notice(p?.allowed?'Leftover workflow lock':'Unlock unavailable',e(p?.message||'Checking…'),!p?.allowed)+(p?.directory?`<p class="path-cell">${e(p.directory)}</p><p class="inline-info">Recorded source: ${e(p.commit)} · ${p.lock_count} lock file(s)</p>`:'');
@@ -1899,7 +2158,7 @@ if(t.id==='identification-candidate'&&t.value){setDraft('identification-taxid',t
 if(t.id==='identification-taxid'){syncIdentification();return;}
 if(t.id?.startsWith('followup-source-')){const id=U.modal.id;delete U.drafts['followup-scope-'+id];setDraft('followup-reviewed',false);renderModal();}
 if(t.id?.startsWith('followup-scope-')||t.id?.startsWith('followup-catalog-')){setDraft('followup-reviewed',false);renderModal();}
-if(t.id.startsWith('seq-run-')||['seq-steps','seq-deliver','seq-pilot','seq-first'].includes(t.id)){renderModal();return;}
+if(sequenceChange(t))return;
 if(t.id==='run-auto-delivery'){render();return;}
 if(['support-job','support-log','support-reviewed'].includes(t.id)){if(t.id!=='support-reviewed'){setDraft('support-reviewed',false);if(!val('support-job',''))setDraft('support-log',false);}renderModal();}
 if(t.id==='compute-default-tool'){render();return;}
@@ -1946,7 +2205,7 @@ if(t.id==='yaml-upload'||t.id==='sample-upload'){
 }
 }
 function onChange(event){if(event.target.id==='reference-upload'){const f=event.target.files[0];if(f){if(f.size>2000000){U.error='Specification exceeds 2 MB';render();return;}f.text().then(text=>{setDraft('reference-spec',text);render();});}return;}const result=change(event);persistWizard();return result;}
-function onInput(event){input(event);syncSwapRecommendation();persistWizard();}
+function onInput(event){sequenceInput(event.target);input(event);syncSwapRecommendation();persistWizard();}
 function input(event){const t=event.target;
 if(['reset-confirmation','reset-database-confirmation','reset-acknowledged'].includes(t.id)){U.drafts[t.id]=t.type==='checkbox'?t.checked:t.value;syncResetConfirmation();}
 if(t.id==='redownload-reviewed'){U.drafts[t.id]=t.checked;const b=$('[data-action="start-database-redownload"]');if(b)b.disabled=!t.checked||!U.redownloadPlan?.alternative.available;}
@@ -1957,7 +2216,7 @@ if(['run-cores','revision-cores','run-memory','revision-memory','run-swap','revi
 if(t.dataset.runField){const c=runEditor(),f=c?.fields.find(f=>f.key===t.dataset.runField);if(f)editRunField(c,f,t.type==='checkbox'?t.checked:t.value);}
 if(t.dataset.runYaml){const c=runEditor();if(c.scope!=='defaults')invalidateSetupAdvice();c.text=t.value;c.changes={};c.raw=true;updateDefaultStatus();}
 if(t.id&&t.type!=='file')U.drafts[t.id]=t.type==='checkbox'?t.checked:t.value;if(/^compute-(memory|swap)-/.test(t.id))syncDefaultCompute(t.id.replace(/^compute-(memory|swap)-/,''));if(/^(run|revision)-(cores|memory|swap)$/.test(t.id))syncComputeBudget(t.id.startsWith('revision-')?'revision':'run');if(t.id?.startsWith('identification-'))syncIdentification();if(t.id?.startsWith('environment-cache-'))syncEnvironmentControls();if(t.id?.startsWith('dbpath-')){const tool=U.resourceTool||'hybas',key=t.id.slice(('dbpath-'+tool+'-').length);delete dbState(tool).resets[key];setDraft('dbcand-'+tool+'-'+key,'');for(const b of $$('[data-action="save-databases"]'))b.disabled=false;const pos=t.selectionStart,id=t.id;render();const field=$('#'+id);field?.focus();if(pos!==null)field?.setSelectionRange(pos,pos);}if(t.id==='sample-table')syncSampleImport();if(t.id==='comparison-search')refreshComparison(true);if(t.id==='history-search')refreshHistory(true);if(t.id==='compatibility-search')filterCompatibility();if(t.id==='results-search')filterResults();if(t.id===editorSearchId(runEditor()||{}))filterRunSettings();if(t.id==='version-search'||(t.id==='version-channel'||t.id==='release-channel'))filterVersions();if(['registered-sample-search','run-search','cleanup-search'].includes(t.id)){const pos=t.selectionStart,id=t.id;render();$('#'+id).focus();$('#'+id).setSelectionRange(pos,pos);}}
-function click(event){if(!event.target.closest('.workspace-tools'))$('.workspace-tools')?.removeAttribute('open');if(event.target.closest('.skip')){event.preventDefault();closeNavigation(false);$('#main').focus();$('#main').scrollIntoView({block:'start'});return;}const nav=event.target.closest('[data-nav]');if(nav){if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();navigate(nav.dataset.nav);return;}const a=event.target.closest('[data-action]');if(!a)return;if(a.tagName==='A'){if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();}const action=a.dataset.action,id=a.dataset.id;draftInputs();U.error='';
+function click(event){if(!event.target.closest('.workspace-tools'))$('.workspace-tools')?.removeAttribute('open');if(event.target.closest('.skip')){event.preventDefault();closeNavigation(false);$('#main').focus();$('#main').scrollIntoView({block:'start'});return;}const nav=event.target.closest('[data-nav]');if(nav){if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();navigate(nav.dataset.nav);return;}const a=event.target.closest('[data-action]');if(!a||a.id==='support-plugin')return;if(a.tagName==='A'){if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();}const action=a.dataset.action,id=a.dataset.id;draftInputs();U.error='';
 if(action==='cancel-ui-task'){const task=U.asyncTasks[id];if(task){task.cancelled=true;settleStorageTask(task,'cancelled');}render();return;}
 if(action==='open-factory-reset'){U.resetPlan=null;for(const key of ['reset-confirmation','reset-database-confirmation'])setDraft(key,'');setDraft('reset-acknowledged',false);setDraft('reset-databases',false);modal('factory-reset');$('.workspace-tools')?.removeAttribute('open');return;}
 if(action==='preview-factory-reset'){U.resetPlan=null;setDraft('reset-confirmation','');setDraft('reset-database-confirmation','');setDraft('reset-acknowledged',false);request('factory_reset_preview',{delete_databases:!!val('reset-databases',false)});renderModal();return;}
@@ -1990,13 +2249,18 @@ else if(action==='open-isolate-export')request('open_isolate_export',{id});
 else if(action==='copy-results'){U.delivery=null;U.deliveryPath='';delete U.drafts['delivery-folder'];modal('delivery',id);request('preview_result_delivery',{id});}
 else if(action==='confirm-copy-results')request('copy_run_results',{id,folder:v('delivery-folder')});
 else if(action==='sequence-copy'){delete U.drafts['seq-copy-folder'];modal('sequence-copy',id);}
-else if(action==='confirm-sequence-copy'){const [sid,source]=id.split('/');request('copy_sequence_results',{id:sid,source,folder:v('seq-copy-folder')});}
-else if(action==='new-sequence'){for(const k of Object.keys(U.drafts))if(k.startsWith('seq-'))delete U.drafts[k];modal('sequence');}
-else if(action==='save-sequence'){const rows=sequenceChosen(),steps=val('seq-steps','basis,micpscope').split(',');request('save_sequence',{ids:rows.map(r=>r.id),steps,pilot:val('seq-pilot',true),configs:Object.fromEntries(steps.map(t=>[t,val('seq-config-'+t,S.configs[t])])),folders:val('seq-deliver')?Object.fromEntries(rows.map(r=>[r.id,val('seq-folder-'+r.id,r.sample.input_manifest?'':r.sample.path)])):null});}
+else if(action==='confirm-sequence-copy'){const [sid,key]=id.split('/');request('copy_sequence_results',{id:sid,sample:decodeURIComponent(key),folder:v('seq-copy-folder')});}
+else if(sequenceAction(action,id)){return;}
 else if(['sequence-start','sequence-release','sequence-retry','sequence-hold','sequence-resume'].includes(action))request('control_sequence',{id,action:action.slice(9)});
 else if(action==='email-results')request('email_results',{id});
-else if(action==='ask-support')request('open_support',{});
-else if(action==='submit-support'){clearSupport();const job=S.jobs.find(j=>j.payload?.run_id===U.detail?.id)||S.jobs[0];setDraft('support-job',job?.id||'');setDraft('support-log',!!job);modal('support');}
+else if(action==='submit-support'){
+ clearSupport();
+ const currentRun=U.view==='run'?U.runId:null;
+ const job=currentRun?S.jobs.find(j=>j.payload?.run_id===currentRun):S.jobs[0];
+ setDraft('support-job',job?.id||'');setDraft('support-log',!!job);
+ modal('support');
+ request('support_preview',{job_id:job?.id||null,include_log:!!job});
+}
 else if(action==='get-support'){clearSupport();setDraft('support-job',S.jobs.some(j=>j.id===id)?id:'');setDraft('support-log',false);modal('support');}
 else if(action==='restart-as-browser')request('restart_as_browser',{});
 else if(action==='close-desktop'&&S.desktop_close_available)modal('close-desktop');
@@ -2006,7 +2270,7 @@ else if(action==='confirm-close-desktop'&&S.desktop_close_available&&U.modal?.ki
 }
 else if(action==='app-window-help')modal('app-window-help');
 else if(action==='generate-support')request('support_preview',{job_id:v('support-job')||null,include_log:!!val('support-log',false)});
-else if(action==='support-chat'){syncSupport();if(supportValid()){const field=$('#support-text');field.focus();field.select();let copied=false;try{copied=document.execCommand('copy');}catch(_){}request('open_support',{handoff:copied?'clipboard':'selection'});}}
+else if(action==='support-chat')openReviewedSupport();
 else if(action.startsWith('support-download-')){syncSupport();if(supportValid())request('download_support',{text:val('support-text'),reviewed:true,format:action.slice('support-download-'.length)});}
 else if(action==='resume-wizard')openWizard();
 else if(action==='leave-wizard'){persistWizard();navigate(U.wizard?.kind==='edit-run'?'runs':'samples');}
@@ -2349,6 +2613,7 @@ if(newResponse&&response.desktop_closing&&U.modal?.kind==='close-desktop')U.moda
 if(newResponse){if(!response.ok&&U.requestOrigin?.kind==='import_samples'){U.sampleImport=null;U.importText=null;}U.handled=response.id;U.pending=null;U.error=response.ok?(response.silent_task?U.error:''):response.message;if(response.resource_defaults_saved){for(const tool of response.resource_defaults_saved){const saved=S.resource_defaults[tool];setDraft('compute-cores-'+tool,saved.cores);setDraft('compute-memory-'+tool,saved.memory_mb);setDraft('compute-gpu-'+tool,saved.gpu_mode||(tool==='micpscope'?'cpu':'native'));setDefaultSwapDraft(tool,saved.swap_mb||0);resetDefaultAutoSwap(tool,saved.auto_swap);if(!defaultsDirty(defaultEditor(tool)))delete U.defaultEditors?.[tool];}}if(response.aware_outputs)U.awareOutputs=response.aware_outputs;if(response.manifest_import)U.manifestImport=response.manifest_import;if(response.config){const c=response.config;U.drafts['yaml-'+c.tool]=c.text;U.fields[c.tool]=c.fields;const el=$('#yaml-'+c.tool);if(el)el.value=c.text;}if(response.browser){U.browser=response.browser;setDraft('folder-path',response.browser.path);}if(response.database_scan){const scan=response.database_scan,t=scan.tool,state=dbState(t);state.scan=scan;for(const r of S.databases[t].rows){const key=dbPath(t,r.id),preferred=scan.candidates[r.id]?.find(c=>c.preferred);if(preferred&&!state.resets[r.id]&&val(key,r.path)===r.path){setDraft(key,preferred.path);setDraft('dbcand-'+t+'-'+r.id,preferred.path);}}}
 if(response.ok&&response.refreshed_catalog&&U.modal?.kind==='versions'&&U.modal.id===response.refreshed_catalog&&!U.versionChoiceExplicit){U.drafts['version-'+U.modal.id]=defaultPipelineVersion(U.modal.id);}
 if(response.ok&&response.restored_runs){U.cleanupPlan=null;U.cleanupSelected=[];U.detail=null;if(U.restoreOpenRun&&response.restored_runs.includes(U.restoreOpenRun)){U.view='run';U.runId=U.restoreOpenRun;U.runDetailTab='activity';U.modal=null;U.results=null;writeRoute();}U.restoreOpenRun=null;}
+if(response.ok&&['save_sequence','edit_sequence_isolates'].includes(U.requestOrigin?.kind)){U.sequenceEditor=null;U.sequenceOpen=false;writeRoute(true);}
 if(response.ok&&U.requestOrigin?.kind==='clear_job_history')resetHistoryFilters();
 if(response.removed_sample){
  if(response.ok&&U.modal?.kind==='remove-sample'&&U.modal.id===response.removed_sample)U.modal=null;

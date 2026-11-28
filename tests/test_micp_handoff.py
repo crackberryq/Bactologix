@@ -22,7 +22,8 @@ def database(root):
     return root
 
 
-def test_handoff_creates_isolated_draft_with_exact_provenance(tmp_path):
+@pytest.mark.parametrize('manifest_source', [False, True], ids=['folder', 'read-manifest'])
+def test_handoff_creates_isolated_draft_with_exact_provenance(tmp_path, manifest_source):
     store=Store(tmp_path/'app')
     source=tmp_path/'source';source.mkdir();(source/'envs').mkdir()
     (source/'MICPscope.smk').write_text('rule all:\n    input: []\n')
@@ -40,11 +41,16 @@ def test_handoff_creates_isolated_draft_with_exact_provenance(tmp_path):
     (out/'work/final/assembly.final.fasta').write_text('>contig\nACGT\n')
     parent=dict(id='parent',tool='hybas',sample={'id':'demo','mode':'illumina_only'},output=str(out),
                 commit='a'*40,config='{}',completed='yes',label='Source',cores=1,memory_mb=2048)
+    if manifest_source:
+        parent['sample']['input_manifest'] = {'sample_id': 'demo', 'libraries': []}
+        parent['sample']['manifest_source'] = str(tmp_path / 'raw-reads.yaml')
     store.put('runs','parent',parent)
     with patch('bactologix.runs.check_run_files'), patch('bactologix.runs.dry_run_current',return_value=False), patch.dict(PIPELINES,{'micpscope':dict(PIPELINES['micpscope'],commit=sha)}):
         child=create(store,'parent')
     assert child['parent'] is None
     assert child['sample']['micp_handoff']['source_run']=='parent'
+    assert 'input_manifest' not in child['sample']
+    assert 'frozen_manifest' not in child
     assert len(child['inputs'])==3
     assert Path(child['output'],'annotation/demo.fna').resolve()==out/'work/final/assembly.final.fasta'
     assert yaml.safe_load(child['config'])['reference_database_sha256']==database_identity(db)

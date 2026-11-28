@@ -1,3 +1,9 @@
+## 0.1.0a150.dev1 — Pipeline sequence builder and browser support
+
+Pipeline sequences now have their own sidebar workspace. Choose the order, add or remove isolates, and select compatible saved results for each isolate. The review shows which steps will run. GeneScope can use completed HybAs outputs from isolates originally imported with a read manifest.
+
+Support opens in the browser from the sidebar. A reviewed log can be copied for pasting in ChatGPT or downloaded as a text attachment.
+
 ## 0.1.0a149.dev1 — Pipeline sequences
 
 Runs can sequence saved HybAs drafts or assemblies with BaSIS and GeneScope. Pilot review holds remaining isolates until release. Combined results can be copied per isolate.

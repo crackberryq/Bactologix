@@ -33,6 +33,16 @@ def database_identity(path, expected=None):
     return identity
 
 
+def source_files(source):
+    output, sid = Path(source['output']), source['sample']['id']
+    files = [output / 'annotation' / (sid + ext) for ext in ('.faa', '.gff')]
+    files.append(output / 'work/final/assembly.final.fasta')
+    for path in files:
+        if not path.is_file() or not path.stat().st_size:
+            raise ValueError('HybAs handoff requires completed Prokka annotation and final assembly: ' + str(path))
+    return files
+
+
 def create(store, source_id, *, settings=None, sequence_step=None):
     from .runs import create_run, template, parse_config, run_status, dry_run_current, check_run_files
     source = store.get('runs', source_id)
@@ -42,15 +52,11 @@ def create(store, source_id, *, settings=None, sequence_step=None):
     text = settings['config'] if settings else store.get('configs', 'micpscope', template('micpscope'))
     if not parse_config(text).get('reference_database'):
         raise ValueError('Select a completed reference database in GeneScope resources before creating this draft')
-    output, sid = Path(source['output']), source['sample']['id']
-    files = [output / 'annotation' / (sid + ext) for ext in ('.faa', '.gff')]
-    files.append(output / 'work/final/assembly.final.fasta')
-    for path in files:
-        if not path.is_file() or not path.stat().st_size:
-            raise ValueError('HybAs handoff requires completed Prokka annotation and final assembly: ' + str(path))
+    sid = source['sample']['id']
+    files = source_files(source)
     handoff = dict(source_run=source['id'], source_commit=source['commit'],
                    files=[dict(path=str(p.resolve()), sha256=digest(p)) for p in files])
-    sample = dict(source['sample'], path=source['output'], micp_handoff=handoff)
+    sample = dict(id=sid, mode=source['sample']['mode'], path=source['output'], micp_handoff=handoff)
     # Cross-pipeline provenance is separate from same-pipeline result inheritance.
     return create_run(store, 'micpscope', sample, text, source['cores'], source['memory_mb'],
                       label=source['label'] + ' · GeneScope', installation=settings['installation'] if settings else None, sequence_step=sequence_step)
